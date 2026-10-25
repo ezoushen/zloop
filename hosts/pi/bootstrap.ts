@@ -88,9 +88,13 @@ function completeHint(hint, slots, typed) {
     && (!candidate.afterSome || used.some((word) => slotOf(word) === candidate.afterSome)));
   const offered = followers.length && !followers.some((follower) => !follower.optional)
     ? [...followers, ...anywhere] : followers.length ? followers : anywhere;
+  // A slot already given, or one in another branch of alternatives a typed word sits in, is not offered.
+  const given = used.map(slotOf).filter(Boolean);
+  const excluded = (candidate) => given.some((other) => other === candidate || other.path.some(([group, branch]) =>
+    candidate.path.some(([candidateGroup, candidateBranch]) => group === candidateGroup && branch !== candidateBranch)));
   const before = typed.slice(0, typed.length - partial.length);
-  const items = offered.flatMap((candidate) => candidate.literals)
-    .filter((literal) => literal.startsWith(partial) && !used.includes(literal))
+  const items = offered.filter((candidate) => !excluded(candidate)).flatMap((candidate) => candidate.literals)
+    .filter((literal) => literal.startsWith(partial))
     .map((literal) => ({ value: `${before}${literal}${literal.endsWith("=") ? "" : " "}`, label: literal, description: hint }));
   return items.length ? items : null;
 }

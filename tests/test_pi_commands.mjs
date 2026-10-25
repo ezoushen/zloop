@@ -50,4 +50,14 @@ assert.deepEqual(await complete("review", "PR-12 --comments "), ["draft", "confi
 assert.equal(await labels("review", "--base "), null);
 assert.deepEqual(await labels("setup", "calibration "), ["status"]);
 
+// Nothing typed is offered again, nor another choice for an argument already given, nor a branch the hint's spaced
+// | rules out once its alternative is typed; a flag written after another's value comes once that flag is typed.
+assert.deepEqual(await labels("autopilot", "--take-over "), ["--auto-merge"]);
+assert.equal(await labels("autopilot", "--take-over --auto-merge "), null);
+assert.equal(await labels("autopilot", "--pause "), null);
+assert.deepEqual(await labels("remediate", ""), ["tautological-tests", "misleading-comments", "--base", "--project"]);
+assert.deepEqual(await labels("remediate", "tautological-tests "), ["--base", "--project"]);
+assert.deepEqual(await labels("remediate", "--project "), ["tautological-tests", "misleading-comments"]);
+assert.deepEqual(await labels("remediate", "--base main "), ["tautological-tests", "misleading-comments", "--head"]);
+
 console.log("Pi zloop commands: registered, hand off as /skill:, complete the hinted flags and modes: ok");
