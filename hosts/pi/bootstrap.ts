@@ -24,6 +24,79 @@ function frontmatter(path) {
   return fields;
 }
 
+// An argument-hint as slots, one per argument the hint writes: the literal words it may be (a placeholder in <> is
+// typed by the user, not completed), the alternatives it sits in (branches split by a spaced |), and its anchor: the
+// flag or mode it is a value of when it directly follows one, or the one it may only come after when a placeholder
+// stands between them. Text after " — " is a comment.
+function hintSlots(hint) {
+  const tokens = hint.split(" — ")[0].match(/\[|\]|(?:[^\s[\]<]|<[^>]*>)+/g) ?? [];
+  const slots = [];
+  let at = 0;
+  let groups = 0;
+  const slot = (word, path) => {
+    const made = { literals: [], placeholder: false, path };
+    let key = "";
+    for (const part of word.match(/(?:[^|<]|<[^>]*>)+/g)) {
+      if (part.startsWith("<")) {
+        made.placeholder = true;
+        continue;
+      }
+      const literal = part.includes("<") ? part.slice(0, part.indexOf("<")) : part;
+      key = literal.match(/^[^=]+=/)?.[0] ?? key;
+      made.literals.push(literal.includes("=") ? literal : key + literal);
+    }
+    slots.push(made);
+    return made;
+  };
+  const leading = (item) => item.slot ? [item.slot] : item.branches.flatMap((branch) => branch[0] ? leading(branch[0]) : []);
+  const sequence = (path) => {
+    const items = [];
+    while (at < tokens.length && tokens[at] !== "]" && tokens[at] !== "|") {
+      const token = tokens[at++];
+      items.push(token === "[" ? { branches: branches(path) } : { slot: slot(token, path) });
+      if (token === "[") at++;  // its "]"
+    }
+    items.forEach((item, index) => {
+      const before = items[index - 1]?.slot;
+      if (before?.literals.length && !before.placeholder) {
+        if (item.slot?.placeholder && !item.slot.literals.length) before.takesValue = true;
+        for (const follower of leading(item)) Object.assign(follower, { after: before, optional: !item.slot });
+      } else if (before?.placeholder && !before.literals.length && items[index - 2]?.slot?.literals.length) {
+        for (const follower of leading(item)) follower.afterSome = items[index - 2].slot;
+      }
+    });
+    return items;
+  };
+  const branches = (path) => {
+    const id = groups++;
+    const found = [];
+    do found.push(sequence([...path, [id, found.length]])); while (tokens[at] === "|" && ++at);
+    return found;
+  };
+  branches([]);
+  return slots;
+}
+
+// Completions for the arguments typed so far: the words the slots allow next, each replacing what is typed.
+function completeHint(hint, slots, typed) {
+  const words = typed.split(/\s+/);
+  const partial = words.pop();
+  const used = words.filter(Boolean);
+  const slotOf = (word) => slots.find((candidate) => candidate.literals.includes(word));
+  const last = slotOf(used.at(-1));
+  if (last?.takesValue) return null;
+  const followers = last ? slots.filter((candidate) => candidate.after === last) : [];
+  const anywhere = slots.filter((candidate) => !candidate.after
+    && (!candidate.afterSome || used.some((word) => slotOf(word) === candidate.afterSome)));
+  const offered = followers.length && !followers.some((follower) => !follower.optional)
+    ? [...followers, ...anywhere] : followers.length ? followers : anywhere;
+  const before = typed.slice(0, typed.length - partial.length);
+  const items = offered.flatMap((candidate) => candidate.literals)
+    .filter((literal) => literal.startsWith(partial) && !used.includes(literal))
+    .map((literal) => ({ value: `${before}${literal}${literal.endsWith("=") ? "" : " "}`, label: literal, description: hint }));
+  return items.length ? items : null;
+}
+
 // The skills a user types, as Pi commands: each a skill's name and its frontmatter.
 function userSkills(root) {
   return readdirSync(join(root, "skills"), { withFileTypes: true })
@@ -53,8 +126,11 @@ export default function (pi) {
   // Claude Code names a skill the user types /zloop:<skill>; Pi gets the same command, which types the skill command
   // Pi expands. Extension commands run even while Pi works, so the skill then waits for the current run.
   for (const skill of userSkills(root)) {
+    const hint = skill["argument-hint"] ?? "";
+    const slots = hintSlots(hint);
     pi.registerCommand(`zloop:${skill.name}`, {
       description: skill.description,
+      getArgumentCompletions: (typed) => completeHint(hint, slots, typed),
       handler: async (args) => {
         pi.sendUserMessage(`/skill:${skill.name}${args.trim() ? ` ${args.trim()}` : ""}`,
           { deliverAs: "followUp", expandPromptTemplates: true });

@@ -28,4 +28,17 @@ assert.deepEqual(sent, [
   ["/skill:brief", { deliverAs: "followUp", expandPromptTemplates: true }],
 ]);
 
+// Typing arguments offers the flags and modes the skill's argument-hint declares, matching what is typed; picking one
+// replaces the arguments typed so far. Each item shows the whole hint beside it.
+const complete = (name, typed) => commands.get(`zloop:${name}`).getArgumentCompletions(typed);
+const AUTOPILOT = "<goal> | --take-over [--auto-merge] | --pause";
+assert.deepEqual(await complete("autopilot", ""), [
+  { value: "--take-over ", label: "--take-over", description: AUTOPILOT },
+  { value: "--pause ", label: "--pause", description: AUTOPILOT },
+]);
+assert.deepEqual(await complete("autopilot", "--t"), [
+  { value: "--take-over ", label: "--take-over", description: AUTOPILOT },
+]);
+assert.equal(await complete("autopilot", "--x"), null);
+
 console.log("Pi zloop commands: registered, hand off as /skill:, complete the hinted flags and modes: ok");
