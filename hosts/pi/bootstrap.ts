@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { realpathSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readdirSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SECTION = "zloop_harness";
@@ -12,6 +12,25 @@ const bashBounded = () => process.env.ZLOOP_BASH_TIMEOUT !== "off";
 
 // setTimeout rejects a delay above 2^31 - 1 ms, about 24.8 days.
 const WAKE_MAX_MS = 2 ** 31 - 1;
+
+// The top-level scalar fields of a SKILL.md's frontmatter, unquoted.
+function frontmatter(path) {
+  const block = readFileSync(path, "utf8").match(/^---\n([\s\S]*?)\n---/);
+  const fields = {};
+  for (const line of block ? block[1].split("\n") : []) {
+    const field = line.match(/^([a-z-]+):\s*(.*)$/);
+    if (field) fields[field[1]] = field[2].replace(/^"(.*)"$/, "$1");
+  }
+  return fields;
+}
+
+// The skills a user types, as Pi commands: each a skill's name and its frontmatter.
+function userSkills(root) {
+  return readdirSync(join(root, "skills"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => frontmatter(join(root, "skills", entry.name, "SKILL.md")))
+    .filter((fields) => fields.name && fields["user-invocable"] !== "false");
+}
 
 export default function (pi) {
   const root = resolve(dirname(realpathSync(fileURLToPath(import.meta.url))), "../..");
@@ -30,6 +49,14 @@ export default function (pi) {
     }
     return { systemPrompt: `${event.systemPrompt}\n\n${hint}` };
   });
+
+  // Claude Code names a skill the user types /zloop:<skill>; Pi gets the same command.
+  for (const skill of userSkills(root)) {
+    pi.registerCommand(`zloop:${skill.name}`, {
+      description: skill.description,
+      handler: async () => {},
+    });
+  }
 
   // Pi has no scheduler of its own. A run that must continue later, such as autopilot after an allowance pause, sets
   // a timer that types its resume command back into this session; the timer lasts as long as the Pi process does.
