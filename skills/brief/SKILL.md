@@ -2,7 +2,7 @@
 name: brief
 description: "Brief the user on current progress, remaining work, verification and decisions for the active task or a named effort, branch or PR, or show the pipeline map of which command to use."
 disable-model-invocation: true
-argument-hint: "[map | effort|branch|PR-number|PR-URL] [focus or question] — defaults to the active task"
+argument-hint: "[map | <effort|branch|PR-number|PR-URL>] [<focus or question>] — defaults to the active task"
 ---
 
 # brief

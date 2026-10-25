@@ -2,7 +2,7 @@
 name: dispatch
 description: "Implement scoped tickets and review the integrated changes; --autofix adds repairs and applicable E2E verification."
 disable-model-invocation: true
-argument-hint: "[effort|project|milestone|issue-ID|issue-URL|the plan agreed in this conversation] [--autofix]"
+argument-hint: "[<effort|project|milestone|issue-ID|issue-URL|the plan agreed in this conversation>] [--autofix]"
 ---
 
 # dispatch

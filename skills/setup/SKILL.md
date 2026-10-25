@@ -2,7 +2,7 @@
 name: setup
 description: "Explain the current zloop setup, or inspect, configure or reset worker models, routes, pools, routers, profiles, thinking bounds and decision opt-ins and calibration at user, project or session scope."
 disable-model-invocation: true
-argument-hint: "[question | show|set|reset [agent|router|decisions|profile|model-definition|runtime-definition|executor-definition] | calibrate | calibration status | check | retro <journal> | replay <journal> <cases>] [--scope user|project|session] [--route] [--config-profile <name>] [runtime=claude|codex|pi|opencode] [--candidate <id>] [thinking=<label|JSON>]"
+argument-hint: "[<question> | show|set|reset [agent|router|decisions|profile|model-definition|runtime-definition|executor-definition] | calibrate | calibration status | check | retro <journal> | replay <journal> <cases>] [--scope user|project|session] [--route] [--config-profile <name>] [runtime=claude|codex|pi|opencode] [--candidate <id>] [thinking=<label|JSON>]"
 ---
 
 # setup

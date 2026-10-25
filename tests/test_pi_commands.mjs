@@ -60,4 +60,18 @@ assert.deepEqual(await labels("remediate", "tautological-tests "), ["--base", "-
 assert.deepEqual(await labels("remediate", "--project "), ["tautological-tests", "misleading-comments"]);
 assert.deepEqual(await labels("remediate", "--base main "), ["tautological-tests", "misleading-comments", "--head"]);
 
+// Every hint lists only real flags and modes as bare words, placeholders in <>, so a blank argument offers exactly
+// these and never a word of prose.
+const START = {
+  align: ["--interactive"], autopilot: ["--take-over", "--pause"], brief: ["map"], diagnose: null,
+  dispatch: ["--autofix"], explain: null, huh: null, pr: null, prototype: null, refine: null,
+  remediate: ["tautological-tests", "misleading-comments", "--base", "--project"], research: null,
+  review: ["walkthrough", "--autofix", "--comments", "--base"],
+  setup: ["show", "set", "reset", "calibrate", "calibration", "check", "retro", "replay", "--scope", "--route",
+    "--config-profile", "runtime=claude", "runtime=codex", "runtime=pi", "runtime=opencode", "--candidate",
+    "thinking="],
+  tdd: null,
+};
+for (const [name, expected] of Object.entries(START)) assert.deepEqual(await labels(name, ""), expected, name);
+
 console.log("Pi zloop commands: registered, hand off as /skill:, complete the hinted flags and modes: ok");

@@ -1,7 +1,7 @@
 ---
 name: diagnose
 description: "Find the cause of a bug, failing check or regression: build a command that fails on it, shrink the case, test ranked hypotheses, and report the cause with a reproducer. Use when the user reports something broken, throwing, failing or slower, or asks why it happens."
-argument-hint: "[symptom, failing command or issue]"
+argument-hint: "[<symptom, failing command or issue>]"
 ---
 
 # Diagnose a defect

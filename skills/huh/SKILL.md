@@ -2,7 +2,7 @@
 name: huh
 description: "The user lost track of the conversation: back up to what they missed and re-pitch it plainly, with a small text picture when the shape is the confusing part."
 disable-model-invocation: true
-argument-hint: "[what lost you] — defaults to the latest explanation"
+argument-hint: "[<what lost you>] — defaults to the latest explanation"
 ---
 
 # huh

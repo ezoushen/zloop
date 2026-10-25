@@ -1,7 +1,7 @@
 ---
 name: tdd
 description: "Build a feature or fix a bug test-first in this session: agree the seams, then one failing test, the least code to pass it and a refactor, one business rule at a time, each test shown to fail when its rule breaks. Use when the user wants test-first work, red-green-refactor, or tests that protect business rules."
-argument-hint: "[the behavior to build or the bug to fix]"
+argument-hint: "[<the behavior to build or the bug to fix>]"
 ---
 
 # Test-first work

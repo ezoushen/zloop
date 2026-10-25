@@ -1,7 +1,7 @@
 ---
 name: explain
 description: "Explain code, a change or a design so the user follows it: the headline first, then the story in layers, with one small text picture (call tree, file tree, sequence, diff, table) where a shape helps. Use when the user asks to explain, walk through or show how something works."
-argument-hint: "[what to explain] [depth or focus]"
+argument-hint: "[<what to explain>] [<depth or focus>]"
 ---
 
 # Explain
