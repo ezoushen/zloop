@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { dirname, resolve } from "node:path";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // Pi gets a /zloop:<skill> command for each skill the user types, as Claude Code's /zloop:<skill>.
@@ -84,5 +86,30 @@ const START = {
   tdd: null,
 };
 for (const [name, expected] of Object.entries(START)) assert.deepEqual(await labels(name, ""), expected, name);
+
+// The frontmatter is read as YAML writes it: CRLF line ends, single or double quotes, a folded or literal block.
+const fixture = mkdtempSync(join(tmpdir(), "zloop pi commands "));
+try {
+  mkdirSync(join(fixture, "hosts/pi"), { recursive: true });
+  copyFileSync(bootstrap, join(fixture, "hosts/pi/bootstrap.ts"));
+  const skill = (name, text) => {
+    mkdirSync(join(fixture, "skills", name), { recursive: true });
+    writeFileSync(join(fixture, "skills", name, "SKILL.md"), text);
+  };
+  skill("crlf", '---\r\nname: crlf\r\ndescription: d\r\nargument-hint: "[--yes]"\r\n---\r\nbody\r\n');
+  skill("single", "---\nname: single\ndescription: d\nargument-hint: '[--yes]'\n---\n");
+  skill("folded", "---\nname: folded\ndescription: d\nargument-hint: >-\n  [--yes]\n  [--no]\n---\n");
+  skill("literal", "---\nname: literal\ndescription: d\nargument-hint: |\n  [--yes]\n---\n");
+  const found = new Map();
+  (await import(join(fixture, "hosts/pi/bootstrap.ts"))).default(
+    { on() {}, registerTool() {}, registerCommand: (name, options) => found.set(name, options), sendUserMessage() {} });
+  const hinted = async (name) => (await found.get(`zloop:${name}`).getArgumentCompletions(""))?.map((item) => item.label);
+  assert.deepEqual(await hinted("crlf"), ["--yes"]);
+  assert.deepEqual(await hinted("single"), ["--yes"]);
+  assert.deepEqual(await hinted("folded"), ["--yes", "--no"]);
+  assert.deepEqual(await hinted("literal"), ["--yes"]);
+} finally {
+  rmSync(fixture, { recursive: true, force: true });
+}
 
 console.log("Pi zloop commands: registered, hand off as /skill:, complete the hinted flags and modes: ok");

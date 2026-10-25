@@ -13,13 +13,19 @@ const bashBounded = () => process.env.ZLOOP_BASH_TIMEOUT !== "off";
 // setTimeout rejects a delay above 2^31 - 1 ms, about 24.8 days.
 const WAKE_MAX_MS = 2 ** 31 - 1;
 
-// The top-level scalar fields of a SKILL.md's frontmatter, unquoted.
+// The top-level scalar fields of a SKILL.md's frontmatter: unquoted, and a > or | block's indented lines joined.
 function frontmatter(path) {
-  const block = readFileSync(path, "utf8").match(/^---\n([\s\S]*?)\n---/);
+  const block = readFileSync(path, "utf8").replace(/\r\n/g, "\n").match(/^---\n([\s\S]*?)\n---/);
   const fields = {};
+  let open = null;
   for (const line of block ? block[1].split("\n") : []) {
     const field = line.match(/^([a-z-]+):\s*(.*)$/);
-    if (field) fields[field[1]] = field[2].replace(/^"(.*)"$/, "$1");
+    if (field) {
+      open = /^[>|][+-]?$/.test(field[2]) ? field[1] : null;
+      fields[field[1]] = open ? "" : field[2].replace(/^"(.*)"$|^'(.*)'$/, "$1$2");
+    } else if (open && /^\s/.test(line)) {
+      fields[open] = `${fields[open]} ${line.trim()}`.trim();
+    }
   }
   return fields;
 }
