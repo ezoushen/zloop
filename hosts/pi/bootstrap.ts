@@ -31,9 +31,9 @@ function frontmatter(path) {
 }
 
 // An argument-hint as slots, one per argument the hint writes: the literal words it may be (a placeholder in <> is
-// typed by the user, not completed), the alternatives it sits in (branches split by a spaced |), and its anchor: the
-// flag or mode it is a value of when it directly follows one, or the one it may only come after when a placeholder
-// stands between them. Text after " — " is a comment.
+// typed by the user, not completed; one in quotes takes only a quoted word), the alternatives it sits in (branches
+// split by a spaced |), and its anchor: the flag or mode it is a value of when it directly follows one, or the one it
+// may only come after when a placeholder stands between them. Text after " — " is a comment.
 function hintSlots(hint) {
   const tokens = hint.split(" — ")[0].match(/\[|\]|(?:[^\s[\]<]|<[^>]*>)+/g) ?? [];
   const slots = [];
@@ -43,8 +43,9 @@ function hintSlots(hint) {
     const made = { literals: [], placeholder: false, path };
     let key = "";
     for (const part of word.match(/(?:[^|<]|<[^>]*>)+/g)) {
-      if (part.startsWith("<")) {
+      if (part.startsWith("<") || /^"<[^>]*>"$/.test(part)) {
         made.placeholder = true;
+        made.quoted = part.startsWith('"');
         continue;
       }
       const literal = part.includes("<") ? part.slice(0, part.indexOf("<")) : part;
@@ -112,7 +113,7 @@ function completeHint(hint, slots, typed) {
     const literal = !value && !quoted && slots.find((candidate) => allowed(candidate) && candidate.literals.some((each) =>
       each === word || (each.endsWith("=") && word.startsWith(each))));
     const placeholder = !value && !literal && !filling && slots.find((candidate) => candidate.placeholder
-      && !candidate.after && !candidate.afterSome && !excluded(candidate));
+      && !candidate.after && !candidate.afterSome && !excluded(candidate) && (quoted || !candidate.quoted));
     const slot = value || literal || placeholder;
     if (slot) given.push(slot);
     filling = !value && !literal && !quoted;

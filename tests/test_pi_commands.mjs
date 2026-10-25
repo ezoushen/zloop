@@ -67,7 +67,8 @@ assert.deepEqual(await labels("remediate", "--base main "), ["tautological-tests
 assert.equal(await labels("autopilot", "build a greeting tool "), null);
 assert.equal(await labels("brief", "my-effort "), null);
 assert.equal(await labels("remediate", "tautological-tests src/ "), null);
-assert.deepEqual(await labels("remediate", "make tests clearer "), ["--base", "--project"]);
+// remediate quotes a free-form goal, so an unquoted word is a path: no other scope is offered after it.
+assert.equal(await labels("remediate", "tests/ --p"), null);
 assert.deepEqual(await labels("setup", "--config-profile calibration "), ["show", "set", "reset", "calibrate",
   "calibration", "check", "retro", "replay", "--scope", "--route", "runtime=claude", "runtime=codex", "runtime=pi",
   "runtime=opencode", "--candidate", "thinking="]);
