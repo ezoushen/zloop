@@ -60,6 +60,17 @@ assert.deepEqual(await labels("remediate", "tautological-tests "), ["--base", "-
 assert.deepEqual(await labels("remediate", "--project "), ["tautological-tests", "misleading-comments"]);
 assert.deepEqual(await labels("remediate", "--base main "), ["tautological-tests", "misleading-comments", "--head"]);
 
+// A word no literal names fills the hint's next open placeholder, ruling out the branches that placeholder excludes;
+// a flag's value is never read as a mode; a key= argument already given is not offered again.
+assert.equal(await labels("autopilot", "build a greeting tool "), null);
+assert.equal(await labels("brief", "my-effort "), null);
+assert.equal(await labels("remediate", "tautological-tests src/ "), null);
+assert.deepEqual(await labels("remediate", "make tests clearer "), ["--base", "--project"]);
+assert.deepEqual(await labels("setup", "--config-profile calibration "), ["show", "set", "reset", "calibrate",
+  "calibration", "check", "retro", "replay", "--scope", "--route", "runtime=claude", "runtime=codex", "runtime=pi",
+  "runtime=opencode", "--candidate", "thinking="]);
+assert.equal(await labels("setup", "thinking=high th"), null);
+
 // Every hint lists only real flags and modes as bare words, placeholders in <>, so a blank argument offers exactly
 // these and never a word of prose.
 const START = {

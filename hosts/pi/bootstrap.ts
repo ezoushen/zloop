@@ -80,18 +80,32 @@ function hintSlots(hint) {
 function completeHint(hint, slots, typed) {
   const words = typed.split(/\s+/);
   const partial = words.pop();
-  const used = words.filter(Boolean);
-  const slotOf = (word) => slots.find((candidate) => candidate.literals.includes(word));
-  const last = slotOf(used.at(-1));
-  const followers = last ? slots.filter((candidate) => candidate.after === last) : [];
-  const anywhere = slots.filter((candidate) => !candidate.after
-    && (!candidate.afterSome || used.some((word) => slotOf(word) === candidate.afterSome)));
-  const offered = followers.length && !followers.some((follower) => !follower.optional)
-    ? [...followers, ...anywhere] : followers.length ? followers : anywhere;
-  // A slot already given, or one in another branch of alternatives a typed word sits in, is not offered.
-  const given = used.map(slotOf).filter(Boolean);
+  // A slot already given, or one in another branch of alternatives a given slot sits in, is not offered.
+  const given = [];
   const excluded = (candidate) => given.some((other) => other === candidate || other.path.some(([group, branch]) =>
     candidate.path.some(([candidateGroup, candidateBranch]) => group === candidateGroup && branch !== candidateBranch)));
+  // Read the typed words in order: a literal (a key= one with its value) gives its slot; the word after a flag that
+  // takes a typed value is that value; any other word fills the hint's next open placeholder, and the words after it
+  // continue that free text until a literal.
+  let last = null;
+  let filling = false;
+  for (const word of words.filter(Boolean)) {
+    const value = last && slots.find((candidate) => candidate.after === last && !candidate.optional
+      && candidate.placeholder && !candidate.literals.length);
+    const literal = !value && slots.find((candidate) => candidate.literals.some((each) => each === word
+      || (each.endsWith("=") && word.startsWith(each))));
+    const placeholder = !value && !literal && !filling && slots.find((candidate) => candidate.placeholder
+      && !candidate.after && !candidate.afterSome && !excluded(candidate));
+    const slot = value || literal || placeholder;
+    if (slot) given.push(slot);
+    filling = !value && !literal;
+    last = literal || null;
+  }
+  const followers = last ? slots.filter((candidate) => candidate.after === last) : [];
+  const anywhere = slots.filter((candidate) => !candidate.after
+    && (!candidate.afterSome || given.includes(candidate.afterSome)));
+  const offered = followers.length && !followers.some((follower) => !follower.optional)
+    ? [...followers, ...anywhere] : followers.length ? followers : anywhere;
   const before = typed.slice(0, typed.length - partial.length);
   const items = offered.filter((candidate) => !excluded(candidate)).flatMap((candidate) => candidate.literals)
     .filter((literal) => literal.startsWith(partial))
