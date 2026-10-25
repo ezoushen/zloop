@@ -50,11 +50,15 @@ export default function (pi) {
     return { systemPrompt: `${event.systemPrompt}\n\n${hint}` };
   });
 
-  // Claude Code names a skill the user types /zloop:<skill>; Pi gets the same command.
+  // Claude Code names a skill the user types /zloop:<skill>; Pi gets the same command, which types the skill command
+  // Pi expands. Extension commands run even while Pi works, so the skill then waits for the current run.
   for (const skill of userSkills(root)) {
     pi.registerCommand(`zloop:${skill.name}`, {
       description: skill.description,
-      handler: async () => {},
+      handler: async (args) => {
+        pi.sendUserMessage(`/skill:${skill.name}${args.trim() ? ` ${args.trim()}` : ""}`,
+          { deliverAs: "followUp", expandPromptTemplates: true });
+      },
     });
   }
 

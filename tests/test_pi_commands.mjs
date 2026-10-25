@@ -20,4 +20,12 @@ assert.deepEqual([...commands.keys()].sort(), [
   "research", "review", "setup", "tdd",
 ].map((skill) => `zloop:${skill}`).sort());
 
+// Running one types its skill command, which Pi expands as the skill; one typed while Pi works waits its turn.
+await commands.get("zloop:autopilot").handler("--take-over --auto-merge", {});
+await commands.get("zloop:brief").handler("", {});
+assert.deepEqual(sent, [
+  ["/skill:autopilot --take-over --auto-merge", { deliverAs: "followUp", expandPromptTemplates: true }],
+  ["/skill:brief", { deliverAs: "followUp", expandPromptTemplates: true }],
+]);
+
 console.log("Pi zloop commands: registered, hand off as /skill:, complete the hinted flags and modes: ok");
