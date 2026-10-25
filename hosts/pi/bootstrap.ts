@@ -59,7 +59,6 @@ function hintSlots(hint) {
     items.forEach((item, index) => {
       const before = items[index - 1]?.slot;
       if (before?.literals.length && !before.placeholder) {
-        if (item.slot?.placeholder && !item.slot.literals.length) before.takesValue = true;
         for (const follower of leading(item)) Object.assign(follower, { after: before, optional: !item.slot });
       } else if (before?.placeholder && !before.literals.length && items[index - 2]?.slot?.literals.length) {
         for (const follower of leading(item)) follower.afterSome = items[index - 2].slot;
@@ -84,7 +83,6 @@ function completeHint(hint, slots, typed) {
   const used = words.filter(Boolean);
   const slotOf = (word) => slots.find((candidate) => candidate.literals.includes(word));
   const last = slotOf(used.at(-1));
-  if (last?.takesValue) return null;
   const followers = last ? slots.filter((candidate) => candidate.after === last) : [];
   const anywhere = slots.filter((candidate) => !candidate.after
     && (!candidate.afterSome || used.some((word) => slotOf(word) === candidate.afterSome)));

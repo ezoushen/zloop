@@ -41,4 +41,13 @@ assert.deepEqual(await complete("autopilot", "--t"), [
 ]);
 assert.equal(await complete("autopilot", "--x"), null);
 
+// A value comes right after its flag or mode: only the values the hint lists, or nothing when the user types it.
+const labels = async (name, typed) => (await complete(name, typed))?.map((item) => item.label) ?? null;
+assert.deepEqual(await complete("review", "PR-12 --comments "), ["draft", "confirm", "post"].map((label) => ({
+  value: `PR-12 --comments ${label} `, label,
+  description: "[walkthrough] <branch|PR-number|PR-URL> [--autofix] [--comments draft|confirm|post] [--base <ref>]",
+})));
+assert.equal(await labels("review", "--base "), null);
+assert.deepEqual(await labels("setup", "calibration "), ["status"]);
+
 console.log("Pi zloop commands: registered, hand off as /skill:, complete the hinted flags and modes: ok");
