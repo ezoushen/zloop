@@ -72,6 +72,10 @@ assert.deepEqual(await labels("setup", "--config-profile calibration "), ["show"
   "calibration", "check", "retro", "replay", "--scope", "--route", "runtime=claude", "runtime=codex", "runtime=pi",
   "runtime=opencode", "--candidate", "thinking="]);
 assert.equal(await labels("setup", "thinking=high th"), null);
+// A word is a literal only where the hint allows that literal: elsewhere it is free text.
+assert.deepEqual(await labels("review", "draft --comments "), ["draft", "confirm", "post"]);
+assert.deepEqual(await labels("setup", "why calibration "), ["--scope", "--route", "--config-profile", "runtime=claude",
+  "runtime=codex", "runtime=pi", "runtime=opencode", "--candidate", "thinking="]);
 
 // Every hint lists only real flags and modes as bare words, placeholders in <>, so a blank argument offers exactly
 // these and never a word of prose.

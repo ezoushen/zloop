@@ -90,16 +90,20 @@ function completeHint(hint, slots, typed) {
   const given = [];
   const excluded = (candidate) => given.some((other) => other === candidate || other.path.some(([group, branch]) =>
     candidate.path.some(([candidateGroup, candidateBranch]) => group === candidateGroup && branch !== candidateBranch)));
-  // Read the typed words in order: a literal (a key= one with its value) gives its slot; the word after a flag that
-  // takes a typed value is that value; any other word fills the hint's next open placeholder, and the words after it
-  // continue that free text until a literal.
+  // Whether the hint allows a slot at this point: not given or ruled out, right after its flag or mode if it is a
+  // value, and after the flag it needs if a placeholder stands between them.
   let last = null;
+  const allowed = (candidate) => !excluded(candidate) && (!candidate.after || candidate.after === last)
+    && (!candidate.afterSome || given.includes(candidate.afterSome));
+  // Read the typed words in order: a literal the hint allows here (a key= one with its value) gives its slot; the word
+  // after a flag that takes a typed value is that value; any other word fills the hint's next open placeholder, and
+  // the words after it continue that free text until a literal.
   let filling = false;
   for (const word of words.filter(Boolean)) {
     const value = last && slots.find((candidate) => candidate.after === last && !candidate.optional
       && candidate.placeholder && !candidate.literals.length);
-    const literal = !value && slots.find((candidate) => candidate.literals.some((each) => each === word
-      || (each.endsWith("=") && word.startsWith(each))));
+    const literal = !value && slots.find((candidate) => allowed(candidate) && candidate.literals.some((each) =>
+      each === word || (each.endsWith("=") && word.startsWith(each))));
     const placeholder = !value && !literal && !filling && slots.find((candidate) => candidate.placeholder
       && !candidate.after && !candidate.afterSome && !excluded(candidate));
     const slot = value || literal || placeholder;
@@ -107,13 +111,12 @@ function completeHint(hint, slots, typed) {
     filling = !value && !literal;
     last = literal || null;
   }
+  // Next comes the value of the last flag or mode when it requires one, else its optional values and the rest.
   const followers = last ? slots.filter((candidate) => candidate.after === last) : [];
-  const anywhere = slots.filter((candidate) => !candidate.after
-    && (!candidate.afterSome || given.includes(candidate.afterSome)));
-  const offered = followers.length && !followers.some((follower) => !follower.optional)
-    ? [...followers, ...anywhere] : followers.length ? followers : anywhere;
+  const next = followers.some((follower) => !follower.optional) ? followers
+    : [...followers, ...slots.filter((candidate) => !candidate.after)];
   const before = typed.slice(0, typed.length - partial.length);
-  const items = offered.filter((candidate) => !excluded(candidate)).flatMap((candidate) => candidate.literals)
+  const items = next.filter(allowed).flatMap((candidate) => candidate.literals)
     .filter((literal) => literal.startsWith(partial))
     .map((literal) => ({ value: `${before}${literal}${literal.endsWith("=") ? "" : " "}`, label: literal, description: hint }));
   return items.length ? items : null;
