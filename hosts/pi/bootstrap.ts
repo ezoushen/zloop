@@ -84,31 +84,38 @@ function hintSlots(hint) {
 
 // Completions for the arguments typed so far: the words the slots allow next, each replacing what is typed.
 function completeHint(hint, slots, typed) {
-  const words = typed.split(/\s+/);
-  const partial = words.pop();
+  // Words as a shell splits them: a quoted argument is one word, and the last word is still being typed.
+  const words = typed.match(/"[^"]*"?|'[^']*'?|\S+/g) ?? [];
+  const partial = !typed || /\s$/.test(typed) ? "" : words.pop();
   // A slot already given, or one in another branch of alternatives a given slot sits in, is not offered.
   const given = [];
   const excluded = (candidate) => given.some((other) => other === candidate || other.path.some(([group, branch]) =>
     candidate.path.some(([candidateGroup, candidateBranch]) => group === candidateGroup && branch !== candidateBranch)));
+  // A positional slot, a mode word or free text rather than a flag, a key= argument or a value, keeps the hint's order.
+  const positional = (candidate) => !candidate.after && !candidate.afterSome
+    && (candidate.placeholder || candidate.literals.some((each) => !each.startsWith("-") && !each.includes("=")));
   // Whether the hint allows a slot at this point: not given or ruled out, right after its flag or mode if it is a
-  // value, and after the flag it needs if a placeholder stands between them.
+  // value, after the flag it needs if a placeholder stands between them, and a mode before any later positional one.
   let last = null;
   const allowed = (candidate) => !excluded(candidate) && (!candidate.after || candidate.after === last)
-    && (!candidate.afterSome || given.includes(candidate.afterSome));
+    && (!candidate.afterSome || given.includes(candidate.afterSome))
+    && (!positional(candidate) || given.every((other) => !positional(other)
+      || slots.indexOf(other) < slots.indexOf(candidate)));
   // Read the typed words in order: a literal the hint allows here (a key= one with its value) gives its slot; the word
   // after a flag that takes a typed value is that value; any other word fills the hint's next open placeholder, and
-  // the words after it continue that free text until a literal.
+  // the words after it continue that free text until a literal; a quoted word is a whole value.
   let filling = false;
-  for (const word of words.filter(Boolean)) {
+  for (const word of words) {
+    const quoted = /^(["']).*\1$/s.test(word);
     const value = last && slots.find((candidate) => candidate.after === last && !candidate.optional
       && candidate.placeholder && !candidate.literals.length);
-    const literal = !value && slots.find((candidate) => allowed(candidate) && candidate.literals.some((each) =>
+    const literal = !value && !quoted && slots.find((candidate) => allowed(candidate) && candidate.literals.some((each) =>
       each === word || (each.endsWith("=") && word.startsWith(each))));
     const placeholder = !value && !literal && !filling && slots.find((candidate) => candidate.placeholder
       && !candidate.after && !candidate.afterSome && !excluded(candidate));
     const slot = value || literal || placeholder;
     if (slot) given.push(slot);
-    filling = !value && !literal;
+    filling = !value && !literal && !quoted;
     last = literal || null;
   }
   // Next comes the value of the last flag or mode when it requires one, else its optional values and the rest.

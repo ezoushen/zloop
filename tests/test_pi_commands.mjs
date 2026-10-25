@@ -72,6 +72,12 @@ assert.deepEqual(await labels("setup", "--config-profile calibration "), ["show"
   "calibration", "check", "retro", "replay", "--scope", "--route", "runtime=claude", "runtime=codex", "runtime=pi",
   "runtime=opencode", "--candidate", "thinking="]);
 assert.equal(await labels("setup", "thinking=high th"), null);
+// A mode word comes before the free text after it in the hint; flags may come anywhere.
+assert.equal(await labels("review", "main w"), null);
+assert.deepEqual(await labels("review", "w"), ["walkthrough"]);
+// A quoted argument is one complete value: the next word fills the next placeholder.
+assert.equal(await labels("remediate", '"make tests clearer" tests/ '), null);
+assert.deepEqual(await labels("remediate", '"make tests clearer" '), ["--base", "--project"]);
 // A word is a literal only where the hint allows that literal: elsewhere it is free text.
 assert.deepEqual(await labels("review", "draft --comments "), ["draft", "confirm", "post"]);
 assert.deepEqual(await labels("setup", "why calibration "), ["--scope", "--route", "--config-profile", "runtime=claude",
