@@ -106,9 +106,11 @@ symlink to `skills/`. Pi discovers skills recursively but treats a folder holdin
 restricting the link prevents optional add-on skills elsewhere in the repository from
 loading. Re-point an extension symlink that does not target `hosts/pi/bootstrap.ts`.
 
-Run `/reload` in Pi, then `/skill:dispatch <scope> --autofix` or
-`/skill:review walkthrough <target>`. The extension supplies the bootstrap and Pi's
-session part before each turn; it registers no tools or commands. With explicit
+Run `/reload` in Pi, then `/zloop:dispatch <scope> --autofix` or
+`/zloop:review walkthrough <target>`. The extension supplies the bootstrap and Pi's
+session part before each turn, registers the `zloop_wake` tool, and registers
+`/zloop:<name>` for each command, completing its flags and modes and sending
+`/skill:<name> <args>`. With explicit
 extension loading disabled, supply `harness=pi` when invoking a phase instead.
 Planning/review can run without delegation where the shared procedure allows it;
 dispatch requires the installed `subagent` tool (pi-subagents). See the

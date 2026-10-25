@@ -1,8 +1,10 @@
 # Pi adapter
 
 The bootstrap extension supplies this adapter's absolute path. Pi discovers the
-shared skills recursively through the development symlink; invoke explicit phases
-with `/skill:dispatch`, `/skill:review`, etc. Preserve `disable-model-invocation`.
+shared skills recursively through the development symlink. The extension registers
+`/zloop:<skill>` for each skill the user types, completing the flags and modes in its
+`argument-hint`; it sends `/skill:<skill> <args>`, which also works typed directly.
+Preserve `disable-model-invocation`.
 Claude profiles and Codex metadata do not register Pi workers.
 
 The extension also guards against loops: a tool call that returned the same result

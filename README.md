@@ -6,8 +6,8 @@ the target repository under `.scratch/<slug>/`.
 
 ## Commands
 
-Typed as `/zloop:<name>` in Claude Code, `$zloop:<name>` in Codex and
-`/skill:<name>` in Pi. Each command's procedure is its `skills/<name>/SKILL.md`.
+Typed as `/zloop:<name>` in Claude Code and Pi, where it completes the flags and
+modes the command takes, and `$zloop:<name>` in Codex. Each command's procedure is its `skills/<name>/SKILL.md`.
 
 | Command | Does |
 |---|---|
