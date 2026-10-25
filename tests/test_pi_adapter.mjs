@@ -33,7 +33,10 @@ try {
     assert.equal(loaded.extensions.length, 1, pass);
     const extension = loaded.extensions[0];
     assert.deepEqual([...extension.tools.keys()], ["zloop_wake"]);
-    assert.equal(extension.commands.size, 0);
+    // Pi's own loader registers a /zloop:<skill> command for each skill the user types.
+    assert.deepEqual([...extension.commands.keys()].sort(), ["align", "autopilot", "brief", "diagnose", "dispatch",
+      "explain", "huh", "pr", "prototype", "refine", "remediate", "research", "review", "setup", "tdd"]
+      .map((skill) => `zloop:${skill}`).sort(), pass);
     assert.deepEqual([...extension.handlers.keys()],
       ["before_agent_start", "agent_settled", "agent_before_settle", "tool_call", "tool_result"]);
     // Every tool_call handler runs in order on the same input until one blocks, as Pi's runner does.
