@@ -22,8 +22,8 @@ export default {
   id: "zloop",
   setup: async (ctx) => {
     const stop = new AbortController();
-    // When each held session's hold was sent: the turn it starts ends unchecked, however it ends, so a gap the agent
-    // cannot clear never loops. A turn end published before the hold was sent is an older turn the hold already covers.
+    // When each held session's hold was admitted: the turn it starts ends unchecked, however it ends, so a gap the
+    // agent cannot clear never loops. A turn end published before then is an older turn the hold already covers.
     const held = new Map();
     void (async () => {
       for await (const event of ctx.event.subscribe({ signal: stop.signal })) {
@@ -51,8 +51,8 @@ export default {
         if (!gate.missing.length) continue;
         try {
           const sent = Date.now();
-          await ctx.session.prompt({ sessionID, text: gate.reason });
-          held.set(sessionID, sent);
+          const message = await ctx.session.prompt({ sessionID, text: gate.reason });
+          held.set(sessionID, message?.time?.created ?? sent);
         } catch {
           // The session or server is gone: there is no turn left to hold.
         }

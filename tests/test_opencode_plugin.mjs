@@ -37,11 +37,12 @@ function checkout(gaps) {
 }
 
 // A stand-in for OpenCode's plugin context: events pushed by the test, sessions with a directory and an optional parent.
-async function load(gaps, parents = {}) {
+async function load(gaps, parents = {}, admission = 0) {
   const repo = checkout(gaps);
   const queue = [];
   let wake = () => {};
   const sent = [];
+  let admitted = 0;
   const hooks = {};
   const ctx = {
     location: { directory: repo },
@@ -57,7 +58,13 @@ async function load(gaps, parents = {}) {
     },
     session: {
       get: async ({ sessionID }) => ({ id: sessionID, location: { directory: repo }, parentID: parents[sessionID] }),
-      prompt: async (input) => { sent.push(input); return { id: `msg_${sent.length}`, delivery: "steer" }; },
+      // OpenCode runs its prompt hooks before it admits the message, and stamps the message when it does.
+      prompt: async (input) => {
+        sent.push(input);
+        await new Promise((done) => setTimeout(done, admission));
+        admitted += 1;
+        return { id: `msg_${sent.length}`, time: { created: Date.now() }, delivery: "steer" };
+      },
     },
     tool: { hook: async (name, callback) => { hooks[name] = callback; return { dispose: async () => {} }; } },
   };
@@ -73,7 +80,7 @@ async function load(gaps, parents = {}) {
   const settle = async () => {
     const before = holds("ses_end");
     push("succeeded", "ses_end");
-    await until(() => holds("ses_end") > before, "the closing hold");
+    await until(() => holds("ses_end") > before && admitted === sent.length, "the closing hold");
     push("succeeded", "ses_end");  // Its own held turn ends, so the next settle is checked again.
   };
   return { repo, sent, hooks, push, holds, settle, cleanup };
@@ -128,6 +135,19 @@ async function load(gaps, parents = {}) {
   host.push("succeeded", "ses_q");
   await host.settle();
   assert.equal(host.holds("ses_q"), 2, "the next turn is checked");
+  await host.cleanup();
+}
+
+{
+  // A turn that ends while the hold is being admitted is older than the hold's own turn and does not end the hold.
+  const host = await load(["ses_r"], {}, 300);
+  host.push("succeeded", "ses_r");
+  await until(() => host.holds("ses_r") === 1, "the hold to be sent");
+  host.push("succeeded", "ses_r");  // Published before the hold is admitted.
+  await host.settle();
+  host.push("succeeded", "ses_r");  // The held turn's end.
+  await host.settle();
+  assert.equal(host.holds("ses_r"), 1);
   await host.cleanup();
 }
 
