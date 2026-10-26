@@ -60,9 +60,6 @@
    "workers"
   ],
   [
-   "panel"
-  ],
-  [
    "checks"
   ],
   [
@@ -233,21 +230,14 @@
     "scripts/claude_usage.py"
    ]
   },
-  "panel": {
-   "docs": [
-    "runtime/panel/**/*.md"
-   ],
-   "code": [
-    "scripts/panel_state.py"
-   ]
-  },
   "workers": {
    "docs": [
     "runtime/workers/**/*.md"
    ],
    "code": [
     "scripts/worker_lifecycle.py",
-    "scripts/effort_spend.py"
+    "scripts/effort_spend.py",
+    "scripts/panel_state.py"
    ]
   },
   "checks": {
