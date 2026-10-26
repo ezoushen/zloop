@@ -103,12 +103,16 @@ def main():
         env['ZLOOP_TEST_SLOT_HELD'] = '1'
         held = []
 
+        def release():
+            """Drop the slot of every unit that has ended."""
+            for pair in [pair for pair in held if pair[1].poll() is not None]:
+                held.remove(pair)
+                pair[0].close()
+
         def launch(argv, log):
             """Start argv once a slot is free, holding the slot until it exits."""
             while True:
-                for pair in [pair for pair in held if pair[1].poll() is not None]:
-                    held.remove(pair)
-                    pair[0].close()
+                release()
                 slot = try_slot(directory, slots)
                 if slot:
                     break
@@ -139,6 +143,9 @@ def main():
             log = open(Path(logs) / f'{index}.log', 'w+', errors='replace')
             test = ROOT / 'tests' / f"{name.partition('.')[0]}.py"
             jobs.append((name, log, launch([python, '-B', str(test), *names], log)))
+        while held:
+            release()
+            time.sleep(0.05)
         failed = False
         for name, log, process in jobs:
             if process.wait():
@@ -147,8 +154,6 @@ def main():
                 print(f'FAIL {name}')
                 print(''.join(log.readlines()[-20:]), end='')
             log.close()
-    for slot, _ in held:
-        slot.close()
     if not failed:
         print(f'{len(scripts)} regression scripts passed ({python})')
     return 1 if failed else 0

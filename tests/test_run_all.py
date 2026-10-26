@@ -11,6 +11,7 @@ import time
 import unittest
 
 import support
+import run_all
 
 RUNNER = support.ROOT / 'tests/run_all.py'
 
@@ -252,6 +253,35 @@ class RunAll(unittest.TestCase):
         self.assertIn('why it broke', result.stdout)
         self.assertNotIn('FAIL test_mixed.Fine', result.stdout)
         self.assertNotIn('passed', result.stdout)
+
+    def test_a_finished_unit_frees_its_slot_while_a_longer_one_still_runs(self):
+        # Rule: once every unit has started, each slot is released when its unit ends, so a concurrent run can use it
+        # during the slow tail instead of waiting for the whole run.
+        scratch = Path(tempfile.mkdtemp(prefix='run all tail '))
+        self.addCleanup(shutil.rmtree, scratch)
+        pool, release = scratch / 'slots', scratch / 'release'
+        env = {'ZLOOP_TEST_SLOTS': '2', 'ZLOOP_TEST_SLOT_DIR': str(pool)}
+        holder = self.start({'test_a_short.py': f'from pathlib import Path\nPath({str(scratch / "short")!r}).touch()\n',
+                             'test_b_long.py': ('import time\nfrom pathlib import Path\n'
+                                                f'Path({str(scratch / "long")!r}).touch()\n'
+                                                f'while not Path({str(release)!r}).exists(): time.sleep(0.02)\n')}, env)
+        self.addCleanup(release.touch)
+        support.wait_until(lambda: (scratch / 'short').exists() and (scratch / 'long').exists(), 'both units started')
+
+        def free():
+            """Whether a slot of the pool can be taken right now (the lock is dropped again at once)."""
+            slot = run_all.try_slot(pool, 2)
+            if slot:
+                slot.close()
+            return slot is not None
+
+        try:
+            support.wait_until(free, 'the finished unit freed its slot while the long one ran', limit=20)
+            self.assertIsNone(holder.poll(), 'the run ended before the long unit did')
+        finally:
+            release.touch()
+        output = holder.communicate(timeout=30)[0]
+        self.assertEqual(holder.returncode, 0, output)
 
 
 if __name__ == '__main__':
