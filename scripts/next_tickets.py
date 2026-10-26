@@ -193,18 +193,9 @@ def in_main(sha, ref='refs/heads/main'):
 
 
 def merged(sha):
-    """Whether local main, or the remote's main as of a fetch now, contains sha. A fetch that fails leaves the remote
-    tracking branch as it was."""
-    if in_main(sha):
-        return True
-    if not re.fullmatch('[0-9a-f]{40}', sha):
-        return False
-    try:
-        subprocess.run(['git', '-C', str(ROOT), 'fetch', '--quiet', 'origin', 'main'], capture_output=True, timeout=10,
-                       stdin=subprocess.DEVNULL)
-    except subprocess.TimeoutExpired:
-        pass
-    return in_main(sha, 'refs/remotes/origin/main')
+    """Whether local main, or the remote-tracking main as the repository has it, contains sha. It never fetches: the
+    stop-hook checks that call it run under a time budget."""
+    return in_main(sha) or in_main(sha, 'refs/remotes/origin/main')
 
 
 def delivery_problems(slug):
@@ -232,7 +223,6 @@ def delivery_problems(slug):
     head = ref and subprocess.run(['git', '-C', str(ROOT), 'rev-parse', '--verify', f'{ref}^{{commit}}'],
                                   capture_output=True, text=True)
     if not head or head.returncode:
-        # A merged effort's branch is deleted; its heads are then in main, and where they are not, local main is stale.
         gone = [key for key in ('review_head', 'e2e_head')
                 if re.fullmatch('[0-9a-f]{40}', str(fm.get(key) or '')) and not merged(str(fm[key]))]
         update = (f", and its {' and '.join(gone)} {'is' if len(gone) == 1 else 'are'} in no main; update local main "
