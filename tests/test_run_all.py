@@ -271,7 +271,10 @@ class RunAll(unittest.TestCase):
         self.addCleanup(shutil.rmtree, scratch)
         pool, release = scratch / 'slots', scratch / 'release'
         env = {'ZLOOP_TEST_SLOTS': '2', 'ZLOOP_TEST_SLOT_DIR': str(pool)}
-        holder = self.start({'test_a_short.py': f'from pathlib import Path\nPath({str(scratch / "short")!r}).touch()\n',
+        # The short unit ends only once the long one has started, so no later launch can be what frees its slot.
+        holder = self.start({'test_a_short.py': ('import time\nfrom pathlib import Path\n'
+                                                 f'Path({str(scratch / "short")!r}).touch()\n'
+                                                 f'while not Path({str(scratch / "long")!r}).exists(): time.sleep(0.02)\n'),
                              'test_b_long.py': ('import time\nfrom pathlib import Path\n'
                                                 f'Path({str(scratch / "long")!r}).touch()\n'
                                                 f'while not Path({str(release)!r}).exists(): time.sleep(0.02)\n')}, env)
