@@ -117,6 +117,17 @@ class BoardCLI(unittest.TestCase):
         assert result.returncode == code, result.stdout + result.stderr
         return result
 
+    def test_check_refuses_a_need_outside_the_probe_vocabulary_naming_the_allowed_needs(self):
+        allowed = 'network, docker, setuid, repo-write, dev-fd'
+        self.write_ticket('fx/01', extra='needs: [docker, dev-fd]\n')
+        self.cli('--check')
+        self.write_ticket('fx/01', extra='needs: [docker, gpu]\n')
+        refused = self.cli('--check', code=1).stderr
+        assert refused == f"fx/01: needs 'gpu' is not one of {allowed}\n", refused
+        self.write_ticket('fx/01', extra='needs: docker\n')
+        refused = self.cli('--check', code=1).stderr
+        assert refused == f"fx/01: needs must be a bracketed list of {allowed}\n", refused
+
     def test_board_reads_validates_and_repairs_ticket_state(self):
         write_ticket, cli = self.write_ticket, self.cli
         active = write_ticket('active/01')

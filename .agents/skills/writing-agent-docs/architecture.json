@@ -226,6 +226,7 @@
    ],
    "code": [
     "scripts/capacity.py",
+    "scripts/capability_probe.py",
     "scripts/allowance.py",
     "scripts/claude_usage.py"
    ]

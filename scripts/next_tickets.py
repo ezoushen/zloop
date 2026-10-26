@@ -37,6 +37,7 @@ import subprocess
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import capability_probe  # noqa: E402
 import worker_lifecycle  # noqa: E402
 
 ROOT = Path.cwd()
@@ -100,6 +101,13 @@ def check(tickets):
            for t, fm in tickets.items() if fm.get('status') not in STATUSES]
     bad += [f"{t}: blocked_by {dep} does not exist" for t, fm in tickets.items()
            for dep in fm.get("blocked_by", []) if dep not in tickets]
+    allowed = ", ".join(capability_probe.NEEDS)
+    for t, fm in tickets.items():
+        if "needs" in fm and not isinstance(fm["needs"], list):
+            bad.append(f"{t}: needs must be a bracketed list of {allowed}")
+        else:
+            bad += [f"{t}: needs {need!r} is not one of {allowed}" for need in fm.get("needs", [])
+                    if need not in capability_probe.NEEDS]
     bad += [f"{t}: no blocked_by key (write blocked_by: [] when nothing gates it)" for t, fm in tickets.items()
             if "blocked_by" not in fm]
     bad += [f"{t}: number differs from its filename {Path(fm['path']).name}" for t, fm in tickets.items()
