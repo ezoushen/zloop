@@ -9,7 +9,8 @@ Actions: --board, --counts, --check, --accept TICKET,
 --set TICKET status=blocked also needs blocker=REASON, which the ticket's front matter keeps. Entering implementing
 records start: (the effort branch head) when the ticket has none; start never changes once recorded. A passing
 --accept records accepted: (the head it accepted); status=done needs it, merged into the effort branch.
-Only --set may be combined with --counts. --accept also runs the effort's standing measurements
+Only --set may be combined with --counts. --accept of a delegated ticket (its branch is not the effort branch) needs
+the report a collected worker attempt of the effort returned completed, unchanged since. It also runs the standing measurements
 (.scratch/<slug>/measurements.json) at the ticket head, in a clean checkout, and refuses a missing or worse value.
 --delivery names each failing field. --coordinate [--autofix] records the calling session (its Herdr pane and host
 session IDs) and the repair authorization in .scratch/<slug>/reports/coordinator.json for the stop hooks; with no slug
@@ -29,8 +30,12 @@ import os
 import posixpath
 import re
 import sys
+import sqlite3
 import subprocess
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import worker_lifecycle  # noqa: E402
 
 ROOT = Path.cwd()
 ISSUES = ROOT / ".scratch"
@@ -304,6 +309,8 @@ def accept(tickets, name):
         elif recorded and not listed_commit_on(text, base.group(1), ref):
             problems.append(f"no listed commit under ## Implemented is past base on {branch}")
     notes = []
+    if not problems and ref != branch_ref(effort_branch(slug)):
+        problems = returned_problems(slug, name, report)
     if not problems:
         problems, notes = measurement_results(tickets[name], ref, text)
     for p in problems:
@@ -315,6 +322,29 @@ def accept(tickets, name):
         write_fields(tickets[name], {"accepted": commit_of(ref)})
         print(f"{name}: report and branch carry the evidence; judge the content now")
     return not problems
+
+
+def returned_problems(slug, name, report):
+    """A delegated ticket's report must be one a collected worker attempt of the effort returned, completed, and
+    unchanged since: the orchestrator judges the worker's evidence, it never writes it."""
+    state = ISSUES / slug / "reports" / "workers.sqlite"
+    returned = []
+    if state.is_file():
+        db = sqlite3.connect(f"{state.resolve().as_uri()}?mode=ro", uri=True, timeout=10)
+        try:
+            returned = [saved for saved in worker_lifecycle.attempts(db) if saved.get("result")
+                        and Path(saved["result"].get("report", "")).resolve() == report.resolve()]
+        finally:
+            db.close()
+    shown = report.relative_to(ROOT) if report.is_relative_to(ROOT) else report
+    if not returned:
+        return [f"no collected worker attempt returned {shown}"]
+    intact = [saved for saved in returned if worker_lifecycle.report_intact(saved)]
+    if not intact:
+        return [f"{shown} changed after {returned[-1]['attempt']} returned it"]
+    if not any(saved["result"]["status"] == "completed" for saved in intact):
+        return [f"{intact[-1]['attempt']} returned {intact[-1]['result']['status']}, not a completed ticket"]
+    return []
 
 
 def measurement_results(fm, ref, report):

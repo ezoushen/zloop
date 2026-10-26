@@ -239,12 +239,17 @@ class BoardCLI(unittest.TestCase):
         self.git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', message)
         return self.git('rev-parse', 'HEAD')
 
-    def write_report(self, base, branch=None, commits=(), body='', number='01'):
+    def write_report(self, base, branch=None, commits=(), body='', number='01', returned=None):
+        """A ticket report; a delegated ticket's (one off the effort branch) is returned by a collected worker attempt
+        unless returned=False."""
         report = self.root / f'.scratch/inline/reports/{number}.md'
         report.parent.mkdir(parents=True, exist_ok=True)
         branch_line = f'branch: {branch}\n' if branch else ''
         listed = ''.join(f'- Commit: {sha}\n' for sha in commits)
         report.write_text(f'base: `{base}`\n{branch_line}## Implemented\n{listed}- [x] done\n{body}')
+        if returned if returned is not None else branch != 'feat/inline':
+            self.attempts = getattr(self, 'attempts', 0) + 1
+            support.collected_attempt(self.root, 'inline', f'inline/{number}/implementation-{self.attempts}', report)
 
     def test_acceptance_checks_the_branch_the_report_records(self):
         self.write_ticket('inline/01', 'implementing')
@@ -321,6 +326,28 @@ class BoardCLI(unittest.TestCase):
         self.git('switch', '-q', 'feat/inline')
         self.git('merge', '-q', '--ff-only', 'feat/inline-02')
         self.cli('inline', '--set', 'inline/02', 'status=done')
+
+    def test_a_delegated_ticket_is_accepted_only_on_the_report_its_worker_returned(self):
+        # jose retro: the orchestrator wrote base lines and ticked criteria into builders' reports to pass --accept.
+        self.write_ticket('inline/01', 'implementing')
+        base = self.commit('base')
+        self.git('switch', '-q', '-c', 'feat/inline-01')
+        work = self.commit('delegated ticket work')
+        self.write_report(base, commits=[work], returned=False)
+        report = self.root / '.scratch/inline/reports/01.md'
+        refused = self.cli('inline', '--accept', 'inline/01', code=1)
+        assert 'inline/01: no collected worker attempt returned .scratch/inline/reports/01.md' in refused.stderr, refused
+        support.collected_attempt(self.root, 'inline', 'inline/01/implementation-1', report, head=work)
+        self.cli('inline', '--accept', 'inline/01')
+        report.write_text(report.read_text() + '- [x] a criterion the orchestrator ticked\n')
+        refused = self.cli('inline', '--accept', 'inline/01', code=1)
+        assert ('inline/01: .scratch/inline/reports/01.md changed after inline/01/implementation-1 returned it'
+                in refused.stderr), refused.stderr
+        # A worker that returned the ticket blocked did not finish it.
+        support.collected_attempt(self.root, 'inline', 'inline/01/implementation-2', report, head=work,
+                                  status='blocked')
+        refused = self.cli('inline', '--accept', 'inline/01', code=1)
+        assert 'inline/01: inline/01/implementation-2 returned blocked, not a completed ticket' in refused.stderr, refused
 
     def commit_gitignore(self):
         # The dispatch convention: `.scratch/` and `.worktrees/` are ignored; `build.log` stands for build output.

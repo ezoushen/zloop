@@ -53,3 +53,34 @@ def code_samples(text):
             + re.findall(r'(?m)(?<=\n\n) {4,}\S.*$', '\n\n' + prose)
             + [name for name in re.findall(r'\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+', prose)
                if not name.endswith('.md') and max(map(len, name.split('.'))) > 1])
+
+
+def collected_attempt(repo, slug, attempt, report, job='ticket', head='head-1', status='completed'):
+    """A worker attempt of an effort's lifecycle that returned report and was collected, driven through the
+    lifecycle CLI: registered, started with the settings it was given, prompted, then its result recorded."""
+    import json
+    import subprocess
+    import sys
+    import agent_defs
+    state = Path(repo) / '.scratch' / slug / 'reports' / 'workers.sqlite'
+    state.parent.mkdir(parents=True, exist_ok=True)
+    work = state.parent / 'fixture' / attempt.replace('/', '-')
+    work.mkdir(parents=True, exist_ok=True)
+    execution = work / 'execution.json'
+    execution.write_text(json.dumps({'harness': 'claude', 'agent': agent_defs.load()['jobs'][job]['agent'], 'job': job,
+                                     'settings': {'model': 'sonnet', 'effort': 'high'}}))
+    env = isolated_env(work)
+
+    def record(kind, **fields):
+        event = work / 'event.json'
+        event.write_text(json.dumps(dict(kind=kind, attempt=attempt, **fields)))
+        subprocess.run([sys.executable, '-B', str(script('worker_lifecycle.py')), 'record', '--state', str(state),
+                        '--input', str(event)], check=True, capture_output=True, text=True, env=env)
+
+    record('register', assignment=attempt.rpartition('/')[0] or attempt, repo=str(repo), worktree=str(repo),
+           head=head, execution=str(execution), runtime='claude', worker=f'pane-{attempt}',
+           native_session=f'native-{attempt}', owned=True, packet=str(assignment_file(work, job)))
+    record('startup', observed={'runtime': 'claude', 'model': 'sonnet', 'effort': 'high'}, evidence=['native.jsonl:1'])
+    record('submitted', evidence=['native.jsonl:2:accepted prompt'])
+    record('result', status=status, head=head, report=str(report), evidence=['checks.log'])
+    return state

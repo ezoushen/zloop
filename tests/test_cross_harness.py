@@ -131,6 +131,8 @@ class CrossHarness(unittest.TestCase):
             reports.mkdir()
             report = reports / '01.md'
             report.write_text(f'base: {base}\n## Implemented\n- [x] done\n')
+            assert cli('b', '--accept', 'b/01', ok=False).returncode != 0  # No worker returned it yet.
+            support.collected_attempt(repo, 'b', 'b/01/implementation-1', report)
             cli('b', '--accept', 'b/01')
             report.write_text('# empty\n')
             assert cli('b', '--accept', 'b/01', ok=False).returncode != 0
