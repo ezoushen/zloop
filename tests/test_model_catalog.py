@@ -96,10 +96,10 @@ class Catalog(unittest.TestCase):
         self.assertEqual(self.resolve()['settings'], {'model': 'project-sol'})
         self.project.write_text(json.dumps({'models': {'sol': replacement},
             'runtimes': {'codex': {'executors': {'codex': {'type': 'subagent'}}}}}))
+        # The project's codex routes replace the user's whole, so its herdr route goes; Herdr is still built in.
         with patch.dict(os.environ, {'HERDR_ENV': '1'}):
-            result = self.resolve(host='claude')
-            self.assertEqual(result['candidate'], 'local')
-            self.assertIn('sol', result['unavailable_candidates'])
+            result = self.resolve(host='claude', candidate='sol')
+            self.assertEqual((result['executor_source'], result['settings']['model']), ('built-in', 'project-sol'))
 
     def test_thinking_recommendation_after_catalog_expansion(self):
         result = self.resolve(selection={'candidate': 'sol', 'thinking': 'high', 'reason': 'Task fits.'})
@@ -128,14 +128,41 @@ class Catalog(unittest.TestCase):
             models.validate_execution_config({'models': {'old': {'model': 'old',
                 'description': 'Old layout.', 'executors': {'pi': {'type': 'subagent'}}}}}, 'test')
 
-    def test_pi_children_stay_native_inside_and_outside_herdr(self):
-        for managed in ('', '1'):
-            with patch.dict(os.environ, {'HERDR_ENV': managed}):
-                result = self.resolve(host='pi', candidate='local')
-                self.assertTrue(result['native_dispatch'])
-                self.assertEqual(result['target_runtime'], 'pi')
-                self.assertEqual(result['executor_context'], 'pi')
-                self.assertEqual(result['settings'], {'model': 'local/glm'})
+    def test_herdr_is_the_built_in_provider_for_every_runtime(self):
+        # The user (2026-10-26): "Own the contract and have herdr be our built in provider for this." In Herdr, every
+        # runtime is reachable through it with no route or executor type configured; outside Herdr, it is not.
+        del self.data['runtimes']['codex']['executors']['herdr']
+        self.save()
+        with self.assertRaises(ValueError):
+            self.resolve(host='claude', candidate='sol')
+        with patch.dict(os.environ, {'HERDR_ENV': '1'}):
+            result = self.resolve(host='claude', candidate='sol')
+        self.assertEqual((result['executor_type'], result['executor_context'], result['native_dispatch']),
+                         ('herdr', 'herdr', False))
+        self.assertEqual(result['executor_source'], 'built-in')
+        self.assertEqual(result['executor_guide'], str(models.ROOT / 'hosts/herdr.md'))
+        self.assertIn('launch', result)
+        # A route of type herdr is the built-in provider, whatever an executor type of that name says.
+        self.data['runtimes']['codex']['executors']['herdr'] = {'type': 'herdr'}
+        self.data['executor_types'] = {'herdr': {'type': 'skill', 'config': {
+            'skill': 'herdr', 'instruction': 'Launch through the herdr skill.'}}}
+        self.save()
+        with patch.dict(os.environ, {'HERDR_ENV': '1'}):
+            result = self.resolve(host='claude', candidate='sol')
+        self.assertEqual((result['executor_type'], result['executor_config']), ('herdr', {}))
+
+    def test_a_pi_host_in_herdr_runs_its_workers_through_herdr(self):
+        # Pi's own delegation is a third-party extension; in Herdr the built-in provider serves Pi workers, and the
+        # extension route serves only outside Herdr.
+        del self.data['runtimes']['pi']['executors']['herdr']
+        self.save()
+        result = self.resolve(host='pi', candidate='local')
+        self.assertEqual((result['executor_context'], result['native_dispatch']), ('pi', True))
+        with patch.dict(os.environ, {'HERDR_ENV': '1'}):
+            result = self.resolve(host='pi', candidate='local')
+        self.assertEqual((result['executor_type'], result['executor_context'], result['native_dispatch']),
+                         ('herdr', 'herdr', False))
+        self.assertEqual(result['settings'], {'model': 'local/glm'})
 
     def test_skill_routes_use_each_callers_interface_and_destination_settings(self):
         routes = self.data['runtimes']['pi']['executors']
@@ -190,10 +217,12 @@ class Catalog(unittest.TestCase):
         self.assertEqual(result['settings'], {'model': 'codex-local', 'effort': 'medium'})
         with self.assertRaises(ValueError):
             self.resolve(host='pi', candidate='local', adaptive_thinking='high')
+        # A model's bindings are tried in declaration order through whatever route reaches them, Herdr included.
         self.data['runtimes']['codex']['executors'] = {'codex': {'type': 'subagent'}}
         self.save()
         with patch.dict(os.environ, {'HERDR_ENV': '1'}):
-            self.assertEqual(self.resolve(host='claude', candidate='local')['target_runtime'], 'pi')
+            result = self.resolve(host='claude', candidate='local')
+            self.assertEqual((result['target_runtime'], result['executor_source']), ('codex', 'built-in'))
 
     def test_shared_routes_replace_whole_and_do_not_invent_bridges(self):
         self.data['runtimes']['codex']['executors']['claude'] = {

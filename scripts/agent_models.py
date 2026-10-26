@@ -24,6 +24,10 @@ from decisions import systemone_request
 
 ROOT = Path(__file__).resolve().parents[1]
 HARNESSES = ('claude', 'codex', 'pi', 'opencode')
+# Herdr is zloop's built-in worker provider: in a Herdr session every runtime is reachable through it, and a host whose
+# own delegation would come from a third-party extension (Pi) prefers it. Its procedure is hosts/herdr.md.
+BUILT_IN_ROUTES = {'herdr': {'type': 'herdr'}}
+EXTENSION_DELEGATION = ('pi',)
 DEFINITIONS = agent_defs.load()
 AGENTS = tuple(sorted(DEFINITIONS['agents']))
 JOBS = DEFINITIONS['jobs']
@@ -352,7 +356,7 @@ def select_candidate(pool, candidate, recommendation, eligible_candidates, task,
 def expand_executor_type(instance, executor_types):
     """Resolve a named skill usage while leaving assignment and model policy intact."""
     name = instance['executor']['type']
-    if name in ('subagent', 'skill', 'bash'):
+    if name in ('subagent', 'skill', 'bash', 'herdr'):
         return instance, {}
     if name not in executor_types:
         raise ValueError(f'Unknown executor type {name!r}; define it in executor_types')
@@ -376,17 +380,22 @@ def expand_model(name, catalog, runtimes, host, target_runtime=None):
     for runtime in ordered:
         runtime_definition, runtime_source = runtimes[runtime]
         executors = runtime_definition['executors']
-        context = host if host in executors else 'herdr' if os.environ.get('HERDR_ENV') == '1' else None
-        if context not in executors:
+        contexts = [host]
+        if os.environ.get('HERDR_ENV') == '1':
+            contexts = ['herdr', host] if host in EXTENSION_DELEGATION else [host, 'herdr']
+        context = next((name for name in contexts if name in executors or name in BUILT_IN_ROUTES), None)
+        if context is None:
             continue
         binding = bindings[runtime]
         policy = {key: binding[key] for key in ('thinking', 'allow_thinking_override') if key in binding}
-        instance = {'executor': executors[context], 'description': definition['description'],
+        instance = {'executor': executors.get(context) or BUILT_IN_ROUTES[context],
+                    'description': definition['description'],
                     'models': dict(policy, mode='override', model=binding['id'])}
         return instance, {'executor_context': context, 'target_runtime': runtime,
                           'model_definition_source': source,
                           'model_binding_source': source + '.runtimes.' + runtime,
-                          'executor_source': runtime_source + '.executors.' + context}
+                          'executor_source': (runtime_source + '.executors.' + context if context in executors
+                                              else 'built-in')}
     return None, f'No configured route from {host!r} to model runtimes {ordered} in this environment'
 
 
@@ -770,8 +779,8 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
             'thinking_baseline': thinking['default'] if bounded else thinking,
             **({'thinking_allowed': thinking['allowed']} if bounded else {}),
             'route_source': source, **metadata, **({'launch': launch} if launch else {}),
-            'executor_guide': str(ROOT / ('runtime/config/bash-executor.md' if kind == 'bash'
-                                           else f'hosts/executors/{kind}.md'))}
+            'executor_guide': str(ROOT / {'bash': 'runtime/config/bash-executor.md', 'herdr': 'hosts/herdr.md'}.get(
+                kind, f'hosts/executors/{kind}.md'))}
 
 
 PI_TOOLS = {'none': ('read', 'grep', 'find', 'ls', 'bash'), 'worktree': ('read', 'bash', 'edit', 'write', 'grep', 'find', 'ls')}
