@@ -1225,6 +1225,10 @@ class BoardCLI(unittest.TestCase):
         assert sorted(refused.splitlines()) == sorted([
             'fx: review_by: review/fx/1 returned review_status: findings, not clean',
             'fx: e2e_by: e2e/fx/1 returned e2e_status: failed, not passed']), refused
+        # Rewriting those reports afterwards does not change what their workers returned.
+        reviewer.write_text(evidence)
+        verifier.write_text(evidence)
+        assert self.cli('fx', '--delivery', code=1).stderr == refused, refused
         # Their verdicts are taken as they returned them: a report edited afterwards does not count.
         reviewer.write_text(evidence)
         verifier.write_text(evidence)
