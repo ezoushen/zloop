@@ -337,6 +337,17 @@ class BoardCLI(unittest.TestCase):
         self.git('merge', '-q', '--ff-only', 'feat/inline-02')
         self.cli('inline', '--set', 'inline/02', 'status=done')
 
+    def test_a_done_ticket_lent_to_e2e_as_verifying_returns_to_done(self):
+        # The E2E sentinel: a done ticket, accepted before acceptance was recorded, is set verifying and back.
+        self.write_ticket('inline/01', 'done')
+        self.write_ticket('inline/02', 'implementing', touches='docs')
+        self.cli('inline', '--set', 'inline/01', 'status=verifying')
+        self.cli('inline', '--set', 'inline/01', 'status=done')
+        # A ticket that was never done does not become done through the sentinel.
+        self.cli('inline', '--set', 'inline/02', 'status=verifying')
+        refused = self.cli('inline', '--set', 'inline/02', 'status=done', code=1)
+        assert 'inline/02: status=done needs a passing --accept first' in refused.stdout + refused.stderr, refused
+
     def test_a_delegated_ticket_is_accepted_only_on_the_report_its_worker_returned(self):
         # jose retro: the orchestrator wrote base lines and ticked criteria into builders' reports to pass --accept.
         self.write_ticket('inline/01', 'implementing')

@@ -743,7 +743,13 @@ def set_field(tickets, name, assignments):
         fields["start"] = commit_of(branch_ref(effort) or "refs/heads/main")
         if not fields["start"]:
             sys.exit(f"{name}: no effort branch ({effort}) or main to record the start of implementing from")
-    if fields.get("status") == "done" and fm.get("status") != "done":
+    # The E2E sentinel lends a done ticket to `verifying` and gives it back; only a ticket lent that way returns
+    # to done without its acceptance.
+    if fields.get("status") == "verifying" and fm.get("status") == "done":
+        fields["lent"] = "done"
+    elif fm.get("status") == "verifying" and "status" in fields:
+        fields["lent"] = None
+    if fields.get("status") == "done" and fm.get("status") != "done" and fm.get("lent") != "done":
         accepted = fm.get("accepted") or ""
         if not re.fullmatch("[0-9a-f]{40}", accepted):
             sys.exit(f"{name}: status=done needs a passing --accept first")
@@ -767,8 +773,8 @@ def set_field(tickets, name, assignments):
 
 
 def write_fields(fm, fields):
-    """Write each field to a ticket's front matter; None removes the field. Only status, blocker, start and accepted
-    may be added; another key must already be in the template."""
+    """Write each field to a ticket's front matter; None removes the field. Only status, blocker, start, accepted
+    and lent may be added; another key must already be in the template."""
     path = ROOT / fm["path"]
     head, sep, body = path.read_text().partition("\n---\n")
     for key, value in fields.items():
@@ -777,7 +783,7 @@ def write_fields(fm, fields):
             head = re.sub(rf"\n{re.escape(key)}:.*$", "", head, flags=re.M)
         elif pattern.search(head):
             head = pattern.sub(lambda match: f"{match[1]} {value}", head, count=1)
-        elif key in ('status', 'blocker', 'start', 'accepted'):
+        elif key in ('status', 'blocker', 'start', 'accepted', 'lent'):
             head += f'\n{key}: {value}'
         else:
             sys.exit(f"{fm['ticket']}: no front-matter key {key!r}")
