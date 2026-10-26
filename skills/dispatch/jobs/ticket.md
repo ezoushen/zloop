@@ -47,6 +47,7 @@ Reuse passing evidence only when relevant code, inputs and environment match; re
 its original head and provenance. Run missing or invalidated checks and repair
 failures caused by this ticket without another request. Keep unavailable required
 checks explicit.
+A ticket with `needs` runs `capability_probe.py` in its worktree first and returns blocked naming a need it reports unavailable; otherwise it saves the output in the evidence directory and lists that file in its result evidence.
 For important failure paths, check that the test actually reaches the failing
 operation and that its assertion can fail; a dry-run bypass is not refusal evidence.
 The standard's deliberate break of each test's rule is the negative control; it is

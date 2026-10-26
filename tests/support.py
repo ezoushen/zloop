@@ -38,7 +38,9 @@ def assignment_file(root, job, text=''):
     """An assignment for job that names every input the resolver requires, followed by text."""
     import agent_defs
     definition = agent_defs.load()['jobs'][job]
-    lines = [f'{name}: /fixture/{name.replace(" ", "-")}' for name in (*agent_defs.COMMON_INPUTS, *definition['inputs'])]
+    # The ticket is a tracker ID, not a path: an absolute path to a missing ticket file is refused at collection.
+    lines = [f'{name}: ' + ('fx/01' if name == 'ticket' else f'/fixture/{name.replace(" ", "-")}')
+             for name in (*agent_defs.COMMON_INPUTS, *definition['inputs'])]
     path = Path(root) / f'{job}-assignment.txt'
     path.write_text('\n'.join(lines) + '\n' + text)
     return path
