@@ -58,6 +58,44 @@ class CriticalAllowance(RouterCase):
         self.project.write_text(json.dumps({'include_critical_allowance': True}))
         self.assertEqual(self.resolve(candidate='sol')['candidate'], 'sol')
 
+    def test_a_pinned_model_on_a_critical_provider_is_refused_unless_a_layer_includes_it(self):
+        self.codex_critical()
+        self.data['models']['sol']['cost'] = 'subscription'
+        self.data['agents']['builder'] = {'model': 'sol'}
+        self.save()
+        with self.assertRaisesRegex(ValueError, r"(?s)Model 'sol'.*allowance.*include_critical_allowance"):
+            self.resolve()
+        self.project.write_text(json.dumps({'include_critical_allowance': True}))
+        self.assertEqual(self.resolve()['settings']['model'], 'codex/sol')
+
+    def test_a_native_route_on_a_critical_host_provider_is_refused_unless_a_layer_includes_it(self):
+        self.codex_critical()
+        del self.data['agents']
+        self.save()
+        with self.assertRaisesRegex(ValueError, r'(?s)allowance.*include_critical_allowance'):
+            self.resolve(host='codex')
+        self.assertTrue(self.resolve(host='claude')['native_dispatch'])
+        self.project.write_text(json.dumps({'include_critical_allowance': True}))
+        self.assertTrue(self.resolve(host='codex')['native_dispatch'])
+
+    def test_a_model_names_the_allowance_it_spends_whatever_runtime_binds_it(self):
+        self.codex_critical()
+        self.data['runtimes']['pi'] = {'executors': {'pi': {'type': 'subagent'}}}
+        self.data['models']['pisol'] = {'description': 'sol over pi', 'cost': 'subscription', 'allowance': 'codex',
+                                        'runtimes': {'pi': {'id': 'openai-codex/sol'}}}
+        self.data['models']['pifree'] = {'description': 'unnamed over pi', 'cost': 'subscription',
+                                         'runtimes': {'pi': {'id': 'pi/free'}}}
+        self.data['agents']['builder']['candidates'] = ['opus', 'pisol', 'pifree']
+        self.save()
+        listed = self.resolve(list_candidates=True)
+        self.assertIn('codex allowance', listed['unavailable_candidates']['pisol'])
+        self.assertEqual(set(listed['candidates']), {'opus', 'pifree'})
+
+    def test_the_allowance_refusal_survives_other_exclusions_that_empty_the_pool(self):
+        self.codex_critical()
+        with self.assertRaisesRegex(ValueError, r'(?s)allowance.*include_critical_allowance'):
+            self.resolve(eligible_candidates=[])
+
 
 if __name__ == '__main__':
     unittest.main()

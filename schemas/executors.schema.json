@@ -230,6 +230,10 @@
           "description": "What a worker spends: a subscription allowance, nothing (a free hosted endpoint), or local machine capacity.",
           "enum": ["subscription", "free", "local"]
         },
+        "allowance": {
+          "description": "The subscription allowance reading this model spends, when its worker runtime is not that provider (a Pi binding to a Claude or Codex plan).",
+          "enum": ["claude", "codex"]
+        },
         "backend": {
           "description": "The local model server this model runs on; its slots are shared through top-level capacity.",
           "$ref": "#/$defs/identifier"

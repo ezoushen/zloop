@@ -264,6 +264,14 @@ def backend_unavailable(definition, backends, checked=None):
     return None
 
 
+def allowance_refusal(unavailable):
+    """Refuse a job left with no eligible candidate when an allowance exclusion was among the reasons."""
+    reasons = {name: reason for name, reason in unavailable.items() if reason.endswith('include_critical_allowance')}
+    if reasons:
+        raise ValueError('No eligible candidates remain; allowance exclusion: ' + '; '.join(
+            f'{name}: {reason}' for name, reason in reasons.items()))
+
+
 def weight(runtime, levels):
     return PRESSURE_WEIGHTS.get(levels.get(runtime), COST_WEIGHT)
 
@@ -467,9 +475,15 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
         backends.update(data.get('capacity', {}))
     pressure = {} if include_critical else allowance_levels()
 
-    def spent(name, provider):
-        # Only a subscription candidate spends the provider's allowance; free and local ones do not.
-        return pressure.get(provider) == 'critical' and COSTS.get(catalog[name][0].get('cost'), 1.0) > 0
+    def spent(name, runtime):
+        # Only a subscription model spends an allowance; free and local ones do not. A model names the reading it
+        # spends (`allowance`), else its worker runtime does: a Pi binding can spend a Claude or Codex subscription.
+        definition = catalog[name][0]
+        return (pressure.get(definition.get('allowance', runtime)) == 'critical'
+                and COSTS.get(definition.get('cost'), 1.0) > 0)
+
+    def critical(name, runtime):
+        return CRITICAL.format(provider=catalog[name][0].get('allowance', runtime))
     runtimes = {name: (definition, f'{path}:runtimes.{name}')
                 for path, data in layers for name, definition in data.get('runtimes', {}).items()}
     executor_types = {name: (definition, f'{path}:executor_types.{name}')
@@ -548,17 +562,15 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
             if resolved is None:
                 unavailable[name] = detail
             elif spent(name, detail['target_runtime']):
-                unavailable[name] = CRITICAL.format(provider=detail['target_runtime'])
+                unavailable[name] = critical(name, detail['target_runtime'])
             else:
                 expanded[name], definitions[name] = resolved, detail
                 backend = catalog[name][0].get('backend')
                 if backend in backends:
                     # The lifecycle takes this backend's lease when the worker registers.
                     definitions[name].update(backend=backend, capacity=backends[backend])
-        if not expanded and not list_candidates and any(reason.endswith('include_critical_allowance')
-                                                        for reason in unavailable.values()):
-            raise ValueError('No eligible candidates remain; allowance exclusion: ' + '; '.join(
-                f'{name}: {reason}' for name, reason in unavailable.items()))
+        if not expanded and not list_candidates:
+            allowance_refusal(unavailable)
         metadata['unavailable_candidates'] = unavailable
         metadata['candidate_routes'] = definitions
         instance = dict(instance, candidates=expanded)
@@ -569,9 +581,12 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
         full = backend_unavailable(catalog[name][0] if name in catalog else {}, backends, checked)
         if full:
             raise ValueError(f'Model {name!r}: {full}')
-        instance, detail = expand_model(name, catalog, runtimes, host, target_runtime)
-        if instance is None:
+        resolved, detail = expand_model(name, catalog, runtimes, host, target_runtime)
+        if resolved is None:
             raise ValueError(f'Model {name!r}: {detail}')
+        if spent(name, detail['target_runtime']):
+            raise ValueError(f'Model {name!r}: {critical(name, detail["target_runtime"])}')
+        instance = resolved
         metadata.update(detail)
         backend = catalog[name][0].get('backend')
         if backend in backends:
@@ -626,6 +641,8 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
                     competing[name] = route['target_runtime']
         if eligible_candidates is not None:
             eligible_candidates = [name for name in eligible_candidates if name in pool['candidates']]
+            if not eligible_candidates:
+                allowance_refusal(metadata.get('unavailable_candidates', {}))
         decision_requested = (router['type'] == 'decision-model' and assignment is not None
                               and candidate is None and selection is None)
         if decision_requested and router.get('consult') == 'after-failure' and after_failure is None:
@@ -732,6 +749,10 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
             adaptive_thinking = recommended_thinking
     elif choice is None and any(value is not None for value in (candidate, selection, eligible_candidates)):
         raise ValueError('candidate selection requires a configured candidate pool')
+    if not pooled and 'target_runtime' not in metadata and pressure.get(host) == 'critical' and (
+            instance is None or (instance['executor']['type'] == 'subagent'
+                                 and not instance['executor'].get('config', {}).get('agent'))):
+        raise ValueError(f'Native route: {CRITICAL.format(provider=host)}')  # A catalog model's own cost decides.
     if instance is None:
         if adaptive_thinking is not None:
             raise ValueError('adaptive thinking requires an agent with allow_thinking_override: true')
