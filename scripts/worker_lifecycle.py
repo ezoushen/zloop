@@ -81,7 +81,7 @@ def closed_sessions(db):
     return {(row['runtime'], row['native_session']): row for row in attempts(db) if row.get('closed')}
 
 
-def final_retirement(db, saved, declining=False):
+def final_retirement(db, saved, declined=False):
     """Every attempt of the conversation is collected with its report intact, or declined (a changed report can
     never be accepted, and its attempt still closes), and nothing of it is still waiting."""
     siblings = {row['attempt']: row for row in attempts(db)
@@ -90,7 +90,7 @@ def final_retirement(db, saved, declining=False):
                   if row[0] in siblings)
     require(latest == saved['attempt'], 'Retire the final registered attempt of the native conversation')
     require(all(row.get('result')
-                and (report_intact(row) or row.get('declined') or declining and row['attempt'] == saved['attempt'])
+                and (report_intact(row) or row.get('declined') or declined and row['attempt'] == saved['attempt'])
                 and not watching(row)
                 and not pending(db, row['attempt']) and not wait_running(row) for row in siblings.values()),
             'Collect all conversation attempts, each with an intact report or declined, and reconcile their '
@@ -345,6 +345,13 @@ def assess_wake(db, saved, report):
         return {'assessment': 'recorded'}
     except (OSError, ValueError, KeyError) as error:
         return {'assessment': f'not recorded: {error}'}
+
+
+def declining(saved, acceptance):
+    """Whether the attempt is declined, or this closure's acceptance decision will decline it (an attempt already
+    accepted is never declined by it)."""
+    return bool(saved.get('declined')) or (unsettled(saved) and isinstance(acceptance, dict)
+                                           and acceptance.get('decision') == 'declined')
 
 
 def unsettled(saved):
@@ -777,14 +784,14 @@ def record(db, data, refuse_changes=False):
                 require(text(data.get('reason')), 'Declining requires a reason')
                 saved['declined'] = data
             elif kind in ('retain', 'closed'):
-                declining = kind == 'closed' and (data.get('acceptance') or {}).get('decision') == 'declined'
+                declined = declining(saved, data.get('acceptance') if kind == 'closed' else None)
                 if kind == 'closed':
-                    final_retirement(db, saved, declining)
+                    final_retirement(db, saved, declined)
                 receipts = pending(db, attempt)
                 require(saved.get('result') and not watching(saved)
                         and (not receipts or kind == 'retain' and all(r['kind'] == 'hold' for r in receipts)),
                         'Collect result and acknowledge receipts before retaining or closing')
-                require(report_intact(saved) or saved.get('declined') or declining,
+                require(report_intact(saved) or declined,
                         'Retain an intact report before retaining or closing, or decline the attempt')
                 if kind == 'closed':
                     require(saved['owned'], 'Existing user worker is not a cleanup target')
@@ -1245,7 +1252,8 @@ def retire(db, state, attempt, request):
     require(saved['owned'], 'Existing user worker is not a cleanup target')
     require(saved.get('result') and not watching(saved) and not pending(db, attempt)
             and not wait_running(saved), 'Collect result, acknowledge receipts and reconcile owned waits before retirement')
-    require(report_intact(saved), 'Retain an intact report before retirement')
+    declined = declining(saved, request.get('acceptance'))
+    require(report_intact(saved) or declined, 'Retain an intact report before retirement, or decline the attempt')
     session, pane = request.get('session'), request.get('pane')
     require(text(session) and text(pane), 'Retirement requires explicit Herdr session and pane')
     require(pane != os.environ.get('HERDR_PANE_ID'), 'Caller pane is not a cleanup target')
@@ -1257,7 +1265,7 @@ def retire(db, state, attempt, request):
     if closure:
         return {'attempt': attempt, 'closed': True, 'native_closed_by': closure['attempt'],
                 'evidence': closure['closed']['evidence']}
-    final_retirement(db, saved)
+    final_retirement(db, saved, declined)
     settle(dict(saved), request.get('acceptance'))  # Refuse before the pane closes, not after.
     previous = saved.get('retirement_requested')
     if previous:
@@ -1280,7 +1288,7 @@ def retire(db, state, attempt, request):
         db.execute('BEGIN IMMEDIATE')
         with db:
             saved = get(db, attempt)
-            final_retirement(db, saved)
+            final_retirement(db, saved, declined)
             current = saved.get('retirement_requested')
             require(not current or process_stamp(current['pid']) != current['stamp'],
                     'Retirement already owned by a live process')

@@ -169,6 +169,22 @@ class Retirement(WorkerLifecycleCase):
         self.record('closed', evidence=['native pane closure confirmed'], acceptance={'decision': 'deferred', 'reason': 'acceptance checks pending'})
         self.cli('gate', '--attempt', 'ticket-1/1', '--stage', 'work', code=1)
 
+    def test_retiring_a_worker_whose_report_changed_declines_it(self):
+        # As closing does: a changed report can never be accepted, and its worker still retires once declined.
+        self.register()
+        self.ready()
+        report = self.collect()
+        self.acknowledge()
+        report.write_text(report.read_text() + 'changed after collection\n')
+        self.herdr_fixture()
+        request = self.root / 'retire.json'
+        retire = {'session': 'fixture-session', 'pane': 'pane-1', 'jobs_evidence': ['jobs stopped']}
+        request.write_text(json.dumps(dict(retire, acceptance={'decision': 'deferred', 'reason': 'pending'})))
+        self.assertIn('intact report', self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2))
+        request.write_text(json.dumps(dict(retire, acceptance={'decision': 'declined', 'reason': 'report changed'})))
+        self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request))
+        self.assertEqual(self.cli('status')['attempts'][0]['declined']['reason'], 'report changed')
+
     def test_existing_user_worker_cannot_be_recorded_as_closed(self):
         self.register(owned=False)
         self.ready()

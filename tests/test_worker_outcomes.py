@@ -109,6 +109,33 @@ class Outcomes(WorkerLifecycleCase):
                     acceptance={'decision': 'declined', 'reason': 'its report changed after it was collected'})
         attempt = self.cli('status')['attempts'][0]
         self.assertEqual(attempt['declined']['reason'], 'its report changed after it was collected')
+        # Asking to decline an attempt already accepted declines nothing, so it is refused too.
+        self.register('ticket-2/1', 'ticket-2', 'native-2', 'pane-2')
+        self.ready('ticket-2/1')
+        accepted = self.collect('ticket-2/1')
+        self.acknowledge()
+        self.record('accepted', 'ticket-2/1', commit='merge-2', evidence=['git log merge-2'])
+        accepted.write_text(accepted.read_text() + 'changed after acceptance\n')
+        error = self.record('closed', 'ticket-2/1', evidence=['native session exited'], code=2,
+                            acceptance={'decision': 'declined', 'reason': 'report changed'})
+        self.assertIn('intact report', error)
+
+    def test_a_conversation_closes_only_when_each_of_its_changed_reports_is_declined(self):
+        # Two attempts of one native conversation: the earlier one's report changed and stays undeclined.
+        self.register()
+        self.ready()
+        earlier = self.collect()
+        self.acknowledge()
+        self.record('retain', reason='Same-assignment recheck needed', next_use='recheck', evidence=['report'])
+        self.register('ticket-1/2')
+        self.ready('ticket-1/2')
+        self.collect('ticket-1/2')
+        self.acknowledge()
+        earlier.write_text(earlier.read_text() + 'changed after collection\n')
+        closing = dict(evidence=['native session exited'], acceptance={'decision': 'deferred', 'reason': 'pending'})
+        self.assertIn('intact report', self.record('closed', 'ticket-1/2', code=2, **closing))
+        self.record('declined', 'ticket-1/1', reason='its report changed after it was collected', evidence=['report digest'])
+        self.record('closed', 'ticket-1/2', **closing)
 
     def test_closing_a_completed_ticket_settles_its_acceptance(self):
         self.register()
