@@ -597,6 +597,25 @@ def submitted_at(db, attempt):
     return min(times) if times else None
 
 
+def unmet_needs(saved, evidence):
+    """Why a completed ticket attempt's evidence does not show its ticket's needs available, else None.
+
+    The worker's own probe is a JSON file named in the result evidence; the coordinator's environment says
+    nothing about a sandboxed worker's."""
+    packet = Path(saved.get('packet') or '')
+    job = DEFINITIONS['jobs'][saved['job']]
+    if 'ticket' not in job['inputs'] or not packet.is_file():
+        return None
+    needs = capability_probe.ticket_needs(agent_defs.input_value(job, packet.read_text(errors='replace'), 'ticket'))
+    reports = []
+    for entry in evidence if isinstance(evidence, list) else []:
+        try:
+            reports.append(json.loads(Path(entry).read_text()))
+        except (OSError, ValueError):
+            continue
+    return capability_probe.unmet(needs, reports, saved['worktree'])
+
+
 def record(db, data, refuse_changes=False):
     kind, attempt = data.get('kind'), data.get('attempt')
     require(text(attempt), 'Event requires attempt')
@@ -727,13 +746,6 @@ def record(db, data, refuse_changes=False):
                 require(isinstance(aliases, list) and all(text(x) for x in aliases), 'Invalid alias evidence')
                 require(not aliases or text(observed.get('model')) and text(saved['requested'].get('model')),
                         'Alias evidence requires requested and observed model IDs')
-                packet = Path(saved.get('packet') or '')
-                problem = capability_probe.unmet(
-                    capability_probe.ticket_needs(packet.read_text(errors='replace') if packet.is_file() else ''),
-                    data.get('probe'))
-                require(not problem, problem)
-                if 'probe' in data:
-                    saved['probe'] = data['probe']
                 saved['observed'], saved['startup_evidence'] = observed, data
                 if located:
                     # A Claude or Codex native child records its coordinator's directory, so this only warns.
@@ -764,6 +776,7 @@ def record(db, data, refuse_changes=False):
                 if data['status'] == 'completed':
                     require(not gaps(db, saved, 'work') and saved.get('submitted'),
                             'Completion requires verified settings, accepted prompt and resolved design hold')
+                    require(not unmet_needs(saved, data.get('evidence')), unmet_needs(saved, data.get('evidence')))
                 require(not saved.get('result'), 'Result already collected; use a new attempt for further work')
                 saved['result'] = dict(data, report_sha256=hashlib.sha256(report.read_bytes()).hexdigest())
                 verdict = report_verdict(report)
@@ -1190,8 +1203,7 @@ def submit(db, state, attempt, request):
         stream.write('\n')
     record(db, dict(kind='startup', attempt=attempt, observed=observation['observed'],
                     evidence=[str(snapshot)], native_observation=observation,
-                    model_alias_evidence=request.get('model_alias_evidence', []),
-                    **({'probe': request['probe']} if 'probe' in request else {})))
+                    model_alias_evidence=request.get('model_alias_evidence', [])))
     return watch(db, state, attempt, request, productive=True)
 
 

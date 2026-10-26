@@ -81,30 +81,40 @@ def repo_write():
     return 'available', f'created and removed a file in {git_dir}'
 
 
-def ticket_needs(assignment):
-    """The `needs:` a ticket declares, for the local ticket file an assignment's `ticket:` line names; else []."""
-    named = re.search(r'^ticket:[ \t]*(.*\S)', assignment, re.M)
-    path = Path(named.group(1)) if named else None
-    if not path or not path.is_absolute() or not path.is_file():
+def ticket_needs(ticket):
+    """The `needs:` a ticket declares, given the assignment's `ticket` value. A value that is not an absolute path
+    (a remote ID or URL) has none; an absolute path to a file that is missing raises ValueError."""
+    if not ticket or not Path(ticket).is_absolute():
         return []
+    path = Path(ticket)
+    if not path.is_file():
+        raise ValueError(f'The assignment names a ticket file that does not exist: {ticket}')
     front = re.match(r'---\n(.*?)\n---\n', path.read_text(errors='replace'), re.S)
     declared = re.search(r'^needs:[ \t]*\[(.*)\]', front.group(1), re.M) if front else None
     return [need.strip() for need in declared.group(1).split(',') if need.strip()] if declared else []
 
 
-def unmet(needs, report):
-    """Why a probe report (None when none was recorded) does not show every need available, else None."""
+def unmet(needs, reports, worktree):
+    """Why the probe reports do not show every need available in worktree, else None. Only a report taken in
+    worktree or inside it counts; when several did, the latest one is judged."""
     if not needs:
         return None
     names = ', '.join(needs)
-    if not isinstance(report, dict):
-        return f'The ticket needs {names}: startup records no probe (run capability_probe.py and record its output)'
-    found = {need: (report.get(need) or {}).get('status', 'missing') for need in needs}
+    here = Path(worktree).resolve()
+    mine = [report for report in reports if isinstance(report, dict) and text_path(report.get('worktree'))
+            and (Path(report['worktree']).resolve() == here or here in Path(report['worktree']).resolve().parents)]
+    if not mine:
+        return f'The ticket needs {names}: no probe of this worktree in the result evidence (run capability_probe.py there)'
+    found = {need: (mine[-1].get(need) or {}).get('status', 'missing') for need in needs}
     short = {need: status for need, status in found.items() if status != 'available'}
     if not short:
         return None
-    return (f'The ticket needs {", ".join(short)}: the recorded probe reports '
+    return (f'The ticket needs {", ".join(short)}: the probe reports '
             + ', '.join(f'{need} {status}' for need, status in short.items()))
+
+
+def text_path(value):
+    return isinstance(value, str) and Path(value).is_absolute()
 
 
 def probe():

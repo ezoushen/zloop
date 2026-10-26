@@ -74,6 +74,16 @@ def missing_inputs(job, assignment):
             if not re.search(rf'(?:^|\s){re.escape(name)}:[ \t]*\S', assignment, re.M)]
 
 
+def input_value(job, assignment, name):
+    """The value of one input in an assignment text, read as `missing_inputs` finds it: from after `name:` to the
+    end of its line or to the next input's name, whichever comes first; None when the input is absent."""
+    found = re.search(rf'(?:^|\s){re.escape(name)}:[ \t]*(\S.*)$', assignment, re.M)
+    if not found:
+        return None
+    others = '|'.join(re.escape(other) for other in (*COMMON_INPUTS, *job['inputs']) if other != name)
+    return re.split(rf'\s(?:{others}):', found.group(1))[0].strip()
+
+
 def agent_problems(root, path):
     fields, body = frontmatter(path)
     name = f'agents/{path.name}'
