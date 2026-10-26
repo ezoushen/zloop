@@ -74,6 +74,8 @@ class ShadowAndCapacity(RouterCase):
         self.profile({'codex': {'candidate': 'sol'}})
         self.data['models']['opus']['cost'] = 'subscription'
         self.save()
+        # Weights show only for candidates routing still reaches, so the critical provider is included.
+        self.project.write_text(json.dumps({'include_critical_allowance': True}))
         with patch.dict(os.environ, {'CODEX_HOME': str(codex)}):
             shadow = self.resolve(target_runtime='codex', assignment='Implement ticket 1.')['shadow_selection']
         self.assertEqual(shadow['allowance'], {'claude': 'normal', 'codex': 'critical'})

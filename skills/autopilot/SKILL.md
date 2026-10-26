@@ -59,7 +59,10 @@ the card with the user's words.
    In a repository with no PR host, publish nothing: pass the PR procedure's delivery gate, write the delivery report and end `delivered-local`.
 
 At each phase boundary and before each worker launch, run `python3 "<plugin_root>/scripts/allowance.py" status`.
-If it is `critical` for a provider this run uses, finish the step in progress, commit passing work and end `paused-allowance`.
+Routing already leaves out the candidates of a `critical` provider unless a configuration layer sets `include_critical_allowance`,
+so a `critical` provider that still leaves every needed job an eligible candidate does not pause the run. Pause only when the
+resolver refuses a needed job for want of an eligible candidate and names the allowance: finish the step in progress, commit
+passing work and end `paused-allowance`, and have the report ask the user whether to include the critical provider.
 Ending `paused-allowance`, schedule the resume instead of leaving it to the user: set one timer through the host's
 native scheduler, named in its session part's Resume timer section, for just after the reset of the window that drove the level (the latest `resets_at` of the windows at 80%
 used or projected, or five minutes from now when none is, since `critical` also holds for five minutes) that runs `autopilot --take-over --timed`, and record the time and the timer's handle on the card. The
@@ -103,7 +106,7 @@ Record exactly one terminal state, with its evidence, in the card's State:
 - `merged`: only with `--auto-merge`. It merges only through the repository's normal path, once required checks
   and the [approval path](../../runtime/board/approval-path.md) are satisfied, never by admin override or self-approval.
 - `waiting-on-user`: a pause-list action is needed.
-- `paused-allowance`: the allowance reached `critical`.
+- `paused-allowance`: a needed job has no eligible candidate because its providers' allowance is `critical`.
 - `paused-by-user`: the user took control with `--pause`.
 - `blocked`: no option fits the principles, or split tickets failed again.
 
