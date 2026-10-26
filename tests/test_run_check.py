@@ -210,6 +210,25 @@ class RunCheckTests(unittest.TestCase):
             stale = run('stale', 3)
             self.assertEqual(stale['failure_cause']['status'], 'unavailable')
 
+    def test_the_summary_is_kept_beside_the_log_with_the_commit_the_check_ran_at(self):
+        # The delivery gate reads it: an E2E run the orchestrator ran itself is evidence only at the head it ran.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / 'repo'
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+            subprocess.run(['git', '-C', str(repo), '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q',
+                            '--allow-empty', '-m', 'head'], check=True)
+            head = subprocess.run(['git', '-C', str(repo), 'rev-parse', 'HEAD'], capture_output=True,
+                                  text=True).stdout.strip()
+            for name, code, cwd in (('passing', 0, repo), ('failing', 4, repo), ('outside', 0, Path(tmp))):
+                log = Path(tmp) / f'{name}.log'
+                result = subprocess.run([sys.executable, str(RUNNER), '--timeout', '10', '--log', str(log), '--',
+                                         sys.executable, '-c', f'exit({code})'], cwd=cwd, capture_output=True,
+                                        text=True, timeout=20)
+                self.assertEqual(result.returncode, code, result.stderr)
+                summary = json.loads(Path(f'{log}.summary.json').read_text())
+                self.assertEqual(summary, json.loads(result.stdout))
+                self.assertEqual((summary['exit_code'], summary.get('head')), (code, head if cwd == repo else None))
+
     def test_failed_check_retains_both_streams_and_exit_code(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / 'check.log'

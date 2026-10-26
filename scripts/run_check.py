@@ -108,10 +108,24 @@ def main():
                'cleanup_required': cleanup_required,
                'interrupted_signal': interrupted, 'missing_output': missing,
                'log': os.path.abspath(args.log)}
+    # The commit the check ran at, when it ran in a git checkout: a delivery gate takes a run only at its head.
+    head = subprocess.run(['git', 'rev-parse', '--verify', 'HEAD'], capture_output=True, text=True)
+    if head.returncode == 0:
+        summary['head'] = head.stdout.strip()
+    keep(summary)
     if code and args.classify_failure:
         summary['failure_cause'] = classify(summary, args)
+        keep(summary)
     print(json.dumps(summary))
     return code
+
+
+def keep(summary):
+    """Keep the summary beside its log, replacing one a reused log name left."""
+    path = summary['log'] + '.summary.json'
+    with os.fdopen(os.open(path + '.tmp', os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'w') as output:
+        json.dump(summary, output)
+    os.replace(path + '.tmp', path)
 
 
 def classify(summary, args):
@@ -121,8 +135,6 @@ def classify(summary, args):
     # Reading executor configuration needs the plugin environment's dependencies.
     python = os.path.join(root, '.venv/bin/python')
     try:
-        with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as output:
-            json.dump(summary, output)
         result = subprocess.run(
             [python if os.path.exists(python) else sys.executable, '-B', os.path.join(root, 'scripts/decisions.py'),
              'classify-failure', '--repo', args.repo, '--summary', path, '--journal', args.classify_failure,
