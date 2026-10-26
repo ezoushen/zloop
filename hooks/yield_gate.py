@@ -11,7 +11,8 @@ agent of its Herdr workspace. The session bound to coordinate an effort (next_ti
 attempt, neither retained nor retired, whose Herdr tab is still open, and for an effort whose
 review report (before it records one, the binding) records autofix: true and no blocker, with
 every ticket done and delivery failing, until it is finished (branch deleted, reviewed head in
-main, E2E passed at a head in main). A
+main, E2E passed at a head in main), unless a live worker of the effort holds a running wait that will wake the
+host. A
 check that cannot run, and a launch log line that is unreadable or malformed, are named gaps,
 never a pass. `claude` and `codex` speak their shared Stop
 hook protocol; `check <cwd> [session]` prints the gaps and the hold's message as JSON for other hosts. Set
@@ -172,6 +173,8 @@ def undelivered(root, pane, session):
                     or any(fm['status'] != 'done' for name, fm in tickets.items() if board.spec_of(name) == slug)
                     or board.finished(slug)):
                 continue
+            if awaited(path.with_name('workers.sqlite')):
+                continue
             problems = board.delivery_problems(slug)
         except (Exception, SystemExit) as error:  # A check that cannot run is a named gap, never a pass.
             missing.append(f'could not check delivery of {slug}: {error}')
@@ -181,6 +184,23 @@ def undelivered(root, pane, session):
                            f'handoff ({HANDOFF}) until `python3 {ROOT}/scripts/next_tickets.py --repo {root} {slug} '
                            f'--delivery` passes, or record `blocker: <reason>` in {path.with_name("spec-review.md")}')
     return missing
+
+
+def awaited(state):
+    """Whether a live worker of the run holds a running wait with a wake channel: the host is told when it settles, so
+    its delivery is not stuck."""
+    if not state.is_file():
+        return False
+    module = lifecycle()
+    db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
+    try:
+        closed, saved_attempts = module.closed_sessions(db), module.attempts(db)
+    finally:
+        db.close()
+    return any((saved.get('submitted') or saved.get('submission_requested')) and not saved.get('result')
+               and (saved['runtime'], saved['native_session']) not in closed and module.watching(saved)
+               and module.process_stamp(saved['monitor']['pid']) == saved['monitor']['stamp']
+               and saved['monitor'].get('notify') for saved in saved_attempts)
 
 
 def read_binding(path, pane, session):
