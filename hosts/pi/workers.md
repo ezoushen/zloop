@@ -2,9 +2,9 @@
 
 ## Delegation
 
-Resolve [executors](../../runtime/workers/launch.md) first. The operations below apply to `native`;
-an explicitly selected external executor owns its launch/lifecycle and settings.
-Native dispatch requires Pi's `subagent` capability (provided here by pi-subagents).
+Resolve [executors](../../runtime/workers/launch.md) first. In a Herdr session Pi workers run through Herdr, the
+built-in provider. The rest of this section applies to `native`, outside Herdr: Pi has no delegation of its own, so it
+needs an extension offering a `subagent` capability that meets the provider contract (pi-subagents is one).
 Inspect its current schema and `subagent({ action: "list", capabilities: true })`
 before assigning work. Use `action: "guide", topic: "tool-reference"` for unfamiliar
 operations. A missing delegation capability blocks that native launch. Return the

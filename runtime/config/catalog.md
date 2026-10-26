@@ -28,24 +28,8 @@ registered model ID. Replace illustrative local IDs with installed catalog value
     }
   },
   "runtimes": {
-    "codex": {
-      "executors": {
-        "codex": {"type": "subagent"},
-        "herdr": {
-          "type": "skill",
-          "config": {"skill": "herdr", "instruction": "Launch a Codex worker for the supplied assignment and return its complete report."}
-        }
-      }
-    },
-    "pi": {
-      "executors": {
-        "pi": {"type": "subagent"},
-        "herdr": {
-          "type": "skill",
-          "config": {"skill": "herdr", "instruction": "Launch a Pi worker for the supplied assignment and return its complete report."}
-        }
-      }
-    }
+    "codex": {"executors": {"codex": {"type": "subagent"}}},
+    "pi": {"executors": {"pi": {"type": "subagent"}}}
   },
   "agents": {
     "builder": {"candidates": ["sol", "glm"]},
@@ -69,10 +53,9 @@ Prefer its current-host binding when configured and reachable, then other bindin
 in declaration order. This preference never infers model support from its name.
 
 `runtimes.<target>.executors` contains routes indexed by **caller context**. Try
-the actual caller's host key first, then `herdr` only with `HERDR_ENV=1`. For example,
-`runtimes.pi.executors.pi` launches native Pi children; its `herdr` route lets a
-Codex caller start Pi. A Pi worker started through Herdr still uses native Pi
-children when configured. A caller-specific named subagent can bridge runtimes:
+the actual caller's host key first, then `herdr` only with `HERDR_ENV=1`; a Pi caller tries `herdr` first. Herdr is
+built in, so with `HERDR_ENV=1` every runtime has a `herdr` route even when none is configured. For example,
+`runtimes.pi.executors.pi` launches native Pi children outside Herdr. A caller-specific named subagent can bridge runtimes:
 `runtimes.codex.executors.claude` may select an installed Codex delegate in Claude.
 An unnamed subagent is valid only when caller and target are the same runtime.
 Only the actual caller's key and an eligible `herdr` route participate; another

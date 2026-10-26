@@ -46,13 +46,13 @@ one of the following. Executor selection and model policy are separate choices.
 {
   "type": "skill",
   "config": {
-    "skill": "herdr",
+    "skill": "example-bridge",
     "instruction": "Launch a Codex worker for the supplied read-only review assignment and return its complete report."
   }
 }
 ```
 
-Herdr requires a managed Herdr session. A skill's prerequisites and the host's
+Herdr needs no route or skill: it is the built-in provider in a Herdr session. A skill's prerequisites and the host's
 invocation rules still apply; names are not assumed available across hosts.
 For different delegation skills in Claude Code and Codex, configure
 [caller-specific skill routes](catalog.md#caller-specific-skill-routes).

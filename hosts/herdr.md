@@ -14,8 +14,9 @@ session prerequisites and identity checks; this file owns zloop coordination.
 
 ## Route before launching
 
-Prefer configured native children for same-runtime assignments, including Pi-to-Pi.
-Use Herdr for configured cross-runtime assignments or an explicit Herdr route.
+Herdr is zloop's built-in worker provider. A Pi caller launches its workers here; Pi's own delegation would come
+from a third-party extension. Other callers prefer their native children for same-runtime assignments and use Herdr
+for cross-runtime ones or an explicit Herdr route.
 Preserve an explicit user-selected executor and model policy;
 do not infer the destination from a model name or silently replace a saved route.
 Use [runtime definitions](../runtime/config/catalog.md) to share launch routes

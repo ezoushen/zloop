@@ -9,8 +9,13 @@ Contents:
 - [Assignment and outcome](#assignment-and-outcome)
 - [Fan-out](#fan-out)
 
-Core owns assignments, scope, capacity, worktrees and acceptance gates. The built-in
-executor adapters `subagent`, `skill` and `bash` own invocation and collection (JSON Schemas in `schemas/executors/`; instances in runtime launch routes or directly in `agents`).
+Core owns assignments, scope, capacity, worktrees and acceptance gates. A worker provider owns invocation: it
+starts the worker of the target runtime in the assigned worktree with the resolved launch controls, leaves a
+native record the worker lifecycle reads, ends in the lifecycle's wait and closes when retired; the lifecycle
+checks each step. Herdr is the built-in provider (`herdr`; its procedure is the Herdr guide the bootstrap names):
+in a Herdr session every runtime is reachable through it with no configuration. The adapters `subagent`, `skill`
+and `bash` cover the others (JSON Schemas in `schemas/executors/`; instances in runtime launch routes or directly
+in `agents`).
 User-defined `executor_types` wrap skill usage and expand to the skill adapter.
 Definitions are configuration data: resolution never loads user-supplied code or schemas.
 
