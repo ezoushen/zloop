@@ -91,8 +91,8 @@ class RunAll(unittest.TestCase):
         runner = subprocess.Popen([sys.executable, str(root / 'tests/run_all.py')], start_new_session=True,
                                   env=dict(os.environ, PYTHON=sys.executable, TMPDIR=str(root / 'tmp')))
         deadline = time.monotonic() + 10
-        # The runner opens a script's log before starting it; wait for the script itself, which killpg then stops.
-        while not (started.exists() and list((root / 'tmp').glob('*/test_slow.log'))):
+        # The runner opens a unit's log before starting it; wait for the script itself, which killpg then stops.
+        while not (started.exists() and list((root / 'tmp').glob('*/*.log'))):
             self.assertLess(time.monotonic(), deadline, 'the run never started')
             time.sleep(0.05)
         runner.send_signal(signal.SIGTERM)
@@ -196,6 +196,62 @@ class RunAll(unittest.TestCase):
     def test_scripts_do_not_inherit_the_git_hook_environment(self):
         result = self.suite({'test_env.py': 'import os\nraise SystemExit(1 if "GIT_DIR" in os.environ else 0)\n'})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_the_classes_of_one_script_run_as_separate_units_in_the_shared_budget(self):
+        # Rule: a script's test classes are scheduled separately, so a script with two classes keeps two slots busy.
+        scratch = Path(tempfile.mkdtemp(prefix='run all classes '))
+        self.addCleanup(shutil.rmtree, scratch)
+        script = ('import time, unittest\nfrom pathlib import Path\n'
+                  f'marks = Path({str(scratch)!r})\n'
+                  'def meet(mine, other):\n'
+                  '    (marks / mine).touch()\n'
+                  '    deadline = time.monotonic() + 8\n'
+                  '    while not (marks / other).exists():\n'
+                  '        assert time.monotonic() < deadline, other + " never ran beside " + mine\n'
+                  '        time.sleep(0.02)\n'
+                  'class Left(unittest.TestCase):\n'
+                  '    def test_meets_right(self):\n        meet("left", "right")\n'
+                  'class Right(unittest.TestCase):\n'
+                  '    def test_meets_left(self):\n        meet("right", "left")\n'
+                  'if __name__ == "__main__":\n    unittest.main()\n')
+        result = self.suite({'test_pair.py': script}, {'ZLOOP_TEST_SLOTS': '2'})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f'1 regression scripts passed ({sys.executable})', result.stdout)
+
+    def test_every_test_of_a_split_script_runs_exactly_once(self):
+        # Rule: splitting a script into units neither drops nor repeats a test, including inherited and many-test classes.
+        scratch = Path(tempfile.mkdtemp(prefix='run all once '))
+        self.addCleanup(shutil.rmtree, scratch)
+        log = scratch / 'ran'
+        script = ('import os, unittest\n'
+                  f'def record(name):\n    open({str(log)!r}, "a").write(f"{{name}} {{os.getpid()}}\\n")\n'
+                  'class Base(unittest.TestCase):\n'
+                  '    def test_base(self):\n        record(self.id().split(".", 1)[1])\n'
+                  'class Child(Base):\n'
+                  '    def test_child(self):\n        record(self.id().split(".", 1)[1])\n'
+                  'class Many(unittest.TestCase):\n'
+                  + ''.join(f'    def test_n{index:02}(self):\n        record(self.id().split(".", 1)[1])\n' for index in range(40))
+                  + 'if __name__ == "__main__":\n    unittest.main()\n')
+        result = self.suite({'test_split.py': script}, {'ZLOOP_TEST_SLOTS': '4'})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        rows = [line.split() for line in log.read_text().splitlines()]
+        expected = sorted(['Base.test_base', 'Child.test_base', 'Child.test_child']
+                          + [f'Many.test_n{index:02}' for index in range(40)])
+        self.assertEqual(sorted(name for name, _ in rows), expected)
+        self.assertGreater(len({pid for name, pid in rows if name.startswith('Many.')}), 1,
+                           'a 40-test class ran in one process')
+
+    def test_a_failing_class_is_reported_with_its_script_and_class_name(self):
+        script = ('import unittest\n'
+                  'class Fine(unittest.TestCase):\n    def test_ok(self):\n        pass\n'
+                  'class Broken(unittest.TestCase):\n    def test_bad(self):\n        self.fail("why it broke")\n'
+                  'if __name__ == "__main__":\n    unittest.main()\n')
+        result = self.suite({'test_mixed.py': script})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('FAIL test_mixed.Broken', result.stdout)
+        self.assertIn('why it broke', result.stdout)
+        self.assertNotIn('FAIL test_mixed.Fine', result.stdout)
+        self.assertNotIn('passed', result.stdout)
 
 
 if __name__ == '__main__':
