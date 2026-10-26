@@ -1177,7 +1177,7 @@ class BoardCLI(unittest.TestCase):
         review, evidence = self.deliver('fx', 'feat/fx', start, head, workers=False)
         refused = self.cli('fx', '--delivery', code=1).stderr
         assert 'fx: review_by: review/fx/1 names no collected worker attempt' in refused, refused
-        assert 'fx: e2e_by: e2e/fx/1 names no collected worker attempt' in refused, refused
+        assert 'fx: e2e_by: e2e/fx/1 names no collected worker attempt or check run' in refused, refused
         # The reviewer and the E2E worker each returned their own report, with their own verdicts.
         reviewer = review.with_name('review-1.md')
         reviewer.write_text(evidence.replace('review_status: clean', 'review_status: findings'))
@@ -1199,6 +1199,35 @@ class BoardCLI(unittest.TestCase):
         reviewer.write_text(evidence.replace(f'review_head: {head}', f'review_head: {start}'))
         refused = self.cli('fx', '--delivery', code=1).stderr
         assert refused == f'fx: review_by: review/fx/2 report now says review_head: {start}, not {head}\n', refused
+
+    def test_e2e_the_orchestrator_ran_itself_counts_only_as_passing_checks_at_the_head(self):
+        self.write_ticket('fx/01', 'done')
+        start = self.commit('start')
+        self.git('switch', '-q', '-c', 'feat/fx')
+        head = self.commit('reviewed work')
+        logs = Path(tempfile.mkdtemp(prefix='zloop-checks-'))
+        self.addCleanup(shutil.rmtree, logs)
+
+        def check(name, code):
+            log = logs / f'{name}.log'
+            subprocess.run([sys.executable, '-B', str(support.script('run_check.py')), '--timeout', '20', '--log',
+                            str(log), '--', sys.executable, '-c', f'exit({code})'], cwd=self.root,
+                           capture_output=True, check=False)
+            return log
+        suite, lint, failing = check('suite', 0), check('lint', 0), check('failing', 4)
+        self.git('switch', '-q', 'main')
+        earlier = check('earlier', 0)
+        review, evidence = self.deliver('fx', 'feat/fx', start, head)
+        run_by = evidence.replace('e2e_by: e2e/fx/1', f'e2e_by: {suite} {lint}')
+        review.write_text(run_by)
+        self.cli('fx', '--delivery')
+        review.write_text(run_by.replace(str(lint), str(failing)))
+        assert self.cli('fx', '--delivery', code=1).stderr == f'fx: e2e_by: {failing} exited 4\n'
+        review.write_text(run_by.replace(str(lint), str(earlier)))
+        assert self.cli('fx', '--delivery', code=1).stderr == f'fx: e2e_by: {earlier} ran at {start}, not {head}\n'
+        review.write_text(run_by.replace(str(lint), str(logs / 'missing.log')))
+        refused = self.cli('fx', '--delivery', code=1).stderr
+        assert refused == f'fx: e2e_by: {logs / "missing.log"} names no collected worker attempt or check run\n', refused
 
     def test_delivery_names_the_tickets_that_are_not_done(self):
         # Rule 2: with current review and E2E evidence, an unfinished ticket alone fails the gate, and it is named.

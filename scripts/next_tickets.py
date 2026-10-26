@@ -240,6 +240,8 @@ def verdict_problems(slug, key, fm):
     its report must still say so."""
     name = str(fm[key]).strip()
     saved = next((saved for saved in effort_attempts(slug) if saved["attempt"] == name and saved.get("result")), None)
+    if saved is None and key == "e2e_by":
+        return check_run_problems(name.split(), str(fm.get("e2e_head") or ""))
     if saved is None:
         return [f"{key}: {name} names no collected worker attempt"]
     if saved["result"]["status"] != "completed":
@@ -255,6 +257,24 @@ def verdict_problems(slug, key, fm):
             problems.append(f"{key}: {name} returned {field}: {value}, not {wanted}")
         elif now.get(field, "missing") != value:
             problems.append(f"{key}: {name} report now says {field}: {now.get(field, 'missing')}, not {value}")
+    return problems
+
+
+def check_run_problems(logs, head):
+    """E2E the orchestrator ran itself: each named run_check log passed, at the recorded E2E head."""
+    problems = []
+    for log in logs:
+        summary = Path(f"{log}.summary.json")
+        try:
+            ran = json.loads(summary.read_text()) if Path(log).is_absolute() else None
+        except (OSError, ValueError):
+            ran = None
+        if not isinstance(ran, dict):
+            problems.append(f"e2e_by: {log} names no collected worker attempt or check run")
+        elif ran.get("exit_code") != 0:
+            problems.append(f"e2e_by: {log} exited {ran.get('exit_code')}")
+        elif ran.get("head") != head:
+            problems.append(f"e2e_by: {log} ran at {ran.get('head') or 'no commit'}, not {head}")
     return problems
 
 
