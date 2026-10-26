@@ -1302,6 +1302,7 @@ class BoardCLI(unittest.TestCase):
 
     def test_e2e_the_orchestrator_ran_itself_counts_only_as_passing_checks_at_the_head(self):
         self.write_ticket('fx/01', 'done')
+        self.commit_gitignore()
         start = self.commit('start')
         self.git('switch', '-q', '-c', 'feat/fx')
         head = self.commit('reviewed work')

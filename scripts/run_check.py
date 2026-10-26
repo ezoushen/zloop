@@ -52,7 +52,7 @@ def main():
     timed_out = False
     interrupted = None
     cleanup_required = False
-    started = current_head()
+    started = current_head(clean=True)  # What the check tests is the commit only when nothing else is there.
 
     def interrupt(signum, frame):
         nonlocal interrupted
@@ -127,13 +127,17 @@ def main():
     return code
 
 
-def current_head():
-    """The commit checked out where the check runs, or None outside a git checkout or without git."""
+def current_head(clean=False):
+    """The commit checked out where the check runs; with clean, only when no file differs from it (a changed or new
+    file git does not ignore). None outside a git checkout or without git."""
     try:
         head = subprocess.run(['git', 'rev-parse', '--verify', 'HEAD'], capture_output=True, text=True)
+        changes = clean and subprocess.run(['git', 'status', '--porcelain'], capture_output=True, text=True)
     except OSError:
         return None
-    return head.stdout.strip() if head.returncode == 0 else None
+    if head.returncode or changes and (changes.returncode or changes.stdout):
+        return None
+    return head.stdout.strip()
 
 
 def keep(summary):
