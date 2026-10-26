@@ -249,7 +249,10 @@ class BoardCLI(unittest.TestCase):
         report.write_text(f'base: `{base}`\n{branch_line}## Implemented\n{listed}- [x] done\n{body}')
         if returned if returned is not None else branch != 'feat/inline':
             self.attempts = getattr(self, 'attempts', 0) + 1
-            support.collected_attempt(self.root, 'inline', f'inline/{number}/implementation-{self.attempts}', report)
+            at = subprocess.run(['git', '-C', str(self.root), 'rev-parse', '--verify', '--quiet',
+                                 f'{branch or f"feat/inline-{number}"}^{{commit}}'], capture_output=True, text=True)
+            support.collected_attempt(self.root, 'inline', f'inline/{number}/implementation-{self.attempts}', report,
+                                      head=at.stdout.strip() or 'none')
 
     def test_acceptance_checks_the_branch_the_report_records(self):
         self.write_ticket('inline/01', 'implementing')
@@ -347,7 +350,19 @@ class BoardCLI(unittest.TestCase):
                 in refused.stderr), refused.stderr
         support.collected_attempt(self.root, 'inline', 'inline/01/implementation-1', report, head=work)
         self.cli('inline', '--accept', 'inline/01')
+        # The report covers the head its worker returned it at, not a commit added to the branch afterwards.
+        later = self.commit('a commit no worker reported')
+        refused = self.cli('inline', '--accept', 'inline/01', code=1)
+        assert (f'inline/01: inline/01/implementation-1 returned its report at {work}, not at feat/inline-01 head '
+                f'{later}' in refused.stderr), refused.stderr
+        self.git('reset', '-q', '--hard', work)
         report.write_text(report.read_text() + '- [x] a criterion the orchestrator ticked\n')
+        refused = self.cli('inline', '--accept', 'inline/01', code=1)
+        assert ('inline/01: .scratch/inline/reports/01.md changed after inline/01/implementation-1 returned it'
+                in refused.stderr), refused.stderr
+        # Relabelling it as inline work on the effort branch does not make a worker's report the orchestrator's.
+        self.git('branch', 'feat/inline', work)
+        report.write_text(report.read_text().replace('## Implemented', 'branch: feat/inline\n## Implemented'))
         refused = self.cli('inline', '--accept', 'inline/01', code=1)
         assert ('inline/01: .scratch/inline/reports/01.md changed after inline/01/implementation-1 returned it'
                 in refused.stderr), refused.stderr
@@ -1009,8 +1024,11 @@ class BoardCLI(unittest.TestCase):
         assert self.refusal('inline/02') == blamed.format('02'), self.refusal('inline/02')
         self.git('-C', str(a), 'reset', '-q', '--hard', 'HEAD~1')
         self.cli('inline', '--accept', 'inline/02')
-        # A file B changes again after A is still B's change.
+        # A file B changes again after A is still B's change (its builder returns its report at that head).
         self.worktree_commit(b, {'measure.sh': 'echo recall 100 # B changes it again\n'}, 'B: tool change')
+        support.collected_attempt(self.root, 'inline', 'inline/02/implementation-final',
+                                  self.root / '.scratch/inline/reports/02.md',
+                                  head=self.git('rev-parse', 'feat/inline-02'))
         assert self.refusal('inline/02') == blamed.format('02'), self.refusal('inline/02')
 
     def test_a_dependency_head_the_fork_already_contains_excuses_no_revert(self):

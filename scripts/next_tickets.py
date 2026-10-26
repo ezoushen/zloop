@@ -364,8 +364,8 @@ def accept(tickets, name):
         elif recorded and not listed_commit_on(text, base.group(1), ref):
             problems.append(f"no listed commit under ## Implemented is past base on {branch}")
     notes = []
-    if not problems and ref != branch_ref(effort_branch(slug)):
-        problems = returned_problems(slug, name, report)
+    if not problems:
+        problems = returned_problems(slug, report, ref, branch, delegated=ref != branch_ref(effort_branch(slug)))
     if not problems:
         problems, notes = measurement_results(tickets[name], ref, text)
     for p in problems:
@@ -393,19 +393,25 @@ def effort_attempts(slug):
         db.close()
 
 
-def returned_problems(slug, name, report):
-    """A delegated ticket's report must be one a collected worker attempt of the effort returned, completed, and
-    unchanged since: the orchestrator judges the worker's evidence, it never writes it."""
+def returned_problems(slug, report, ref, branch, delegated):
+    """A delegated ticket's report, and any report a worker returned, must be one a collected worker attempt of the
+    effort returned completed, unchanged since and at the ticket head: the orchestrator judges a worker's evidence,
+    it never writes it."""
     returned = [saved for saved in effort_attempts(slug) if saved.get("result")
                 and Path(saved["result"].get("report", "")).resolve() == report.resolve()]
     shown = report.relative_to(ROOT) if report.is_relative_to(ROOT) else report
     if not returned:
-        return [f"no collected worker attempt returned {shown}"]
+        return [f"no collected worker attempt returned {shown}"] if delegated else []
     intact = [saved for saved in returned if worker_lifecycle.report_intact(saved)]
     if not intact:
         return [f"{shown} changed after {returned[-1]['attempt']} returned it"]
-    if not any(saved["result"]["status"] == "completed" for saved in intact):
+    completed = [saved for saved in intact if saved["result"]["status"] == "completed"]
+    if not completed:
         return [f"{intact[-1]['attempt']} returned {intact[-1]['result']['status']}, not a completed ticket"]
+    head = commit_of(ref)
+    if not any(commit_of(saved["result"]["head"]) == head for saved in completed):
+        return [f"{completed[-1]['attempt']} returned its report at {completed[-1]['result']['head']}, not at "
+                f"{branch} head {head}"]
     return []
 
 
