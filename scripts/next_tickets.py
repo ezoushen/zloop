@@ -237,19 +237,24 @@ VERDICTS = {"review_by": {"review_status": "clean", "documentation_status": "pas
 
 
 def verdict_problems(slug, key, fm):
-    """Each status the review report records must be the one the named worker attempt returned, as collected, and
-    its report must still say so."""
-    if isinstance(fm[key], list):
-        return check_run_problems(fm[key], str(fm.get("e2e_head") or "")) if key == "e2e_by" else [
-            f"{key}: names one worker attempt, not a list"]
-    name = str(fm[key]).strip()
-    saved = next((saved for saved in effort_attempts(slug) if saved["attempt"] == name and saved.get("result")), None)
-    if saved is None and key == "e2e_by":
-        return check_run_problems([name], str(fm.get("e2e_head") or ""))
-    if saved is None:
-        return [f"{key}: {name} names no collected worker attempt"]
-    if saved["result"]["status"] != "completed":
-        return [f"{key}: {name} returned {saved['result']['status']}"]
+    """Each status the review report records must be the one every named worker attempt returned, as collected,
+    with its report still saying so; e2e_by may name run_check logs of checks the orchestrator ran instead."""
+    attempts = {saved["attempt"]: saved for saved in effort_attempts(slug) if saved.get("result")}
+    problems = []
+    for name in fm[key] if isinstance(fm[key], list) else [str(fm[key]).strip()]:
+        saved = attempts.get(name)
+        if saved is None and key == "e2e_by":
+            problems += check_run_problems([name], str(fm.get("e2e_head") or ""))
+        elif saved is None:
+            problems.append(f"{key}: {name} names no collected worker attempt")
+        elif saved["result"]["status"] != "completed":
+            problems.append(f"{key}: {name} returned {saved['result']['status']}")
+        else:
+            problems += returned_verdict_problems(key, name, saved, fm)
+    return problems
+
+
+def returned_verdict_problems(key, name, saved, fm):
     returned = saved["result"].get("verdict", {})
     report = Path(saved["result"]["report"])
     now = worker_lifecycle.report_verdict(report) if report.is_file() else {}

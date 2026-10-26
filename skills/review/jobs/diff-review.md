@@ -146,6 +146,8 @@ accepted exception retains its finding ID, evidence and decision source, never a
 FALSE-POSITIVE label. Low priority does not waive the documentation gate.
 Assign priority only from the scope brief's sources; label absent/conflicting
 standards provisional and request alignment through the orchestrator. Preserve
-both axes and finding provenance. Match the report template; don't suppress valid
-in-scope findings to fit the summary. Return coverage completion/gaps, prioritized
+both axes and finding provenance. Match the report template, with your verdict in its
+front matter (`review_status`, `documentation_status`, `review_head`, `review_diff_base`):
+the delivery gate takes them from your report. Don't suppress valid in-scope findings to fit
+the summary. Return coverage completion/gaps, prioritized
 finding IDs, unresolved decisions and a separate follow-up count. No repairs.

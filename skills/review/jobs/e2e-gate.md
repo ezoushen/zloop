@@ -66,5 +66,6 @@ Done when you finish the assigned checks or return at the verified failure,
 unavailable required resource, or repeated invalid attempt described above. Missing
 evidence remains incomplete; a return is not a pass. Acceptance requires verified
 passing evidence and artifacts for every applicable step, or an authorized documented
-omission. Return per-check outcome/reuse, validated head or snapshot, remaining gaps
-and job state; the orchestrator sets the gate status and owns the next recovery action.
+omission. Record your verdict as `e2e_status` and `e2e_head` in the report's front matter
+before returning: the delivery gate takes the status from it. Return per-check outcome/reuse,
+validated head or snapshot, remaining gaps and job state; the orchestrator owns the next recovery action.

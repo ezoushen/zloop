@@ -1285,6 +1285,20 @@ class BoardCLI(unittest.TestCase):
         reviewer.write_text(evidence.replace(f'review_head: {head}', f'review_head: {start}'))
         refused = self.cli('fx', '--delivery', code=1).stderr
         assert refused == f'fx: review_by: review/fx/2 report now says review_head: {start}, not {head}\n', refused
+        # Several workers may share a gate, a review split by axis or E2E by step: each must have returned it met.
+        reviewer.write_text(evidence)
+        split = review.with_name('review-axis.md')
+        split.write_text(evidence.replace('review_status: clean', 'review_status: findings'))
+        support.collected_attempt(self.root, 'fx', 'review/fx/axis', split, job='diff-review', head=head)
+        review.write_text(evidence.replace('review_by: review/fx/1', 'review_by: [review/fx/2, review/fx/axis]')
+                          .replace('e2e/fx/1', 'e2e/fx/2'))
+        refused = self.cli('fx', '--delivery', code=1).stderr
+        assert refused == 'fx: review_by: review/fx/axis returned review_status: findings, not clean\n', refused
+        split.write_text(evidence)
+        support.collected_attempt(self.root, 'fx', 'review/fx/axis-2', split, job='diff-review', head=head)
+        review.write_text(evidence.replace('review_by: review/fx/1', 'review_by: [review/fx/2, review/fx/axis-2]')
+                          .replace('e2e/fx/1', 'e2e/fx/2'))
+        self.cli('fx', '--delivery')
 
     def test_e2e_the_orchestrator_ran_itself_counts_only_as_passing_checks_at_the_head(self):
         self.write_ticket('fx/01', 'done')
