@@ -46,6 +46,12 @@ configuration layer sets top-level `"allow_training": true`: a pool lists it in
 layer that sets `allow_training` wins; set it only in the `.zloop/executors.json`
 of a repository whose code may be used that way.
 
+A subscription candidate whose provider's allowance level is `critical` is likewise
+unavailable, with the allowance as its reason, unless a configuration layer sets
+top-level `"include_critical_allowance": true` (the last layer wins). A job left with
+no eligible candidate by that exclusion is refused with a message naming the allowance
+and the setting.
+
 `models.<name>.runtimes` lists supported worker runtimes: `claude`, `codex`, `pi`,
 `opencode`. Herdr is a launch mechanism, not a worker runtime or model provider.
 One model can have multiple bindings with distinct IDs and thinking policies.

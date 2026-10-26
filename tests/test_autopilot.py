@@ -113,7 +113,8 @@ class StopCondition(unittest.TestCase):
         text = prose(SKILL)
         self.assertIn('scripts/allowance.py" status', text)
         self.assertIn('`critical`', text)
-        self.assertIn('for a provider this run uses', text)
+        self.assertIn('Pause only when the resolver refuses a needed job for want of an eligible candidate', text)
+        self.assertIn('ask the user whether to include the critical provider', text)
         self.assertIn('finish the step in progress, commit passing work and end `paused-allowance`', text)
 
 

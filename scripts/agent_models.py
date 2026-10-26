@@ -210,6 +210,10 @@ def allowance_levels():
         return {name: value['level'] for name, value in readings.items()}
     except (OSError, ValueError, KeyError) as error:
         return {'error': str(error)}
+
+
+CRITICAL = ('{provider} allowance is critical; a subscription candidate on it is excluded unless a configuration '
+            'layer sets include_critical_allowance')
 TRAINING = 'Model trains on prompts; this repository does not allow training endpoints (allow_training)'
 
 
@@ -456,10 +460,16 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
                 'decision_policy': decision_policy, **session}
     catalog = {name: (definition, f'{path}:models.{name}')
                for path, data in layers for name, definition in data.get('models', {}).items()}
-    allow_training, backends, checked = False, {}, {}
+    allow_training, include_critical, backends, checked = False, False, {}, {}
     for _, data in layers:
         allow_training = data.get('allow_training', allow_training)
+        include_critical = data.get('include_critical_allowance', include_critical)
         backends.update(data.get('capacity', {}))
+    pressure = {} if include_critical else allowance_levels()
+
+    def spent(name, provider):
+        # Only a subscription candidate spends the provider's allowance; free and local ones do not.
+        return pressure.get(provider) == 'critical' and COSTS.get(catalog[name][0].get('cost'), 1.0) > 0
     runtimes = {name: (definition, f'{path}:runtimes.{name}')
                 for path, data in layers for name, definition in data.get('runtimes', {}).items()}
     executor_types = {name: (definition, f'{path}:executor_types.{name}')
@@ -537,12 +547,18 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
             resolved, detail = expand_model(name, catalog, runtimes, host, target_runtime)
             if resolved is None:
                 unavailable[name] = detail
+            elif spent(name, detail['target_runtime']):
+                unavailable[name] = CRITICAL.format(provider=detail['target_runtime'])
             else:
                 expanded[name], definitions[name] = resolved, detail
                 backend = catalog[name][0].get('backend')
                 if backend in backends:
                     # The lifecycle takes this backend's lease when the worker registers.
                     definitions[name].update(backend=backend, capacity=backends[backend])
+        if not expanded and not list_candidates and any(reason.endswith('include_critical_allowance')
+                                                        for reason in unavailable.values()):
+            raise ValueError('No eligible candidates remain; allowance exclusion: ' + '; '.join(
+                f'{name}: {reason}' for name, reason in unavailable.items()))
         metadata['unavailable_candidates'] = unavailable
         metadata['candidate_routes'] = definitions
         instance = dict(instance, candidates=expanded)
@@ -606,7 +622,7 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
                     and (catalog[name][0].get('data') != 'trains' or allow_training)
                     and not backend_unavailable(catalog[name][0], backends, checked)):
                 reachable, route = expand_model(name, catalog, runtimes, host)
-                if reachable is not None:
+                if reachable is not None and not spent(name, route['target_runtime']):
                     competing[name] = route['target_runtime']
         if eligible_candidates is not None:
             eligible_candidates = [name for name in eligible_candidates if name in pool['candidates']]
