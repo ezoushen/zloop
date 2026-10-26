@@ -50,7 +50,9 @@ A subscription candidate whose provider's allowance level is `critical` is likew
 unavailable, with the allowance as its reason, unless a configuration layer sets
 top-level `"include_critical_allowance": true` (the last layer wins). A job left with
 no eligible candidate by that exclusion is refused with a message naming the allowance
-and the setting.
+and the setting. A pinned model or a native route on a `critical` host provider is
+refused the same way; a model names the reading it spends with `allowance: claude|codex`,
+else its worker runtime does.
 
 `models.<name>.runtimes` lists supported worker runtimes: `claude`, `codex`, `pi`,
 `opencode`. Herdr is a launch mechanism, not a worker runtime or model provider.
