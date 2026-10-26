@@ -229,6 +229,11 @@ class PanelState(unittest.TestCase):
         journal.parent.mkdir(parents=True)
         journal.write_text('')
         ticket(journal.parent / 'issues' / '01-a.md', 'gamma/01', status='implementing')
+        # A newer unclaimed effort would win on activity alone, so only the journal rule can pick gamma.
+        newer = self.scratch / 'omega' / 'issues' / '01-a.md'
+        ticket(newer, 'omega/01', status='ready')
+        later = time.time() + 120
+        os.utime(newer, (later, later))
         found = self.snapshot('S')
         self.assertEqual('gamma', found['effort'])
         self.assertIsNone(found['phase'])
@@ -244,6 +249,8 @@ class PanelState(unittest.TestCase):
         card(self.scratch / 'demo' / 'autopilot.md')
         worktree = Path(tempfile.mkdtemp(prefix='panel worktree '))
         self.addCleanup(lambda: subprocess.run(['rm', '-rf', str(worktree)]))
+        # The state directory is ignored, so a worktree checkout never carries it.
+        (self.repo / '.gitignore').write_text('.scratch/\n')
         subprocess.run(['git', '-C', str(self.repo), 'init', '-q'], check=True)
         subprocess.run(['git', '-C', str(self.repo), 'add', '-A'], check=True)
         subprocess.run(['git', '-C', str(self.repo), '-c', 'user.email=a@b', '-c', 'user.name=a',
