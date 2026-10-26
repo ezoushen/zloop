@@ -77,8 +77,8 @@ blocker that prevents progress. "Awaiting stakeholder decision" needs an identif
 decision beyond executing already authorized verification.
 Set `e2e_status: passed` only when every applicable gate is satisfied or has an
 explicit project-approved omission; a verified absence of applicable E2E checks
-needs a reason. Set `e2e_head` to the validated head, `e2e_by` to the e2e-gate run (or the
-orchestrator's run log where it ran the checks itself), and retain original execution
+needs a reason. Set `e2e_head` to the validated head, `e2e_by` to the e2e-gate attempt (or the
+run_check logs of the checks the orchestrator ran itself), and retain original execution
 heads for reused checks. Any unresolved failed check makes the aggregate `failed`;
 otherwise missing evidence/access or unresolved requirements make it `incomplete`.
 Keep every per-check failure and gap visible. Neither status certifies verification.

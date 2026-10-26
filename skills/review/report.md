@@ -3,10 +3,9 @@
 Create one Markdown report outside the disposable worktree. For worker attribution,
 follow the [routing decision contract](../../runtime/routing/report.md).
 Front matter uses literal scalars, never quoted placeholders in a finished report.
-`review_by` and `e2e_by` name the reviewer and E2E worker runs (agent or attempt
-IDs) that produced the statuses at those heads. When the orchestrator runs checks itself, where that is
-permitted, it names the run log instead. A status with no run behind it is not
-evidence, and the delivery gate rejects a bare `orchestrator` or `host`. An effort the
+`review_by` and `e2e_by` name the collected worker attempts whose own reports gave
+those statuses at those heads; for checks the orchestrator ran itself, `e2e_by` names their
+run_check logs. The delivery gate takes each status only from them. An effort the
 user ran directly on main adds `effort_branch: main`; the gate reads `feat/<slug>` otherwise.
 `autofix` is `true` only when repairs are authorized; while it is unset, dispatch's
 `--autofix` counts. `blocker` names the concrete blocker

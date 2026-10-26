@@ -1227,7 +1227,8 @@ class BoardCLI(unittest.TestCase):
         assert self.cli('fx', '--delivery', code=1).stderr == f'fx: e2e_by: {earlier} ran at {start}, not {head}\n'
         review.write_text(run_by.replace(str(lint), str(logs / 'missing.log')))
         refused = self.cli('fx', '--delivery', code=1).stderr
-        assert refused == f'fx: e2e_by: {logs / "missing.log"} names no collected worker attempt or check run\n', refused
+        missing = logs / 'missing.log'
+        assert refused == f'fx: e2e_by: {missing} names no collected worker attempt or check run\n', refused
 
     def test_delivery_names_the_tickets_that_are_not_done(self):
         # Rule 2: with current review and E2E evidence, an unfinished ticket alone fails the gate, and it is named.
