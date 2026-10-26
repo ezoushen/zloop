@@ -13,19 +13,27 @@ async function check(cwd, session) {
   return JSON.parse(stdout);
 }
 
+// The events that end a session's turn, one per busy period.
+const ENDS = new Set(["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"]);
+
 // OpenCode has no hook that can refuse a stop, so the gate acts once a root session's turn has succeeded: on a gap it
 // sends the hold's message as a new prompt in that session, at most once per stop.
 export default {
   id: "zloop",
   setup: async (ctx) => {
     const stop = new AbortController();
-    // Sessions whose current turn a hold started: that turn ends unchecked, so a gap the agent cannot clear never loops.
-    const held = new Set();
+    // When each held session's hold was sent: the turn it starts ends unchecked, however it ends, so a gap the agent
+    // cannot clear never loops. A turn end published before the hold was sent is an older turn the hold already covers.
+    const held = new Map();
     void (async () => {
       for await (const event of ctx.event.subscribe({ signal: stop.signal })) {
-        if (event.type !== "session.execution.succeeded") continue;
+        if (!ENDS.has(event.type)) continue;
         const sessionID = event.data.sessionID;
-        if (held.delete(sessionID) || process.env.ZLOOP_YIELD_HOOK === "off") continue;
+        if (held.has(sessionID)) {
+          if ((event.created ?? Infinity) >= held.get(sessionID)) held.delete(sessionID);
+          continue;
+        }
+        if (event.type !== "session.execution.succeeded" || process.env.ZLOOP_YIELD_HOOK === "off") continue;
         let gate;
         try {
           const info = await ctx.session.get({ sessionID });
@@ -42,8 +50,9 @@ export default {
         }
         if (!gate.missing.length) continue;
         try {
+          const sent = Date.now();
           await ctx.session.prompt({ sessionID, text: gate.reason });
-          held.add(sessionID);
+          held.set(sessionID, sent);
         } catch {
           // The session or server is gone: there is no turn left to hold.
         }
@@ -54,7 +63,7 @@ export default {
     // and Codex.
     const launches = await ctx.tool.hook("execute.before", async ({ tool, sessionID, input }) => {
       const command = input?.command;
-      if (tool !== "shell" || !/herdr[\s\S]*agent\s+start/.test(command)) return;
+      if (tool !== "shell" || !command?.includes("herdr")) return;  // The logger finds each launch, however written.
       try {
         const info = await ctx.session.get({ sessionID });
         const logger = run("python3", [`${root}/hooks/herdr_launch.py`], { timeout: 10000 });

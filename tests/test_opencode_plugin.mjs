@@ -14,7 +14,8 @@ for (const name of ["HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_ENV", "ZLOOP_W
 const bin = mkdtempSync(join(tmpdir(), "zloop-oc-bin-"));
 writeFileSync(join(bin, "herdr"), "#!/bin/sh\nexit 1\n");
 chmodSync(join(bin, "herdr"), 0o755);
-process.env.PATH = `${bin}:${process.env.PATH}`;
+const path = `${bin}:${process.env.PATH}`;
+process.env.PATH = path;
 
 const until = async (check, what) => {
   for (const due = Date.now() + 15000; Date.now() < due; await new Promise((done) => setTimeout(done, 20))) {
@@ -23,24 +24,21 @@ const until = async (check, what) => {
   assert.fail(`timed out waiting for ${what}`);
 };
 
-// A checkout whose launch log holds a launch by each of `ses_gap`, `ses_gap2`, `ses_child` and `ses_last` that no attempt
-// registered: real yield-gate gaps for those sessions and none for any other.
-function checkout() {
+// A checkout whose launch log holds one launch, that no attempt registered, by each session in `gaps`: real
+// yield-gate gaps for those sessions and none for any other. `ses_end` always has one.
+function checkout(gaps) {
   const repo = mkdtempSync(join(tmpdir(), "zloop-oc-repo-"));
   execFileSync("git", ["init", "-q", repo]);
   mkdirSync(join(repo, ".scratch"));
-  const launch = (agent, session) => JSON.stringify({
-    time: "2026-10-27T00:00:00Z", agent, pane: `p-${agent}`, coordinator: { pane: null, session },
-  }) + "\n";
-  writeFileSync(join(repo, ".scratch/herdr-launches.jsonl"), launch("w1", "ses_gap") + launch("w2", "ses_gap2") + launch("w3", "ses_child")
-    + launch("w4", "ses_last"));
+  writeFileSync(join(repo, ".scratch/herdr-launches.jsonl"), [...gaps, "ses_end"].map((session) => JSON.stringify({
+    time: "2026-10-27T00:00:00Z", agent: `w-${session}`, pane: `p-${session}`, coordinator: { pane: null, session },
+  }) + "\n").join(""));
   return repo;
 }
-// Events are handled in order, so once a later session's hold arrives, every earlier event has been handled.
-const holdsFor = (host, sessionID) => host.sent.filter((input) => input.sessionID === sessionID).length;
 
 // A stand-in for OpenCode's plugin context: events pushed by the test, sessions with a directory and an optional parent.
-async function load(repo, sessions) {
+async function load(gaps, parents = {}) {
+  const repo = checkout(gaps);
   const queue = [];
   let wake = () => {};
   const sent = [];
@@ -58,80 +56,145 @@ async function load(repo, sessions) {
       }),
     },
     session: {
-      get: async ({ sessionID }) => ({ id: sessionID, location: { directory: repo }, ...sessions[sessionID] }),
+      get: async ({ sessionID }) => ({ id: sessionID, location: { directory: repo }, parentID: parents[sessionID] }),
       prompt: async (input) => { sent.push(input); return { id: `msg_${sent.length}`, delivery: "steer" }; },
     },
     tool: { hook: async (name, callback) => { hooks[name] = callback; return { dispose: async () => {} }; } },
   };
   const { default: definition } = await import(`${plugin}?${Math.random()}`);
   const cleanup = await definition.setup(ctx);
-  const push = (type, sessionID) => { queue.push({ type, data: { sessionID } }); wake(); };
-  return { sent, hooks, push, cleanup };
+  // OpenCode stamps each event with the time it was published.
+  const push = (outcome, sessionID, created = Date.now()) => {
+    queue.push({ type: `session.execution.${outcome}`, created, data: { sessionID } });
+    wake();
+  };
+  const holds = (sessionID) => sent.filter((input) => input.sessionID === sessionID).length;
+  // Events are handled in order, so once `ses_end`'s hold arrives every earlier event has been handled.
+  const settle = async () => {
+    const before = holds("ses_end");
+    push("succeeded", "ses_end");
+    await until(() => holds("ses_end") > before, "the closing hold");
+    push("succeeded", "ses_end");  // Its own held turn ends, so the next settle is checked again.
+  };
+  return { repo, sent, hooks, push, holds, settle, cleanup };
 }
 
-const repo = checkout();
-const host = await load(repo, { ses_gap: {}, ses_gap2: {}, ses_clean: {}, ses_child: { parentID: "ses_gap" }, ses_last: {} });
+{
+  // A root session that ends its turn with a gap is prompted once, with the check's reason, in the same session.
+  const host = await load(["ses_a"]);
+  host.push("succeeded", "ses_a");
+  await host.settle();
+  assert.equal(host.holds("ses_a"), 1);
+  assert.equal(host.sent[0].sessionID, "ses_a");
+  assert.match(host.sent[0].text,
+    /^Stopping now leaves these gaps:\n- .*herdr-launches\.jsonl: w-ses_a \(pane p-ses_a\): launched without a registered attempt\n/);
 
-// A root session that ends its turn with a gap is prompted once, with the check's reason, in the same session.
-host.push("session.execution.succeeded", "ses_gap");
-await until(() => host.sent.length === 1, "the hold");
-assert.equal(host.sent[0].sessionID, "ses_gap");
-assert.match(host.sent[0].text, /^Stopping now leaves these gaps:\n- .*herdr-launches\.jsonl: w1 \(pane p-w1\): launched without a registered attempt\n/);
+  // The turn the hold started ends unchecked, so a gap the agent cannot clear never loops; the turn after is checked.
+  host.push("succeeded", "ses_a");
+  await host.settle();
+  assert.equal(host.holds("ses_a"), 1, "the held turn's own end is not held again");
+  host.push("succeeded", "ses_a");
+  await host.settle();
+  assert.equal(host.holds("ses_a"), 2, "the next turn is checked");
+  await host.cleanup();
+}
 
-// The turn the hold started ends unchecked, so a gap the agent cannot clear never loops; the turn after is checked.
-host.push("session.execution.succeeded", "ses_gap");
-host.push("session.execution.succeeded", "ses_gap2");
-await until(() => holdsFor(host, "ses_gap2") === 1, "the second session's hold");
-assert.equal(holdsFor(host, "ses_gap"), 1, "the held turn's own end is not held again");
-host.push("session.execution.succeeded", "ses_gap");
-await until(() => holdsFor(host, "ses_gap") === 2, "the next turn's hold");
+{
+  // A held turn that fails or is interrupted also ends the hold: the user's next turn is checked.
+  const host = await load(["ses_f", "ses_i"]);
+  host.push("succeeded", "ses_f");
+  host.push("succeeded", "ses_i");
+  await host.settle();
+  host.push("failed", "ses_f");
+  host.push("interrupted", "ses_i");
+  host.push("succeeded", "ses_f");
+  host.push("succeeded", "ses_i");
+  await host.settle();
+  assert.deepEqual([host.holds("ses_f"), host.holds("ses_i")], [2, 2]);
+  await host.cleanup();
+}
 
-// Not held: a subagent's child session (its parent answers for the gaps), a turn that failed or was interrupted, and a
-// session with no gap.
-host.push("session.execution.succeeded", "ses_child");
-host.push("session.execution.failed", "ses_gap");
-host.push("session.execution.interrupted", "ses_gap");
-host.push("session.execution.succeeded", "ses_clean");
-host.push("session.execution.succeeded", "ses_last");
-await until(() => holdsFor(host, "ses_last") === 1, "the last session's hold");
-assert.deepEqual(host.sent.map((input) => input.sessionID), ["ses_gap", "ses_gap2", "ses_gap", "ses_last"]);
-// A check that cannot run holds, naming why, and never passes silently; the next turn is checked as usual.
-const path = process.env.PATH;
-process.env.PATH = bin;  // No python3.
-host.push("session.execution.succeeded", "ses_clean");
-await until(() => holdsFor(host, "ses_clean") === 1, "the failed check's hold");
-process.env.PATH = path;
-assert.match(host.sent.at(-1).text, /^Stopping now leaves these gaps:\n- could not check workers: .*python3/);
-host.push("session.execution.succeeded", "ses_clean");  // The end of the turn that hold started.
-host.push("session.execution.succeeded", "ses_gap2");  // Likewise for ses_gap2's earlier hold.
-host.push("session.execution.succeeded", "ses_gap2");
-await until(() => holdsFor(host, "ses_gap2") === 2, "a hold after the failed check");
-await host.cleanup?.();
+{
+  // A success published before the hold was sent (a turn that ended while the check ran) neither holds again nor
+  // stands in for the end of the turn the hold started.
+  const host = await load(["ses_q"]);
+  const earlier = Date.now();
+  host.push("succeeded", "ses_q", earlier);
+  await host.settle();
+  host.push("succeeded", "ses_q", earlier + 1);  // Queued behind the first, older than the hold.
+  host.push("succeeded", "ses_q");  // The held turn's end.
+  await host.settle();
+  assert.equal(host.holds("ses_q"), 1);
+  host.push("succeeded", "ses_q");
+  await host.settle();
+  assert.equal(host.holds("ses_q"), 2, "the next turn is checked");
+  await host.cleanup();
+}
 
-// An agent's shell call (OpenCode 2 names the tool `shell`) that starts a Herdr agent is logged for the gate before it
-// runs, under this session.
-const log = join(repo, ".scratch/herdr-launches.jsonl");
-const logged = () => readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-const before = logged().length;
-const call = (sessionID, command) => ({ tool: "shell", sessionID, agent: "build", messageID: "msg_1", id: "call_1",
-  input: { command, description: "start a worker" } });
-await host.hooks["execute.before"](call("ses_log", "herdr agent start w9 --cwd .worktrees/x -- opencode"));
-assert.equal(logged().length, before + 1);
-assert.deepEqual({ ...logged().at(-1), time: undefined },
-  { time: undefined, agent: "w9", pane: null, coordinator: { pane: null, session: "ses_log" } });
+{
+  // Not held: a subagent's child session (its parent answers for the gaps), a turn that failed or was interrupted, and a
+  // session with no gap.
+  const host = await load(["ses_child", "ses_f", "ses_i"], { ses_child: "ses_parent" });
+  host.push("succeeded", "ses_child");
+  host.push("failed", "ses_f");
+  host.push("interrupted", "ses_i");
+  host.push("succeeded", "ses_clean");
+  await host.settle();
+  assert.deepEqual(host.sent.map((input) => input.sessionID), ["ses_end"]);
+  await host.cleanup();
+}
 
-// Logging that fails never blocks the call.
-process.env.PATH = bin;
-await host.hooks["execute.before"](call("ses_log", "herdr agent start w10"));
-process.env.PATH = path;
-assert.equal(logged().length, before + 1);
+{
+  // A check that cannot run holds, naming why, and never passes silently; the next turn is checked as usual.
+  const host = await load([]);
+  process.env.PATH = bin;  // No python3.
+  host.push("succeeded", "ses_clean");
+  await until(() => host.holds("ses_clean") === 1, "the failed check's hold");
+  process.env.PATH = path;
+  assert.match(host.sent[0].text, /^Stopping now leaves these gaps:\n- could not check workers: .*python3/);
+  host.push("succeeded", "ses_clean");  // The end of the turn that hold started.
+  host.push("succeeded", "ses_clean");
+  await host.settle();
+  assert.equal(host.holds("ses_clean"), 1, "a check that runs again clears");
+  await host.cleanup();
+}
 
-// ZLOOP_YIELD_HOOK=off turns the gate off, as on the other hosts.
-process.env.ZLOOP_YIELD_HOOK = "off";
-const off = await load(repo, { ses_gap: {} });
-off.push("session.execution.succeeded", "ses_gap");
-await new Promise((done) => setTimeout(done, 1500));
-assert.deepEqual(off.sent, []);
-await off.cleanup?.();
-delete process.env.ZLOOP_YIELD_HOOK;
+{
+  // An agent's shell call (OpenCode 2 names the tool `shell`) that starts a Herdr agent is logged for the gate before it
+  // runs, under this session, however the shell command is written.
+  const host = await load([]);
+  const logged = () => readFileSync(join(host.repo, ".scratch/herdr-launches.jsonl"), "utf8").trim().split("\n")
+    .map((line) => JSON.parse(line));
+  const before = logged().length;
+  const call = (command) => ({ tool: "shell", sessionID: "ses_log", agent: "build", messageID: "msg_1", id: "call_1",
+    input: { command, description: "start a worker" } });
+  await host.hooks["execute.before"](call("herdr agent start w9 --cwd .worktrees/x -- opencode"));
+  await host.hooks["execute.before"](call("herdr agent \\\n  start w11 --cwd .worktrees/y -- opencode"));
+  assert.deepEqual(logged().slice(before).map((record) => ({ ...record, time: undefined })), [
+    { time: undefined, agent: "w9", pane: null, coordinator: { pane: null, session: "ses_log" } },
+    { time: undefined, agent: "w11", pane: null, coordinator: { pane: null, session: "ses_log" } },
+  ]);
+
+  // Another tool's input that mentions such a command launches nothing and is not logged.
+  await host.hooks["execute.before"]({ ...call("herdr agent start w12"), tool: "task" });
+  assert.equal(logged().length, before + 2);
+
+  // Logging that fails never blocks the call.
+  process.env.PATH = bin;
+  await host.hooks["execute.before"](call("herdr agent start w10"));
+  process.env.PATH = path;
+  assert.equal(logged().length, before + 2);
+  await host.cleanup();
+}
+
+{
+  // ZLOOP_YIELD_HOOK=off turns the gate off, as on the other hosts.
+  process.env.ZLOOP_YIELD_HOOK = "off";
+  const host = await load(["ses_a"]);
+  host.push("succeeded", "ses_a");
+  await new Promise((done) => setTimeout(done, 1500));
+  assert.deepEqual(host.sent, []);
+  await host.cleanup();
+  delete process.env.ZLOOP_YIELD_HOOK;
+}
 console.log("OpenCode yield gate plugin: ok");
