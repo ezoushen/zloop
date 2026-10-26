@@ -76,7 +76,7 @@ class RunAll(unittest.TestCase):
         (tree / 'tests').mkdir()
         shutil.copy(RUNNER, tree / 'tests/run_all.py')
         (tree / 'tests/test_one.py').write_text('pass\n')
-        env = {key: value for key, value in os.environ.items() if key not in ('PYTHON', 'GIT_DIR')}
+        env = {key: value for key, value in self.outermost({}).items() if key not in ('PYTHON', 'GIT_DIR')}
         result = subprocess.run([sys.executable, str(tree / 'tests/run_all.py')], env=env, cwd=main.parent,
                                 capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -139,9 +139,9 @@ class RunAll(unittest.TestCase):
             (root / 'tests' / name).write_text(body)
         subprocess.run(['git', 'init', '-q', str(root)], check=True)
         process = subprocess.Popen([sys.executable, str(root / 'tests/run_all.py')], env=self.outermost(dict(env, PYTHON=sys.executable)),
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        self.addCleanup(process.wait)
-        self.addCleanup(process.kill)
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        # Its units too: a failed test must not leave one waiting for a file the cleanup removes.
+        self.addCleanup(self.stop_group, process)
         return process
 
     def test_concurrent_runs_share_one_slot_budget_instead_of_one_each(self):
