@@ -9,9 +9,10 @@ Actions: --board, --counts, --check, --accept TICKET,
 --set TICKET status=blocked also needs blocker=REASON, which the ticket's front matter keeps. Entering implementing
 records start: (the effort branch head) when the ticket has none; start never changes once recorded. A passing
 --accept records accepted: (the head it accepted); status=done needs it, merged into the effort branch.
-Only --set may be combined with --counts. --accept of a delegated ticket (its branch is not the effort branch) needs
-the report a collected worker attempt of the effort returned completed, unchanged since. It also runs the standing measurements
-(.scratch/<slug>/measurements.json) at the ticket head, in a clean checkout, and refuses a missing or worse value.
+Only --set may be combined with --counts. --accept of a delegated ticket (its branch is not the effort branch)
+needs the report a collected worker attempt of the effort returned completed, unchanged since. It also runs the
+standing measurements (.scratch/<slug>/measurements.json) at the ticket head, in a clean checkout, and refuses a
+missing or worse value.
 --delivery names each failing field. --coordinate [--autofix] records the calling session (its Herdr pane and host
 session IDs) and the repair authorization in .scratch/<slug>/reports/coordinator.json for the stop hooks; with no slug
 only efforts with active work (a live effort branch, or a ticket not done), and it refuses a session it cannot identify.
