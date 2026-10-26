@@ -68,7 +68,16 @@ export function register(on) {
     const rows = snapshot && snapshot.active && Array.isArray(snapshot.rows)
       ? snapshot.rows.filter((row) => row && typeof row.text === "string" && row.text)
       : [];
-    if (!rows.length) return next(e);
+    const strip = snapshot && snapshot.active && snapshot.strip ? String(snapshot.strip) : undefined;
+    // One surface per fact: the band carries the card, so the status line stays quiet while it draws; where the band
+    // cannot hold the card (a survey holds it, or the rows outgrow maxRows) the strip carries the closer instead.
+    const held = e?.props?.hasSurvey === true;
+    const room = typeof e?.props?.maxRows === "number" ? e.props.maxRows : 0;
+    if (!rows.length || held || (room > 0 && rows.length > room)) {
+      $.ui.status(strip);
+      return next(e);
+    }
+    $.ui.status(undefined);
     const C = $.ui.resolve(e);
     const width = e?.props?.bodyColumns ?? 80;
     return C.Box({

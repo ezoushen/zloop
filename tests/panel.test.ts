@@ -27,7 +27,18 @@ const beneath = (on: any, stdout?: string) => {
 };
 
 const started = async ($: any) => $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
-const band = ($: any) => $.ui.mount({ plugin: "zloop", surface: "terminal", component: "AbovePrompt", props: {} });
+const band = ($: any, props: Record<string, unknown> = {}) =>
+  $.ui.mount({ plugin: "zloop", surface: "terminal", component: "AbovePrompt", props });
+
+// Records every status line the plugin pins.
+const pinRecord = (on: any) => {
+  const pinned: (string | undefined)[] = [];
+  on("ui.status", (_$: any, e: any) => {
+    pinned.push(e.text);
+    return { value: undefined };
+  });
+  return pinned;
+};
 
 describe("zloop panel", () => {
   test("renders nothing before a snapshot is read", async ($, on) => {
@@ -71,5 +82,33 @@ describe("zloop panel", () => {
     const ui = await band($);
     expect(await ui.find({ type: "Text", text: /not json/ })).toBeUndefined();
     expect(await ui.find({ type: "Text", text: /engine band/ })).toBeDefined();
+  });
+  test("keeps its status line quiet while the band draws", async ($, on) => {
+    beneath(on, snapshot());
+    const pinned = pinRecord(on);
+    await started($);
+    const ui = await band($);
+    expect(await ui.find({ type: "Text", text: /demo · dispatch/ })).toBeDefined();
+    expect(pinned).toContain(undefined);
+    expect(pinned).not.toContain("demo · dispatch · 1 running");
+  });
+
+  test("pins the strip when a survey holds the band", async ($, on) => {
+    beneath(on, snapshot());
+    const pinned = pinRecord(on);
+    await started($);
+    const ui = await band($, { hasSurvey: true, bodyColumns: 80, maxRows: 10 });
+    expect(await ui.find({ type: "Text", text: /demo · dispatch/ })).toBeUndefined();
+    expect(await ui.find({ type: "Text", text: /engine band/ })).toBeDefined();
+    expect(pinned).toContain("demo · dispatch · 1 running");
+  });
+
+  test("pins the strip when the rows do not fit", async ($, on) => {
+    beneath(on, snapshot());
+    const pinned = pinRecord(on);
+    await started($);
+    const ui = await band($, { hasSurvey: false, bodyColumns: 80, maxRows: 1 });
+    expect(await ui.find({ type: "Text", text: /demo · dispatch/ })).toBeUndefined();
+    expect(pinned).toContain("demo · dispatch · 1 running");
   });
 });

@@ -54,14 +54,14 @@ let drawnPanel = null;
 let drawnCtx = null;
 
 /**
- * Draw one snapshot: the rows below the editor, the strip in the status line, or neither when the effort is not live.
- * A snapshot that could not be read clears both; a stale context drops this tick and lets the next one try.
+ * Draw one snapshot: the rows below the editor while the effort is live, else neither surface. The card carries every
+ * fact, so the status line stays with the engine; a snapshot that could not be read clears both, and a stale context
+ * drops this tick so the next one draws on the fresh one.
  */
 export async function panelTick(ctx, found) {
   try {
     const lines = panelLines(found);
-    const strip = found && found.active && found.strip ? String(found.strip) : undefined;
-    const drawn = JSON.stringify([lines, strip ?? null]);
+    const drawn = JSON.stringify(lines);
     if (ctx === drawnCtx && drawn === drawnPanel) return;
     drawnCtx = ctx;
     drawnPanel = drawn;
@@ -76,7 +76,6 @@ export async function panelTick(ctx, found) {
       },
       invalidate() {},
     }), { placement: "belowEditor" });
-    ctx.ui.setStatus(PANEL_KEY, strip);
   } catch {
     // The context belongs to a replaced session; the next tick draws on the fresh one.
     drawnCtx = null;

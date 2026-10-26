@@ -37,7 +37,8 @@ const rendered = (call, width) => call.content({}, {}).render(width);
   assert.equal(widget.key, "zloop");
   assert.equal(widget.options.placement, "belowEditor");
   assert.deepEqual(rendered(widget, 80), rows.map((row) => row.text));
-  assert.deepEqual(statuses(calls).map((status) => status.text), ["demo · dispatch · 1 running"]);
+  // The card carries every fact; the status line stays with the engine while the card is drawn.
+  assert.deepEqual(statuses(calls), []);
 }
 
 // An inactive snapshot leaves no card and no strip behind.
