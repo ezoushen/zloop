@@ -39,19 +39,21 @@ function checkout(gaps) {
 // A stand-in for OpenCode's plugin context: events pushed by the test, sessions with a directory and an optional parent.
 async function load(gaps, parents = {}, admission = 0) {
   const repo = checkout(gaps);
-  const queue = [];
-  let wake = () => {};
+  const subscribers = new Set();
   const sent = [];
   let admitted = 0;
   const hooks = {};
   const ctx = {
     location: { directory: repo },
     event: {
+      // Every subscriber sees every event of the server, whatever its location.
       subscribe: ({ signal } = {}) => ({
         async *[Symbol.asyncIterator]() {
+          const subscriber = { queue: [], wake: () => {} };
+          subscribers.add(subscriber);
           while (!signal?.aborted) {
-            if (queue.length) yield queue.shift();
-            else await new Promise((done) => { wake = done; });
+            if (subscriber.queue.length) yield subscriber.queue.shift();
+            else await new Promise((done) => { subscriber.wake = done; });
           }
         },
       }),
@@ -72,8 +74,10 @@ async function load(gaps, parents = {}, admission = 0) {
   const cleanup = await definition.setup(ctx);
   // OpenCode stamps each event with the time it was published.
   const push = (outcome, sessionID, created = Date.now()) => {
-    queue.push({ type: `session.execution.${outcome}`, created, data: { sessionID } });
-    wake();
+    for (const subscriber of subscribers) {
+      subscriber.queue.push({ type: `session.execution.${outcome}`, created, data: { sessionID } });
+      subscriber.wake();
+    }
   };
   const holds = (sessionID) => sent.filter((input) => input.sessionID === sessionID).length;
   // Events are handled in order, so once `ses_end`'s hold arrives every earlier event has been handled.
@@ -83,7 +87,9 @@ async function load(gaps, parents = {}, admission = 0) {
     await until(() => holds("ses_end") > before && admitted === sent.length, "the closing hold");
     push("succeeded", "ses_end");  // Its own held turn ends, so the next settle is checked again.
   };
-  return { repo, sent, hooks, push, holds, settle, cleanup };
+  // OpenCode sets the plugin up once for each directory it serves, all on one server.
+  const elsewhere = async () => definition.setup({ ...ctx, location: { directory: checkout([]) } });
+  return { repo, sent, hooks, push, holds, settle, cleanup, elsewhere };
 }
 
 {
@@ -103,6 +109,18 @@ async function load(gaps, parents = {}, admission = 0) {
   host.push("succeeded", "ses_a");
   await host.settle();
   assert.equal(host.holds("ses_a"), 2, "the next turn is checked");
+  await host.cleanup();
+}
+
+{
+  // A server that serves several directories holds a stop once: only the plugin set up for the session's directory
+  // answers for it.
+  const host = await load(["ses_m"]);
+  const other = await host.elsewhere();
+  host.push("succeeded", "ses_m");
+  await host.settle();
+  assert.equal(host.holds("ses_m"), 1);
+  await other();
   await host.cleanup();
 }
 
