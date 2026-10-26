@@ -224,7 +224,13 @@ def delivery_problems(slug):
     head = ref and subprocess.run(['git', '-C', str(ROOT), 'rev-parse', '--verify', f'{ref}^{{commit}}'],
                                   capture_output=True, text=True)
     if not head or head.returncode:
-        return problems + [f'effort branch {branch} is not an existing branch']
+        # A merged effort's branch is deleted; its heads are then in main, and where they are not, local main is stale.
+        gone = [key for key in ('review_head', 'e2e_head')
+                if re.fullmatch('[0-9a-f]{40}', str(fm.get(key) or '')) and not merged(str(fm[key]))]
+        update = (f", and its {' and '.join(gone)} {'is' if len(gone) == 1 else 'are'} in no main; update local main "
+                  f'from the remote (`git -C {ROOT} fetch origin main`, then fast-forward main to origin/main)'
+                  if gone else '')
+        return problems + [f'effort branch {branch} is not an existing branch{update}']
     base = fm.get('review_base', '')
     if not isinstance(base, str) or not re.fullmatch('[0-9a-f]{40}', base):
         return problems + [f'review_base: {base or "missing"} is not a 40-hex commit']

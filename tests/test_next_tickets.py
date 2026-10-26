@@ -1254,6 +1254,16 @@ class BoardCLI(unittest.TestCase):
         with patch.object(nt, 'ROOT', self.root), patch.object(nt, 'ISSUES', self.root / '.scratch'):
             assert nt.finished('fx') is True
 
+    def test_delivery_of_a_deleted_branch_whose_heads_are_in_no_main_says_to_update_local_main(self):
+        # Rule: with the branch gone and the reviewed heads in neither local nor the remote's main, delivery says to
+        # update local main from the remote, and never suggests making the branch again.
+        self.merged_on_remote('fx', on_remote=False)
+        refused = self.cli('fx', '--delivery', code=1).stderr
+        assert refused == (f'fx: effort branch feat/fx is not an existing branch, and its review_head and e2e_head are '
+                           f'in no main; update local main from the remote (`git -C {self.root.resolve()} fetch origin main`, '
+                           f'then fast-forward main to origin/main)\n'), refused
+        assert 'recreat' not in refused and 'git branch' not in refused, refused
+
     def test_delivery_names_each_field_that_fails(self):
         # Rule 2 (the Pi run): a repair committed after review leaves review_head stale against the effort head, and
         # E2E never ran; the gate names each failing field, not only the effort.

@@ -1018,11 +1018,15 @@ class DeliveryHold(GateRepo):
         self.assertEqual(self.check(pane='w1:p1'), [])
         self.review(delivered=True, e2e_status='failed')
         self.assertEqual(self.check(pane='w1:p1'), [self.held('fix', 'e2e_status: failed (needs passed)', missing)])
+        update = ('; update local main from the remote (`git -C {} fetch origin main`, then fast-forward main to '
+                  'origin/main)').format(self.repo)
         self.review(delivered=True, e2e_head='f' * 40)
-        self.assertEqual(self.check(pane='w1:p1'), [self.held('fix', missing)])
+        self.assertEqual(self.check(pane='w1:p1'), [
+            self.held('fix', f'{missing}, and its e2e_head is in no main{update}')])
         self.review(delivered=True)
         self.git('update-ref', 'refs/heads/main', self.start)
-        self.assertEqual(self.check(pane='w1:p1'), [self.held('fix', missing)])
+        self.assertEqual(self.check(pane='w1:p1'), [
+            self.held('fix', f'{missing}, and its review_head and e2e_head are in no main{update}')])
 
     def test_an_old_effort_without_e2e_fields_is_bound_only_by_name_and_then_held_until_finished(self):
         # Re-review F1, in an old real effort's shape: reviewed clean, no E2E or producer fields, merged into main
