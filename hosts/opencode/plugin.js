@@ -40,7 +40,7 @@ export default {
           // OpenCode sets the plugin up once per directory and sends each every session's events: only the session's own
           // directory holds it. A subagent's child session is not held for its parent's gaps; the parent's own turn end
           // answers for them.
-          if (info.location.directory !== ctx.location.directory || info.parentID) continue;
+          if (resolve(info.location.directory) !== resolve(ctx.location.directory) || info.parentID) continue;
           gate = await check(info.location.directory, sessionID);
         } catch (error) {  // A broken check never passes silently.
           gate = {

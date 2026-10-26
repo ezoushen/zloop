@@ -37,7 +37,7 @@ function checkout(gaps) {
 }
 
 // A stand-in for OpenCode's plugin context: events pushed by the test, sessions with a directory and an optional parent.
-async function load(gaps, parents = {}, admission = 0) {
+async function load(gaps, parents = {}, admission = 0, written = {}) {
   const repo = checkout(gaps);
   const subscribers = new Set();
   const sent = [];
@@ -59,7 +59,9 @@ async function load(gaps, parents = {}, admission = 0) {
       }),
     },
     session: {
-      get: async ({ sessionID }) => ({ id: sessionID, location: { directory: repo }, parentID: parents[sessionID] }),
+      get: async ({ sessionID }) => ({
+        id: sessionID, location: { directory: (written[sessionID] ?? "{repo}").replace("{repo}", repo) }, parentID: parents[sessionID],
+      }),
       // OpenCode runs its prompt hooks before it admits the message, and stamps the message when it does.
       prompt: async (input) => {
         sent.push(input);
@@ -121,6 +123,17 @@ async function load(gaps, parents = {}, admission = 0) {
   await host.settle();
   assert.equal(host.holds("ses_m"), 1);
   await other();
+  await host.cleanup();
+}
+
+{
+  // A session whose directory is written another way (an imported session keeps its own form) is still the
+  // directory's.
+  const host = await load(["ses_s", "ses_d"], {}, 0, { ses_s: "{repo}/", ses_d: "{repo}/sub/../" });
+  host.push("succeeded", "ses_s");
+  host.push("succeeded", "ses_d");
+  await host.settle();
+  assert.deepEqual([host.holds("ses_s"), host.holds("ses_d")], [1, 1]);
   await host.cleanup();
 }
 
