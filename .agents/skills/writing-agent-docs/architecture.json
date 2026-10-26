@@ -60,6 +60,9 @@
    "workers"
   ],
   [
+   "panel"
+  ],
+  [
    "checks"
   ],
   [
@@ -228,6 +231,14 @@
     "scripts/capacity.py",
     "scripts/allowance.py",
     "scripts/claude_usage.py"
+   ]
+  },
+  "panel": {
+   "docs": [
+    "runtime/panel/**/*.md"
+   ],
+   "code": [
+    "scripts/panel_state.py"
    ]
   },
   "workers": {
