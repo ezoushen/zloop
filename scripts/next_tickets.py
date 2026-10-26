@@ -25,6 +25,7 @@ edges and cycles between tickets or efforts. One orchestrator per checkout.
 """
 import argparse
 from graphlib import CycleError, TopologicalSorter
+import hashlib
 import json
 import math
 import os
@@ -407,17 +408,19 @@ def returned_problems(slug, report, ref, branch, delegated):
     """A delegated ticket's report, and any report a worker returned, must be one a collected worker attempt of the
     effort returned completed, unchanged since and at the ticket head: the orchestrator judges a worker's evidence,
     it never writes it."""
-    returned = [saved for saved in effort_attempts(slug) if saved.get("result")
-                and Path(saved["result"].get("report", "")).resolve() == report.resolve()]
+    collected = [saved for saved in effort_attempts(slug) if saved.get("result")]
+    # A worker's report may be collected as an immutable snapshot: its content, not its path, vouches for the report.
+    digest = hashlib.sha256(report.read_bytes()).hexdigest()
+    returned = [saved for saved in collected if saved["result"].get("report_sha256") == digest]
     shown = report.relative_to(ROOT) if report.is_relative_to(ROOT) else report
     if not returned:
+        here = [saved for saved in collected if Path(saved["result"].get("report", "")).resolve() == report.resolve()]
+        if here:
+            return [f"{shown} changed after {here[-1]['attempt']} returned it"]
         return [f"no collected worker attempt returned {shown}"] if delegated else []
-    intact = [saved for saved in returned if worker_lifecycle.report_intact(saved)]
-    if not intact:
-        return [f"{shown} changed after {returned[-1]['attempt']} returned it"]
-    completed = [saved for saved in intact if saved["result"]["status"] == "completed"]
+    completed = [saved for saved in returned if saved["result"]["status"] == "completed"]
     if not completed:
-        return [f"{intact[-1]['attempt']} returned {intact[-1]['result']['status']}, not a completed ticket"]
+        return [f"{returned[-1]['attempt']} returned {returned[-1]['result']['status']}, not a completed ticket"]
     head = commit_of(ref)
     if not any(re.fullmatch("[0-9a-f]{7,40}", saved["result"]["head"]) and commit_of(saved["result"]["head"]) == head
                for saved in completed):

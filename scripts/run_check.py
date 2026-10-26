@@ -114,8 +114,11 @@ def main():
                'interrupted_signal': interrupted, 'missing_output': missing,
                'log': os.path.abspath(args.log)}
     # The commit the check ran at, when it ran in a git checkout: a delivery gate takes a run only at its head.
-    head = subprocess.run(['git', 'rev-parse', '--verify', 'HEAD'], capture_output=True, text=True)
-    if head.returncode == 0:
+    try:
+        head = subprocess.run(['git', 'rev-parse', '--verify', 'HEAD'], capture_output=True, text=True)
+    except OSError:  # No git to ask: the check's result stands, with no head.
+        head = None
+    if head and head.returncode == 0:
         summary['head'] = head.stdout.strip()
     keep(summary)
     if code and args.classify_failure:

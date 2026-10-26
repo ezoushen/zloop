@@ -360,6 +360,22 @@ class BoardCLI(unittest.TestCase):
         support.collected_attempt(self.root, 'inline', 'inline/01/implementation-2', report, head=work[:12])
         self.cli('inline', '--accept', 'inline/01')
 
+    def test_a_collected_snapshot_vouches_for_the_canonical_report_with_its_content(self):
+        # collect.md: collected reports stay immutable, so a worker's report may be collected as a snapshot.
+        self.write_ticket('inline/01', 'implementing')
+        base = self.commit('base')
+        self.git('switch', '-q', '-c', 'feat/inline-01')
+        work = self.commit('delegated ticket work')
+        self.write_report(base, commits=[work], returned=False)
+        report = self.root / '.scratch/inline/reports/01.md'
+        snapshot = report.with_name('01-attempt-1.md')
+        snapshot.write_bytes(report.read_bytes())
+        support.collected_attempt(self.root, 'inline', 'inline/01/implementation-1', snapshot, head=work)
+        self.cli('inline', '--accept', 'inline/01')
+        report.write_text(report.read_text() + '- [x] ticked afterwards\n')
+        refused = self.cli('inline', '--accept', 'inline/01', code=1)
+        assert 'inline/01: no collected worker attempt returned .scratch/inline/reports/01.md' in refused.stderr, refused
+
     def test_a_done_ticket_lent_to_e2e_as_verifying_returns_to_done(self):
         # The E2E sentinel: a done ticket, accepted before acceptance was recorded, is set verifying and back.
         self.write_ticket('inline/01', 'done')

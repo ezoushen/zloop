@@ -228,6 +228,13 @@ class RunCheckTests(unittest.TestCase):
                 summary = json.loads(Path(f'{log}.summary.json').read_text())
                 self.assertEqual(summary, json.loads(result.stdout))
                 self.assertEqual((summary['exit_code'], summary.get('head')), (code, head if cwd == repo else None))
+            # Without git on PATH the check still runs and keeps its summary, with no head.
+            bare = Path(tmp) / 'no-git.log'
+            result = subprocess.run([sys.executable, str(RUNNER), '--timeout', '10', '--log', str(bare), '--',
+                                     sys.executable, '-c', 'exit(0)'], cwd=repo, capture_output=True, text=True,
+                                    timeout=20, env=dict(os.environ, PATH=str(Path(tmp) / 'empty')))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn('head', json.loads(Path(f'{bare}.summary.json').read_text()))
             # A rerun under a reused log name that cannot even start leaves no passing summary behind.
             reused = Path(tmp) / 'passing.log'
             reused.unlink()
