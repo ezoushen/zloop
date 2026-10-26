@@ -1,0 +1,52 @@
+# The panel
+
+A card that shows what this session's zloop effort is doing while it is live: what is running, how long it has been
+quiet, what blocks it and what comes next. Pi and Claude Code draw it from the same facts, so the words match.
+
+## One fact source
+
+`scripts/panel_state.py` answers for one checkout and one session:
+
+```sh
+python3 -B scripts/panel_state.py --repo <main checkout> --session-id <host session> [--json]
+```
+
+Text mode prints one row per line and nothing when the effort is not live. `--json` prints
+`{"active", "effort", "phase", "draft", "rows": [{"kind", "text"}], "strip"}`, with `kind` one of `headline`, `run`,
+`wait`, `blocker`, `next`, `counts`, `more`. Hosts render only these words; they never re-derive a fact.
+
+It reads, read-only: the effort's run card (`.scratch/<slug>/autopilot.md`), its worker attempt state
+(`.scratch/<slug>/reports/workers.sqlite`, the file the worker attempts protocol keeps) and its
+local tickets (`.scratch/<slug>/issues/`). An unreadable state file drops only the rows it would have supplied.
+
+Which effort is this session's: the run card whose `session:` names it, else the effort holding this session's
+decision journal, else the newest effort in the checkout that another session does not claim.
+
+Live means the card has no terminal state or stopped on `waiting-on-user`, `paused-allowance`, `paused-by-user` or
+`blocked`, or an attempt is live, or the card is still unconfirmed. A run that reached `delivered`, `delivered-local`
+or `merged`, or set `phase: ended`, draws nothing.
+
+Rows are ordered by what the person needs first: the headline, then running workers (three, then `+N more`), running
+waits, one blocker by precedence (the run's own stop first, then a blocked ticket), the next step, and the counts.
+
+## Two surfaces
+
+- **Pi:** its extension reads the snapshot every two seconds and draws the rows under the editor as a widget, sized
+  to the terminal width. Its band cannot be hidden, so the card carries every fact and the status line
+  stays with the engine. `ZLOOP_PANEL=off` leaves the panel unwired.
+- **Claude Code:** `hooks/panel.mjs`, loaded from the plugin's `hooks/hooks.json` `modules` beside its classic hooks,
+  answers `ui.render { component: "AbovePrompt" }`. It refreshes through `$.clock.every` and `$.process.run` and
+  repaints with `$.ui.invalidate("ui.render")`. Where the band cannot hold the card — a survey holds it, or the rows
+  outgrow `maxRows` — it pins the snapshot's `strip` in the status line instead, and clears it whenever the card draws.
+
+Either host draws nothing when the snapshot is missing, fails or prints something unparseable: a stale or invented
+card is worse than none.
+
+## Scope
+
+The panel only shows. It has no keys, no buttons and no control of the run; pausing, taking over and resuming stay
+the user's own acts. It reports the effort the session runs, not other sessions' work. Allowance, spend and context
+figures are not part of it.
+
+Tests: `tests/test_panel_state.py` (the fact source's rules), `tests/test_pi_panel.py` (the Pi widget) and
+`tests/panel.test.ts` (the Claude band, run by `claude plugin test ./`).
