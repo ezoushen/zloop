@@ -19,8 +19,6 @@ BLOCKERS = {
     'waiting-on-user': 'waiting-on-user: one action on the pause list is needed',
     'blocked': 'blocked: no option fits the principles',
 }
-# Terminal states that end the run with nothing left to watch.
-FINISHED = ('delivered', 'delivered-local', 'merged')
 
 
 def card_state(path):
@@ -112,9 +110,8 @@ def live_effort(state, attempts, blocker, draft, found_tickets):
     if draft or blocker or attempts:
         return True
     if not state:
-        # No run card: the board itself says whether anything is left to do.
         return any(fields.get('status') in ('ready', 'implementing', 'blocked') for _, fields in found_tickets)
-    if state.get('phase') == 'ended' or state.get('terminal') in FINISHED:
+    if state.get('phase') == 'ended':
         return False
     return not state.get('terminal')
 
@@ -176,8 +173,6 @@ def live_attempts(effort, now):
         print(f'panel_state: workers.sqlite unreadable ({error}): {state}', file=sys.stderr)
         return []
     pending = {attempt for attempt, acknowledged in db_pending if not acknowledged}
-    # A worker with no result is running; one whose result is recorded but not yet acknowledged is waiting to be
-    # collected; one collected and acknowledged has nothing left to show.
     shown = []
     for data in rows:
         if data.get('closed'):

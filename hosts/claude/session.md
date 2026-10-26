@@ -14,8 +14,8 @@ Follow native permissions. On permission denial, report the actual boundary and
 stop that action; do not route around it.
 Carry the denied operation/resource into worker and resume assignments so another
 path spelling, copy command or tool does not repeat it. Keep startup update/auth/
-permission prompts pending; a review assignment does not authorize upgrades or disabling
-approvals/sandboxing to make a delegate run.
+permission prompts pending for the user; a review assignment does not authorize upgrades or
+disabling approvals/sandboxing to make a delegate run.
 
 Before launching, resuming or acting as a worker, also read [workers.md](workers.md): it holds
 launch, profile and effort handling, the Claude hooks, child slots and goals. In worker

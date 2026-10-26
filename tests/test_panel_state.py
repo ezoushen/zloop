@@ -92,8 +92,8 @@ class PanelState(unittest.TestCase):
         self.assertEqual('', PANEL.render_text(found))
 
     def test_a_delivered_run_with_nothing_live_draws_nothing(self):
-        # Only the terminal state says delivered: the phase is still dispatch. A ready ticket would otherwise keep a
-        # card-less effort live, so the FINISHED clause is this test's own subject.
+        # Only the terminal state says delivered: the phase is still dispatch. The ready ticket shows the terminal
+        # state alone decides a carded effort, since a card-less one would stay live on that ticket.
         card(self.scratch / 'demo' / 'autopilot.md', phase='dispatch', terminal='delivered')
         ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='ready')
         found = self.snapshot()
