@@ -374,7 +374,8 @@ class BoardCLI(unittest.TestCase):
         self.cli('inline', '--accept', 'inline/01')
         report.write_text(report.read_text() + '- [x] ticked afterwards\n')
         refused = self.cli('inline', '--accept', 'inline/01', code=1)
-        assert 'inline/01: no collected worker attempt returned .scratch/inline/reports/01.md' in refused.stderr, refused
+        assert ('inline/01: no collected worker attempt returned .scratch/inline/reports/01.md'
+                in refused.stderr), refused.stderr
 
     def test_a_done_ticket_lent_to_e2e_as_verifying_returns_to_done(self):
         # The E2E sentinel: a done ticket, accepted before acceptance was recorded, is set verifying and back.
