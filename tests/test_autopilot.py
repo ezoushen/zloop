@@ -292,7 +292,10 @@ class TakeOverCommand(unittest.TestCase):
         self.assertIn('A merge gate the repository declares for a human is never met by the agent', approval)
         start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
         self.assertIn('python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--auto-merge]', start)
-        self.assertIn('the grant of the run that ended lapses with its terminal state; then restore the phase the run stopped in', start)
+        self.assertIn('the grant of the run that ended lapses with its terminal state', start)
+        self.assertIn('`phase:` stays as recorded: a run that ends keeps the phase it stopped in', start)
+        phase = next(line for line in CARD.read_text().splitlines() if line.startswith('phase:'))
+        self.assertNotIn('ended', phase)
 
 
 if __name__ == '__main__':

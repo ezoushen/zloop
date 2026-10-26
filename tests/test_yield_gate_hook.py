@@ -1292,6 +1292,35 @@ class AutopilotCardHold(GateRepo):
         self.card(session='host-1')
         self.assertEqual(self.check(), [])
 
+    def test_a_live_worker_with_a_running_wait_lets_the_run_yield_but_a_lost_one_does_not(self):
+        # Rule: a yield while a worker of the card's effort holds a running wait that will wake the host is not an end;
+        # the card hold applies again once the wait is lost.
+        path = self.card(slug='effort')
+        self.lifecycle('register', 'effort/01/1', assignment='effort/01', repo=str(self.repo), worktree=str(self.repo),
+                       head='head-1', execution=str(self.execution), runtime='claude', worker='pane-1',
+                       native_session='native-1', owned=True,
+                       packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        self.lifecycle('startup', 'effort/01/1', observed={'runtime': 'claude', 'model': 'sonnet'},
+                       evidence=['native.jsonl:1'])
+        self.lifecycle('submitted', 'effort/01/1', evidence=['native.jsonl:2:accepted prompt'])
+        pidfile, request = self.state.parent / 'wait.pid', self.state.parent / 'wait.json'
+        request.write_text(json.dumps({'argv': [sys.executable, '-c',
+            f'import os,time; open({str(pidfile)!r}, "w").write(str(os.getpid())); time.sleep(30)'], 'timeout': 40,
+            'notify': {'argv': [sys.executable, '-c', 'pass', '{receipt}'], 'timeout': 2}}))
+        watcher = subprocess.Popen([sys.executable, '-B', str(LIFECYCLE), 'watch', '--state', str(self.state),
+                                    '--attempt', 'effort/01/1', '--input', str(request)], stdout=subprocess.PIPE,
+                                   text=True, env=self.env('w1:p1'))
+        self.addCleanup(lambda: watcher.poll() is None and (watcher.kill(), watcher.communicate()))
+        deadline = time.monotonic() + 5
+        while not pidfile.exists() and time.monotonic() < deadline:
+            time.sleep(.02)
+        self.assertTrue(pidfile.exists())
+        self.assertEqual(self.check(session='host-1'), [])
+        watcher.kill()
+        watcher.communicate(timeout=5)
+        os.killpg(int(pidfile.read_text()), 9)
+        self.assertEqual(self.check(session='host-1'), [f'{self.state}: effort/01/1: wait process lost', self.gap(path)])
+
 
 if __name__ == '__main__':
     unittest.main()
