@@ -1,6 +1,7 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const SECTION = "zloop_harness";
@@ -12,6 +13,84 @@ const bashBounded = () => process.env.ZLOOP_BASH_TIMEOUT !== "off";
 
 // setTimeout rejects a delay above 2^31 - 1 ms, about 24.8 days.
 const WAKE_MAX_MS = 2 ** 31 - 1;
+
+// The panel: this session's effort drawn below the editor, from the rows its fact source reports.
+const PANEL_KEY = "zloop";
+const PANEL_INTERVAL_MS = 2000;
+const execFileAsync = promisify(execFile);
+
+/** A character the terminal draws in two cells: East Asian wide and fullwidth blocks, and emoji. */
+const WIDE = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6\u{1F300}-\u{1FAFF}]/u;
+
+/** `text` cut to `width` terminal cells, ended with an ellipsis when anything was dropped. */
+export function truncateCells(text, width) {
+  if (width <= 0) return "";
+  let out = "";
+  let used = 0;
+  for (const character of text) {
+    const cells = WIDE.test(character) ? 2 : 1;
+    if (used + cells > width) {
+      while (used > width - 1 && out) {
+        const dropped = [...out].pop();
+        out = out.slice(0, -dropped.length);
+        used -= WIDE.test(dropped) ? 2 : 1;
+      }
+      return `${out}…`;
+    }
+    out += character;
+    used += cells;
+  }
+  return out;
+}
+
+/** The lines a snapshot draws; a live effort's rows, else nothing. */
+export function panelLines(found) {
+  if (!found || !found.active || !Array.isArray(found.rows)) return [];
+  return found.rows.filter((row) => row && typeof row.text === "string" && row.text).map((row) => row.text);
+}
+
+/** What the last tick drew and on which context, so an unchanged snapshot repaints nothing. */
+let drawnPanel = null;
+let drawnCtx = null;
+
+/**
+ * Draw one snapshot: the rows below the editor, the strip in the status line, or neither when the effort is not live.
+ * A snapshot that could not be read clears both; a stale context drops this tick and lets the next one try.
+ */
+export async function panelTick(ctx, found) {
+  try {
+    const lines = panelLines(found);
+    const strip = found && found.active && found.strip ? String(found.strip) : undefined;
+    const drawn = JSON.stringify([lines, strip ?? null]);
+    if (ctx === drawnCtx && drawn === drawnPanel) return;
+    drawnCtx = ctx;
+    drawnPanel = drawn;
+    if (lines.length === 0) {
+      ctx.ui.setWidget(PANEL_KEY, undefined);
+      ctx.ui.setStatus(PANEL_KEY, undefined);
+      return;
+    }
+    ctx.ui.setWidget(PANEL_KEY, () => ({
+      render(width) {
+        return lines.map((line) => truncateCells(line, width));
+      },
+      invalidate() {},
+    }), { placement: "belowEditor" });
+    ctx.ui.setStatus(PANEL_KEY, strip);
+  } catch {
+    // The context belongs to a replaced session; the next tick draws on the fresh one.
+    drawnCtx = null;
+    drawnPanel = null;
+  }
+}
+
+/** Read this session's snapshot, or null when the fact source fails, prints nothing or cannot answer in time. */
+async function readPanelSnapshot(root, repo, session) {
+  const { stdout } = await execFileAsync("python3",
+    ["-B", join(root, "scripts", "panel_state.py"), "--repo", repo, "--session-id", session, "--json"],
+    { encoding: "utf8", timeout: 8000 });
+  return JSON.parse(stdout);
+}
 
 // The top-level scalar fields of a SKILL.md's frontmatter: unquoted, and a > or | block's indented lines joined.
 function frontmatter(path) {
@@ -301,6 +380,24 @@ export default function (pi) {
     } catch {
       // The launch goes unlogged; the stop check still lists live agents nobody registered.
     }
+    return undefined;
+  });
+
+  // The panel: the effort's rows under the editor while it is live, refreshed from the fact source.
+  let panelTimer;
+  pi.on("session_start", (_event, ctx) => {
+    if (!ctx.hasUI || panelTimer || process.env.ZLOOP_PANEL === "off") return undefined;
+    const session = ctx.sessionManager.getSessionId();
+    const repo = ctx.cwd;
+    panelTimer = setInterval(() => {
+      readPanelSnapshot(root, repo, session).catch(() => null).then((found) => panelTick(ctx, found));
+    }, PANEL_INTERVAL_MS);
+    panelTimer.unref?.();
+    return undefined;
+  });
+  pi.on("session_shutdown", () => {
+    if (panelTimer) clearInterval(panelTimer);
+    panelTimer = undefined;
     return undefined;
   });
 }
