@@ -347,7 +347,7 @@ def accept(tickets, name):
     if verify(tickets, name):
         return True
     if tickets[name].get("accepted"):
-        write_fields(tickets[name], {"accepted": None})
+        write_fields(tickets[name], {"accepted": None, "accepted_report": None})
     return False
 
 
@@ -386,8 +386,8 @@ def verify(tickets, name):
     if not problems:
         for note in notes:
             print(f"{name}: {note}")
-        # The head that passed: done needs it recorded and merged into the effort branch.
-        write_fields(tickets[name], {"accepted": commit_of(ref)})
+        # The head and the report that passed: done needs both, the head merged into the effort branch.
+        write_fields(tickets[name], {"accepted": commit_of(ref), "accepted_report": report_digest(report)})
         print(f"{name}: report and branch carry the evidence; judge the content now")
     return not problems
 
@@ -404,13 +404,18 @@ def effort_attempts(slug):
         db.close()
 
 
+def report_digest(report):
+    """The sha256 of a report's bytes, or None when it is gone."""
+    return hashlib.sha256(report.read_bytes()).hexdigest() if report.is_file() else None
+
+
 def returned_problems(slug, report, ref, branch, delegated):
     """A delegated ticket's report, and any report a worker returned, must be one a collected worker attempt of the
     effort returned completed, unchanged since and at the ticket head: the orchestrator judges a worker's evidence,
     it never writes it."""
     collected = [saved for saved in effort_attempts(slug) if saved.get("result")]
     # A worker's report may be collected as an immutable snapshot: its content, not its path, vouches for the report.
-    digest = hashlib.sha256(report.read_bytes()).hexdigest()
+    digest = report_digest(report)
     returned = [saved for saved in collected if saved["result"].get("report_sha256") == digest]
     shown = report.relative_to(ROOT) if report.is_relative_to(ROOT) else report
     if not returned:
@@ -772,6 +777,9 @@ def set_field(tickets, name, assignments):
         if not ref or subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor", accepted, ref],
                                      capture_output=True).returncode != 0:
             sys.exit(f"{name}: accepted {accepted} is not in {effort}; merge it before status=done")
+        slug, nn = name.split("/")
+        if report_digest(ISSUES / slug / "reports" / f"{nn}.md") != fm.get("accepted_report"):
+            sys.exit(f"{name}: the report changed after its --accept; accept it again")
     if fields.get("status") == "blocked" and not fields.get("blocker"):
         stored = f", even with one stored ({fm['blocker']!r})" if fm.get("blocker") else ""
         sys.exit(f"{name}: status=blocked needs the reason too{stored}: "
@@ -787,8 +795,8 @@ def set_field(tickets, name, assignments):
 
 
 def write_fields(fm, fields):
-    """Write each field to a ticket's front matter; None removes the field. Only status, blocker, start, accepted
-    and lent may be added; another key must already be in the template."""
+    """Write each field to a ticket's front matter; None removes the field. Only status, blocker, start, accepted,
+    accepted_report and lent may be added; another key must already be in the template."""
     path = ROOT / fm["path"]
     head, sep, body = path.read_text().partition("\n---\n")
     for key, value in fields.items():
@@ -797,7 +805,7 @@ def write_fields(fm, fields):
             head = re.sub(rf"\n{re.escape(key)}:.*$", "", head, flags=re.M)
         elif pattern.search(head):
             head = pattern.sub(lambda match: f"{match[1]} {value}", head, count=1)
-        elif key in ('status', 'blocker', 'start', 'accepted', 'lent'):
+        elif key in ('status', 'blocker', 'start', 'accepted', 'accepted_report', 'lent'):
             head += f'\n{key}: {value}'
         else:
             sys.exit(f"{fm['ticket']}: no front-matter key {key!r}")

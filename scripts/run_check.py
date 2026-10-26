@@ -52,6 +52,7 @@ def main():
     timed_out = False
     interrupted = None
     cleanup_required = False
+    started = current_head()
 
     def interrupt(signum, frame):
         nonlocal interrupted
@@ -113,19 +114,26 @@ def main():
                'cleanup_required': cleanup_required,
                'interrupted_signal': interrupted, 'missing_output': missing,
                'log': os.path.abspath(args.log)}
-    # The commit the check ran at, when it ran in a git checkout: a delivery gate takes a run only at its head.
-    try:
-        head = subprocess.run(['git', 'rev-parse', '--verify', 'HEAD'], capture_output=True, text=True)
-    except OSError:  # No git to ask: the check's result stands, with no head.
-        head = None
-    if head and head.returncode == 0:
-        summary['head'] = head.stdout.strip()
+    # The commit the check ran at, when it ran in a git checkout and nothing moved it meanwhile: a delivery gate
+    # takes a run only at its head.
+    finished = current_head()
+    if started and finished == started:
+        summary['head'] = started
     keep(summary)
     if code and args.classify_failure:
         summary['failure_cause'] = classify(summary, args)
         keep(summary)
     print(json.dumps(summary))
     return code
+
+
+def current_head():
+    """The commit checked out where the check runs, or None outside a git checkout or without git."""
+    try:
+        head = subprocess.run(['git', 'rev-parse', '--verify', 'HEAD'], capture_output=True, text=True)
+    except OSError:
+        return None
+    return head.stdout.strip() if head.returncode == 0 else None
 
 
 def keep(summary):

@@ -228,6 +228,13 @@ class RunCheckTests(unittest.TestCase):
                 summary = json.loads(Path(f'{log}.summary.json').read_text())
                 self.assertEqual(summary, json.loads(result.stdout))
                 self.assertEqual((summary['exit_code'], summary.get('head')), (code, head if cwd == repo else None))
+            # A commit made while the check runs is not the one it checked: the summary names no head.
+            moving = Path(tmp) / 'moving.log'
+            git = f"git -C {shlex.quote(str(repo))} -c user.name=t -c user.email=t@t commit -q --allow-empty -m moved"
+            result = subprocess.run([sys.executable, str(RUNNER), '--timeout', '10', '--log', str(moving), '--',
+                                     'sh', '-c', git], cwd=repo, capture_output=True, text=True, timeout=20)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn('head', json.loads(Path(f'{moving}.summary.json').read_text()))
             # Without git on PATH the check still runs and keeps its summary, with no head.
             bare = Path(tmp) / 'no-git.log'
             result = subprocess.run([sys.executable, str(RUNNER), '--timeout', '10', '--log', str(bare), '--',

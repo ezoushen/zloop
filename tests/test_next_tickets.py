@@ -332,6 +332,11 @@ class BoardCLI(unittest.TestCase):
         self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
         report.write_text(kept)
         self.cli('inline', '--accept', 'inline/01')
+        # A report revised after its acceptance is not the one accepted, whether or not --accept ran again.
+        report.write_text(kept + '- [x] added after acceptance\n')
+        refused = self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
+        assert 'inline/01: the report changed after its --accept; accept it again' in refused.stdout + refused.stderr
+        report.write_text(kept)
         self.cli('inline', '--set', 'inline/01', 'status=done')
         # A delegated ticket's accepted head must also be merged into the effort branch.
         self.write_ticket('inline/02', 'implementing', touches='docs')
