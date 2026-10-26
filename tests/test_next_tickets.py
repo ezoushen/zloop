@@ -12,6 +12,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import support
 
@@ -1227,6 +1228,31 @@ class BoardCLI(unittest.TestCase):
         unreviewed = review.read_text().replace('effort_branch: main~1', 'effort_branch: main')
         review.write_text(unreviewed.replace(head, start))
         self.cli('onmain', '--delivery', code=1)
+
+    def merged_on_remote(self, slug, on_remote=True):
+        """An effort whose branch is deleted, reviewed and E2E passed at the head of feat/<slug>, which a bare remote's
+        main holds (when on_remote) while local main stays at the start and has never fetched."""
+        self.write_ticket(f'{slug}/01', 'done')
+        start = self.commit('start')
+        self.git('switch', '-q', '-c', f'feat/{slug}')
+        head = self.commit('effort work')
+        self.git('switch', '-q', 'main')
+        remote = self.root.parent / f'{self.root.name}-remote.git'
+        subprocess.run(['git', 'init', '-q', '--bare', '-b', 'main', str(remote)], check=True)
+        self.addCleanup(shutil.rmtree, remote, ignore_errors=True)
+        self.git('remote', 'add', 'origin', str(remote))
+        self.git('push', '-q', 'origin', f'{head if on_remote else start}:refs/heads/main')
+        self.deliver(slug, f'feat/{slug}', start, head)
+        self.git('branch', '-D', f'feat/{slug}')
+        return start, head
+
+    def test_an_effort_merged_on_the_remote_is_finished_though_local_main_is_stale(self):
+        # Rule: finished means the branch is gone and the reviewed and E2E heads are in the remote's main, even when
+        # local main has not been updated from it.
+        start, head = self.merged_on_remote('fx')
+        assert self.git('rev-parse', 'main') == start
+        with patch.object(nt, 'ROOT', self.root), patch.object(nt, 'ISSUES', self.root / '.scratch'):
+            assert nt.finished('fx') is True
 
     def test_delivery_names_each_field_that_fails(self):
         # Rule 2 (the Pi run): a repair committed after review leaves review_head stale against the effort head, and

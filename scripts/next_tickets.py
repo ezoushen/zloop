@@ -171,18 +171,33 @@ def delivery_evidence(slug):
 
 
 def finished(slug):
-    """Whether the board records an effort as delivered and gone: its branch deleted, its reviewed head in main and a
-    passing E2E recorded at a head in main."""
+    """Whether the board records an effort as delivered and gone: its branch deleted, its reviewed head in main (local
+    or the remote's) and a passing E2E recorded at a head in main."""
     fm = review_front_matter(slug) or {}
     return (branch_ref(effort_branch(slug)) is None and fm.get('e2e_status') == 'passed'
-            and all(in_main(str(fm.get(key) or '')) for key in ('review_head', 'e2e_head')))
+            and all(merged(str(fm.get(key) or '')) for key in ('review_head', 'e2e_head')))
 
 
-def in_main(sha):
-    """Whether sha is a 40-hex commit that main contains."""
+def in_main(sha, ref='refs/heads/main'):
+    """Whether sha is a 40-hex commit that main (or ref) contains."""
     return bool(re.fullmatch('[0-9a-f]{40}', sha)) and subprocess.run(
-        ['git', '-C', str(ROOT), 'merge-base', '--is-ancestor', sha, 'refs/heads/main'],
-        capture_output=True).returncode == 0
+        ['git', '-C', str(ROOT), 'merge-base', '--is-ancestor', sha, ref], capture_output=True).returncode == 0
+
+
+def merged(sha):
+    """Whether local main, or the remote's main as of a fetch now, contains sha. A fetch that fails leaves the remote
+    tracking branch as it was."""
+    if in_main(sha):
+        return True
+    if not re.fullmatch('[0-9a-f]{40}', sha):
+        return False
+    try:
+        subprocess.run(['git', '-C', str(ROOT), 'fetch', '--quiet', 'origin', 'main'], capture_output=True, timeout=10,
+                       stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        pass
+    return in_main(sha, 'refs/remotes/origin/main')
+
 
 def delivery_problems(slug):
     """Structural delivery gate: each recorded field that fails it, [] when none does. The orchestrator must also
