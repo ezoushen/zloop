@@ -6,7 +6,9 @@ usage: tests/run_all.py
 Uses the plugin environment's .venv (the main checkout's, from a worktree) unless
 PYTHON names another interpreter. Concurrent runs on the machine share one budget of
 ZLOOP_TEST_SLOTS scripts (default: the CPU count), held as file locks in ZLOOP_TEST_SLOT_DIR
-(default: /tmp/zloop-test-slots-<uid>); a lock vanishes with its run, so a killed run frees its slots. Prints each failing script's output tail and
+(default: /tmp/zloop-test-slots-<uid>); a lock vanishes with its run, so a killed run frees its slots.
+A run started by one of those scripts (ZLOOP_TEST_SLOT_HELD is set) counts its own scripts against a private
+budget, so it never waits on the slot its parent script already holds. Prints each failing script's output tail and
 exits 1 when any script fails. Native checks (ZLOOP_NATIVE=1) stay opt-in; see docs/development.md.
 """
 import fcntl
@@ -56,8 +58,12 @@ def main():
     python = interpreter(env)
     with tempfile.TemporaryDirectory() as logs:
         slots = int(os.environ.get('ZLOOP_TEST_SLOTS') or os.cpu_count() or 1)
-        directory = Path(os.environ.get('ZLOOP_TEST_SLOT_DIR') or f'/tmp/zloop-test-slots-{os.getuid()}')
+        if os.environ.get('ZLOOP_TEST_SLOT_HELD'):
+            directory = Path(logs) / 'slots'
+        else:
+            directory = Path(os.environ.get('ZLOOP_TEST_SLOT_DIR') or f'/tmp/zloop-test-slots-{os.getuid()}')
         directory.mkdir(parents=True, exist_ok=True)
+        env['ZLOOP_TEST_SLOT_HELD'] = '1'
         jobs = []
         held = []
         for test in sorted((ROOT / 'tests').glob('test_*.py')):

@@ -27,6 +27,7 @@ class RunAll(unittest.TestCase):
         subprocess.run(['git', 'init', '-q', str(root)], check=True)
         # A Git hook exports GIT_DIR; the runner must not pass it to the scripts.
         env = dict(os.environ, PYTHON=sys.executable, GIT_DIR=str(root / '.git'), **(env or {}))
+        env.pop('ZLOOP_TEST_SLOT_HELD', None)
         self.root = root
         return subprocess.run([sys.executable, str(root / 'tests/run_all.py')], env=env,
                               capture_output=True, text=True, timeout=60)
@@ -120,7 +121,8 @@ class RunAll(unittest.TestCase):
         for name, body in scripts.items():
             (root / 'tests' / name).write_text(body)
         subprocess.run(['git', 'init', '-q', str(root)], check=True)
-        process = subprocess.Popen([sys.executable, str(root / 'tests/run_all.py')], env=dict(os.environ, PYTHON=sys.executable, **env),
+        process = subprocess.Popen([sys.executable, str(root / 'tests/run_all.py')], env={**{key: value for key, value in os.environ.items() if key != 'ZLOOP_TEST_SLOT_HELD'},
+                                    'PYTHON': sys.executable, **env},
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         self.addCleanup(process.wait)
         self.addCleanup(process.kill)
@@ -168,6 +170,23 @@ class RunAll(unittest.TestCase):
         waiter = self.start({'test_after.py': 'pass\n'}, env)
         output = waiter.communicate(timeout=10)[0]
         self.assertEqual(waiter.returncode, 0, output)
+
+    def test_a_run_started_by_a_script_holding_a_slot_does_not_wait_for_the_pool(self):
+        # Rule: a run nested in a suite script competes only for its own budget, so a full outer pool cannot starve it.
+        scratch = Path(tempfile.mkdtemp(prefix='run all nested '))
+        self.addCleanup(shutil.rmtree, scratch)
+        env = {'ZLOOP_TEST_SLOTS': '1', 'ZLOOP_TEST_SLOT_DIR': str(scratch / 'slots')}
+        started = scratch / 'started'
+        self.start({'test_hold.py': 'import os,time\nfrom pathlib import Path\n'
+                    f'Path({str(started)!r}).write_text(str(os.getpid()))\ntime.sleep(30)\n'}, env)
+        deadline = time.monotonic() + 10
+        while not started.exists():
+            self.assertLess(time.monotonic(), deadline, 'the holding run never started its script')
+            time.sleep(0.05)
+        self.addCleanup(os.kill, int(started.read_text()), signal.SIGKILL)
+        nested = self.start({'test_inner.py': 'pass\n'}, dict(env, ZLOOP_TEST_SLOT_HELD='1'))
+        output = nested.communicate(timeout=10)[0]
+        self.assertEqual(nested.returncode, 0, output)
 
     def test_scripts_do_not_inherit_the_git_hook_environment(self):
         result = self.suite({'test_env.py': 'import os\nraise SystemExit(1 if "GIT_DIR" in os.environ else 0)\n'})
