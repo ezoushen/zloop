@@ -36,8 +36,8 @@ routers keep their own policy.
 
 The routing profile is `--config-profile <name>`, else `ZLOOP_PROFILE`, else the
 configured router; no router means host judgment. A profile name neither establishes
-Herdr nor selects the host. Caller-specific native routes win over a Herdr bridge when available;
-Herdr routes need `HERDR_ENV=1` and runtime preflight. One profile can hold preferences
+Herdr nor selects the host. Caller-specific native routes win over a Herdr bridge when available,
+except for a Pi caller, which tries Herdr first; Herdr routes need `HERDR_ENV=1` and runtime preflight. One profile can hold preferences
 for several worker runtimes without duplicating models, pools or routes. The separate
 `--profile` flag renders a native worker settings file, only after selection.
 

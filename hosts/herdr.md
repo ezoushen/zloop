@@ -22,7 +22,7 @@ do not infer the destination from a model name or silently replace a saved route
 Use [runtime definitions](../runtime/config/catalog.md) to share launch routes
 across models; model bindings declare each runtime's registered ID and thinking
 policy. Agent pools stay shared; routing profiles override candidate/thinking by
-worker runtime only when selected explicitly. If a saved route sends same-runtime
+worker runtime only when selected explicitly. If a saved route sends a non-Pi caller's same-runtime
 work through Herdr, show the mismatch and
 use the setup command for an authorized correction. Environment detection alone
 does not rewrite configuration. Native capacity or permission limits do not

@@ -618,9 +618,11 @@ def record(db, data, refuse_changes=False):
     if kind == 'register':
         execution = read_object(data['execution']) if text(data.get('execution')) else None
         route = execution or {}
-        # The resolver marks a Herdr route by its context; a skill route may name the Herdr skill with a plugin prefix.
+        # The resolver marks a Herdr route by its context or, under a caller key, by the built-in herdr type; a skill
+        # route may name the Herdr skill with a plugin prefix.
         skill = str(route.get('executor_config', {}).get('skill', ''))
-        if route.get('executor_context') == 'herdr' or skill.rpartition(':')[2] == 'herdr' or 'herdr' in data:
+        if 'herdr' in (route.get('executor_context'), route.get('executor_type')) \
+                or skill.rpartition(':')[2] == 'herdr' or 'herdr' in data:
             placed = herdr_placement(data)
     db.execute('BEGIN IMMEDIATE')
     with db:

@@ -164,14 +164,17 @@ class HerdrTabs(WorkerLifecycleCase):
         self.assertEqual([row['attempt'] for row in self.cli('status')['attempts']], ['native/1'])
 
     def test_every_herdr_route_is_looked_up_whatever_names_its_skill(self):
-        # Rule: a route is a Herdr route when the resolver's executor context is herdr, or when its skill is the
-        # Herdr skill, plain or under a plugin prefix; such a worker never registers without asking Herdr.
+        # Rule: a route is a Herdr route when the resolver's executor context is herdr, when it is the built-in
+        # herdr type under any caller key, or when its skill is the Herdr skill, plain or under a plugin prefix;
+        # such a worker never registers without asking Herdr.
         self.herdr_fixture()
         plain = json.loads(self.execution.read_text())
         for case, route in (('herdr context', {'executor_context': 'herdr', 'executor_config': {'skill': 'launch'}}),
+                            ('built-in type', {'executor': 'herdr', 'executor_type': 'herdr',
+                                               'executor_context': 'codex', 'executor_config': {}}),
                             ('prefixed skill', {'executor_config': {'skill': 'herdr:herdr'}})):
             with self.subTest(case=case):
-                self.execution.write_text(json.dumps(dict(plain, executor='skill', **route)))
+                self.execution.write_text(json.dumps(dict(plain, **dict({'executor': 'skill'}, **route))))
                 error = self.register(worker='builder-1', code=2)
                 self.assertIn('A Herdr worker registers with herdr.session', error)
                 self.assertEqual(self.cli('status')['attempts'], [])
