@@ -39,6 +39,9 @@ HANDOFF = ROOT / 'skills/dispatch/handoff.md'
 LAUNCHES = '.scratch/herdr-launches.jsonl'
 # scripts/next_tickets.py --coordinate records here, in an effort's reports/, the session that coordinates it.
 BINDING = 'coordinator.json'
+# The states skills/autopilot/run-card.md lets a run end in.
+TERMINAL_STATES = ('delivered', 'delivered-local', 'merged', 'waiting-on-user', 'paused-allowance', 'paused-by-user',
+                   'blocked')
 
 
 def lifecycle():
@@ -89,7 +92,36 @@ def gaps(cwd, session=None):
             db.close()
     # Every session answers for its own launches; a worker (its launch set ZLOOP_WORKER) not for its siblings.
     return (missing + unregistered(root, pane, session, siblings=not os.environ.get('ZLOOP_WORKER')),
-            stale_tabs(root, pane, session) + undelivered(root, pane, session))
+            stale_tabs(root, pane, session) + undelivered(root, pane, session) + unfinished_runs(root, session))
+
+
+def card_state(path):
+    """The `key: value` lines of a run card's State section, '' for a blank or placeholder (`<...>`) value; {} when the
+    card cannot be read or has no State."""
+    try:
+        text = path.read_text(errors='replace')
+    except OSError:
+        return {}
+    state = {}
+    for line in text.partition('\n## State\n')[2].splitlines():
+        key, colon, value = line.partition(':')
+        if colon and re.fullmatch(r'[a-z-]+', key):
+            value = value.strip()
+            state[key] = '' if value.startswith('<') else value
+    return state
+
+
+def unfinished_runs(root, session):
+    """Name each confirmed autopilot run card of this host session that lacks one terminal state or its evidence."""
+    missing = []
+    for path in sorted(root.glob('.scratch/*/autopilot.md')):
+        state = card_state(path)
+        if (session and state.get('session') == session and state.get('confirmed', 'no') not in ('', 'no')
+                and (state.get('terminal') not in TERMINAL_STATES or not state.get('evidence'))):
+            missing.append(f"{path}: this session's autopilot run has no terminal state or no evidence; record "
+                           f"`terminal:` as exactly one of {', '.join(f'`{name}`' for name in TERMINAL_STATES)} and "
+                           "`evidence:` in the card's State")
+    return missing
 
 
 def stale_tabs(root, pane, session):

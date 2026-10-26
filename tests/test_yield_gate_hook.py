@@ -1253,5 +1253,45 @@ class StaleTabs(GateRepo):
                          r"^could not check worker tabs: .*'tab', 'list'.* timed out after 5 seconds$")
 
 
+class AutopilotCardHold(GateRepo):
+    """A session that ran a confirmed autopilot card is held until the card records one terminal state with evidence."""
+    STATES = ('delivered', 'delivered-local', 'merged', 'waiting-on-user', 'paused-allowance', 'paused-by-user',
+              'blocked')
+
+    def card(self, slug='run', confirmed='2026-10-27 "go"', session='host-1', terminal='', evidence='', **extra):
+        path = self.repo / f'.scratch/{slug}/autopilot.md'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fields = dict(confirmed=confirmed, session=session, **{'auto-merge': 'no'}, phase='dispatch',
+                      terminal=terminal, history='', evidence=evidence, **extra)
+        path.write_text(f'# {slug} \u2014 autopilot run card\n\n## Goal\nx\n\n## State\n'
+                        + ''.join(f'{key}: {value}\n'.replace(': \n', ':\n') for key, value in fields.items()))
+        return path
+
+    def gap(self, path):
+        return (f"{path}: this session's autopilot run has no terminal state or no evidence; record `terminal:` as "
+                f"exactly one of {', '.join(f'`{state}`' for state in self.STATES)} and `evidence:` in the card's State")
+
+    def test_a_confirmed_card_of_this_session_without_a_terminal_state_or_evidence_holds_the_stop(self):
+        # Rule: no run ends silently. Only this session's confirmed card with `terminal:` or `evidence:` empty holds.
+        path = self.card()
+        self.assertEqual(self.check(session='host-1'), [self.gap(path)])
+        self.assertEqual(self.stop(session='host-1')['reason'], f'Stopping now leaves these gaps:\n- {self.gap(path)}\n')
+        self.card(terminal='delivered')
+        self.assertEqual(self.check(session='host-1'), [self.gap(path)])
+        self.card(evidence='abc123')
+        self.assertEqual(self.check(session='host-1'), [self.gap(path)])
+        self.card(terminal='finished-ish', evidence='abc123')
+        self.assertEqual(self.check(session='host-1'), [self.gap(path)])
+        for state in self.STATES:
+            self.card(terminal=state, evidence='abc123')
+            self.assertEqual(self.check(session='host-1'), [], state)
+        self.card(confirmed='no')
+        self.assertEqual(self.check(session='host-1'), [])
+        self.card(session='host-2')
+        self.assertEqual(self.check(session='host-1'), [])
+        self.card(session='host-1')
+        self.assertEqual(self.check(), [])
+
+
 if __name__ == '__main__':
     unittest.main()
