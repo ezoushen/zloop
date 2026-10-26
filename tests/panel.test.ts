@@ -49,12 +49,12 @@ describe("zloop panel", () => {
     await started($);
     const ui = await band($);
     const texts = (await ui.findAll({ type: "Text" })).map((node: any) => node.text);
-    // Every row draws in the snapshot's order. The engine owns bodyColumns, so a long row is cut to the band the
-    // mount gave it — the assertion is on each row's own words, not on a width this test cannot set.
-    expect(texts).toHaveLength(3);
-    expect(texts[0]).toBe("demo · dispatch");
-    expect(texts[1]).toMatch(/^▶ builder · zloop-panel\/02 · sonnet · quiet /);
-    expect(texts[2]).toBe("1 done · 0 blocked · 2 ready · 1 live");
+    // Every row draws whole at eighty columns, in the snapshot's order.
+    expect(texts).toEqual([
+      "demo · dispatch",
+      "▶ builder · zloop-panel/02 · sonnet · quiet 1m",
+      "1 done · 0 blocked · 2 ready · 1 live",
+    ]);
   });
 
   test("renders nothing when the effort is not live, even with rows still in the snapshot", async ($, on) => {
@@ -115,13 +115,18 @@ describe("zloop panel", () => {
     expect(pinned).toContain("demo · dispatch · 1 running");
   });
   test("cuts rows to the band's columns, wide characters included", async ($, on) => {
-    beneath(on, snapshot({ rows: [{ kind: "run", text: "⏳⏳⏳⏳⏳ ✅ done" }] }));
+    // A table that over-counts every letter would pass a "<= width" check, so the fitting and astral cases are exact.
+    const fitted = ["abc ✅", "🚀🚀🚀🚀"];
+    beneath(on, snapshot({ rows: fitted.map((text) => ({ kind: "run", text })) }));
     await started($);
-    const ui = await band($, { bodyColumns: 8, maxRows: 12 });
-    const drawn = await ui.find({ type: "Text", text: /…/ });
-    expect(drawn).toBeDefined();
-    const line = String(drawn?.children?.[0] ?? "");
-    const cells = [...line].reduce((total, character) => total + (["✅", "⏳"].includes(character) ? 2 : 1), 0);
-    expect(cells).toBeLessThanOrEqual(8);
+    const wide = await band($, { bodyColumns: 8, maxRows: 12 });
+    expect((await wide.findAll({ type: "Text" })).map((node: any) => node.text)).toEqual(fitted);
+
+    const overflow = await band($, { bodyColumns: 5, maxRows: 12 });
+    const cut = (await overflow.findAll({ type: "Text" })).map((node: any) => node.text);
+    expect(cut[0].endsWith("…")).toBe(true);
+    expect(cut[1].endsWith("…")).toBe(true);
+    const cells = [...cut[1]].reduce((total, character) => total + (character === "🚀" ? 2 : 1), 0);
+    expect(cells).toBeLessThanOrEqual(5);
   });
 });

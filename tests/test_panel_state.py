@@ -92,8 +92,10 @@ class PanelState(unittest.TestCase):
         self.assertEqual('', PANEL.render_text(found))
 
     def test_a_delivered_run_with_nothing_live_draws_nothing(self):
-        # Only the terminal state says delivered: the phase is still dispatch.
+        # Only the terminal state says delivered: the phase is still dispatch. A ready ticket would otherwise keep a
+        # card-less effort live, so the FINISHED clause is this test's own subject.
         card(self.scratch / 'demo' / 'autopilot.md', phase='dispatch', terminal='delivered')
+        ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='ready')
         found = self.snapshot()
         self.assertFalse(found['active'])
         self.assertEqual([], found['rows'])
@@ -198,8 +200,10 @@ class PanelState(unittest.TestCase):
 
     def test_a_result_awaiting_collection_is_the_wait_row(self):
         card(self.scratch / 'demo' / 'autopilot.md')
+        # The lifecycle records a collected-looking result and its pending event in one step, so the attempt does
+        # carry `result` while the orchestrator has not acknowledged it yet.
         attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite',
-                 [dict(live('12/ticket-1'), monitor={'state': 'settled'})])
+                 [dict(live('12/ticket-1'), monitor={'state': 'settled'}, result={'status': 'completed'})])
         state = self.scratch / 'demo' / 'reports' / 'workers.sqlite'
         db = sqlite3.connect(state)
         db.execute("INSERT INTO events (attempt, kind, payload, acknowledged) VALUES (?, ?, ?, 0)",
@@ -225,10 +229,11 @@ class PanelState(unittest.TestCase):
         self.assertIn('no approval', self.row_texts(found, 'blocker')[0])
 
     def test_the_sessions_journal_names_the_effort_when_no_card_does(self):
-        journal = self.scratch / 'gamma' / 'decisions-S.jsonl'
+        # Journals live in the effort's artifact directory, which is its reports folder.
+        journal = self.scratch / 'gamma' / 'reports' / 'decisions-S.jsonl'
         journal.parent.mkdir(parents=True)
         journal.write_text('')
-        ticket(journal.parent / 'issues' / '01-a.md', 'gamma/01', status='implementing')
+        ticket(journal.parent.parent / 'issues' / '01-a.md', 'gamma/01', status='implementing')
         # A newer unclaimed effort would win on activity alone, so only the journal rule can pick gamma.
         newer = self.scratch / 'omega' / 'issues' / '01-a.md'
         ticket(newer, 'omega/01', status='ready')
@@ -240,10 +245,15 @@ class PanelState(unittest.TestCase):
         self.assertTrue(found['active'])
 
     def test_the_newest_unclaimed_effort_is_adopted_without_a_card(self):
-        ticket(self.scratch / 'delta' / 'issues' / '01-a.md', 'delta/01', status='ready')
+        older = self.scratch / 'delta' / 'issues' / '01-a.md'
+        ticket(older, 'delta/01', status='ready')
+        newer = self.scratch / 'omega' / 'issues' / '01-a.md'
+        ticket(newer, 'omega/01', status='ready')
+        later = time.time() + 120
+        os.utime(newer, (later, later))
         found = self.snapshot('S')
-        self.assertEqual('delta', found['effort'])
-        self.assertEqual(['delta'], self.row_texts(found, 'headline'))
+        self.assertEqual('omega', found['effort'])
+        self.assertEqual(['omega'], self.row_texts(found, 'headline'))
 
     def test_a_worktree_checkout_reads_the_main_checkouts_scratch(self):
         card(self.scratch / 'demo' / 'autopilot.md')

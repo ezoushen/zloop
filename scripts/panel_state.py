@@ -11,7 +11,7 @@ import time
 SCRATCH = '.scratch'
 CARD = 'autopilot.md'
 RUN_CAP = 3
-# Terminal states in which the run has stopped but still needs the person, so the panel stays up.
+# Terminal states that leave a resume step in the card's `resume:` line.
 PAUSED = ('waiting-on-user', 'paused-allowance', 'paused-by-user', 'blocked')
 BLOCKERS = {
     'paused-by-user': 'paused-by-user: you took control',
@@ -50,7 +50,8 @@ def efforts(repo):
     for path in sorted((repo / SCRATCH).glob('*')):
         if path.is_dir() and ((path / CARD).is_file() or (path / 'issues').is_dir()
                               or (path / 'reports' / 'workers.sqlite').is_file()
-                              or any(path.glob('decisions-*.jsonl'))):
+                              or any(path.glob('decisions-*.jsonl'))
+                              or any((path / 'reports').glob('decisions-*.jsonl'))):
             found.append(path)
     return found
 
@@ -59,7 +60,7 @@ def activity(effort):
     """When the effort last changed: the newest thing it holds that this panel reads."""
     newest = 0.0
     for path in [effort / CARD, effort / 'reports' / 'workers.sqlite', *effort.glob('decisions-*.jsonl'),
-                 *effort.glob('issues/*.md')]:
+                 *(effort / 'reports').glob('decisions-*.jsonl'), *effort.glob('issues/*.md')]:
         try:
             newest = max(newest, path.stat().st_mtime)
         except OSError:
@@ -107,14 +108,15 @@ def is_draft(state):
 
 
 def live_effort(state, attempts, blocker, draft, found_tickets):
-    """Whether the effort is worth showing: a run still open or paused, work in flight, a blocker, or a draft card."""
+    """Whether the effort is worth showing: work in flight, a blocker, a draft card, or work its board still holds."""
     if draft or blocker or attempts:
         return True
+    if not state:
+        # No run card: the board itself says whether anything is left to do.
+        return any(fields.get('status') in ('ready', 'implementing', 'blocked') for _, fields in found_tickets)
     if state.get('phase') == 'ended' or state.get('terminal') in FINISHED:
         return False
-    if state and not state.get('terminal'):
-        return True
-    return any(fields.get('status') in ('ready', 'implementing', 'blocked') for _, fields in found_tickets)
+    return not state.get('terminal')
 
 
 def next_row(state, found_tickets, draft):
@@ -174,10 +176,19 @@ def live_attempts(effort, now):
         print(f'panel_state: workers.sqlite unreadable ({error}): {state}', file=sys.stderr)
         return []
     pending = {attempt for attempt, acknowledged in db_pending if not acknowledged}
-    live = [(seen.get(data['attempt']) or now, data) for data in rows
-            if not data.get('result') and not data.get('closed')]
-    live.sort(reverse=True)
-    return [(now - when, data, data['attempt'] in pending) for when, data in live]
+    # A worker with no result is running; one whose result is recorded but not yet acknowledged is waiting to be
+    # collected; one collected and acknowledged has nothing left to show.
+    shown = []
+    for data in rows:
+        if data.get('closed'):
+            continue
+        has_result = bool(data.get('result'))
+        awaiting = has_result and data['attempt'] in pending
+        if has_result and not awaiting:
+            continue
+        shown.append((seen.get(data['attempt']) or now, data, awaiting))
+    shown.sort(key=lambda row: row[0], reverse=True)
+    return [(now - when, data, awaiting) for when, data, awaiting in shown]
 
 
 def model_of(data):
@@ -193,7 +204,9 @@ def chosen(repo, session_id):
     named = next((effort for effort in found if claims(effort) == session_id), None)
     if named:
         return named
-    journal = next((effort for effort in found if any(effort.glob(f'decisions-{session_id}*.jsonl'))), None)
+    journal = next((effort for effort in found
+                    if any(effort.glob(f'decisions-{session_id}*.jsonl'))
+                    or any((effort / 'reports').glob(f'decisions-{session_id}*.jsonl'))), None)
     if journal:
         return journal
     unclaimed = [effort for effort in found if claims(effort) in (None, session_id)]

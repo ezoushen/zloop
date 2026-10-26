@@ -99,6 +99,15 @@ const rendered = (call, width) => call.content({}, {}).render(width);
   const [line] = rendered(widget, 8);
   assert.ok(cells(line) <= 8, `${cells(line)} cells: ${line}`);
   assert.ok(line.endsWith("…"), line);
+  // A line that fits is drawn unchanged, so an over-counting table cannot pass.
+  const fits = recording();
+  await panel.panelTick(fits.ctx, snapshot([{ kind: "run", text: "abc ✅" }], { effort: "fits" }));
+  assert.equal(rendered(widgets(fits.calls)[0], 8)[0], "abc ✅");
+  // An astral wide character (🚀) takes two cells.
+  const astral = recording();
+  await panel.panelTick(astral.ctx, snapshot([{ kind: "run", text: "🚀🚀🚀🚀" }], { effort: "astral" }));
+  assert.equal(rendered(widgets(astral.calls)[0], 8)[0], "🚀🚀🚀🚀");
+  assert.ok(rendered(widgets(astral.calls)[0], 7)[0].endsWith("…"));
 }
 
 console.log("pi panel: 7 cases passed");

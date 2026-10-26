@@ -5,7 +5,7 @@
 const REFRESH_MS = 2000;
 
 /** A character the terminal draws in two cells: East Asian wide and fullwidth blocks, and emoji presentation. */
-const WIDE = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6\u2300-\u23FF\u2600-\u27BF\u2B00-\u2BFF\u1F000-\u1FAFF\u20000-\u2FFFD]/u;
+const WIDE = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6\u2300-\u23FF\u2600-\u27BF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}\u{20000}-\u{2FFFD}]/u;
 /** Characters that take no cell of their own: variation selectors and zero-width marks. */
 const ZERO = /[\u200B-\u200F\u2060\uFE0E\uFE0F]/u;
 
