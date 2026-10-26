@@ -614,6 +614,11 @@ def record(db, data, refuse_changes=False):
     with db:
         if kind == 'register':
             require(not any(row['attempt'] == attempt for row in attempts(db)), 'Attempt already registered')
+            if data.get('runtime') == 'pi' and text(data.get('native')):
+                # A Pi child's session record names its session; a pi-subagents run id is not it.
+                named = native_settings.pi_session_id(data['native'])
+                require(data.setdefault('native_session', named) == named,
+                        f"native_session {data['native_session']} is not the session {named} the native record names")
             for key in ('assignment', 'repo', 'worktree', 'head', 'worker', 'native_session', 'runtime'):
                 require(text(data.get(key)), f'Registration requires {key}')
             for key in ('repo', 'worktree'):

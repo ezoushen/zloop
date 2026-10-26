@@ -773,7 +773,32 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
         self.assertTrue(self.startup(attempt, 'claude')['verified'])
         self.assertNotIn('observed_cwd', self.attempt(attempt))
         refused = self.startup(attempt, 'claude', self.native_rows('claude', self.worktree, 'other-child'), code=2)
-        self.assertEqual(refused, 'Native evidence does not belong to the registered session\n')
+        self.assertEqual(refused, 'Native evidence does not belong to the registered session a1b2c3: the record '
+                                  'is session other-child\n')
+
+    def test_a_pi_child_is_registered_by_its_session_record_which_names_its_session(self):
+        # Live E2E 2026-10-26: a pi-subagents run id is not the child's session id, and a Pi orchestrator kept
+        # registering the wrong one. Given the record (pi-subagents' status sessionFile), registration reads the id.
+        self.execution.write_text(json.dumps({'harness': 'pi', 'target_runtime': 'pi', 'native_dispatch': True,
+                                              'agent': 'builder', 'job': 'ticket',
+                                              'settings': {'model': 'm', 'effort': 'high'}}))
+        native = self.root / 'child.jsonl'
+        native.write_text(json.dumps({'type': 'session', 'id': 'pi-child-7', 'cwd': str(self.worktree)}) + '\n')
+        fields = dict(assignment='pi-1', repo=str(self.root), worktree=str(self.worktree), head='head-1',
+                      execution=str(self.execution), runtime='pi', worker='run-42', owned=True, packet=str(self.packet()))
+        refused = self.record('register', 'pi-1/1', native=str(native), native_session='run-42', code=2, **fields)
+        self.assertEqual(refused, 'native_session run-42 is not the session pi-child-7 the native record names\n')
+        self.record('register', 'pi-1/1', native=str(native), **fields)
+        self.assertEqual(self.attempt('pi-1/1')['native_session'], 'pi-child-7')
+        self.assertTrue(self.record('startup', 'pi-1/1', evidence=[str(native)], native=str(native),
+                                    observed={'runtime': 'pi', 'model': 'm', 'effort': 'high'})['verified'])
+        # A record of another session at startup names both.
+        other = self.root / 'other.jsonl'
+        other.write_text(json.dumps({'type': 'session', 'id': 'pi-child-8', 'cwd': str(self.worktree)}) + '\n')
+        refused = self.record('startup', 'pi-1/1', evidence=[str(other)], native=str(other), code=2,
+                              observed={'runtime': 'pi', 'model': 'm', 'effort': 'high'})
+        self.assertEqual(refused, 'Native evidence does not belong to the registered session pi-child-7: the record '
+                                  'is session pi-child-8\n')
 
     def git(self, checkout, *args):
         return subprocess.run(['git', '-C', str(checkout), '-c', 'user.name=t', '-c', 'user.email=t@t', *args],

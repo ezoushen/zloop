@@ -192,7 +192,7 @@ def working_directory(path, runtime, session):
         raise ValueError('Native evidence path must be absolute')
     if runtime not in ('claude', 'codex', 'pi'):
         raise ValueError('Unsupported native evidence runtime')
-    found, cwd = False, None
+    found, cwd, named = False, None, None
     with path.open('rb') as stream:
         for line in stream:
             if not line.endswith(b'\n'):
@@ -201,14 +201,32 @@ def working_directory(path, runtime, session):
             if not isinstance(row, dict):
                 raise ValueError('Native evidence record must be an object')
             payload = row.get('payload') if isinstance(row.get('payload'), dict) else {}
-            if runtime == 'claude' and session in (row.get('agentId'), row.get('sessionId')):
-                found, cwd = True, row.get('cwd', cwd)
+            if runtime == 'claude':
+                named = named or row.get('agentId') or row.get('sessionId')
+                if session in (row.get('agentId'), row.get('sessionId')):
+                    found, cwd = True, row.get('cwd', cwd)
             elif runtime == 'codex' and row.get('type') == 'session_meta':
+                named = payload.get('agent_path') or payload.get('id')
                 found = session in (payload.get('id'), payload.get('agent_path'))
             elif runtime == 'codex' and row.get('type') == 'turn_context':
                 cwd = payload.get('cwd', cwd)
             elif runtime == 'pi' and row.get('type') == 'session':
+                named = row.get('id')
                 found, cwd = row.get('id') == session, row.get('cwd')
     if not found:
-        raise ValueError('Native evidence does not belong to the registered session')
+        raise ValueError(f'Native evidence does not belong to the registered session {session}: the record '
+                         + (f'is session {named}' if named else 'names no session'))
     return cwd if isinstance(cwd, str) and cwd.strip() else None
+
+
+def pi_session_id(path):
+    """The session id a Pi session record's header names."""
+    path = Path(path)
+    if not path.is_absolute() or not path.is_file():
+        raise ValueError('native must be the absolute path of the child\'s session record')
+    with path.open('rb') as stream:
+        for line in stream:
+            row = json.loads(line)
+            if isinstance(row, dict) and row.get('type') == 'session' and isinstance(row.get('id'), str):
+                return row['id']
+    raise ValueError(f'{path} has no session header')
