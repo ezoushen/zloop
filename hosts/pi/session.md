@@ -7,6 +7,8 @@ shared skills recursively through the development symlink. The extension registe
 Preserve `disable-model-invocation`.
 Claude profiles and Codex metadata do not register Pi workers.
 
+Panel: [the panel doc](../../runtime/workers/panel.md).
+
 The extension also guards against loops: a tool call that returned the same result
 three times in a row is blocked when repeated, with a reason telling the agent to
 change approach or report that it is blocked, and a second blocked repeat stops the

@@ -4,13 +4,14 @@ import argparse
 import json
 from pathlib import Path
 import sqlite3
+import subprocess
 import sys
 import time
 
 SCRATCH = '.scratch'
 CARD = 'autopilot.md'
 RUN_CAP = 3
-# A run that stopped on one of these still needs the person, so the panel stays up.
+# Terminal states in which the run has stopped but still needs the person, so the panel stays up.
 PAUSED = ('waiting-on-user', 'paused-allowance', 'paused-by-user', 'blocked')
 BLOCKERS = {
     'paused-by-user': 'paused-by-user: you took control',
@@ -18,10 +19,14 @@ BLOCKERS = {
     'waiting-on-user': 'waiting-on-user: one action on the pause list is needed',
     'blocked': 'blocked: no option fits the principles',
 }
+# Terminal states that end the run with nothing left to watch.
+FINISHED = ('delivered', 'delivered-local', 'merged')
 
 
 def card_state(path):
-    """The field lines of a run card's `## State` section, as `key: value`."""
+    """The field lines of a run card's `## State` section, as `key: value`; an absent card has none."""
+    if not path.is_file():
+        return {}
     sections = path.read_text(errors='replace').split('\n## State', 1)
     if len(sections) < 2:
         return {}
@@ -40,8 +45,26 @@ def claims(effort):
 
 
 def efforts(repo):
-    """Every effort directory of the checkout that holds a run card."""
-    return sorted(path for path in (repo / SCRATCH).glob('*') if (path / CARD).is_file())
+    """Every effort directory of the checkout: those with a run card, tickets, workers or a decision journal."""
+    found = []
+    for path in sorted((repo / SCRATCH).glob('*')):
+        if path.is_dir() and ((path / CARD).is_file() or (path / 'issues').is_dir()
+                              or (path / 'reports' / 'workers.sqlite').is_file()
+                              or any(path.glob('decisions-*.jsonl'))):
+            found.append(path)
+    return found
+
+
+def activity(effort):
+    """When the effort last changed: the newest thing it holds that this panel reads."""
+    newest = 0.0
+    for path in [effort / CARD, effort / 'reports' / 'workers.sqlite', *effort.glob('decisions-*.jsonl'),
+                 *effort.glob('issues/*.md')]:
+        try:
+            newest = max(newest, path.stat().st_mtime)
+        except OSError:
+            continue
+    return newest
 
 
 def front_matter(path):
@@ -65,12 +88,33 @@ def blocker_row(effort, state, found_tickets):
     """The one blocker worth showing, by precedence: the run's own stop first, then its tickets."""
     terminal = state.get('terminal', '')
     if terminal in BLOCKERS:
-        return {'kind': 'blocker', 'text': BLOCKERS[terminal]}
+        text = BLOCKERS[terminal]
+        timer = state.get('timer', '')
+        if terminal == 'paused-allowance' and timer:
+            text = f'{text} (resumes {timer.split()[0]})'
+        return {'kind': 'blocker', 'text': text}
     for path, fields in found_tickets:
         if fields.get('status') == 'blocked':
             reason = fields.get('blocker') or 'blocked'
             return {'kind': 'blocker', 'text': f"blocked: {fields.get('ticket', path.stem)} · {reason}"}
     return None
+
+
+def is_draft(state):
+    """Whether the run card is unconfirmed: `run-card.md` writes `confirmed: no` or a date with the user's words."""
+    confirmed = state.get('confirmed', '')
+    return not confirmed or confirmed.lower().startswith('no')
+
+
+def live_effort(state, attempts, blocker, draft, found_tickets):
+    """Whether the effort is worth showing: a run still open or paused, work in flight, a blocker, or a draft card."""
+    if draft or blocker or attempts:
+        return True
+    if state.get('phase') == 'ended' or state.get('terminal') in FINISHED:
+        return False
+    if state and not state.get('terminal'):
+        return True
+    return any(fields.get('status') in ('ready', 'implementing', 'blocked') for _, fields in found_tickets)
 
 
 def next_row(state, found_tickets, draft):
@@ -122,15 +166,18 @@ def live_attempts(effort, now):
             seen = {}
             for attempt, payload in db.execute('SELECT attempt, payload FROM events ORDER BY id'):
                 seen[attempt] = json.loads(payload).get('recorded_at')
+            db_pending = [(attempt, acknowledged) for attempt, acknowledged in
+                          db.execute("SELECT attempt, acknowledged FROM events WHERE kind = 'result'")]
         finally:
             db.close()
     except (sqlite3.DatabaseError, OSError, ValueError) as error:
         print(f'panel_state: workers.sqlite unreadable ({error}): {state}', file=sys.stderr)
         return []
+    pending = {attempt for attempt, acknowledged in db_pending if not acknowledged}
     live = [(seen.get(data['attempt']) or now, data) for data in rows
             if not data.get('result') and not data.get('closed')]
     live.sort(reverse=True)
-    return [(now - when, data) for when, data in live]
+    return [(now - when, data, data['attempt'] in pending) for when, data in live]
 
 
 def model_of(data):
@@ -141,28 +188,53 @@ def model_of(data):
 
 
 def chosen(repo, session_id):
-    """The effort this session runs: the one whose card names it."""
-    return next((effort for effort in efforts(repo) if claims(effort) == session_id), None)
+    """The effort this session runs: the card naming it, else the effort holding its journal, else the newest unclaimed one."""
+    found = efforts(repo)
+    named = next((effort for effort in found if claims(effort) == session_id), None)
+    if named:
+        return named
+    journal = next((effort for effort in found if any(effort.glob(f'decisions-{session_id}*.jsonl'))), None)
+    if journal:
+        return journal
+    unclaimed = [effort for effort in found if claims(effort) in (None, session_id)]
+    return max(unclaimed, key=activity) if unclaimed else None
+
+
+def main_checkout(repo):
+    """The checkout holding the effort state: a session working in a worktree still reads its main checkout."""
+    repo = Path(repo)
+    if (repo / SCRATCH).is_dir():
+        return repo
+    try:
+        common = subprocess.run(['git', '-C', str(repo), 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+                                capture_output=True, text=True, timeout=5)
+        candidate = Path(common.stdout.strip()).parent if common.returncode == 0 else None
+        if candidate and (candidate / SCRATCH).is_dir():
+            return candidate
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return repo
 
 
 def snapshot(repo, session_id, now):
     """What this session's effort is doing, as the rows a host draws."""
-    effort = chosen(Path(repo), session_id)
+    effort = chosen(main_checkout(repo), session_id)
     if effort is None:
         return {'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'strip': None}
     state = card_state(effort / CARD)
     phase = state.get('phase') or None
     found_tickets = tickets(effort)
-    draft = not state.get('confirmed', '').startswith('yes')
+    draft = is_draft(state) if state else False
     blocker = blocker_row(effort, state, found_tickets)
-    if phase == 'ended' or (state.get('terminal') and not blocker):
-        return {'active': False, 'effort': effort.name, 'phase': phase, 'draft': False, 'rows': [], 'strip': None}
+    attempts = live_attempts(effort, now)
+    if not live_effort(state, attempts, blocker, draft, found_tickets):
+        return {'active': False, 'effort': effort.name, 'phase': phase, 'draft': draft, 'rows': [], 'strip': None}
     headline = f'{effort.name} · {phase}' if phase else effort.name
     rows = [{'kind': 'headline', 'text': headline + (' · draft' if draft else '')}]
     running, waiting = [], []
-    for age, data in live_attempts(effort, now):
-        if (data.get('monitor') or {}).get('state') == 'running':
-            waiting.append({'kind': 'wait', 'text': f"waiting · {data.get('assignment', '')} · quiet {fmt_age(age)}"})
+    for age, data, awaiting in attempts:
+        if awaiting:
+            waiting.append({'kind': 'wait', 'text': f"result ready · {data.get('assignment', '')} · quiet {fmt_age(age)}"})
         else:
             running.append({'kind': 'run', 'text': f"▶ {data.get('agent', 'worker')} · {data.get('assignment', '')} · "
                                                    f'{model_of(data)} · quiet {fmt_age(age)}'})

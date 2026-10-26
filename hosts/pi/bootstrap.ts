@@ -19,8 +19,13 @@ const PANEL_KEY = "zloop";
 const PANEL_INTERVAL_MS = 2000;
 const execFileAsync = promisify(execFile);
 
-/** A character the terminal draws in two cells: East Asian wide and fullwidth blocks, and emoji. */
-const WIDE = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6\u{1F300}-\u{1FAFF}]/u;
+/** A character the terminal draws in two cells: East Asian wide and fullwidth blocks, and emoji presentation. */
+const WIDE = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6\u2300-\u23FF\u2600-\u27BF\u2B00-\u2BFF\u1F000-\u1FAFF\u20000-\u2FFFD]/u;
+/** Characters that take no cell of their own: variation selectors and zero-width marks. */
+const ZERO = /[\u200B-\u200F\u2060\uFE0E\uFE0F]/u;
+
+/** The cells `character` occupies. */
+const cellsOf = (character) => (ZERO.test(character) ? 0 : WIDE.test(character) ? 2 : 1);
 
 /** `text` cut to `width` terminal cells, ended with an ellipsis when anything was dropped. */
 export function truncateCells(text, width) {
@@ -28,12 +33,12 @@ export function truncateCells(text, width) {
   let out = "";
   let used = 0;
   for (const character of text) {
-    const cells = WIDE.test(character) ? 2 : 1;
+    const cells = cellsOf(character);
     if (used + cells > width) {
       while (used > width - 1 && out) {
         const dropped = [...out].pop();
         out = out.slice(0, -dropped.length);
-        used -= WIDE.test(dropped) ? 2 : 1;
+        used -= cellsOf(dropped);
       }
       return `${out}…`;
     }
@@ -55,8 +60,9 @@ let drawnCtx = null;
 
 /**
  * Draw one snapshot: the rows below the editor while the effort is live, else neither surface. The card carries every
- * fact, so the status line stays with the engine; a snapshot that could not be read clears both, and a stale context
- * drops this tick so the next one draws on the fresh one.
+ * fact, so the status line stays with the engine. A snapshot that could not be read clears both. A stale context drops
+ * the tick and clears the repaint memory; the timer keeps the context it was started with, so a replaced session ends
+ * this panel until its own session start arms a new one.
  */
 export async function panelTick(ctx, found) {
   try {
@@ -83,12 +89,16 @@ export async function panelTick(ctx, found) {
   }
 }
 
-/** Read this session's snapshot, or null when the fact source fails, prints nothing or cannot answer in time. */
+/** Read this session's snapshot: the parsed answer, or null when the fact source fails or prints something else. */
 async function readPanelSnapshot(root, repo, session) {
-  const { stdout } = await execFileAsync("python3",
-    ["-B", join(root, "scripts", "panel_state.py"), "--repo", repo, "--session-id", session, "--json"],
-    { encoding: "utf8", timeout: 8000 });
-  return JSON.parse(stdout);
+  try {
+    const { stdout } = await execFileAsync("python3",
+      ["-B", join(root, "scripts", "panel_state.py"), "--repo", repo, "--session-id", session, "--json"],
+      { encoding: "utf8", timeout: 8000 });
+    return JSON.parse(stdout);
+  } catch {
+    return null;
+  }
 }
 
 // The top-level scalar fields of a SKILL.md's frontmatter: unquoted, and a > or | block's indented lines joined.

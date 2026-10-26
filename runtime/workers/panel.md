@@ -16,18 +16,21 @@ Text mode prints one row per line and nothing when the effort is not live. `--js
 `wait`, `blocker`, `next`, `counts`, `more`. Hosts render only these words; they never re-derive a fact.
 
 It reads, read-only: the effort's run card (`.scratch/<slug>/autopilot.md`), its worker attempt state
-(`.scratch/<slug>/reports/workers.sqlite`, the file the worker attempts protocol keeps) and its
-local tickets (`.scratch/<slug>/issues/`). An unreadable state file drops only the rows it would have supplied.
+(`.scratch/<slug>/reports/workers.sqlite`, the file the worker attempts protocol keeps) and its local tickets
+(`.scratch/<slug>/issues/`). A session working in a worktree still reads its main checkout's state. An unreadable
+state file drops only the rows it would have supplied.
 
 Which effort is this session's: the run card whose `session:` names it, else the effort holding this session's
-decision journal, else the newest effort in the checkout that another session does not claim.
+decision journal, else the newest effort in the checkout that another session does not claim. An effort need not
+have a card; its tickets, workers or journal are enough, and with no card the headline names it alone.
 
-Live means the card has no terminal state or stopped on `waiting-on-user`, `paused-allowance`, `paused-by-user` or
-`blocked`, or an attempt is live, or the card is still unconfirmed. A run that reached `delivered`, `delivered-local`
-or `merged`, or set `phase: ended`, draws nothing.
+Live means the card is unconfirmed, or an attempt is live, or a blocker is recorded, or the card is still open or
+stopped on `waiting-on-user`, `paused-allowance`, `paused-by-user` or `blocked`. A run that reached `delivered`,
+`delivered-local` or `merged`, or set `phase: ended`, is quiet only while nothing is live or blocked beneath it.
 
-Rows are ordered by what the person needs first: the headline, then running workers (three, then `+N more`), running
-waits, one blocker by precedence (the run's own stop first, then a blocked ticket), the next step, and the counts.
+Rows are ordered by what the person needs first: the headline, then running workers (three, then `+N more`), a
+worker whose result is ready to collect, one blocker by precedence (the run's own stop first, then a blocked
+ticket), the next step, and the counts.
 
 ## Two surfaces
 

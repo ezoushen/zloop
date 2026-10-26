@@ -88,4 +88,17 @@ const rendered = (call, width) => call.content({}, {}).render(width);
   await panel.panelTick(throws, snapshot([{ kind: "headline", text: "demo · stale" }]));
 }
 
-console.log("pi panel: 6 cases passed");
+// Wide characters the terminal draws in two cells — including emoji outside the CJK blocks — keep the line inside the
+// width. Cell counts here come from this harness's own table, not from the renderer's.
+{
+  const WIDE_CASES = new Set(['✅', '⏳', '界']);
+  const cells = (line) => [...line].reduce((total, character) => total + (WIDE_CASES.has(character) ? 2 : 1), 0);
+  const { calls, ctx } = recording();
+  await panel.panelTick(ctx, snapshot([{ kind: "run", text: "⏳⏳⏳⏳⏳ ✅ done" }], { effort: "wide" }));
+  const [widget] = widgets(calls);
+  const [line] = rendered(widget, 8);
+  assert.ok(cells(line) <= 8, `${cells(line)} cells: ${line}`);
+  assert.ok(line.endsWith("…"), line);
+}
+
+console.log("pi panel: 7 cases passed");

@@ -82,13 +82,21 @@ class PanelState(unittest.TestCase):
         self.assertEqual(['demo · dispatch'], self.row_texts(found, 'headline'))
 
 
-    def test_an_ended_effort_draws_nothing(self):
-        card(self.scratch / 'demo' / 'autopilot.md', phase='ended', terminal='delivered')
+    def test_an_ended_phase_draws_nothing(self):
+        # Only the phase says ended: the terminal state is empty, so each rule is exercised on its own.
+        card(self.scratch / 'demo' / 'autopilot.md', phase='ended', terminal='')
         found = self.snapshot()
         self.assertFalse(found['active'])
         self.assertEqual([], found['rows'])
         self.assertIsNone(found['strip'])
         self.assertEqual('', PANEL.render_text(found))
+
+    def test_a_delivered_run_with_nothing_live_draws_nothing(self):
+        # Only the terminal state says delivered: the phase is still dispatch.
+        card(self.scratch / 'demo' / 'autopilot.md', phase='dispatch', terminal='delivered')
+        found = self.snapshot()
+        self.assertFalse(found['active'])
+        self.assertEqual([], found['rows'])
 
     def test_run_rows_are_capped_with_a_more_row(self):
         card(self.scratch / 'demo' / 'autopilot.md')
@@ -101,14 +109,8 @@ class PanelState(unittest.TestCase):
         self.assertIn('builder', rows[0])
         self.assertIn('sonnet', rows[0])
         self.assertIn('quiet 1m', rows[0])
-
-    def test_a_running_wait_is_its_own_row(self):
-        card(self.scratch / 'demo' / 'autopilot.md')
-        waiting = dict(live('12/wait', assignment='zloop-panel/02'), monitor={'state': 'running'})
-        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [waiting])
-        found = self.snapshot()
-        self.assertEqual(1, len(self.row_texts(found, 'wait')))
-        self.assertEqual([], self.row_texts(found, 'run'))
+        for row, number in zip(rows, (1, 2, 3)):
+            self.assertIn(f'zloop-panel/0{number}', row)
 
     def test_one_blocker_row_by_precedence(self):
         card(self.scratch / 'demo' / 'autopilot.md', terminal='paused-by-user')
@@ -168,11 +170,94 @@ class PanelState(unittest.TestCase):
     def test_the_strip_names_the_effort_its_state_and_its_next_step(self):
         card(self.scratch / 'demo' / 'autopilot.md')
         ticket(self.scratch / 'demo' / 'issues' / '02-b.md', 'demo/02', status='ready')
+        ticket(self.scratch / 'demo' / 'issues' / '03-c.md', 'demo/03', status='blocked', blocker='no credential')
         attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [live('12/ticket-1')])
         strip = self.snapshot()['strip']
         self.assertIn('demo · dispatch', strip)
         self.assertIn('1 running', strip)
-        self.assertIn('next:', strip)
+        # A blocker outranks the next step in the closer.
+        self.assertIn('no credential', strip)
+        self.assertNotIn('next:', strip)
+
+    def test_a_card_confirmed_the_templates_way_is_not_a_draft(self):
+        # run-card.md writes `confirmed: no | <date> "<the user's words>"`; a date and words are the confirmation.
+        card(self.scratch / 'demo' / 'autopilot.md', phase='dispatch', confirmed='2026-10-27 "Confirmed, go"')
+        found = self.snapshot()
+        self.assertFalse(found['draft'])
+        self.assertNotIn('draft', self.row_texts(found, 'headline')[0])
+
+    def test_a_supervised_worker_is_a_run_row_not_a_wait(self):
+        # The yield gate requires an armed wait on every live worker, so monitor.state running cannot mean "waiting".
+        card(self.scratch / 'demo' / 'autopilot.md')
+        supervised = dict(live('12/ticket-1', assignment='zloop-panel/01'), monitor={'state': 'running'})
+        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [supervised])
+        found = self.snapshot()
+        self.assertEqual(1, len(self.row_texts(found, 'run')))
+        self.assertEqual([], self.row_texts(found, 'wait'))
+        self.assertIn('1 running', found['strip'])
+
+    def test_a_result_awaiting_collection_is_the_wait_row(self):
+        card(self.scratch / 'demo' / 'autopilot.md')
+        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite',
+                 [dict(live('12/ticket-1'), monitor={'state': 'settled'})])
+        state = self.scratch / 'demo' / 'reports' / 'workers.sqlite'
+        db = sqlite3.connect(state)
+        db.execute("INSERT INTO events (attempt, kind, payload, acknowledged) VALUES (?, ?, ?, 0)",
+                   ('12/ticket-1', 'result', json.dumps({'recorded_at': time.time() - 30, 'status': 'completed'})))
+        db.commit()
+        db.close()
+        found = self.snapshot()
+        self.assertEqual([], self.row_texts(found, 'run'))
+        self.assertEqual(1, len(self.row_texts(found, 'wait')))
+
+    def test_a_live_worker_keeps_the_panel_up_after_the_card_ended(self):
+        card(self.scratch / 'demo' / 'autopilot.md', phase='ended', terminal='delivered')
+        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [live('12/ticket-1')])
+        found = self.snapshot()
+        self.assertTrue(found['active'])
+        self.assertEqual(1, len(self.row_texts(found, 'run')))
+
+    def test_a_blocked_ticket_keeps_the_panel_up_after_the_card_ended(self):
+        card(self.scratch / 'demo' / 'autopilot.md', phase='ended', terminal='delivered')
+        ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='blocked', blocker='no approval')
+        found = self.snapshot()
+        self.assertTrue(found['active'])
+        self.assertIn('no approval', self.row_texts(found, 'blocker')[0])
+
+    def test_the_sessions_journal_names_the_effort_when_no_card_does(self):
+        journal = self.scratch / 'gamma' / 'decisions-S.jsonl'
+        journal.parent.mkdir(parents=True)
+        journal.write_text('')
+        ticket(journal.parent / 'issues' / '01-a.md', 'gamma/01', status='implementing')
+        found = self.snapshot('S')
+        self.assertEqual('gamma', found['effort'])
+        self.assertIsNone(found['phase'])
+        self.assertTrue(found['active'])
+
+    def test_the_newest_unclaimed_effort_is_adopted_without_a_card(self):
+        ticket(self.scratch / 'delta' / 'issues' / '01-a.md', 'delta/01', status='ready')
+        found = self.snapshot('S')
+        self.assertEqual('delta', found['effort'])
+        self.assertEqual(['delta'], self.row_texts(found, 'headline'))
+
+    def test_a_worktree_checkout_reads_the_main_checkouts_scratch(self):
+        card(self.scratch / 'demo' / 'autopilot.md')
+        worktree = Path(tempfile.mkdtemp(prefix='panel worktree '))
+        self.addCleanup(lambda: subprocess.run(['rm', '-rf', str(worktree)]))
+        subprocess.run(['git', '-C', str(self.repo), 'init', '-q'], check=True)
+        subprocess.run(['git', '-C', str(self.repo), 'add', '-A'], check=True)
+        subprocess.run(['git', '-C', str(self.repo), '-c', 'user.email=a@b', '-c', 'user.name=a',
+                        'commit', '-qm', 'fixture'], check=True)
+        subprocess.run(['git', '-C', str(self.repo), 'worktree', 'add', '-q', '--detach', str(worktree)],
+                       check=True)
+        found = PANEL.snapshot(worktree, 'S', time.time())
+        self.assertEqual('demo', found['effort'])
+
+    def test_an_allowance_pause_names_the_card_timers_resume(self):
+        card(self.scratch / 'demo' / 'autopilot.md', terminal='paused-allowance')
+        path = self.scratch / 'demo' / 'autopilot.md'
+        path.write_text(path.read_text().replace('timer:', 'timer: 2026-10-27T06:00Z via zloop_wake'))
+        self.assertIn('06:00', self.row_texts(self.snapshot(), 'blocker')[0])
 
 
 if __name__ == '__main__':
