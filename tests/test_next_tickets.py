@@ -336,7 +336,8 @@ class BoardCLI(unittest.TestCase):
         self.write_report(base, commits=[work], returned=False)
         report = self.root / '.scratch/inline/reports/01.md'
         refused = self.cli('inline', '--accept', 'inline/01', code=1)
-        assert 'inline/01: no collected worker attempt returned .scratch/inline/reports/01.md' in refused.stderr, refused
+        assert ('inline/01: no collected worker attempt returned .scratch/inline/reports/01.md'
+                in refused.stderr), refused.stderr
         support.collected_attempt(self.root, 'inline', 'inline/01/implementation-1', report, head=work)
         self.cli('inline', '--accept', 'inline/01')
         report.write_text(report.read_text() + '- [x] a criterion the orchestrator ticked\n')
@@ -347,7 +348,8 @@ class BoardCLI(unittest.TestCase):
         support.collected_attempt(self.root, 'inline', 'inline/01/implementation-2', report, head=work,
                                   status='blocked')
         refused = self.cli('inline', '--accept', 'inline/01', code=1)
-        assert 'inline/01: inline/01/implementation-2 returned blocked, not a completed ticket' in refused.stderr, refused
+        assert ('inline/01: inline/01/implementation-2 returned blocked, not a completed ticket'
+                in refused.stderr), refused.stderr
 
     def commit_gitignore(self):
         # The dispatch convention: `.scratch/` and `.worktrees/` are ignored; `build.log` stands for build output.
