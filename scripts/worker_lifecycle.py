@@ -81,15 +81,20 @@ def closed_sessions(db):
     return {(row['runtime'], row['native_session']): row for row in attempts(db) if row.get('closed')}
 
 
-def final_retirement(db, saved):
+def final_retirement(db, saved, declining=False):
+    """Every attempt of the conversation is collected with its report intact, or declined (a changed report can
+    never be accepted, and its attempt still closes), and nothing of it is still waiting."""
     siblings = {row['attempt']: row for row in attempts(db)
                 if (row['runtime'], row['native_session']) == (saved['runtime'], saved['native_session'])}
     latest = next(row[0] for row in db.execute("SELECT attempt FROM events WHERE kind = 'register' ORDER BY id DESC")
                   if row[0] in siblings)
     require(latest == saved['attempt'], 'Retire the final registered attempt of the native conversation')
-    require(all(row.get('result') and report_intact(row) and not watching(row)
+    require(all(row.get('result')
+                and (report_intact(row) or row.get('declined') or declining and row['attempt'] == saved['attempt'])
+                and not watching(row)
                 and not pending(db, row['attempt']) and not wait_running(row) for row in siblings.values()),
-            'Collect all conversation attempts and reconcile their receipts and waits before retirement')
+            'Collect all conversation attempts, each with an intact report or declined, and reconcile their '
+            'receipts and waits before retirement')
 
 
 def save(db, data):
@@ -772,13 +777,15 @@ def record(db, data, refuse_changes=False):
                 require(text(data.get('reason')), 'Declining requires a reason')
                 saved['declined'] = data
             elif kind in ('retain', 'closed'):
+                declining = kind == 'closed' and (data.get('acceptance') or {}).get('decision') == 'declined'
                 if kind == 'closed':
-                    final_retirement(db, saved)
+                    final_retirement(db, saved, declining)
                 receipts = pending(db, attempt)
                 require(saved.get('result') and not watching(saved)
                         and (not receipts or kind == 'retain' and all(r['kind'] == 'hold' for r in receipts)),
                         'Collect result and acknowledge receipts before retaining or closing')
-                require(report_intact(saved), 'Retain an intact report before retaining or closing')
+                require(report_intact(saved) or saved.get('declined') or declining,
+                        'Retain an intact report before retaining or closing, or decline the attempt')
                 if kind == 'closed':
                     require(saved['owned'], 'Existing user worker is not a cleanup target')
                     settle(saved, data.get('acceptance'))

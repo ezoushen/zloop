@@ -94,6 +94,22 @@ class Outcomes(WorkerLifecycleCase):
         self.assertEqual((accepted['commit'], accepted['evidence']), ('merge-1', ['git log merge-1']))
         self.assertIn('already accepted', self.record('accepted', commit='merge-2', evidence=['log'], code=2))
 
+    def test_an_attempt_whose_report_changed_after_collection_closes_only_declined(self):
+        # Live E2E 2026-10-26: a worker's report changed after it returned; that attempt can never be accepted, and
+        # it must still be closable, as declined, so it does not stay open with no process behind it.
+        self.register()
+        self.ready()
+        report = self.collect()
+        self.acknowledge()
+        report.write_text(report.read_text() + 'changed after collection\n')
+        error = self.record('closed', evidence=['native session exited'], code=2,
+                            acceptance={'decision': 'accepted', 'commit': 'merge-1', 'evidence': ['git log merge-1']})
+        self.assertIn('intact report', error)
+        self.record('closed', evidence=['native session exited'],
+                    acceptance={'decision': 'declined', 'reason': 'its report changed after it was collected'})
+        attempt = self.cli('status')['attempts'][0]
+        self.assertEqual(attempt['declined']['reason'], 'its report changed after it was collected')
+
     def test_closing_a_completed_ticket_settles_its_acceptance(self):
         self.register()
         self.ready()
