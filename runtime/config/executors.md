@@ -52,7 +52,9 @@ one of the following. Executor selection and model policy are separate choices.
 }
 ```
 
-Herdr needs no route or skill: it is the built-in provider in a Herdr session. A skill's prerequisites and the host's
+Herdr needs no route or skill: it is the built-in provider in a Herdr session. The built-in `herdr` type is the
+lowest layer of `executor_types`: a user, project or session type named `herdr` replaces it, the resolver's
+`executor_definition_source` names the one in force, and `{"type": "herdr"}` in a higher layer restores it. A skill's prerequisites and the host's
 invocation rules still apply; names are not assumed available across hosts.
 For different delegation skills in Claude Code and Codex, configure
 [caller-specific skill routes](catalog.md#caller-specific-skill-routes).

@@ -7,7 +7,7 @@
     "executor_types": {
       "type": "object",
       "propertyNames": { "$ref": "#/$defs/customExecutorName" },
-      "additionalProperties": { "$ref": "#/$defs/skillExecutor" }
+      "additionalProperties": { "oneOf": [{ "$ref": "#/$defs/skillExecutor" }, { "$ref": "#/$defs/builtInExecutor" }] }
     },
     "models": {
       "type": "object",
@@ -199,6 +199,12 @@
     },
     "customExecutorName": {
       "allOf": [{ "$ref": "#/$defs/identifier" }, { "not": { "enum": ["subagent", "skill", "bash"] } }]
+    },
+    "builtInExecutor": {
+      "type": "object",
+      "properties": { "type": { "const": "herdr" } },
+      "required": ["type"],
+      "additionalProperties": false
     },
     "skillExecutor": {
       "type": "object",

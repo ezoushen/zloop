@@ -142,14 +142,26 @@ class Catalog(unittest.TestCase):
         self.assertEqual(result['executor_source'], 'built-in')
         self.assertEqual(result['executor_guide'], str(models.ROOT / 'hosts/herdr.md'))
         self.assertIn('launch', result)
-        # A route of type herdr is the built-in provider, whatever an executor type of that name says.
-        self.data['runtimes']['codex']['executors']['herdr'] = {'type': 'herdr'}
-        self.data['executor_types'] = {'herdr': {'type': 'skill', 'config': {
-            'skill': 'herdr', 'instruction': 'Launch through the herdr skill.'}}}
+        # The built-in is the lowest layer of the executor types: a user, project or session type named herdr
+        # replaces it in full, as any type of the same name replaces the one below, and the source says which won.
+        wrapper = {'type': 'skill', 'config': {'skill': 'herdr', 'instruction': 'Launch through the herdr skill.'}}
+        self.data['executor_types'] = {'herdr': wrapper}
         self.save()
         with patch.dict(os.environ, {'HERDR_ENV': '1'}):
             result = self.resolve(host='claude', candidate='sol')
-        self.assertEqual((result['executor_type'], result['executor_config']), ('herdr', {}))
+        self.assertEqual((result['executor_type'], result['executor_config']), ('skill', wrapper['config']))
+        self.assertEqual(result['executor_definition_source'], f'{self.user}:executor_types.herdr')
+        self.project.write_text(json.dumps({'executor_types': {'herdr': {'type': 'herdr'}}}))
+        with patch.dict(os.environ, {'HERDR_ENV': '1'}):
+            result = self.resolve(host='claude', candidate='sol')
+        self.assertEqual((result['executor_type'], result['executor_definition_source']),
+                         ('herdr', f'{self.project}:executor_types.herdr'))
+        self.project.unlink()
+        del self.data['executor_types']
+        self.save()
+        with patch.dict(os.environ, {'HERDR_ENV': '1'}):
+            result = self.resolve(host='claude', candidate='sol')
+        self.assertEqual((result['executor_type'], result['executor_definition_source']), ('herdr', 'built-in'))
 
     def test_a_pi_host_in_herdr_runs_its_workers_through_herdr(self):
         # Pi's own delegation is a third-party extension; in Herdr the built-in provider serves Pi workers, and the

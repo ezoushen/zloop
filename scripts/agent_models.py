@@ -27,6 +27,7 @@ HARNESSES = ('claude', 'codex', 'pi', 'opencode')
 # Herdr is zloop's built-in worker provider: in a Herdr session every runtime is reachable through it, and a host whose
 # own delegation would come from a third-party extension (Pi) prefers it. Its procedure is hosts/herdr.md.
 BUILT_IN_ROUTES = {'herdr': {'type': 'herdr'}}
+BUILT_IN_TYPES = ('herdr',)
 EXTENSION_DELEGATION = ('pi',)
 DEFINITIONS = agent_defs.load()
 AGENTS = tuple(sorted(DEFINITIONS['agents']))
@@ -356,8 +357,11 @@ def select_candidate(pool, candidate, recommendation, eligible_candidates, task,
 def expand_executor_type(instance, executor_types):
     """Resolve a named skill usage while leaving assignment and model policy intact."""
     name = instance['executor']['type']
-    if name in ('subagent', 'skill', 'bash', 'herdr'):
+    if name in ('subagent', 'skill', 'bash'):
         return instance, {}
+    if name not in executor_types and name in BUILT_IN_TYPES:
+        # Built-in types are the lowest layer: a user, project or session type of the same name replaces them.
+        return instance, {'configured_executor_type': name, 'executor_definition_source': 'built-in'}
     if name not in executor_types:
         raise ValueError(f'Unknown executor type {name!r}; define it in executor_types')
     definition, source = executor_types[name]
