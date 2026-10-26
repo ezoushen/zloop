@@ -28,8 +28,10 @@ types the command; a message that mentions it is not an invocation. Never widens
 - **`autopilot --take-over`:** start from the session's current state. It reuses accepted decisions, tickets and reports,
   and asks only the align questions still unsettled; a phase already finished is not redone. With an existing card, continue from its State.
   A confirmed card whose goal, criteria and grants are unchanged is not confirmed again;
-  a card that ended `waiting-on-user` or `paused-allowance` resumes once its cause is gone. Taking over a card
-  moves its terminal state to `history:`, clears `terminal:` and restores the phase it stopped in.
+  a card that ended `waiting-on-user` or `paused-allowance` resumes once its cause is gone. Take over a card with
+  `python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--auto-merge]`: it moves the terminal state to
+  `history:`, clears `terminal:` and sets `auto-merge:` from the flag alone, so the grant of the run that ended lapses
+  with its terminal state; then restore the phase the run stopped in.
   A card that ended `paused-by-user` resumes at once, with no cause to wait for: first record each decision the
   user made while in control in the ledger as theirs, with their words, and re-read the branch and the board, so
   the work the user did is the current state.

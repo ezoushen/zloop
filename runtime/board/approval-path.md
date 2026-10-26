@@ -8,7 +8,7 @@ the repository permits it. An author cannot satisfy their own independent-review
 requirement. Do not invent a bot, change branch rules or treat an impossible
 self-review as live work that more waiting will resolve.
 
-PR publication does not authorize merging. Carry forward a user's already explicit
+PR publication does not authorize merging. A merge gate the repository declares for a human is never met by the agent. Carry forward a user's already explicit
 merge/admin-merge authorization when applicable, without asking again; it never
 waives required verification. Without an authorized path, name the exact approval
 blocker for merging and its resume event. Pending approval does not block authorized

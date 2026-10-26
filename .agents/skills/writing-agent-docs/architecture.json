@@ -111,6 +111,9 @@
   "autopilot": {
    "docs": [
     "skills/autopilot/**/*.md"
+   ],
+   "code": [
+    "scripts/autopilot_card.py"
    ]
   },
   "brief": {

@@ -133,7 +133,7 @@ class Flags(unittest.TestCase):
         self.assertIn('asks only the align questions still unsettled', text)
         self.assertIn('A confirmed card whose goal, criteria and grants are unchanged is not confirmed again', text)
         self.assertIn('a card that ended `waiting-on-user` or `paused-allowance` resumes once its cause is gone', text)
-        self.assertIn('moves its terminal state to `history:`, clears `terminal:` and restores the phase it stopped in', text)
+        self.assertIn('it moves the terminal state to `history:`, clears `terminal:`', text)
         self.assertIn('history:', CARD.read_text().split('## State', 1)[1])
 
     def test_late_questions_are_decided_reversibly_and_reported_first(self):
@@ -283,6 +283,16 @@ class Registration(unittest.TestCase):
         for phase in ('align', 'refine', 'dispatch', 'review', 'pr'):
             below = next(i for i, names in enumerate(architecture['levels']) if phase in names)
             self.assertLess(level, below, f'autopilot must sit above {phase} to link it')
+
+
+class TakeOverCommand(unittest.TestCase):
+    def test_the_approval_path_says_an_agent_never_meets_a_humans_merge_gate_and_autopilot_runs_the_take_over_command(self):
+        # Rule: a merge gate the repository declares for a human is never met by the agent; a take-over is scripted.
+        approval = prose(ROOT / 'runtime/board/approval-path.md')
+        self.assertIn('A merge gate the repository declares for a human is never met by the agent', approval)
+        start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
+        self.assertIn('python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--auto-merge]', start)
+        self.assertIn('the grant of the run that ended lapses with its terminal state; then restore the phase the run stopped in', start)
 
 
 if __name__ == '__main__':
