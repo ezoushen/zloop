@@ -1288,6 +1288,10 @@ def retire(db, state, attempt, request):
         db.execute('BEGIN IMMEDIATE')
         with db:
             saved = get(db, attempt)
+            # Another command may have accepted the attempt, or changed its report, while Herdr was asked.
+            declined = declining(saved, request.get('acceptance'))
+            require(report_intact(saved) or declined,
+                    'Retain an intact report before retirement, or decline the attempt')
             final_retirement(db, saved, declined)
             current = saved.get('retirement_requested')
             require(not current or process_stamp(current['pid']) != current['stamp'],

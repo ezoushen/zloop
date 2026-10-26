@@ -2,9 +2,10 @@
 """Collection and retirement of native workers."""
 
 import json
+import sys
 import unittest
 
-from lifecycle_case import WorkerLifecycleCase
+from lifecycle_case import SCRIPT, WorkerLifecycleCase
 
 
 class Retirement(WorkerLifecycleCase):
@@ -184,6 +185,27 @@ class Retirement(WorkerLifecycleCase):
         request.write_text(json.dumps(dict(retire, acceptance={'decision': 'declined', 'reason': 'report changed'})))
         self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request))
         self.assertEqual(self.cli('status')['attempts'][0]['declined']['reason'], 'report changed')
+
+    def test_retirement_rechecks_the_decline_once_its_herdr_wait_is_over(self):
+        # Review: an attempt accepted, and its report changed, while retirement waited on Herdr is not declined by
+        # the request; its pane must not close.
+        self.register()
+        self.ready()
+        report = self.collect()
+        self.acknowledge()
+        accepted = self.root / 'accepted.json'
+        accepted.write_text(json.dumps({'kind': 'accepted', 'attempt': 'ticket-1/1', 'commit': 'merge-1',
+                                        'evidence': ['git log merge-1']}))
+        meanwhile = (f'import subprocess, sys; subprocess.run([sys.executable, "-B", {str(SCRIPT)!r}, "record", '
+                     f'"--state", {str(self.state)!r}, "--input", {str(accepted)!r}], check=True); '
+                     f'open({str(report)!r}, "a").write("changed meanwhile\\n")')
+        self.herdr_fixture(agent_delay=1, during_delay=[sys.executable, '-c', meanwhile])
+        request = self.root / 'retire.json'
+        request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1', 'jobs_evidence': ['stopped'],
+                                       'acceptance': {'decision': 'declined', 'reason': 'discard attempt'}}))
+        self.assertIn('intact report', self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2))
+        self.assertEqual(json.loads((self.root / 'during-delay.json').read_text())['code'], 0)
+        self.assertFalse((self.root / 'native-closed').exists())
 
     def test_existing_user_worker_cannot_be_recorded_as_closed(self):
         self.register(owned=False)
