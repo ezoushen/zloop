@@ -271,13 +271,13 @@ class RunAll(unittest.TestCase):
         self.addCleanup(shutil.rmtree, scratch)
         pool, release = scratch / 'slots', scratch / 'release'
         env = {'ZLOOP_TEST_SLOTS': '2', 'ZLOOP_TEST_SLOT_DIR': str(pool)}
-        # The short unit ends only once the long one has started, so no later launch can be what frees its slot.
+        # The short unit ends only once the long one has started, so no later launch can be what frees its slot. Both
+        # waits end within a minute, so a test killed before its cleanup leaves no unit running for good.
+        wait = 'deadline = time.monotonic() + 60\nwhile not Path({!r}).exists() and time.monotonic() < deadline: time.sleep(0.02)\n'
         holder = self.start({'test_a_short.py': ('import time\nfrom pathlib import Path\n'
-                                                 f'Path({str(scratch / "short")!r}).touch()\n'
-                                                 f'while not Path({str(scratch / "long")!r}).exists(): time.sleep(0.02)\n'),
+                                                 f'Path({str(scratch / "short")!r}).touch()\n' + wait.format(str(scratch / 'long'))),
                              'test_b_long.py': ('import time\nfrom pathlib import Path\n'
-                                                f'Path({str(scratch / "long")!r}).touch()\n'
-                                                f'while not Path({str(release)!r}).exists(): time.sleep(0.02)\n')}, env)
+                                                f'Path({str(scratch / "long")!r}).touch()\n' + wait.format(str(release)))}, env)
         self.addCleanup(release.touch)
         support.wait_until(lambda: (scratch / 'short').exists() and (scratch / 'long').exists(), 'both units started')
 
