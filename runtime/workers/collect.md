@@ -4,8 +4,7 @@
 
 Collect the actual assignment with `result`: `status` (`completed`, `blocked`,
 `failed` or `cancelled`), checked `head`, an existing absolute retained `report`,
-and verification `evidence`. A wait receipt is not an assignment result. Record
-completion only after the normal scope and acceptance checks. The helper retains
+and verification `evidence`. A wait receipt is not an assignment result. The helper retains
 the report digest and requires the checked revision at `gate --stage accept
 --revision ...`; a missing or changed report fails that gate. Keep collected reports
 immutable; snapshot a canonical report before its next authorized append. Later
