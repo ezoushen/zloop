@@ -305,7 +305,7 @@ class RunCheckTests(unittest.TestCase):
                 env = dict(os.environ, RESOURCE_LOCK=str(Path(tmp) / 'resource.lock'), RESOURCE_LOCK_TIMEOUT='0')
                 child = ('import os,signal,time; from pathlib import Path; '
                          'signal.signal(signal.SIGTERM, signal.SIG_IGN); '
-                         f'Path({str(ready)!r}).write_text(str(os.getpid())); time.sleep(30)')
+                         f'Path({str(ready)!r}).write_text(str(os.getpid())); time.sleep(300)')
                 runner = subprocess.Popen(
                     [sys.executable, str(RUNNER), '--timeout', '10', '--log', str(log), '--',
                      sys.executable, str(LOCK), sys.executable, '-c', child], env=env,
@@ -313,7 +313,12 @@ class RunCheckTests(unittest.TestCase):
                 try:
                     support.wait_until(ready.exists, 'the check acquired the lock')
                     runner.send_signal(interruption)
-                    out, err = runner.communicate(timeout=30)
+                    try:
+                        out, err = runner.communicate(timeout=30)
+                    except subprocess.TimeoutExpired:
+                        self.fail('the interrupted check kept running')
+                    with self.assertRaises(ProcessLookupError, msg='the interrupted check\'s child survived'):
+                        os.kill(int(ready.read_text()), 0)
                     self.assertEqual(runner.returncode, 128 + interruption, err)
                     summary = json.loads(out)
                     self.assertFalse(summary['timed_out'])
