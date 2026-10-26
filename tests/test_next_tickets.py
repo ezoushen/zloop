@@ -324,6 +324,14 @@ class BoardCLI(unittest.TestCase):
         self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
         self.write_report(base, 'feat/inline', [work])
         self.cli('inline', '--accept', 'inline/01')
+        # So does one whose report is gone.
+        report = self.root / '.scratch/inline/reports/01.md'
+        kept = report.read_text()
+        report.unlink()
+        self.cli('inline', '--accept', 'inline/01', code=1)
+        self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
+        report.write_text(kept)
+        self.cli('inline', '--accept', 'inline/01')
         self.cli('inline', '--set', 'inline/01', 'status=done')
         # A delegated ticket's accepted head must also be merged into the effort branch.
         self.write_ticket('inline/02', 'implementing', touches='docs')
@@ -337,10 +345,26 @@ class BoardCLI(unittest.TestCase):
         self.git('merge', '-q', '--ff-only', 'feat/inline-02')
         self.cli('inline', '--set', 'inline/02', 'status=done')
 
+    def test_a_worker_result_counts_only_at_the_commit_it_names(self):
+        # A symbolic head such as HEAD would be read in the coordinator's checkout, not the worker's.
+        self.write_ticket('inline/01', 'implementing')
+        base = self.commit('base')
+        self.git('switch', '-q', '-c', 'feat/inline-01')
+        work = self.commit('delegated ticket work')
+        self.write_report(base, commits=[work], returned=False)
+        report = self.root / '.scratch/inline/reports/01.md'
+        support.collected_attempt(self.root, 'inline', 'inline/01/implementation-1', report, head='HEAD')
+        refused = self.cli('inline', '--accept', 'inline/01', code=1)
+        assert (f'inline/01: inline/01/implementation-1 returned its report at HEAD, not at feat/inline-01 head {work}'
+                in refused.stderr), refused.stderr
+        support.collected_attempt(self.root, 'inline', 'inline/01/implementation-2', report, head=work[:12])
+        self.cli('inline', '--accept', 'inline/01')
+
     def test_a_done_ticket_lent_to_e2e_as_verifying_returns_to_done(self):
         # The E2E sentinel: a done ticket, accepted before acceptance was recorded, is set verifying and back.
         self.write_ticket('inline/01', 'done')
         self.write_ticket('inline/02', 'implementing', touches='docs')
+        self.cli('inline', '--set', 'inline/01', 'status=verifying')
         self.cli('inline', '--set', 'inline/01', 'status=verifying')
         self.cli('inline', '--set', 'inline/01', 'status=done')
         # A ticket that was never done does not become done through the sentinel.
@@ -1254,11 +1278,13 @@ class BoardCLI(unittest.TestCase):
                             str(log), '--', sys.executable, '-c', f'exit({code})'], cwd=self.root,
                            capture_output=True, check=False)
             return log
-        suite, lint, failing = check('suite', 0), check('lint', 0), check('failing', 4)
+        suite, lint, failing = check('suite', 0), check('checks with spaces', 0), check('failing', 4)
         self.git('switch', '-q', 'main')
         earlier = check('earlier', 0)
         review, evidence = self.deliver('fx', 'feat/fx', start, head)
-        run_by = evidence.replace('e2e_by: e2e/fx/1', f'e2e_by: {suite} {lint}')
+        run_by = evidence.replace('e2e_by: e2e/fx/1', f'e2e_by: [{suite}, {lint}]')
+        review.write_text(evidence.replace('e2e_by: e2e/fx/1', f'e2e_by: {lint}'))
+        self.cli('fx', '--delivery')
         review.write_text(run_by)
         self.cli('fx', '--delivery')
         review.write_text(run_by.replace(str(lint), str(failing)))

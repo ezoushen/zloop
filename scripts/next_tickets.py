@@ -238,10 +238,13 @@ VERDICTS = {"review_by": {"review_status": "clean", "documentation_status": "pas
 def verdict_problems(slug, key, fm):
     """Each status the review report records must be the one the named worker attempt returned, as collected, and
     its report must still say so."""
+    if isinstance(fm[key], list):
+        return check_run_problems(fm[key], str(fm.get("e2e_head") or "")) if key == "e2e_by" else [
+            f"{key}: names one worker attempt, not a list"]
     name = str(fm[key]).strip()
     saved = next((saved for saved in effort_attempts(slug) if saved["attempt"] == name and saved.get("result")), None)
     if saved is None and key == "e2e_by":
-        return check_run_problems(name.split(), str(fm.get("e2e_head") or ""))
+        return check_run_problems([name], str(fm.get("e2e_head") or ""))
     if saved is None:
         return [f"{key}: {name} names no collected worker attempt"]
     if saved["result"]["status"] != "completed":
@@ -338,7 +341,16 @@ def report_branch(slug, nn, text):
 
 
 def accept(tickets, name):
-    """Deterministic verify node: the report exists in the main checkout with its evidence, and the branch moved."""
+    """Deterministic verify node: the report exists in the main checkout with its evidence, and the branch moved.
+    Any failure withdraws an earlier acceptance."""
+    if verify(tickets, name):
+        return True
+    if tickets[name].get("accepted"):
+        write_fields(tickets[name], {"accepted": None})
+    return False
+
+
+def verify(tickets, name):
     slug, nn = name.split("/")
     report = ISSUES / slug / "reports" / f"{nn}.md"
     if not report.exists():
@@ -370,8 +382,6 @@ def accept(tickets, name):
         problems, notes = measurement_results(tickets[name], ref, text)
     for p in problems:
         print(f"{name}: {p}", file=sys.stderr)
-    if problems and tickets[name].get("accepted"):
-        write_fields(tickets[name], {"accepted": None})  # A failing acceptance withdraws an earlier one.
     if not problems:
         for note in notes:
             print(f"{name}: {note}")
@@ -409,7 +419,8 @@ def returned_problems(slug, report, ref, branch, delegated):
     if not completed:
         return [f"{intact[-1]['attempt']} returned {intact[-1]['result']['status']}, not a completed ticket"]
     head = commit_of(ref)
-    if not any(commit_of(saved["result"]["head"]) == head for saved in completed):
+    if not any(re.fullmatch("[0-9a-f]{7,40}", saved["result"]["head"]) and commit_of(saved["result"]["head"]) == head
+               for saved in completed):
         return [f"{completed[-1]['attempt']} returned its report at {completed[-1]['result']['head']}, not at "
                 f"{branch} head {head}"]
     return []
@@ -747,7 +758,7 @@ def set_field(tickets, name, assignments):
     # to done without its acceptance.
     if fields.get("status") == "verifying" and fm.get("status") == "done":
         fields["lent"] = "done"
-    elif fm.get("status") == "verifying" and "status" in fields:
+    elif fm.get("status") == "verifying" and fields.get("status", "verifying") != "verifying":
         fields["lent"] = None
     if fields.get("status") == "done" and fm.get("status") != "done" and fm.get("lent") != "done":
         accepted = fm.get("accepted") or ""

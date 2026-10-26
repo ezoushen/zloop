@@ -228,6 +228,13 @@ class RunCheckTests(unittest.TestCase):
                 summary = json.loads(Path(f'{log}.summary.json').read_text())
                 self.assertEqual(summary, json.loads(result.stdout))
                 self.assertEqual((summary['exit_code'], summary.get('head')), (code, head if cwd == repo else None))
+            # A rerun under a reused log name that cannot even start leaves no passing summary behind.
+            reused = Path(tmp) / 'passing.log'
+            reused.unlink()
+            subprocess.run([sys.executable, str(RUNNER), '--timeout', '10', '--log', str(reused), '--',
+                            str(Path(tmp) / 'no-such-program')], cwd=repo, capture_output=True, timeout=20)
+            kept = Path(f'{reused}.summary.json')
+            self.assertFalse(kept.exists() and json.loads(kept.read_text())['exit_code'] == 0)
 
     def test_failed_check_retains_both_streams_and_exit_code(self):
         with tempfile.TemporaryDirectory() as tmp:

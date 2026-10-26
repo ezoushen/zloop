@@ -59,6 +59,11 @@ def main():
         interrupted = signum
 
     with os.fdopen(os.open(args.log, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as log:
+        # A summary an earlier run left under this log name never describes this one.
+        try:
+            os.remove(args.log + '.summary.json')
+        except FileNotFoundError:
+            pass
         handlers = {sig: signal.signal(sig, interrupt) for sig in (signal.SIGTERM, signal.SIGINT)}
         try:
             deadline = time.monotonic() + args.timeout
