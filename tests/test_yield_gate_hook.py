@@ -843,13 +843,18 @@ class DeliveryHold(GateRepo):
         """The review report's front matter: by default the Pi run's, or current and passed when `delivered`; `fields`
         replace values, and a None value leaves the field out."""
         head = self.head if delivered else self.reviewed
+        self.rounds = n = getattr(self, 'rounds', 0) + 1
         recorded = dict(dict(autofix='true', blocker='none', review_status='clean', documentation_status='passed',
                              review_head=head, review_base=self.start, review_diff_base=self.start,
                              e2e_status='passed' if delivered else 'not-run',
                              e2e_head=self.head if delivered else 'none',
-                             review_by='reviewer/1', e2e_by='verifier/2' if delivered else 'none'), **fields)
+                             review_by=f'review/fix/{n}', e2e_by=f'e2e/fix/{n}' if delivered else 'none'), **fields)
         self.report.write_text('---\n' + ''.join(f'{key}: {value}\n' for key, value in recorded.items()
                                                  if value is not None) + '---\n')
+        # The reviewer and the E2E worker returned this report, as collected attempts.
+        for key, job in (('review_by', 'diff-review'), ('e2e_by', 'e2e-gate')):
+            if str(recorded.get(key)).startswith(('review/fix/', 'e2e/fix/')):
+                support.collected_attempt(self.repo, 'fix', recorded[key], self.report, job=job, head=head)
 
     def gap(self):
         return (f'fix: delivery incomplete under autofix: e2e_status: not-run (needs passed); e2e_by: none names no '

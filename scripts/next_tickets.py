@@ -196,8 +196,13 @@ def delivery_problems(slug):
                 (('review_status', 'clean'), ('documentation_status', 'passed'), ('e2e_status', 'passed'))
                 if fm.get(key) != value]
     # The worker runs that produced the statuses; a host-written status alone is not evidence.
-    problems += [f'{key}: {fm.get(key) or "missing"} names no worker run' for key in ('review_by', 'e2e_by')
-                 if str(fm.get(key) or '').strip().lower() in ('', 'none', 'n/a', 'unknown', 'orchestrator', 'host')]
+    unnamed = [key for key in VERDICTS if str(fm.get(key) or '').strip().lower()
+               in ('', 'none', 'n/a', 'unknown', 'orchestrator', 'host')]
+    problems += [f'{key}: {fm.get(key) or "missing"} names no worker run' for key in unnamed]
+    # A status the report already fails is named once, above; one it records as met must be the worker's.
+    met = [key for key in VERDICTS if key not in unnamed
+           and all(fm.get(field) == required for field, required in VERDICTS[key].items() if required)]
+    problems += [problem for key in met for problem in verdict_problems(slug, key, fm)]
     branch = effort_branch(slug)
     ref = branch_ref(branch)
     head = ref and subprocess.run(['git', '-C', str(ROOT), 'rev-parse', '--verify', f'{ref}^{{commit}}'],
@@ -221,6 +226,35 @@ def delivery_problems(slug):
     if merge_base.returncode or merge_base.stdout.splitlines() != [fm.get('review_diff_base')]:
         problems.append(f'review_diff_base: {fm.get("review_diff_base") or "missing"} is not the merge base of '
                         f'review_base and {branch} head {sha}')
+    return problems
+
+
+# The statuses each worker field vouches for: a required value, or None for the value the review report records.
+VERDICTS = {"review_by": {"review_status": "clean", "documentation_status": "passed", "review_head": None,
+                          "review_diff_base": None},
+            "e2e_by": {"e2e_status": "passed", "e2e_head": None}}
+
+
+def verdict_problems(slug, key, fm):
+    """Each status the review report records must be the one the named worker attempt returned, as collected, and
+    its report must still say so."""
+    name = str(fm[key]).strip()
+    saved = next((saved for saved in effort_attempts(slug) if saved["attempt"] == name and saved.get("result")), None)
+    if saved is None:
+        return [f"{key}: {name} names no collected worker attempt"]
+    if saved["result"]["status"] != "completed":
+        return [f"{key}: {name} returned {saved['result']['status']}"]
+    returned = saved["result"].get("verdict", {})
+    report = Path(saved["result"]["report"])
+    now = worker_lifecycle.report_verdict(report) if report.is_file() else {}
+    problems = []
+    for field, required in VERDICTS[key].items():
+        wanted = required or str(fm.get(field) or "")
+        value = returned.get(field, "missing")
+        if value != wanted:
+            problems.append(f"{key}: {name} returned {field}: {value}, not {wanted}")
+        elif now.get(field, "missing") != value:
+            problems.append(f"{key}: {name} report now says {field}: {now.get(field, 'missing')}, not {value}")
     return problems
 
 
@@ -325,18 +359,23 @@ def accept(tickets, name):
     return not problems
 
 
+def effort_attempts(slug):
+    """The worker attempts the effort's lifecycle state holds, collected or not; none without a state."""
+    state = ISSUES / slug / "reports" / "workers.sqlite"
+    if not state.is_file():
+        return []
+    db = sqlite3.connect(f"{state.resolve().as_uri()}?mode=ro", uri=True, timeout=10)
+    try:
+        return worker_lifecycle.attempts(db)
+    finally:
+        db.close()
+
+
 def returned_problems(slug, name, report):
     """A delegated ticket's report must be one a collected worker attempt of the effort returned, completed, and
     unchanged since: the orchestrator judges the worker's evidence, it never writes it."""
-    state = ISSUES / slug / "reports" / "workers.sqlite"
-    returned = []
-    if state.is_file():
-        db = sqlite3.connect(f"{state.resolve().as_uri()}?mode=ro", uri=True, timeout=10)
-        try:
-            returned = [saved for saved in worker_lifecycle.attempts(db) if saved.get("result")
-                        and Path(saved["result"].get("report", "")).resolve() == report.resolve()]
-        finally:
-            db.close()
+    returned = [saved for saved in effort_attempts(slug) if saved.get("result")
+                and Path(saved["result"].get("report", "")).resolve() == report.resolve()]
     shown = report.relative_to(ROOT) if report.is_relative_to(ROOT) else report
     if not returned:
         return [f"no collected worker attempt returned {shown}"]

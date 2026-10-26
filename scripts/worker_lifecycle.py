@@ -193,6 +193,22 @@ def yield_gaps(db, include=lambda saved: True):
     return missing
 
 
+# A review or E2E report's own verdict; collection keeps the values the worker returned.
+VERDICT_FIELDS = ('review_status', 'documentation_status', 'review_head', 'review_base', 'review_diff_base',
+                  'e2e_status', 'e2e_head')
+
+
+def report_verdict(report):
+    """The verdict fields a report's front matter gives."""
+    match = re.match(r'---\n(.*?)\n---(?:\n|$)', Path(report).read_text(errors='replace'), re.S)
+    fields = {}
+    for line in match.group(1).splitlines() if match else []:
+        key, colon, value = line.partition(':')
+        if colon and key.strip() in VERDICT_FIELDS:
+            fields[key.strip()] = value.strip().strip('`"\'')
+    return fields
+
+
 def report_intact(data):
     result = data.get('result', {})
     path = Path(result.get('report', ''))
@@ -723,6 +739,9 @@ def record(db, data, refuse_changes=False):
                             'Completion requires verified settings, accepted prompt and resolved design hold')
                 require(not saved.get('result'), 'Result already collected; use a new attempt for further work')
                 saved['result'] = dict(data, report_sha256=hashlib.sha256(report.read_bytes()).hexdigest())
+                verdict = report_verdict(report)
+                if verdict:
+                    saved['result']['verdict'] = verdict
                 if data['status'] == 'completed':
                     missing, change = return_check(saved, report, now)
                     if refuse_changes and change:

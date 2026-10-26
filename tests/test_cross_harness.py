@@ -94,8 +94,11 @@ class CrossHarness(unittest.TestCase):
             evidence = (f'---\nreview_status: clean\ndocumentation_status: passed\nreview_head: {reviewed_head}\n'
                     f'review_base: {review_base}\nreview_diff_base: {review_base}\n'
                     f'e2e_status: passed\ne2e_head: {reviewed_head}\n'
-                    f'review_by: zloop-reviewer/agent-1\ne2e_by: zloop-verifier/agent-2\n---\n')
+                    f'review_by: review/a/1\ne2e_by: e2e/a/1\n---\n')
             source_report.write_text(evidence)
+            assert cli('a', '--delivery', ok=False).returncode != 0  # No worker returned these statuses yet.
+            support.collected_attempt(repo, 'a', 'review/a/1', source_report, job='diff-review', head=reviewed_head)
+            support.collected_attempt(repo, 'a', 'e2e/a/1', source_report, job='e2e-gate', head=reviewed_head)
             cli('a', '--delivery')
             for valid, invalid in [('review_status: clean', 'review_status: findings'),
                                    ('documentation_status: passed\n', ''),
@@ -106,10 +109,11 @@ class CrossHarness(unittest.TestCase):
                                    (f'review_head: {reviewed_head}', f'review_head: {review_base}'),
                                    (f'review_diff_base: {review_base}', f'review_diff_base: {reviewed_head}'),
                                    # Status without the run that produced it is not delivery evidence.
-                                   ('review_by: zloop-reviewer/agent-1\n', ''),
-                                   ('e2e_by: zloop-verifier/agent-2', 'e2e_by: orchestrator'),
-                                   ('review_by: zloop-reviewer/agent-1', 'review_by: host'),
-                                   ('review_by: zloop-reviewer/agent-1', 'review_by: none')]:
+                                   ('review_by: review/a/1\n', ''),
+                                   ('e2e_by: e2e/a/1', 'e2e_by: orchestrator'),
+                                   ('review_by: review/a/1', 'review_by: host'),
+                                   ('review_by: review/a/1', 'review_by: none'),
+                                   ('review_by: review/a/1', 'review_by: zloop-reviewer/agent-1')]:
                 source_report.write_text(evidence.replace(valid, invalid))
                 assert cli('a', '--delivery', ok=False).returncode != 0
                 assert names('b') == []

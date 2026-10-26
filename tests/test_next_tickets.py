@@ -1098,13 +1098,21 @@ class BoardCLI(unittest.TestCase):
             self.write_report(base, name, [work])
             self.cli('inline', '--accept', 'inline/01')
 
-    def deliver(self, slug, branch, start, head):
+    def deliver(self, slug, branch, start, head, workers=True):
+        """The effort's review report, clean and passed at head, as its reviewer and E2E worker returned it (two
+        collected attempts that review_by and e2e_by name) unless workers=False."""
         review = self.root / f'.scratch/{slug}/reports/spec-review.md'
         review.parent.mkdir(parents=True, exist_ok=True)
+        self.rounds = getattr(self, 'rounds', {})
+        self.rounds[slug] = n = self.rounds.get(slug, 0) + 1
         evidence = (f'---\neffort_branch: {branch}\nreview_status: clean\ndocumentation_status: passed\n'
                     f'review_head: {head}\nreview_base: {start}\nreview_diff_base: {start}\n'
-                    f'e2e_status: passed\ne2e_head: {head}\nreview_by: reviewer/1\ne2e_by: verifier/2\n---\n')
+                    f'e2e_status: passed\ne2e_head: {head}\n'
+                    f'review_by: review/{slug}/{n}\ne2e_by: e2e/{slug}/{n}\n---\n')
         review.write_text(evidence)
+        if workers:
+            support.collected_attempt(self.root, slug, f'review/{slug}/{n}', review, job='diff-review', head=head)
+            support.collected_attempt(self.root, slug, f'e2e/{slug}/{n}', review, job='e2e-gate', head=head)
         return review, evidence
 
     def ready_names(self, slug):
@@ -1150,13 +1158,47 @@ class BoardCLI(unittest.TestCase):
         review, evidence = self.deliver('fx', 'feat/fx', start, reviewed)
         review.write_text(evidence.replace('e2e_status: passed', 'e2e_status: not-run')
                           .replace(f'e2e_head: {reviewed}', 'e2e_head: none')
-                          .replace('e2e_by: verifier/2', 'e2e_by: none'))
+                          .replace('e2e_by: e2e/fx/1', 'e2e_by: none'))
         refused = self.cli('fx', '--delivery', code=1).stderr
         assert sorted(refused.splitlines()) == sorted([
             f'fx: review_head: {reviewed} is stale against feat/fx head {repaired}',
             'fx: e2e_status: not-run (needs passed)',
             f'fx: e2e_head: none is stale against feat/fx head {repaired}',
             'fx: e2e_by: none names no worker run']), refused
+
+    def test_delivery_takes_each_status_from_the_worker_that_returned_it(self):
+        # jose retro: the orchestrator rewrote the review report as clean, and recorded e2e_status passed crediting a
+        # worker whose own report said failed.
+        self.write_ticket('fx/01', 'done')
+        start = self.commit('start')
+        self.git('switch', '-q', '-c', 'feat/fx')
+        head = self.commit('reviewed work')
+        self.git('switch', '-q', 'main')
+        review, evidence = self.deliver('fx', 'feat/fx', start, head, workers=False)
+        refused = self.cli('fx', '--delivery', code=1).stderr
+        assert 'fx: review_by: review/fx/1 names no collected worker attempt' in refused, refused
+        assert 'fx: e2e_by: e2e/fx/1 names no collected worker attempt' in refused, refused
+        # The reviewer and the E2E worker each returned their own report, with their own verdicts.
+        reviewer = review.with_name('review-1.md')
+        reviewer.write_text(evidence.replace('review_status: clean', 'review_status: findings'))
+        support.collected_attempt(self.root, 'fx', 'review/fx/1', reviewer, job='diff-review', head=head)
+        verifier = review.with_name('e2e-1.md')
+        verifier.write_text(evidence.replace('e2e_status: passed', 'e2e_status: failed'))
+        support.collected_attempt(self.root, 'fx', 'e2e/fx/1', verifier, job='e2e-gate', head=head)
+        refused = self.cli('fx', '--delivery', code=1).stderr
+        assert sorted(refused.splitlines()) == sorted([
+            'fx: review_by: review/fx/1 returned review_status: findings, not clean',
+            'fx: e2e_by: e2e/fx/1 returned e2e_status: failed, not passed']), refused
+        # Their verdicts are taken as they returned them: a report edited afterwards does not count.
+        reviewer.write_text(evidence)
+        verifier.write_text(evidence)
+        support.collected_attempt(self.root, 'fx', 'review/fx/2', reviewer, job='diff-review', head=head)
+        support.collected_attempt(self.root, 'fx', 'e2e/fx/2', verifier, job='e2e-gate', head=head)
+        review.write_text(evidence.replace('review/fx/1', 'review/fx/2').replace('e2e/fx/1', 'e2e/fx/2'))
+        self.cli('fx', '--delivery')
+        reviewer.write_text(evidence.replace(f'review_head: {head}', f'review_head: {start}'))
+        refused = self.cli('fx', '--delivery', code=1).stderr
+        assert refused == f'fx: review_by: review/fx/2 report now says review_head: {start}, not {head}\n', refused
 
     def test_delivery_names_the_tickets_that_are_not_done(self):
         # Rule 2: with current review and E2E evidence, an unfinished ticket alone fails the gate, and it is named.
