@@ -7,6 +7,8 @@ status: ready
 blocked_by: []
 touches: [<area>]
 devices: []
+# needs: the capabilities its Verify commands use, from network, docker, setuid, repo-write, dev-fd
+needs: []
 model: standard
 worker:
 ---

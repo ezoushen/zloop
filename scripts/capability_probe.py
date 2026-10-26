@@ -9,6 +9,7 @@ Prints one JSON object: capability name to {"status", "evidence"}. A step that c
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -67,6 +68,32 @@ def repo_write():
     except OSError as error:
         return 'unavailable', f'cannot create a file in {git_dir}: {error}'
     return 'available', f'created and removed a file in {git_dir}'
+
+
+def ticket_needs(assignment):
+    """The `needs:` a ticket declares, for the local ticket file an assignment's `ticket:` line names; else []."""
+    named = re.search(r'^ticket:[ \t]*(.*\S)', assignment, re.M)
+    path = Path(named.group(1)) if named else None
+    if not path or not path.is_absolute() or not path.is_file():
+        return []
+    front = re.match(r'---\n(.*?)\n---\n', path.read_text(errors='replace'), re.S)
+    declared = re.search(r'^needs:[ \t]*\[(.*)\]', front.group(1), re.M) if front else None
+    return [need.strip() for need in declared.group(1).split(',') if need.strip()] if declared else []
+
+
+def unmet(needs, report):
+    """Why a probe report (None when none was recorded) does not show every need available, else None."""
+    if not needs:
+        return None
+    names = ', '.join(needs)
+    if not isinstance(report, dict):
+        return f'The ticket needs {names}: startup records no probe (run capability_probe.py and record its output)'
+    found = {need: (report.get(need) or {}).get('status', 'missing') for need in needs}
+    short = {need: status for need, status in found.items() if status != 'available'}
+    if not short:
+        return None
+    return (f'The ticket needs {", ".join(short)}: the recorded probe reports '
+            + ', '.join(f'{need} {status}' for need, status in short.items()))
 
 
 def probe():

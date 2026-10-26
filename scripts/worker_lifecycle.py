@@ -19,6 +19,7 @@ import uuid
 # Find the sibling decision modules even under an isolated interpreter (python -I).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import agent_defs  # noqa: E402
+import capability_probe  # noqa: E402
 import capacity  # noqa: E402
 import decisions  # noqa: E402
 import journal_store  # noqa: E402
@@ -726,6 +727,13 @@ def record(db, data, refuse_changes=False):
                 require(isinstance(aliases, list) and all(text(x) for x in aliases), 'Invalid alias evidence')
                 require(not aliases or text(observed.get('model')) and text(saved['requested'].get('model')),
                         'Alias evidence requires requested and observed model IDs')
+                packet = Path(saved.get('packet') or '')
+                problem = capability_probe.unmet(
+                    capability_probe.ticket_needs(packet.read_text(errors='replace') if packet.is_file() else ''),
+                    data.get('probe'))
+                require(not problem, problem)
+                if 'probe' in data:
+                    saved['probe'] = data['probe']
                 saved['observed'], saved['startup_evidence'] = observed, data
                 if located:
                     # A Claude or Codex native child records its coordinator's directory, so this only warns.
@@ -1182,7 +1190,8 @@ def submit(db, state, attempt, request):
         stream.write('\n')
     record(db, dict(kind='startup', attempt=attempt, observed=observation['observed'],
                     evidence=[str(snapshot)], native_observation=observation,
-                    model_alias_evidence=request.get('model_alias_evidence', [])))
+                    model_alias_evidence=request.get('model_alias_evidence', []),
+                    **({'probe': request['probe']} if 'probe' in request else {})))
     return watch(db, state, attempt, request, productive=True)
 
 
