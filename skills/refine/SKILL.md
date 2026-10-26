@@ -72,7 +72,7 @@ operation stops with its input kept (see [Explicit phase composition](#explicit-
    hot file (a workload label; executor configuration owns model and thinking); `blocked_by: []` when nothing
    gates it, never omitted.
    `needs` lists the capabilities (`network`, `docker`, `setuid`, `repo-write`, `dev-fd`) the criteria's Verify
-   commands use, `[]` when none; a worker whose probe lacks one is refused the ticket.
+   commands use, `[]` when none; the worker probes its own environment first and stops when one is unavailable, and its result is not collected without a probe that shows each available.
 6. **Present the breakdown:** each ticket's outcome, dependency and decisive verification, plus
    material trade-offs and ledger rows; explain a rejected cut only when it was viable with a different
    outcome, risk or verification cost. Apply the [question filter](../../runtime/interview/question-filter.md).
