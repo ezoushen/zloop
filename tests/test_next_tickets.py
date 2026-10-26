@@ -295,6 +295,33 @@ class BoardCLI(unittest.TestCase):
             self.write_report(other, 'feat/inline', [sha])
             assert 'no listed commit' in self.cli('inline', '--accept', 'inline/01', code=1).stderr, sha
 
+    def test_a_ticket_is_done_only_once_a_passing_acceptance_is_in_the_effort_branch(self):
+        # jose retro: ticket 07 was set done after --accept refused it ("--set doesn't enforce").
+        self.write_ticket('inline/01', 'implementing')
+        base = self.commit('base')
+        self.git('switch', '-q', '-c', 'feat/inline')
+        refused = self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
+        assert 'inline/01: status=done needs a passing --accept first' in refused.stdout + refused.stderr, refused
+        work = self.commit('ticket work')
+        # Only a passing --accept records it.
+        self.cli('inline', '--set', 'inline/01', f'accepted={work}', code=1)
+        self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
+        self.write_report(base, 'feat/inline', [work])
+        self.cli('inline', '--accept', 'inline/01')
+        assert f'accepted: {work}' in (self.root / '.scratch/inline/issues/01-task.md').read_text()
+        self.cli('inline', '--set', 'inline/01', 'status=done')
+        # A delegated ticket's accepted head must also be merged into the effort branch.
+        self.write_ticket('inline/02', 'implementing', touches='docs')
+        self.git('switch', '-q', '-c', 'feat/inline-02')
+        delegated = self.commit('delegated ticket work')
+        self.write_report(work, commits=[delegated], number='02')
+        self.cli('inline', '--accept', 'inline/02')
+        refused = self.cli('inline', '--set', 'inline/02', 'status=done', code=1)
+        assert f'inline/02: accepted {delegated} is not in feat/inline' in refused.stdout + refused.stderr, refused
+        self.git('switch', '-q', 'feat/inline')
+        self.git('merge', '-q', '--ff-only', 'feat/inline-02')
+        self.cli('inline', '--set', 'inline/02', 'status=done')
+
     def commit_gitignore(self):
         # The dispatch convention: `.scratch/` and `.worktrees/` are ignored; `build.log` stands for build output.
         (self.root / '.gitignore').write_text('.scratch/\n.worktrees/\nbuild.log\n')

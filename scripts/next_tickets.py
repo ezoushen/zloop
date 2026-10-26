@@ -7,7 +7,8 @@ No action: JSON candidates. No slug: all efforts. Other efforts still hold locks
 Actions: --board, --counts, --check, --accept TICKET,
          --can-verify TICKET, --delivery, --set TICKET status=VALUE (or worker=ID, start=SHA), --coordinate.
 --set TICKET status=blocked also needs blocker=REASON, which the ticket's front matter keeps. Entering implementing
-records start: (the effort branch head) when the ticket has none; start never changes once recorded.
+records start: (the effort branch head) when the ticket has none; start never changes once recorded. A passing
+--accept records accepted: (the head it accepted); status=done needs it, merged into the effort branch.
 Only --set may be combined with --counts. --accept also runs the effort's standing measurements
 (.scratch/<slug>/measurements.json) at the ticket head, in a clean checkout, and refuses a missing or worse value.
 --delivery names each failing field. --coordinate [--autofix] records the calling session (its Herdr pane and host
@@ -310,6 +311,8 @@ def accept(tickets, name):
     if not problems:
         for note in notes:
             print(f"{name}: {note}")
+        # The head that passed: done needs it recorded and merged into the effort branch.
+        write_fields(tickets[name], {"accepted": commit_of(ref)})
         print(f"{name}: report and branch carry the evidence; judge the content now")
     return not problems
 
@@ -641,27 +644,45 @@ def set_field(tickets, name, assignments):
         fields["start"] = commit_of(branch_ref(effort) or "refs/heads/main")
         if not fields["start"]:
             sys.exit(f"{name}: no effort branch ({effort}) or main to record the start of implementing from")
+    if fields.get("status") == "done" and fm.get("status") != "done":
+        accepted = fm.get("accepted") or ""
+        if not re.fullmatch("[0-9a-f]{40}", accepted):
+            sys.exit(f"{name}: status=done needs a passing --accept first")
+        effort = effort_branch(spec_of(name))
+        ref = branch_ref(effort)
+        if not ref or subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor", accepted, ref],
+                                     capture_output=True).returncode != 0:
+            sys.exit(f"{name}: accepted {accepted} is not in {effort}; merge it before status=done")
     if fields.get("status") == "blocked" and not fields.get("blocker"):
         stored = f", even with one stored ({fm['blocker']!r})" if fm.get("blocker") else ""
         sys.exit(f"{name}: status=blocked needs the reason too{stored}: "
                  f"--set {name} status=blocked blocker=<reason>")
-    path = ROOT / fm["path"]
-    head, sep, body = path.read_text().partition("\n---\n")
     if fields.get("status", "blocked") != "blocked":
         # A ticket leaving `blocked` drops its reason.
         fields.pop("blocker", None)
-        head = re.sub(r"\nblocker:.*$", "", head, flags=re.M)
+        fields["blocker"] = None
+    write_fields(fm, fields)
+    for key, value in fields.items():
+        if value is not None:
+            print(f"{name}: {key} = {value}")
+
+
+def write_fields(fm, fields):
+    """Write each field to a ticket's front matter; None removes the field. Only status, blocker, start and accepted
+    may be added; another key must already be in the template."""
+    path = ROOT / fm["path"]
+    head, sep, body = path.read_text().partition("\n---\n")
     for key, value in fields.items():
         pattern = re.compile(rf"^({re.escape(key)}:).*$", re.M)
-        if pattern.search(head):
+        if value is None:
+            head = re.sub(rf"\n{re.escape(key)}:.*$", "", head, flags=re.M)
+        elif pattern.search(head):
             head = pattern.sub(lambda match: f"{match[1]} {value}", head, count=1)
-        elif key in ('status', 'blocker', 'start'):
+        elif key in ('status', 'blocker', 'start', 'accepted'):
             head += f'\n{key}: {value}'
         else:
-            sys.exit(f"{name}: no front-matter key {key!r}")
+            sys.exit(f"{fm['ticket']}: no front-matter key {key!r}")
     path.write_text(head + sep + body)
-    for key, value in fields.items():
-        print(f"{name}: {key} = {value}")
 
 
 def coordinate(slug, autofix):
