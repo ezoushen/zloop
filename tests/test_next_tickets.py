@@ -1265,6 +1265,18 @@ class BoardCLI(unittest.TestCase):
         with patch.object(nt, 'ROOT', self.root), patch.object(nt, 'ISSUES', self.root / '.scratch'):
             assert nt.finished('fx') is True
 
+    def test_the_board_reads_the_remote_tracking_main_and_never_fetches(self):
+        # The stop-hook checks run under a 20 s budget, so a finished check reads refs/remotes/origin/main as the repo
+        # has it: heads the remote holds but the tracking ref lacks are not finished, and the ref stays as it was.
+        start, head = self.merged_on_remote('fx')
+        self.git('update-ref', 'refs/remotes/origin/main', start)
+        with patch.object(nt, 'ROOT', self.root), patch.object(nt, 'ISSUES', self.root / '.scratch'):
+            assert nt.finished('fx') is False
+        assert self.git('rev-parse', 'refs/remotes/origin/main') == start
+        self.git('update-ref', 'refs/remotes/origin/main', head)
+        with patch.object(nt, 'ROOT', self.root), patch.object(nt, 'ISSUES', self.root / '.scratch'):
+            assert nt.finished('fx') is True
+
     def test_delivery_of_a_deleted_branch_whose_heads_are_in_no_main_says_to_update_local_main(self):
         # Rule: with the branch gone and the reviewed heads in neither local nor the remote's main, delivery says to
         # update local main from the remote, and never suggests making the branch again.
