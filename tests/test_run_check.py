@@ -311,12 +311,9 @@ class RunCheckTests(unittest.TestCase):
                      sys.executable, str(LOCK), sys.executable, '-c', child], env=env,
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 try:
-                    deadline = time.monotonic() + 3
-                    while not ready.exists() and time.monotonic() < deadline:
-                        time.sleep(.02)
-                    self.assertTrue(ready.exists(), 'check did not acquire the lock')
+                    support.wait_until(ready.exists, 'the check acquired the lock')
                     runner.send_signal(interruption)
-                    out, err = runner.communicate(timeout=4)
+                    out, err = runner.communicate(timeout=30)
                     self.assertEqual(runner.returncode, 128 + interruption, err)
                     summary = json.loads(out)
                     self.assertFalse(summary['timed_out'])

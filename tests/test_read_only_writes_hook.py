@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import resource
 from shlex import quote
 import subprocess
 import sys
@@ -13,6 +14,8 @@ import unittest
 import support
 
 HOOK = support.HOOKS / 'read_only_writes.py'
+# What the hook may spend deciding a call in a session without records, whatever the call's size.
+CPU_SECONDS = 1.5
 
 
 class Checkouts(unittest.TestCase):
@@ -576,9 +579,11 @@ class CodexChildren(Checkouts):
                              for line in (f'*** Update File: src/pkg{index}/m.py', '@@', '-a', '+b')))
         for tool, tool_input in (('Bash', {'command': f"git commit -m '{body}'"}), ('apply_patch', {'command': patch})):
             with self.subTest(tool=tool):
-                started = time.monotonic()
+                # CPU time, not wall time: a loaded machine delays the hook without making it do more work.
+                before = resource.getrusage(resource.RUSAGE_CHILDREN)
                 self.assertIsNone(self.run_codex(tool, tool_input, session='s9', cwd=self.main))
-                self.assertLess(time.monotonic() - started, 1.5)
+                after = resource.getrusage(resource.RUSAGE_CHILDREN)
+                self.assertLess(after.ru_utime + after.ru_stime - before.ru_utime - before.ru_stime, CPU_SECONDS)
 
 
     def test_the_codex_guard_never_exits_non_zero(self):

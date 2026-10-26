@@ -148,10 +148,12 @@ class WorkerLifecycleCase(unittest.TestCase):
 
     def herdr_fixture(self, native_session='native-1', verify_error='pane_not_found', caller=None, tab_panes=1,
                       caller_tab='caller-tab', tab_survives=False, agent_tab='tab-1',
-                      agent_delay=0, tab_delay=0, during_delay=None,
+                      agent_delay=0, tab_delay=0, during_delay=None, lock_probe=None,
                       agent_kind='claude', session_kind='id'):
         # during_delay: an argv the fixture runs while a delayed call waits, recording its exit code in
         # during-delay.json, so a test can act inside that wait without racing its own thread against it.
+        # lock_probe: a state database the fixture tries to write-lock, in its own process and without waiting,
+        # while a delayed call waits, recording whether it could; it needs no new interpreter, so load cannot delay it.
         directory = self.root / 'bin'
         directory.mkdir(exist_ok=True)
         executable = directory / 'herdr'
@@ -164,6 +166,14 @@ assert args[:2]==['--session','fixture-session']
 for command,delay in ((['agent','get'],{agent_delay!r}),(['tab','get'],{tab_delay!r})):
     if args[2:4]==command and delay:
         Path({str(self.root / 'herdr-waiting')!r}).touch()
+        if {lock_probe!r}:
+            import sqlite3
+            try:
+                probe=sqlite3.connect({lock_probe!r},timeout=0,isolation_level=None)
+                probe.execute('BEGIN IMMEDIATE');probe.execute('ROLLBACK');code,output=0,''
+            except sqlite3.OperationalError as error:
+                code,output=1,str(error)
+            Path({str(self.root / 'during-delay.json')!r}).write_text(json.dumps({{'code':code,'output':output}}))
         if {during_delay!r}:
             import subprocess
             done=subprocess.run({during_delay!r},capture_output=True,text=True)

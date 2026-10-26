@@ -318,7 +318,7 @@ class Waits(WorkerLifecycleCase):
         pidfile = self.root / 'wait.pid'
         receipt = self.watch(script=f'import os,time; open({str(pidfile)!r} + ".tmp", "w").write(str(os.getpid())); '
             f'os.replace({str(pidfile)!r} + ".tmp", {str(pidfile)!r}); time.sleep(30)',
-                             timeout=.15, code=124)
+                             timeout=3, code=124)
         self.assertEqual(receipt['reason'], 'timeout')
         with self.assertRaises(ProcessLookupError):
             os.kill(int(pidfile.read_text()), 0)

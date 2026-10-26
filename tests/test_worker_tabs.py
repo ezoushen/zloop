@@ -7,7 +7,7 @@ import threading
 import time
 import unittest
 
-from lifecycle_case import SCRIPT, WorkerLifecycleCase
+from lifecycle_case import WorkerLifecycleCase
 import support
 
 
@@ -92,22 +92,19 @@ class HerdrTabs(WorkerLifecycleCase):
     def test_a_herdr_that_does_not_answer_holds_no_state_lock_and_is_refused_within_five_seconds(self):
         # Rule: Herdr is asked before the state's write lock is taken and waited on about 5 s per call, so a hung
         # Herdr blocks no other writer, and the registration still fails closed with a named reason.
-        other = self.root / 'other-writer.json'
-        other.write_text(json.dumps(dict(kind='register', attempt='native/1',
-                                         **self.registration('native/1', 'native', 'native-0', worker='ghost'))))
-        # The other writer runs inside the Herdr call itself, so it overlaps the wait by construction.
-        self.herdr_fixture(agent_delay=30, during_delay=[sys.executable, '-B', str(SCRIPT), 'record',
-                                                         '--state', str(self.state), '--input', str(other)])
+        self.cli('status')
+        # The write lock is probed inside the Herdr call itself, so it overlaps the wait by construction.
+        self.herdr_fixture(agent_delay=30, lock_probe=str(self.state))
         started = time.monotonic()
         error = self.register(worker='builder-1', herdr={'session': 'fixture-session'}, code=2)
         seconds = time.monotonic() - started
         written = self.root / 'during-delay.json'
-        self.assertTrue(written.exists(), 'the other writer did not finish while the registration waited on Herdr')
+        self.assertTrue(written.exists(), 'the state lock was not probed while the registration waited on Herdr')
         writer = json.loads(written.read_text())
         self.assertEqual(writer['code'], 0, writer['output'])
         self.assertIn('Herdr did not answer agent get builder-1 within 5 s', error)
         self.assertLess(seconds, 20)  # bounded by the 5 s wait, not the 30 s Herdr delay
-        self.assertEqual([row['attempt'] for row in self.cli('status')['attempts']], ['native/1'])
+        self.assertEqual(self.cli('status')['attempts'], [])
 
     def test_a_tab_get_that_does_not_answer_is_refused_within_five_seconds(self):
         # Rule: every registration lookup waits about 5 s, the tab lookup too; then it fails closed, naming the call.
