@@ -814,17 +814,15 @@ class BoardCLI(unittest.TestCase):
                 except ProcessLookupError:
                     pass
         self.addCleanup(stop_child)
-        self.measured_ticket(f'{spawn}; sleep 30', timeout_seconds=1)
+        # The command's clock starts before its interpreter does; the timeout leaves a loaded machine time to spawn the child.
+        self.measured_ticket(f'{spawn}; sleep 30', timeout_seconds=4)
         # Waiting for the escaped child would take its 20 s; 15 s leaves a loaded machine room without hiding that.
         started = time.monotonic()
         refused = self.refusal()
         assert time.monotonic() - started < 15, 'acceptance waited for the escaped child'
         assert self.logless(refused) == ("inline/01: measurement 'recall tool': recall has no value "
-                                         "(its command timed out after 1 s); baseline 100\n"), refused
-        # On a loaded machine the escaped child may record itself only after the 1 s timeout has passed.
-        deadline = time.monotonic() + 20
-        while not pidfile.exists() and time.monotonic() < deadline:
-            time.sleep(0.05)
+                                         "(its command timed out after 4 s); baseline 100\n"), refused
+        support.wait_until(pidfile.exists, 'the escaped child recorded its pid')
         stop_child()
         pidfile.unlink()
         self.record_measurement(f'{spawn}; echo recall 100')  # exits at once, its child still holds stdout

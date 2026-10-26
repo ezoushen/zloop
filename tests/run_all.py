@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Run every tests/test_*.py regression script in parallel, at most one per CPU at a time across all runs.
+"""Run every tests/test_*.py regression script in parallel, split into units, at most one unit per CPU at a time across all runs.
 
 usage: tests/run_all.py
 
 Uses the plugin environment's .venv (the main checkout's, from a worktree) unless
 PYTHON names another interpreter. Concurrent runs on the machine share one budget of
-ZLOOP_TEST_SLOTS scripts (default: the CPU count), held as file locks in ZLOOP_TEST_SLOT_DIR
+ZLOOP_TEST_SLOTS units (default: the CPU count), held as file locks in ZLOOP_TEST_SLOT_DIR
 (default: /tmp/zloop-test-slots-<uid>); a lock vanishes with its run, so a killed run frees its slots.
-A run started by one of those scripts (ZLOOP_TEST_SLOT_HELD is set) counts its own scripts against a private
-budget, so it never waits on the slot its parent script already holds. Prints each failing script's output tail and
-exits 1 when any script fails. Native checks (ZLOOP_NATIVE=1) stay opt-in; see docs/development.md.
+A run started by one of those scripts (ZLOOP_TEST_SLOT_HELD is set) counts its own units against a private
+budget, so it never waits on the slot its parent script already holds. A unittest script is split into one unit per
+test class, and a class of more than MAX_UNIT_TESTS tests into balanced shards of at most that many, so a script's
+work spreads over the cores; any other script is one unit. Prints each failing unit's output tail, named
+<script>.<class> for a split script, and exits 1 when any unit fails. Native checks (ZLOOP_NATIVE=1) stay opt-in; see docs/development.md.
 """
 import fcntl
 import os
@@ -22,6 +24,23 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parent.parent
+# A class with more tests than this runs as several units; a smaller one runs whole.
+MAX_UNIT_TESTS = 8
+# Prints the `Class.method` id of each test the script's module defines, one per line, without running any.
+COLLECT = """
+import importlib.util, sys, unittest
+sys.path.insert(0, sys.argv[1].rpartition('/')[0])
+spec = importlib.util.spec_from_file_location('collected', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+def walk(suite):
+    for test in suite:
+        if isinstance(test, unittest.TestSuite):
+            yield from walk(test)
+        else:
+            yield type(test).__qualname__ + '.' + test._testMethodName
+print(*walk(unittest.defaultTestLoader.loadTestsFromModule(module)), sep='\\n')
+"""
 # A Git hook exports these; the tests' temporary repositories must not inherit them.
 GIT_VARIABLES = ('GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_PREFIX', 'GIT_OBJECT_DIRECTORY', 'GIT_COMMON_DIR')
 
@@ -50,6 +69,24 @@ def try_slot(directory, count):
     return None
 
 
+def units(stem, ids):
+    """The (name, test names, test count) units of a script whose tests are `ids`, largest first."""
+    classes = {}
+    for test in ids:
+        classes.setdefault(test.partition('.')[0], []).append(test)
+    result = []
+    for name, tests in classes.items():
+        count = -(-len(tests) // MAX_UNIT_TESTS)
+        if count == 1:
+            result.append((f'{stem}.{name}', [name], len(tests)))
+            continue
+        size = -(-len(tests) // count)
+        for number in range(count):
+            shard = tests[number * size:(number + 1) * size]
+            result.append((f'{stem}.{name}[{number + 1}/{count}]', shard, len(shard)))
+    return sorted(result, key=lambda unit: -unit[2])
+
+
 def main():
     # Exit through the context manager on a hook's teardown, so the log directory is removed.
     for number in (signal.SIGTERM, signal.SIGHUP):
@@ -64,10 +101,10 @@ def main():
             directory = Path(os.environ.get('ZLOOP_TEST_SLOT_DIR') or f'/tmp/zloop-test-slots-{os.getuid()}')
         directory.mkdir(parents=True, exist_ok=True)
         env['ZLOOP_TEST_SLOT_HELD'] = '1'
-        jobs = []
         held = []
-        for test in sorted((ROOT / 'tests').glob('test_*.py')):
-            # One script per slot: starting all of them at once starves those that assert a deadline.
+
+        def launch(argv, log):
+            """Start argv once a slot is free, holding the slot until it exits."""
             while True:
                 for pair in [pair for pair in held if pair[1].poll() is not None]:
                     held.remove(pair)
@@ -76,11 +113,32 @@ def main():
                 if slot:
                     break
                 time.sleep(0.05)
-            log = open(Path(logs) / f'{test.stem}.log', 'w+', errors='replace')
-            process = subprocess.Popen([python, '-B', str(test)], stdin=subprocess.DEVNULL,
-                                       stdout=log, stderr=subprocess.STDOUT, env=env)
-            jobs.append((test.stem, log, process))
+            process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, env=env)
             held.append((slot, process))
+            return process
+
+        scripts = sorted((ROOT / 'tests').glob('test_*.py'))
+        # One unit per slot: starting all of them at once starves those that assert a deadline.
+        collectors = []
+        for test in scripts:
+            if 'unittest.main(' in test.read_text(errors='replace'):
+                out = open(Path(logs) / f'{test.stem}.collect', 'w+', errors='replace')
+                collectors.append((test, out, launch([python, '-B', '-c', COLLECT, str(test)], out)))
+        planned = {}
+        for test, out, process in collectors:
+            ok = process.wait() == 0
+            out.seek(0)
+            ids = out.read().split() if ok else []
+            out.close()
+            planned[test] = units(test.stem, ids)
+        pending = []
+        for test in scripts:
+            pending += planned.get(test) or [(test.stem, [], 1)]
+        jobs = []
+        for index, (name, names, _) in enumerate(sorted(pending, key=lambda unit: -unit[2])):
+            log = open(Path(logs) / f'{index}.log', 'w+', errors='replace')
+            test = ROOT / 'tests' / f"{name.partition('.')[0]}.py"
+            jobs.append((name, log, launch([python, '-B', str(test), *names], log)))
         failed = False
         for name, log, process in jobs:
             if process.wait():
@@ -92,7 +150,7 @@ def main():
     for slot, _ in held:
         slot.close()
     if not failed:
-        print(f'{len(jobs)} regression scripts passed ({python})')
+        print(f'{len(scripts)} regression scripts passed ({python})')
     return 1 if failed else 0
 
 

@@ -27,6 +27,16 @@ def load_script(filename, name=None):
     return module
 
 
+def wait_until(condition, what, limit=120):
+    """Poll condition until it holds, failing with `what` only after limit seconds, a guard against a hang that
+    load alone does not reach."""
+    import time
+    deadline = time.monotonic() + limit
+    while not condition():
+        assert time.monotonic() < deadline, f'never happened: {what}'
+        time.sleep(0.02)
+
+
 def isolated_env(root, **values):
     """The current environment with zloop state, config and Codex home under root."""
     root = Path(root)
