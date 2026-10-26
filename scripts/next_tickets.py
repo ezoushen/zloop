@@ -370,6 +370,8 @@ def accept(tickets, name):
         problems, notes = measurement_results(tickets[name], ref, text)
     for p in problems:
         print(f"{name}: {p}", file=sys.stderr)
+    if problems and tickets[name].get("accepted"):
+        write_fields(tickets[name], {"accepted": None})  # A failing acceptance withdraws an earlier one.
     if not problems:
         for note in notes:
             print(f"{name}: {note}")
@@ -718,7 +720,8 @@ def set_field(tickets, name, assignments):
     fields = {}
     for assignment in assignments:
         key, equals, value = assignment.partition("=")
-        if not equals or key not in {"status", "worker", "blocker", "start"} or any(c in value for c in "\r\n"):
+        # One line by every separator the front-matter reader splits on, so no value can add a field.
+        if not equals or key not in {"status", "worker", "blocker", "start"} or len(f"{value}x".splitlines()) > 1:
             sys.exit(f"{name}: --set accepts one-line status=, worker=, blocker= or start= only")
         fields[key] = value.strip() if key == "blocker" else value
     if "status" in fields and fields["status"] not in STATUSES:

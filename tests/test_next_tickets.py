@@ -302,18 +302,25 @@ class BoardCLI(unittest.TestCase):
 
     def test_a_ticket_is_done_only_once_a_passing_acceptance_is_in_the_effort_branch(self):
         # jose retro: ticket 07 was set done after --accept refused it ("--set doesn't enforce").
-        self.write_ticket('inline/01', 'implementing')
+        self.write_ticket('inline/01', 'implementing', extra='worker:\n')
         base = self.commit('base')
         self.git('switch', '-q', '-c', 'feat/inline')
         refused = self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
         assert 'inline/01: status=done needs a passing --accept first' in refused.stdout + refused.stderr, refused
         work = self.commit('ticket work')
-        # Only a passing --accept records it.
+        # Only a passing --accept records it, not --set, even through a line separator Python splits lines on.
         self.cli('inline', '--set', 'inline/01', f'accepted={work}', code=1)
+        self.cli('inline', '--set', 'inline/01', f'worker=b\u2028accepted: {work}', code=1)
         self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
         self.write_report(base, 'feat/inline', [work])
         self.cli('inline', '--accept', 'inline/01')
         assert f'accepted: {work}' in (self.root / '.scratch/inline/issues/01-task.md').read_text()
+        # An acceptance that fails again withdraws the earlier one.
+        self.write_report(base, 'feat/inline')
+        self.cli('inline', '--accept', 'inline/01', code=1)
+        self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
+        self.write_report(base, 'feat/inline', [work])
+        self.cli('inline', '--accept', 'inline/01')
         self.cli('inline', '--set', 'inline/01', 'status=done')
         # A delegated ticket's accepted head must also be merged into the effort branch.
         self.write_ticket('inline/02', 'implementing', touches='docs')
