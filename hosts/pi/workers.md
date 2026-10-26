@@ -23,8 +23,8 @@ worktree; explicitly disable extra isolation even if Pi's configured default
 enables it. Include absolute `adapter`, `agent_file`, `job_file`,
 `plugin_root`, `repo`, report and input paths, branch/head, accepted scope and
 decisions. The child reads these files and verifies its checkout before acting.
-Record its startup with `native`, the child's session JSONL, whose header `cwd` should be
-that worktree (`status` warns otherwise).
+Register it, and record its startup, with `native`: the child's Pi session record, whose header names the
+coordinator's session as `parentSession`, its own id, and the worktree as `cwd` (`status` warns otherwise).
 Fresh context keeps prior hypotheses and unrelated parent history out of reviews.
 
 Use only the route's resolved settings by the **shared agent**, not the generic
