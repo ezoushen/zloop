@@ -3,7 +3,7 @@
 
 usage: capability_probe.py
 
-Prints one JSON object: capability name to {"status", "evidence"}. A step that cannot run reports
+Prints one JSON object: capability name to {"status", "evidence"}, and `worktree`, the directory it ran in. A step that cannot run reports
 `unknown`; only a step that ran and showed the capability reports `available`. Exits 0 either way.
 """
 import json
@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 
@@ -46,10 +47,20 @@ def exit_status(argv):
     return judge
 
 
-def setuid(process):
-    value = process.stdout.partition(':')[2].strip()
-    shown = f'/proc/self/status NoNewPrivs is {value!r}'
-    return {'0': ('available', shown), '1': ('unavailable', shown)}.get(value, ('unknown', shown))
+def setuid():
+    """Set the setuid bit on a temporary file and read it back, as a setuid check does."""
+    try:
+        with tempfile.NamedTemporaryFile() as file:
+            try:
+                os.chmod(file.name, 0o4755)
+            except OSError as error:
+                return 'unavailable', f'cannot set the setuid bit on {file.name}: {error}'
+            mode = os.stat(file.name).st_mode
+    except OSError as error:
+        return 'unknown', f'cannot create a temporary file: {error}'
+    if mode & stat.S_ISUID:
+        return 'available', f'the setuid bit set on a temporary file read back (mode {mode & 0o7777:o})'
+    return 'unavailable', f'the setuid bit set on a temporary file read back without the setuid bit (mode {mode & 0o7777:o})'
 
 
 def dev_fd(process):
@@ -102,7 +113,7 @@ def probe():
     steps = {
         'network': lambda: command_probe(curl, exit_status(curl)),
         'docker': lambda: command_probe(docker, exit_status(docker)),
-        'setuid': lambda: command_probe(['grep', '-s', '^NoNewPrivs', '/proc/self/status'], setuid),
+        'setuid': setuid,
         'repo-write': repo_write,
         'dev-fd': lambda: command_probe(['bash', '-c', 'cat <(echo ok)'], dev_fd),
     }
@@ -110,6 +121,7 @@ def probe():
     for name, step in steps.items():
         status, evidence = step()
         report[name] = {'status': status, 'evidence': evidence}
+    report['worktree'] = str(Path.cwd().resolve())
     return report
 
 
