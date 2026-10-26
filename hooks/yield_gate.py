@@ -11,7 +11,9 @@ agent of its Herdr workspace. The session bound to coordinate an effort (next_ti
 attempt, neither retained nor retired, whose Herdr tab is still open, and for an effort whose
 review report (before it records one, the binding) records autofix: true and no blocker, with
 every ticket done and delivery failing, until it is finished (branch deleted, reviewed head in
-main, E2E passed at a head in main), unless a live worker of the effort holds a running wait that will wake the
+main or on the remote's main, E2E passed at a head in main). A session is also held while a
+confirmed autopilot run card (.scratch/<slug>/autopilot.md) naming it lacks one terminal state or its
+evidence. Neither the delivery hold nor the card hold applies while a live worker of the effort holds a running wait that will wake the
 host. A
 check that cannot run, and a launch log line that is unreadable or malformed, are named gaps,
 never a pass. `claude` and `codex` speak their shared Stop
@@ -112,12 +114,14 @@ def card_state(path):
 
 
 def unfinished_runs(root, session):
-    """Name each confirmed autopilot run card of this host session that lacks one terminal state or its evidence."""
+    """Name each confirmed autopilot run card of this host session that lacks one terminal state or its evidence,
+    unless a live worker of the card's effort holds a running wait that will wake the host."""
     missing = []
     for path in sorted(root.glob('.scratch/*/autopilot.md')):
         state = card_state(path)
         if (session and state.get('session') == session and state.get('confirmed', 'no') not in ('', 'no')
-                and (state.get('terminal') not in TERMINAL_STATES or not state.get('evidence'))):
+                and (state.get('terminal') not in TERMINAL_STATES or not state.get('evidence'))
+                and not awaited(path.with_name('reports') / 'workers.sqlite')):
             missing.append(f"{path}: this session's autopilot run has no terminal state or no evidence; record "
                            f"`terminal:` as exactly one of {', '.join(f'`{name}`' for name in TERMINAL_STATES)} and "
                            "`evidence:` in the card's State")

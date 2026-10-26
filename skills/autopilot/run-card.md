@@ -35,7 +35,7 @@ Decisions made without the user are rows in `.scratch/<slug>/ledger.md`; open on
 confirmed: no | <date> "<the user's words>"
 session: <the host's session ID where it exposes one in the environment, else unknown; never a path>
 auto-merge: no | yes
-phase: align | refine | dispatch | pr | ended
+phase: align | refine | dispatch | pr   (the phase the run is in; kept at the one it stopped in when it ends)
 terminal: <state, once ended>
 history: <earlier terminal states, each with its date, kept on take-over>
 evidence: <commit, report, PR URL>

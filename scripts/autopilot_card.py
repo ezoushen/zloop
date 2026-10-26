@@ -3,8 +3,8 @@
 
 Rewrites the card's State in place. `auto-merge:` becomes `yes` only with `--auto-merge`, so a grant from the run that
 ended never carries into the next. The ended run's `terminal:` state moves, with today's date, to the end of
-`history:`, and `terminal:` is left empty. A card that has not ended keeps its history. Restoring the phase is the
-caller's: the card does not record the phase the run stopped in.
+`history:`, and `terminal:` is left empty. A card that has not ended keeps its history. `phase:` is left as
+recorded: a run that ends keeps the phase it stopped in.
 """
 import argparse
 import datetime

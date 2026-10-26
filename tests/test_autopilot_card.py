@@ -19,7 +19,7 @@ Ship it.
 confirmed: 2026-10-25 "go"
 session: host-1
 auto-merge: yes
-phase: ended
+phase: pr
 terminal: merged
 history: waiting-on-user 2026-10-24
 evidence: abc123

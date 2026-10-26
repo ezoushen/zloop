@@ -85,8 +85,10 @@ sends you back once. `ZLOOP_YIELD_HOOK=off` disables the hooks. The stop check h
   lists (with no binding, the Herdr pane that registered it is held), and for an effort
   whose review report records `autofix: true` (before it does, the binding's `--autofix`)
   and no `blocker`, with every ticket done and `--delivery` failing, until it is finished:
-  its branch deleted, its reviewed head in main and a passing `e2e_status` recorded at a
-  head in main.
+  its branch deleted, its reviewed head in main (local or the remote's) and a passing
+  `e2e_status` recorded at a head in main; and for a confirmed autopilot run card of the
+  session with no terminal state or no evidence. Neither hold applies while a live worker of
+  the effort holds a running wait that will wake the host.
 
 A launch, like the dispatch binding (`--coordinate`), belongs to the host session that
 ran it when both sides know one, whatever pane either reports (a Codex session's

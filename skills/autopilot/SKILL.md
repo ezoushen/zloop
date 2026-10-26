@@ -31,7 +31,7 @@ types the command; a message that mentions it is not an invocation. Never widens
   a card that ended `waiting-on-user` or `paused-allowance` resumes once its cause is gone. Take over a card with
   `python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--auto-merge]`: it moves the terminal state to
   `history:`, clears `terminal:` and sets `auto-merge:` from the flag alone, so the grant of the run that ended lapses
-  with its terminal state; then restore the phase the run stopped in.
+  with its terminal state. `phase:` stays as recorded: a run that ends keeps the phase it stopped in.
   A card that ended `paused-by-user` resumes at once, with no cause to wait for: first record each decision the
   user made while in control in the ledger as theirs, with their words, and re-read the branch and the board, so
   the work the user did is the current state.
