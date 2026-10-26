@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Run every tests/test_*.py regression script in parallel, at most one per CPU at a time.
+"""Run every tests/test_*.py regression script in parallel, at most one per CPU at a time across all runs.
 
 usage: tests/run_all.py
 
 Uses the plugin environment's .venv (the main checkout's, from a worktree) unless
-PYTHON names another interpreter. Prints each failing script's output tail and
+PYTHON names another interpreter. Concurrent runs on the machine share one budget of
+ZLOOP_TEST_SLOTS scripts (default: the CPU count), held as file locks in ZLOOP_TEST_SLOT_DIR
+(default: /tmp/zloop-test-slots-<uid>); a lock vanishes with its run, so a killed run frees its slots. Prints each failing script's output tail and
 exits 1 when any script fails. Native checks (ZLOOP_NATIVE=1) stay opt-in; see docs/development.md.
 """
+import fcntl
 import os
 from pathlib import Path
 import shutil
@@ -33,6 +36,18 @@ def interpreter(env):
     return shutil.which('python3') or sys.executable
 
 
+def try_slot(directory, count):
+    """Return an open file holding a slot's lock, or None when all `count` slots are taken."""
+    for index in range(count):
+        slot = open(directory / f'slot-{index}', 'w')
+        try:
+            fcntl.flock(slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return slot
+        except OSError:
+            slot.close()
+    return None
+
+
 def main():
     # Exit through the context manager on a hook's teardown, so the log directory is removed.
     for number in (signal.SIGTERM, signal.SIGHUP):
@@ -40,14 +55,26 @@ def main():
     env = {key: value for key, value in os.environ.items() if key not in GIT_VARIABLES}
     python = interpreter(env)
     with tempfile.TemporaryDirectory() as logs:
+        slots = int(os.environ.get('ZLOOP_TEST_SLOTS') or os.cpu_count() or 1)
+        directory = Path(os.environ.get('ZLOOP_TEST_SLOT_DIR') or f'/tmp/zloop-test-slots-{os.getuid()}')
+        directory.mkdir(parents=True, exist_ok=True)
         jobs = []
+        held = []
         for test in sorted((ROOT / 'tests').glob('test_*.py')):
-            # One script per CPU: starting all of them at once starves those that assert a deadline.
-            while sum(process.poll() is None for _, _, process in jobs) >= (os.cpu_count() or 1):
+            # One script per slot: starting all of them at once starves those that assert a deadline.
+            while True:
+                for pair in [pair for pair in held if pair[1].poll() is not None]:
+                    held.remove(pair)
+                    pair[0].close()
+                slot = try_slot(directory, slots)
+                if slot:
+                    break
                 time.sleep(0.05)
             log = open(Path(logs) / f'{test.stem}.log', 'w+', errors='replace')
-            jobs.append((test.stem, log, subprocess.Popen([python, '-B', str(test)], stdin=subprocess.DEVNULL,
-                                                          stdout=log, stderr=subprocess.STDOUT, env=env)))
+            process = subprocess.Popen([python, '-B', str(test)], stdin=subprocess.DEVNULL,
+                                       stdout=log, stderr=subprocess.STDOUT, env=env)
+            jobs.append((test.stem, log, process))
+            held.append((slot, process))
         failed = False
         for name, log, process in jobs:
             if process.wait():
@@ -56,6 +83,8 @@ def main():
                 print(f'FAIL {name}')
                 print(''.join(log.readlines()[-20:]), end='')
             log.close()
+    for slot, _ in held:
+        slot.close()
     if not failed:
         print(f'{len(jobs)} regression scripts passed ({python})')
     return 1 if failed else 0

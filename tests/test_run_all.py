@@ -111,6 +111,64 @@ class RunAll(unittest.TestCase):
         self.assertEqual(len(seen), cpus + 4)
         self.assertLessEqual(max(seen), cpus)
 
+    def start(self, scripts, env):
+        """Start a runner over `scripts` in its own copy of the tests directory, without waiting for it."""
+        root = Path(tempfile.mkdtemp(prefix='run all start '))
+        self.addCleanup(shutil.rmtree, root)
+        (root / 'tests').mkdir()
+        shutil.copy(RUNNER, root / 'tests/run_all.py')
+        for name, body in scripts.items():
+            (root / 'tests' / name).write_text(body)
+        subprocess.run(['git', 'init', '-q', str(root)], check=True)
+        process = subprocess.Popen([sys.executable, str(root / 'tests/run_all.py')], env=dict(os.environ, PYTHON=sys.executable, **env),
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        self.addCleanup(process.wait)
+        self.addCleanup(process.kill)
+        return process
+
+    def test_concurrent_runs_share_one_slot_budget_instead_of_one_each(self):
+        # Rule: the per-CPU cap spans every run on the machine, so two runs together never exceed the slot count.
+        slots = 2
+        scratch = Path(tempfile.mkdtemp(prefix='run all shared '))
+        self.addCleanup(shutil.rmtree, scratch)
+        running = scratch / 'running'
+        running.mkdir()
+        script = ('import os,time\nfrom pathlib import Path\n'
+                  f'running = Path({str(running)!r})\n'
+                  '(running / str(os.getpid())).touch()\n'
+                  'seen = sum(1 for path in running.iterdir() if not path.name.startswith("seen-"))\n'
+                  '(running / f"seen-{os.getpid()}").write_text(str(seen))\n'
+                  'time.sleep(0.3)\n'
+                  '(running / str(os.getpid())).unlink()\n')
+        env = {'ZLOOP_TEST_SLOTS': str(slots), 'ZLOOP_TEST_SLOT_DIR': str(scratch / 'slots')}
+        scripts = {f'test_{index}.py': script for index in range(4)}
+        runs = [self.start(scripts, env), self.start(scripts, env)]
+        outputs = [run.communicate(timeout=60)[0] for run in runs]
+        self.assertEqual([run.returncode for run in runs], [0, 0], outputs)
+        seen = [int(path.read_text()) for path in running.glob('seen-*')]
+        self.assertEqual(len(seen), 8)
+        self.assertLessEqual(max(seen), slots)
+        self.assertEqual(max(seen), slots, 'the runs never used the whole budget')
+
+    def test_a_killed_run_does_not_keep_its_slots(self):
+        # Rule: a slot is released when its run dies, so a later run is not blocked by a dead run's slots.
+        scratch = Path(tempfile.mkdtemp(prefix='run all killed '))
+        self.addCleanup(shutil.rmtree, scratch)
+        env = {'ZLOOP_TEST_SLOTS': '1', 'ZLOOP_TEST_SLOT_DIR': str(scratch / 'slots')}
+        started = scratch / 'started'
+        holder = self.start({'test_hold.py': 'import os,time\nfrom pathlib import Path\n'
+                             f'Path({str(started)!r}).write_text(str(os.getpid()))\ntime.sleep(30)\n'}, env)
+        deadline = time.monotonic() + 10
+        while not started.exists():
+            self.assertLess(time.monotonic(), deadline, 'the holding run never started its script')
+            time.sleep(0.05)
+        holder.kill()
+        holder.wait(timeout=10)
+        self.addCleanup(os.kill, int(started.read_text()), signal.SIGKILL)
+        waiter = self.start({'test_after.py': 'pass\n'}, env)
+        output = waiter.communicate(timeout=10)[0]
+        self.assertEqual(waiter.returncode, 0, output)
+
     def test_scripts_do_not_inherit_the_git_hook_environment(self):
         result = self.suite({'test_env.py': 'import os\nraise SystemExit(1 if "GIT_DIR" in os.environ else 0)\n'})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
