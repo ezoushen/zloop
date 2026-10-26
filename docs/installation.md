@@ -62,11 +62,13 @@ loaded. Its required presentation reference is packaged with the plugin.
 
 There is no zloop OpenCode bootstrap extension
 ([OpenCode settings](../hosts/opencode/session.md)); OpenCode loads the shared skills
-through its native discovery, so the development installation is one link:
+through its native discovery and the yield gate's plugin from its plugins folder, so the
+development installation is two links:
 
 ```sh
-mkdir -p ~/.config/opencode/skills
+mkdir -p ~/.config/opencode/skills ~/.config/opencode/plugins
 ln -s /absolute/path/to/zloop/skills ~/.config/opencode/skills/zloop
+ln -s /absolute/path/to/zloop/hosts/opencode/plugin.js ~/.config/opencode/plugins/zloop.js
 ```
 
 Keep an existing matching symlink; do not overwrite a different installation. Link
@@ -86,7 +88,8 @@ the ten commands, loadable only by explicit id (`@align` and the like), should b
 present. The native check is
 `ZLOOP_NATIVE=1 .venv/bin/python -B tests/test_cross_harness.py NativeHarnesses`.
 
-This covers model settings and skill discovery only; OpenCode still has no native
+The server log shows `loading plugin` for `zloop.js` once the plugin link is read. This
+covers model settings, skill discovery and the yield gate; OpenCode still has no native
 dispatch lifecycle ([workers](../hosts/opencode/workers.md)).
 
 ## Pi
