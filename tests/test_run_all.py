@@ -24,6 +24,15 @@ class RunAll(unittest.TestCase):
         self.addCleanup(slots.cleanup)
         return {**env, 'ZLOOP_TEST_SLOT_DIR': slots.name, **extra}
 
+    @staticmethod
+    def stop_group(runner):
+        """Stop the runner's process group, scripts included, as a hook's teardown would."""
+        try:
+            os.killpg(runner.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):  # The group is gone, or only its reaped leader remains.
+            pass
+        runner.wait()
+
     def suite(self, scripts, env=None):
         directory = tempfile.TemporaryDirectory(prefix='run all ')
         self.addCleanup(directory.cleanup)
@@ -90,7 +99,8 @@ class RunAll(unittest.TestCase):
         (root / 'tests/test_slow.py').write_text(f'import time\nopen({str(started)!r}, "w").close()\ntime.sleep(30)\n')
         subprocess.run(['git', 'init', '-q', str(root)], check=True)
         runner = subprocess.Popen([sys.executable, str(root / 'tests/run_all.py')], start_new_session=True,
-                                  env=dict(os.environ, PYTHON=sys.executable, TMPDIR=str(root / 'tmp')))
+                                  env=self.outermost(dict(PYTHON=sys.executable, TMPDIR=str(root / 'tmp'))))
+        self.addCleanup(self.stop_group, runner)
         deadline = time.monotonic() + 10
         # The runner opens a unit's log before starting it; wait for the script itself, which killpg then stops.
         while not (started.exists() and list((root / 'tmp').glob('*/*.log'))):
@@ -98,7 +108,7 @@ class RunAll(unittest.TestCase):
             time.sleep(0.05)
         runner.send_signal(signal.SIGTERM)
         self.assertEqual(runner.wait(timeout=10), 128 + signal.SIGTERM)
-        os.killpg(runner.pid, signal.SIGKILL)  # the sleeping test, as a hook's teardown would
+        self.stop_group(runner)  # the sleeping test, as a hook's teardown would
         self.assertEqual(list((root / 'tmp').iterdir()), [])
 
     def test_no_more_scripts_run_at_once_than_the_machine_has_cpus(self):
