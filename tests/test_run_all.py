@@ -16,6 +16,13 @@ RUNNER = support.ROOT / 'tests/run_all.py'
 
 
 class RunAll(unittest.TestCase):
+    def outermost(self, extra):
+        """The environment of a run that is no suite's script: a suite running this file must not hand its slot pool down."""
+        env = {key: value for key, value in os.environ.items() if not key.startswith('ZLOOP_TEST_SLOT')}
+        slots = tempfile.TemporaryDirectory(prefix='run all pool ')
+        self.addCleanup(slots.cleanup)
+        return {**env, 'ZLOOP_TEST_SLOT_DIR': slots.name, **extra}
+
     def suite(self, scripts, env=None):
         directory = tempfile.TemporaryDirectory(prefix='run all ')
         self.addCleanup(directory.cleanup)
@@ -26,8 +33,7 @@ class RunAll(unittest.TestCase):
             (root / 'tests' / name).write_text(body)
         subprocess.run(['git', 'init', '-q', str(root)], check=True)
         # A Git hook exports GIT_DIR; the runner must not pass it to the scripts.
-        env = dict(os.environ, PYTHON=sys.executable, GIT_DIR=str(root / '.git'), **(env or {}))
-        env.pop('ZLOOP_TEST_SLOT_HELD', None)
+        env = self.outermost(dict(PYTHON=sys.executable, GIT_DIR=str(root / '.git'), **(env or {})))
         self.root = root
         return subprocess.run([sys.executable, str(root / 'tests/run_all.py')], env=env,
                               capture_output=True, text=True, timeout=60)
@@ -121,8 +127,7 @@ class RunAll(unittest.TestCase):
         for name, body in scripts.items():
             (root / 'tests' / name).write_text(body)
         subprocess.run(['git', 'init', '-q', str(root)], check=True)
-        process = subprocess.Popen([sys.executable, str(root / 'tests/run_all.py')], env={**{key: value for key, value in os.environ.items() if key != 'ZLOOP_TEST_SLOT_HELD'},
-                                    'PYTHON': sys.executable, **env},
+        process = subprocess.Popen([sys.executable, str(root / 'tests/run_all.py')], env=self.outermost(dict(env, PYTHON=sys.executable)),
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         self.addCleanup(process.wait)
         self.addCleanup(process.kill)
