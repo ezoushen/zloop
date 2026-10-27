@@ -716,6 +716,41 @@ console.log(JSON.stringify(await handlers.agent_before_settle(
         os.utime(self.state, (old, old))
         self.assertEqual(self.check(pane='w1:p2', session='host-2'), [])
 
+    def write_rows(self, *rows, events=True):
+        """A run state of hand-written attempt rows, recent, with no coordinator binding."""
+        self.state.unlink(missing_ok=True)
+        db = sqlite3.connect(self.state)
+        db.execute('CREATE TABLE attempts (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
+        if events:
+            db.execute('CREATE TABLE events (id INTEGER PRIMARY KEY, attempt TEXT NOT NULL, kind TEXT NOT NULL, '
+                       'payload TEXT NOT NULL, acknowledged INTEGER NOT NULL)')
+        db.executemany('INSERT INTO attempts VALUES (?, ?)', [(row['attempt'], json.dumps(row)) for row in rows])
+        db.commit()
+        db.close()
+
+    def ownerless(self, attempt='e/1', **fields):
+        """A live attempt with no recorded pane or host session and no wait: every session's gap unless bound."""
+        return dict(attempt=attempt, assignment='e/01', repo=str(self.repo), runtime='claude', native_session='n-1',
+                    worker='w-1', owned=True, submitted=True, **fields)
+
+    def test_a_malformed_session_list_breaks_no_other_sessions_check(self):
+        self.write_rows(dict(self.ownerless(), session='host-A', sessions=42))
+        self.assertEqual(self.check(pane='w1:p2', session='host-B'), [])
+
+    def test_an_unreadable_ownerless_state_with_herdr_placement_still_holds_while_recent(self):
+        # Rule: a Herdr server's session name in a row is no host session; recording no owner, the state is named.
+        self.write_rows(self.ownerless(herdr={'session': 'default', 'workspace_id': 'w1', 'tab_id': 'w1:t5'}),
+                        events=False)
+        self.assertRegex(self.check(pane='w1:p2', session='host-A')[0], 'cannot be read')
+
+    def test_the_ownerless_fallback_never_holds_a_marked_worker(self):
+        # Rule: a session launched as a worker (ZLOOP_WORKER) answers for its own launches only, wherever it runs.
+        self.write_rows(self.ownerless())
+        self.assertEqual(self.check(pane='w1:p2', session='host-B'), [f'{self.state}: e/1: no armed wait'])
+        self.assertEqual(self.check(pane='w1:p2', session='host-B', env={'ZLOOP_WORKER': 'e/t'}), [])
+        self.write_rows(self.ownerless(), events=False)
+        self.assertEqual(self.check(pane='w1:p2', session='host-B', env={'ZLOOP_WORKER': 'e/t'}), [])
+
     def live_attempt(self, attempt, pane, session):
         self.register(f'builder-{attempt[7]}', attempt, pane=pane, session=session)
         self.lifecycle('startup', attempt, pane, observed={'runtime': 'claude', 'model': 'sonnet'},

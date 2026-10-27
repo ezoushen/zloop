@@ -102,7 +102,9 @@ def gaps(cwd, session=None):
                      for saved in saved_attempts if 'worktree' in saved)
 
         def coordinated(saved):
-            return owns(saved, pane, session) if attributed(saved) else (bound or unbound) and not worker
+            # A session launched as a worker (ZLOOP_WORKER) answers for no worker it did not register.
+            fallback = bound or unbound and not os.environ.get('ZLOOP_WORKER')
+            return owns(saved, pane, session) if attributed(saved) else fallback and not worker
         db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
         try:
             missing += [f'{state}: {gap}' for gap in module.yield_gaps(db, coordinated, saved_attempts)]
@@ -120,14 +122,15 @@ def gaps(cwd, session=None):
 def unreadable_holds(state, pane, session, bound, recent):
     """Whether a run state that cannot be read is named to this session: it hides its owners' gaps, so it is named to
     the session bound to its effort and to each pane or host session its bytes still record; recording none, to every
-    session while it is recent."""
+    session that is not a worker while it is recent."""
     try:
         raw = state.read_bytes().decode(errors='replace')
     except OSError:
         raw = ''
     if bound or any(value and re.search(rf'(?<![\w:.-]){re.escape(value)}(?![\w:.-])', raw) for value in (pane, session)):
         return True
-    return recent and not re.search(r'"(?:session|sessions|coordinator)": *[\["]', raw)
+    # A Herdr placement's own "session" names a Herdr server, not a host session, so only these keys record an owner.
+    return recent and not os.environ.get('ZLOOP_WORKER') and not re.search(r'"(?:sessions|coordinator)": *[\["]', raw)
 
 
 def read_state(state):
@@ -187,8 +190,10 @@ def attributed(saved):
 def owns(saved, pane, session):
     """Whether this session registered the attempt: by host session before pane. A host started inside another's shell
     exports the outer host's session too, so each exported session counts."""
-    return any(same_coordinator({'pane': saved.get('coordinator'), 'session': known}, pane, session)
-               for known in saved.get('sessions') or [saved.get('session')])
+    known = saved.get('sessions') if isinstance(saved.get('sessions'), list) else []
+    known = [value for value in known if isinstance(value, str)] or [saved.get('session')]
+    return any(same_coordinator({'pane': saved.get('coordinator'), 'session': value if isinstance(value, str) else None},
+                                pane, session) for value in known)
 
 
 def card_state(path):
