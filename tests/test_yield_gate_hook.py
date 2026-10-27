@@ -631,6 +631,22 @@ console.log(JSON.stringify(await handlers.agent_before_settle(
         self.assertIn('herdr_launch.py dismiss --pane <pane> --session pi-1 --reason <why>',
                       settled['entries'][0]['content'])
 
+    def test_a_pi_subagents_childs_launch_holds_its_parent_until_the_child_registers_it(self):
+        # A background pi-subagents child is never held: its launch is its parent's, and so is its registration, so
+        # the parent's stop is held for the launch until the child registers it.
+        child = {'PI_SUBAGENT_CHILD': '1', 'PI_SUBAGENT_PARENT_SESSION': 'pi-parent', 'PI_SESSION_ID': 'pi-1'}
+        self.pi("""
+await handlers.tool_call({ type: 'tool_call', toolCallId: '1', toolName: 'bash',
+  input: { command: 'herdr agent start builder-1 --kind codex --pane w1:p5' } }, ctx);
+console.log('null');
+""", env=child)
+        self.assertEqual(self.check(pane=None, session='pi-parent'), [self.gap('builder-1', 'w1:p5')])
+        self.lifecycle('register', 'ticket-1/2', None, env=child, assignment='ticket-1', repo=str(self.repo),
+                       worktree=str(self.worktree), head='head-1', execution=str(self.execution), runtime='claude',
+                       worker='w1:p5', native_session='native-2', owned=True,
+                       packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        self.assertNotIn(self.gap('builder-1', 'w1:p5'), self.check(pane=None, session='pi-parent'))
+
     def test_a_live_agent_in_a_worktree_is_a_gap_until_an_attempt_registers_it(self):
         # Rule 3: an agent nobody logged (started by hand, or before the hook) still holds its workspace's coordinator.
         other = self.repo / '.worktrees/ticket-2'

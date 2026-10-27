@@ -39,6 +39,16 @@ TOP_LEVEL = ('claude', 'codex', 'opencode', 'pi')  # Runtimes whose own process 
 SESSION_VARIABLES = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID')
 
 
+def host_sessions():
+    """The host sessions that answer at stop for what this process does: each one exported, and in a pi-subagents
+    runner child, which is never held, its parent session too, under which Pi's extension logs the child's launches."""
+    sessions = [os.environ[name] for name in SESSION_VARIABLES if os.environ.get(name)]
+    parent = os.environ.get('PI_SUBAGENT_PARENT_SESSION', '').strip()
+    if os.environ.get('PI_SUBAGENT_CHILD') == '1' and parent:
+        sessions.append(parent)
+    return sessions
+
+
 def require(value, message):
     if not value:
         raise ValueError(message)
@@ -756,7 +766,7 @@ def record(db, data, refuse_changes=False):
             if os.environ.get('HERDR_PANE_ID'):
                 # The registering host's pane; the yield hooks hold only that host for this worker.
                 saved['coordinator'] = os.environ['HERDR_PANE_ID']
-            sessions = [os.environ[name] for name in SESSION_VARIABLES if os.environ.get(name)]
+            sessions = host_sessions()
             if sessions:
                 # The registering host session, which decides before the pane; a host started inside another's shell
                 # also exports the outer one's, so every exported session is kept.
