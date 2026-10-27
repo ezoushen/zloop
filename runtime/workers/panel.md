@@ -21,10 +21,9 @@ It reads, read-only: the effort's run card (`.scratch/<slug>/autopilot.md`), its
 state file drops only the rows it would have supplied.
 
 Which effort is this session's: the one whose `reports/coordinator.json` names this session — the binding
-`next_tickets.py --coordinate` writes — else the run card naming it, else the effort holding its decision journal, else
-the newest one no other session claims. Reaching one only by that last rule adopts it, so its headline says `adopted`
-(before `draft`) and an effort another session coordinates is never adopted. An effort need not have a card: its
-tickets, workers or journal are enough, and the headline then has no phase.
+`next_tickets.py --coordinate` writes — else the run card naming it, else the effort holding its decision journal.
+An effort no record ties to this session is another session's, however recent, so a session just opened shows none.
+An effort need not have a card: its binding or journal is enough, and the headline then has no phase.
 
 Live means the card is unconfirmed, or an attempt is live, or a blocker is recorded, or the card is still open or
 stopped on `waiting-on-user`, `paused-allowance`, `paused-by-user` or `blocked`. A run that reached `delivered`,
@@ -49,11 +48,13 @@ identical and styling cannot widen a line — and a run row keeps the default st
   to the terminal width. Its band cannot be hidden, so the card carries every fact and the status line
   stays with the engine. `ZLOOP_PANEL=off` leaves the panel unwired.
 - **Claude Code:** `hooks/panel.mjs`, loaded from the plugin's `hooks/hooks.json` `modules` beside its classic hooks,
-  answers `ui.render { component: "AbovePrompt" }`. It refreshes through `$.clock.every` and `$.process.run` and
-  repaints with `$.ui.invalidate("ui.render")`. Where the band cannot hold the card — a survey holds it, or the rows
-  outgrow `maxRows` — it pins the snapshot's `strip` in the status line instead, and clears it whenever the card draws.
+  draws a pane (`ui.render { component: "Pane" }`), docked beside the transcript in fullscreen, else inline at the prompt.
+  It refreshes every two seconds, opens the pane when this session's effort goes live and closes it when the effort
+  goes quiet. A pane the person closes stays closed until another effort goes live; `/zloop-panel` opens or closes it
+  by hand, and one opened that way stays open, saying when nothing is live. An unasked pane on a narrow terminal waits
+  undrawn, and the snapshot's `strip` holds the status line until it draws or `/zloop-panel` seats it.
 
-Either host draws nothing when the snapshot is missing, fails or prints something unparseable: a stale or invented
+Either host draws no rows when the snapshot is missing, fails or prints something unparseable: a stale or invented
 card is worse than none.
 
 ## Scope
@@ -63,4 +64,4 @@ the user's own acts. It reports the effort the session runs, not other sessions'
 figures are not part of it.
 
 Tests: `tests/test_panel_state.py` (the fact source's rules), `tests/test_pi_panel.py` (the Pi widget) and
-`tests/panel.test.ts` (the Claude band, run by `claude plugin test ./`).
+`tests/panel.test.ts` (the Claude pane, run by `claude plugin test ./`).

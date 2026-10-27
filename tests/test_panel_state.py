@@ -153,7 +153,7 @@ class PanelState(unittest.TestCase):
         self.assertEqual('alpha', self.snapshot('S')['effort'])
         self.assertEqual('beta', self.snapshot('other')['effort'])
 
-    def test_an_effort_claimed_by_another_session_is_not_adopted(self):
+    def test_an_effort_claimed_by_another_session_is_not_shown(self):
         card(self.scratch / 'beta' / 'autopilot.md', session='other')
         self.assertFalse(self.snapshot('S')['active'])
 
@@ -242,7 +242,7 @@ class PanelState(unittest.TestCase):
         journal.parent.mkdir(parents=True)
         journal.write_text('')
         ticket(journal.parent.parent / 'issues' / '01-a.md', 'gamma/01', status='implementing')
-        # A newer unclaimed effort would win on activity alone, so only the journal rule can pick gamma.
+        # A newer effort sits beside it, so only the journal rule can pick gamma.
         newer = self.scratch / 'omega' / 'issues' / '01-a.md'
         ticket(newer, 'omega/01', status='ready')
         later = time.time() + 120
@@ -252,17 +252,15 @@ class PanelState(unittest.TestCase):
         self.assertIsNone(found['phase'])
         self.assertTrue(found['active'])
 
-    def test_the_newest_unclaimed_effort_is_adopted_without_a_card(self):
-        older = self.scratch / 'delta' / 'issues' / '01-a.md'
-        ticket(older, 'delta/01', status='ready')
-        newer = self.scratch / 'omega' / 'issues' / '01-a.md'
-        ticket(newer, 'omega/01', status='ready')
-        later = time.time() + 120
-        os.utime(newer, (later, later))
-        found = self.snapshot('S')
-        self.assertEqual('omega', found['effort'])
-        # Nothing binds omega to this session, so the headline says the panel adopted it.
-        self.assertEqual(['omega · adopted'], self.row_texts(found, 'headline'))
+    def test_an_effort_nothing_binds_to_this_session_is_not_shown(self):
+        # A session just opened has no binding, card or journal of its own, so another session's live work stays off
+        # its panel, however recent: the card says `unknown`, as a host that exposes no session ID writes it.
+        card(self.scratch / 'demo' / 'autopilot.md', session='unknown')
+        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [live('12/ticket-1')])
+        ticket(self.scratch / 'omega' / 'issues' / '01-a.md', 'omega/01', status='ready')
+        found = self.snapshot('fresh')
+        self.assertEqual({'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'strip': None},
+                         found)
 
     def test_a_worktree_checkout_reads_the_main_checkouts_scratch(self):
         card(self.scratch / 'demo' / 'autopilot.md')
@@ -295,28 +293,11 @@ class PanelState(unittest.TestCase):
         self.assertEqual('alpha', self.snapshot('S')['effort'])
 
     def test_a_binding_that_is_not_an_object_is_unreadable_not_fatal(self):
-        card(self.scratch / 'alpha' / 'autopilot.md', session='unknown')
+        # The malformed binding is skipped, so the card naming this session still picks its effort.
+        card(self.scratch / 'alpha' / 'autopilot.md', session='S')
         (self.scratch / 'alpha' / 'reports').mkdir(parents=True)
         (self.scratch / 'alpha' / 'reports' / 'coordinator.json').write_text('[]')
-        ticket(self.scratch / 'beta' / 'issues' / '01-a.md', 'beta/01', status='ready')
-        self.assertEqual('beta', self.snapshot('S')['effort'])
-
-    def test_the_coordinated_effort_is_not_marked_adopted(self):
-        card(self.scratch / 'alpha' / 'autopilot.md', session='unknown')
-        coordinator(self.scratch / 'alpha', ['S'])
-        self.assertEqual(['alpha · dispatch'], self.row_texts(self.snapshot('S'), 'headline'))
-
-    def test_an_adopted_effort_says_so(self):
-        card(self.scratch / 'other' / 'autopilot.md', session='unknown')
-        coordinated = coordinator(self.scratch / 'other', ['someone-else'])
-        ticket(self.scratch / 'beta' / 'issues' / '01-a.md', 'beta/01', status='ready')
-        # The coordinated effort is the newer one, so only the exclusion can keep this session off it.
-        later = time.time() + 120
-        for path in (coordinated, self.scratch / 'other' / 'autopilot.md'):
-            os.utime(path, (later, later))
-        found = self.snapshot('S')
-        self.assertEqual('beta', found['effort'])
-        self.assertEqual(['beta · adopted'], self.row_texts(found, 'headline'))
+        self.assertEqual('alpha', self.snapshot('S')['effort'])
 
     def test_two_sessions_each_see_their_own_effort(self):
         for slug, session in (('alpha', 'S'), ('beta', 'T')):

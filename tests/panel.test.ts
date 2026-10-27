@@ -1,7 +1,10 @@
 import { describe, expect, mock, test } from "claude-code/testing";
 
-// The band draws the fact source's rows while the effort is live, and leaves the engine's own band alone otherwise.
-const snapshot = (extra: Record<string, unknown> = {}) => JSON.stringify({
+// The pane draws the fact source's rows while this session's effort is live, opens and closes with it, and leaves
+// the band above the prompt to the engine.
+const PANE = "zloop-panel";
+
+const snapshot = (extra: Record<string, unknown> = {}) => ({
   active: true,
   effort: "demo",
   phase: "dispatch",
@@ -14,121 +17,208 @@ const snapshot = (extra: Record<string, unknown> = {}) => JSON.stringify({
   strip: "demo · dispatch · 1 running",
   ...extra,
 });
+const QUIET = { active: false, effort: null, phase: null, draft: false, rows: [], strip: null };
 
-// What the engine answers beneath the session: a started session, a clock, and the fact source's output.
-const beneath = (on: any, stdout?: string, pinned?: (string | undefined)[]) => {
+// What the engine answers beneath the session: a clock, the fact source's output (changed by `world.facts`), the
+// panes it keeps open and the status line pinned.
+const beneath = (on: any, facts?: Record<string, unknown> | string) => {
+  const world = {
+    facts,
+    panes: [] as { id: string; title: string; isPlaced: boolean }[],
+    opened: [] as string[],
+    pinned: [] as (string | undefined)[],
+    isPlaced: true,
+  };
   on("session.start", () => ({ cwd: "/work" }));
   on("session.id", () => ({ value: "session-1" }));
   on("session.cwd", () => ({ value: "/work" }));
-  on("process.run", () => ({
-    value: { exitCode: stdout ? 0 : 2, stdout: stdout ?? "", stderr: "boom",
-             isStdoutTruncated: false, isStderrTruncated: false },
-  }));
-  on("ui.status", (_$: any, e: any) => {
-    pinned?.push(e.text);
+  on("command.register", (_$: any, e: any) => ({ value: { command: e.name } }));
+  on("process.run", () => {
+    const stdout = typeof world.facts === "string" ? world.facts : world.facts ? JSON.stringify(world.facts) : "";
+    return { value: { exitCode: world.facts ? 0 : 2, stdout, stderr: "boom",
+                      isStdoutTruncated: false, isStderrTruncated: false } };
+  });
+  on("ui.open", (_$: any, e: any) => {
+    world.opened.push(e.id);
+    world.panes = world.panes.filter((pane) => pane.id !== e.id);
+    world.panes.push({ id: e.id, title: e.title ?? e.id, isPlaced: world.isPlaced });
+    return world.isPlaced ? { value: { isPlaced: true } } : { value: { isPlaced: false, reason: "below 144 columns" } };
+  });
+  on("ui.close", (_$: any, e: any) => {
+    world.panes = world.panes.filter((pane) => pane.id !== e.id);
     return { value: undefined };
   });
-  // The engine's own drawing of the band, above which this plugin's hook runs.
+  on("ui.panes", () => ({
+    value: world.panes.map((pane) => ({ ...pane, isShown: pane.isPlaced, isFocused: false })),
+  }));
+  on("ui.status", (_$: any, e: any) => {
+    world.pinned.push(e.text);
+    return { value: undefined };
+  });
+  // The engine's own drawings, beneath this plugin's hooks.
   on("ui.render", { component: "AbovePrompt" }, () => ({ type: "Text", props: {}, children: ["engine band"] }));
-  mock.clock(on);
+  const clock = mock.clock(on);
+  return { world, clock };
 };
 
 const started = async ($: any) => $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
-// The band's own props: a full-width, uncollapsed band that holds a dozen rows, as the engine hands them.
-const BAND_PROPS = { hasSurvey: false, bodyColumns: 80, maxRows: 12 };
-const band = ($: any, props: Record<string, unknown> = {}) =>
-  $.ui.mount({ plugin: "zloop", surface: "terminal", component: "AbovePrompt", props: { ...BAND_PROPS, ...props } });
+// The pane's own props as the engine hands them: docked beside the transcript, eighty cells across.
+const PANE_PROPS = { title: "zloop", isFocused: false, bodyColumns: 80, placement: "dock",
+                     scroll: { offset: 0, bodyRows: 20 }, view: {} };
+const pane = ($: any, props: Record<string, unknown> = {}) =>
+  $.ui.mount({ plugin: "zloop", surface: "terminal", component: "Pane", requestId: PANE,
+               props: { ...PANE_PROPS, ...props } });
+const texts = async (ui: any) => (await ui.findAll({ type: "Text" })).map((node: any) => node.text);
 
 describe("zloop panel", () => {
-  test("renders nothing before a snapshot is read", async ($, on) => {
-    beneath(on);
-    const ui = await band($);
-    expect(await ui.find({ type: "Text", text: /demo · dispatch/ })).toBeUndefined();
-    expect(await ui.find({ type: "Text", text: /engine band/ })).toBeDefined();
+  test("opens no pane while nothing is live, and opens it once this session's effort goes live", async ($, on) => {
+    const { world, clock } = beneath(on, QUIET);
+    await started($);
+    await clock.advance(2000);
+    expect(world.opened).toEqual([]);
+    world.facts = snapshot();
+    await clock.advance(2000);
+    expect(world.panes.map((one) => one.id)).toEqual([PANE]);
   });
 
-  test("draws the snapshot rows in the band", async ($, on) => {
+  test("closes the pane it opened itself once the effort goes quiet", async ($, on) => {
+    const { world, clock } = beneath(on, snapshot());
+    await started($);
+    expect(world.panes.map((one) => one.id)).toEqual([PANE]);
+    world.facts = QUIET;
+    await clock.advance(2000);
+    expect(world.panes).toEqual([]);
+  });
+
+  test("a pane the person closed stays closed for that effort, and opens again for the next one", async ($, on) => {
+    const { world, clock } = beneath(on, snapshot());
+    await started($);
+    // The person's close mark: the engine drops the pane.
+    world.panes = [];
+    await clock.advance(4000);
+    expect(world.opened).toEqual([PANE]);
+    world.facts = snapshot({ effort: "other" });
+    await clock.advance(2000);
+    expect(world.opened).toEqual([PANE, PANE]);
+  });
+
+  test("a pane the person closed stays closed for the effort it showed when closed", async ($, on) => {
+    const { world, clock } = beneath(on, snapshot());
+    await started($);
+    // The pane opened for demo now shows another effort, which the person closes.
+    world.facts = snapshot({ effort: "other" });
+    await clock.advance(2000);
+    world.panes = [];
+    await clock.advance(4000);
+    expect(world.opened).toEqual([PANE]);
+  });
+
+  test("a pane opened by /zloop-panel and closed by the person stays closed for the live effort", async ($, on) => {
+    const { world, clock } = beneath(on, QUIET);
+    await started($);
+    await $.command.run({ command: "zloop-panel" });
+    world.facts = snapshot();
+    await clock.advance(2000);
+    world.panes = [];
+    await clock.advance(4000);
+    expect(world.opened).toEqual([PANE]);
+  });
+
+  test("/zloop-panel seats a pane that waits undrawn instead of closing it", async ($, on) => {
+    const { world } = beneath(on, snapshot());
+    world.isPlaced = false;
+    await started($);
+    // The person's own open seats the pane at any width.
+    world.isPlaced = true;
+    const ran = await $.command.run({ command: "zloop-panel" });
+    expect(ran.text).toBe("zloop panel opened.");
+    expect(world.panes.map((one) => [one.id, one.isPlaced])).toEqual([[PANE, true]]);
+  });
+
+  test("/zloop-panel opens the pane while nothing is live, and it stays open while quiet", async ($, on) => {
+    const { world, clock } = beneath(on, QUIET);
+    await started($);
+    const ran = await $.command.run({ command: "zloop-panel" });
+    expect(ran.text).toBe("zloop panel opened.");
+    await clock.advance(4000);
+    expect(world.panes.map((one) => one.id)).toEqual([PANE]);
+  });
+
+  test("/zloop-panel closes an open pane, and it stays closed for that effort", async ($, on) => {
+    const { world, clock } = beneath(on, snapshot());
+    await started($);
+    const ran = await $.command.run({ command: "zloop-panel" });
+    expect(ran.text).toBe("zloop panel closed.");
+    await clock.advance(4000);
+    expect(world.panes).toEqual([]);
+    expect(world.opened).toEqual([PANE]);
+  });
+
+  test("pins the strip in the status line while the pane waits undrawn, and clears it once it draws", async ($, on) => {
+    const { world, clock } = beneath(on, snapshot());
+    // An unasked pane on a terminal narrower than its floor waits undrawn.
+    world.isPlaced = false;
+    await started($);
+    expect(world.pinned.at(-1)).toBe("demo · dispatch · 1 running");
+    // The person widens the terminal and the engine seats the pane.
+    world.panes = world.panes.map((one) => ({ ...one, isPlaced: true }));
+    await clock.advance(2000);
+    expect(world.pinned.at(-1)).toBeUndefined();
+  });
+
+  test("keeps the status line clear while the pane draws", async ($, on) => {
+    const { world } = beneath(on, snapshot());
+    await started($);
+    expect(world.pinned).not.toContain("demo · dispatch · 1 running");
+  });
+
+  test("draws the snapshot rows in the pane, in the snapshot's order", async ($, on) => {
     beneath(on, snapshot());
     await started($);
-    const ui = await band($);
-    const texts = (await ui.findAll({ type: "Text" })).map((node: any) => node.text);
-    // Every row draws whole at eighty columns, in the snapshot's order.
-    expect(texts).toEqual([
+    expect(await texts(await pane($))).toEqual([
       "demo · dispatch",
       "▶ builder · zloop-panel/02 · sonnet · quiet 1m",
       "1 done · 0 blocked · 2 ready · 1 live",
     ]);
   });
 
-  test("renders nothing when the effort is not live, even with rows still in the snapshot", async ($, on) => {
+  test("says so in the pane when this session has no live effort", async ($, on) => {
     beneath(on, snapshot({ active: false, strip: null }));
     await started($);
-    const ui = await band($);
-    expect(await ui.find({ type: "Text", text: /demo · dispatch/ })).toBeUndefined();
-    expect(await ui.find({ type: "Text", text: /2 ready/ })).toBeUndefined();
-    expect(await ui.find({ type: "Text", text: /engine band/ })).toBeDefined();
+    // Rows still in a quiet snapshot are not drawn.
+    expect(await texts(await pane($))).toEqual(["No zloop effort is live in this session."]);
   });
 
-  test("renders nothing when the fact source fails", async ($, on) => {
-    beneath(on);
+  test("says so in the pane when the fact source fails or prints no JSON", async ($, on) => {
+    const { world, clock } = beneath(on);
     await started($);
-    const ui = await band($);
-    expect(await ui.find({ type: "Text", text: /demo · dispatch/ })).toBeUndefined();
-    expect(await ui.find({ type: "Text", text: /engine band/ })).toBeDefined();
+    const ui = await pane($);
+    expect(await texts(ui)).toEqual(["No zloop effort is live in this session."]);
+    await ui.unmount();
+    world.facts = "not json";
+    await clock.advance(2000);
+    expect(await texts(await pane($))).toEqual(["No zloop effort is live in this session."]);
   });
 
-  test("renders nothing when the fact source prints no JSON", async ($, on) => {
-    on("session.start", () => ({ cwd: "/work" }));
-    on("session.id", () => ({ value: "session-1" }));
-    on("session.cwd", () => ({ value: "/work" }));
-    on("process.run", () => ({
-      value: { exitCode: 0, stdout: "not json", stderr: "", isStdoutTruncated: false, isStderrTruncated: false },
-    }));
-    on("ui.render", { component: "AbovePrompt" }, () => ({ type: "Text", props: {}, children: ["engine band"] }));
-    mock.clock(on);
+  test("leaves the band above the prompt to the engine", async ($, on) => {
+    beneath(on, snapshot());
     await started($);
-    const ui = await band($);
-    expect(await ui.find({ type: "Text", text: /not json/ })).toBeUndefined();
-    expect(await ui.find({ type: "Text", text: /engine band/ })).toBeDefined();
-  });
-  test("keeps its status line quiet while the band draws", async ($, on) => {
-    const pinned: (string | undefined)[] = [];
-    beneath(on, snapshot(), pinned);
-    await started($);
-    const ui = await band($);
-    expect(await ui.find({ type: "Text", text: /demo · dispatch/ })).toBeDefined();
-    expect(pinned).toContain(undefined);
-    expect(pinned).not.toContain("demo · dispatch · 1 running");
+    const band = await $.ui.mount({ plugin: "zloop", surface: "terminal", component: "AbovePrompt",
+                                    props: { hasSurvey: false, isWorking: false, bodyColumns: 80, maxRows: 12,
+                                             scroll: { offset: 0, bodyRows: 11 }, view: {} } });
+    expect(await texts(band)).toEqual(["engine band"]);
   });
 
-  test("pins the strip when a survey holds the band", async ($, on) => {
-    const pinned: (string | undefined)[] = [];
-    beneath(on, snapshot(), pinned);
-    await started($);
-    const ui = await band($, { hasSurvey: true, bodyColumns: 80, maxRows: 10 });
-    expect(await ui.find({ type: "Text", text: /demo · dispatch/ })).toBeUndefined();
-    expect(await ui.find({ type: "Text", text: /engine band/ })).toBeDefined();
-    expect(pinned).toContain("demo · dispatch · 1 running");
-  });
-
-  test("pins the strip when the rows do not fit", async ($, on) => {
-    const pinned: (string | undefined)[] = [];
-    beneath(on, snapshot(), pinned);
-    await started($);
-    const ui = await band($, { hasSurvey: false, bodyColumns: 80, maxRows: 1 });
-    expect(await ui.find({ type: "Text", text: /demo · dispatch/ })).toBeUndefined();
-    expect(pinned).toContain("demo · dispatch · 1 running");
-  });
-  test("cuts rows to the band's columns, wide characters included", async ($, on) => {
+  test("cuts rows to the pane's columns, wide characters included", async ($, on) => {
     // A table that over-counts every letter would pass a "<= width" check, so the fitting and astral cases are exact.
     const fitted = ["abc ✅", "🚀🚀🚀🚀"];
     beneath(on, snapshot({ rows: fitted.map((text) => ({ kind: "run", text })) }));
     await started($);
-    const wide = await band($, { bodyColumns: 8, maxRows: 12 });
-    expect((await wide.findAll({ type: "Text" })).map((node: any) => node.text)).toEqual(fitted);
+    const wide = await pane($, { bodyColumns: 8 });
+    expect(await texts(wide)).toEqual(fitted);
+    await wide.unmount();
 
-    const overflow = await band($, { bodyColumns: 5, maxRows: 12 });
-    const cut = (await overflow.findAll({ type: "Text" })).map((node: any) => node.text);
+    const cut = await texts(await pane($, { bodyColumns: 5 }));
     expect(cut[0].endsWith("…")).toBe(true);
     expect(cut[1].endsWith("…")).toBe(true);
     const cells = [...cut[1]].reduce((total, character) => total + (character === "🚀" ? 2 : 1), 0);
@@ -147,8 +237,7 @@ describe("zloop panel", () => {
     ];
     beneath(on, snapshot({ rows }));
     await started($);
-    const ui = await band($);
-    const nodes = await ui.findAll({ type: "Text" });
+    const nodes = await (await pane($)).findAll({ type: "Text" });
     // The words are unchanged; only each kind's own props differ.
     expect(nodes.map((node: any) => node.text)).toEqual(rows.map((row) => row.text));
     expect(nodes[0].props.bold).toBe(true);

@@ -207,27 +207,22 @@ def bound_sessions(effort):
 
 
 def chosen(repo, session_id):
-    """The effort this session runs, and whether a record binds it to this session.
+    """The effort a record binds to this session, or None when none does.
 
     A binding wins over derivation: `next_tickets.py --coordinate` records the sessions running an effort, so two
-    sessions in one checkout each read their own. Failing that, the card naming this session, then its journal, then
-    the newest effort no other session claims — the last one is merely adopted, which the headline says.
+    sessions in one checkout each read their own. Failing that, the card naming this session, then its journal. An
+    effort no record ties to this session is another session's, however recent, so a session just opened shows none.
     """
     found = efforts(repo)
     coordinated = [effort for effort in found if session_id in (bound_sessions(effort) or [])]
     if coordinated:
-        return max(coordinated, key=activity), True
+        return max(coordinated, key=activity)
     named = next((effort for effort in found if claims(effort) == session_id), None)
     if named:
-        return named, True
-    journal = next((effort for effort in found
-                    if any(effort.glob(f'decisions-{session_id}*.jsonl'))
-                    or any((effort / 'reports').glob(f'decisions-{session_id}*.jsonl'))), None)
-    if journal:
-        return journal, True
-    unclaimed = [effort for effort in found
-                 if claims(effort) in (None, session_id) and bound_sessions(effort) is None]
-    return (max(unclaimed, key=activity), False) if unclaimed else (None, False)
+        return named
+    return next((effort for effort in found
+                 if any(effort.glob(f'decisions-{session_id}*.jsonl'))
+                 or any((effort / 'reports').glob(f'decisions-{session_id}*.jsonl'))), None)
 
 
 def main_checkout(repo):
@@ -248,7 +243,7 @@ def main_checkout(repo):
 
 def snapshot(repo, session_id, now):
     """What this session's effort is doing, as the rows a host draws."""
-    effort, bound = chosen(main_checkout(repo), session_id)
+    effort = chosen(main_checkout(repo), session_id)
     if effort is None:
         return {'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'strip': None}
     state = card_state(effort / CARD)
@@ -260,8 +255,6 @@ def snapshot(repo, session_id, now):
     if not live_effort(state, attempts, blocker, draft, found_tickets):
         return {'active': False, 'effort': effort.name, 'phase': phase, 'draft': draft, 'rows': [], 'strip': None}
     headline = f'{effort.name} · {phase}' if phase else effort.name
-    if not bound:
-        headline += ' · adopted'
     rows = [{'kind': 'headline', 'text': headline + (' · draft' if draft else '')}]
     running, waiting = [], []
     for age, data, awaiting in attempts:
