@@ -7,6 +7,10 @@ import unittest
 import support
 from lifecycle_case import WorkerLifecycleCase
 
+# Where and how an assignment states its needs, as registration words a refusal.
+SHAPE = ('needs must be one line of its own, before ticket context, holding a bracketed list of '
+         'network, docker, setuid, repo-write, dev-fd')
+
 
 def probe(worktree, **statuses):
     """A probe report as capability_probe.py prints it, each named capability with the given status."""
@@ -26,8 +30,8 @@ class CollectionNeeds(WorkerLifecycleCase):
         packet = self.root / 'packet.txt'
         lines = support.assignment_file(self.root, 'ticket').read_text().splitlines()
         shown = f'ticket: {path if value is None else value}{trailing}'
-        lines = [shown if line.startswith('ticket:') else line for line in lines if not line.startswith('needs:')]
-        lines.append(f'needs: [{", ".join(assigned)}]')
+        own = f'needs: [{", ".join(assigned)}]'
+        lines = [shown if line.startswith('ticket:') else own if line.startswith('needs:') else line for line in lines]
         packet.write_text('\n'.join(lines) + '\n')
         return packet
 
@@ -108,13 +112,10 @@ class CollectionNeeds(WorkerLifecycleCase):
         refused = self.complete(self.ticket(['gpu']), code=2)
         self.assertIn('The ticket needs gpu: no probe of this worktree in the result evidence', refused)
 
-    def test_a_needs_list_quoted_earlier_in_the_assignment_does_not_hide_the_assigned_needs(self):
+    def test_lines_of_the_ticket_context_that_start_with_needs_are_not_the_assignments_needs(self):
         packet = self.ticket(value='https://tracker.example/issue/7', assigned=['docker'])
-        lines = packet.read_text().splitlines()
-        context = next(i for i, line in enumerate(lines) if line.startswith('ticket context:'))
-        lines[context] = 'ticket context: the issue body quotes front matter blocked_by: [] needs: []'
-        lines.insert(context + 1, lines.pop())  # the assignment's own needs line now follows the quoted one
-        packet.write_text('\n'.join(lines) + '\n')
+        packet.write_text(packet.read_text().replace('ticket context: /fixture/ticket-context', '\n'.join((
+            'ticket context: # 7: build image', 'needs: a docker daemon', 'needs: []'))))
         refused = self.complete(packet, code=2)
         self.assertIn('The ticket needs docker: no probe of this worktree in the result evidence', refused)
 
@@ -139,11 +140,12 @@ class CollectionNeeds(WorkerLifecycleCase):
 
 class RegistrationNeeds(WorkerLifecycleCase):
     def packet_with(self, needs_line):
-        """A ticket assignment for a remote ticket whose `needs` line is needs_line, or none when it is None."""
-        lines = [line for line in support.assignment_file(self.root, 'ticket').read_text().splitlines()
-                 if not line.startswith('needs:')]
+        """A ticket assignment for a remote ticket whose `needs` line, where the template puts it, is needs_line, or
+        none when it is None."""
+        lines = [needs_line if line.startswith('needs:') else line
+                 for line in support.assignment_file(self.root, 'ticket').read_text().splitlines()]
         packet = self.root / 'packet.txt'
-        packet.write_text('\n'.join(lines + ([needs_line] if needs_line is not None else [])) + '\n')
+        packet.write_text('\n'.join(line for line in lines if line is not None) + '\n')
         return packet
 
     def test_a_ticket_assignment_without_needs_is_refused_so_a_remote_ticket_cannot_skip_the_probe(self):
@@ -167,11 +169,21 @@ class RegistrationNeeds(WorkerLifecycleCase):
 
     def test_a_needs_line_that_does_not_close_its_list_is_refused_even_after_a_well_formed_one(self):
         refused = self.register(packet=str(self.packet_with('needs: []\nneeds: [docker,\n  network]')), code=2)
-        self.assertIn('needs must be a bracketed list of network, docker, setuid, repo-write, dev-fd', refused)
+        self.assertIn(SHAPE, refused)
+
+    def test_a_needs_line_after_the_ticket_context_is_refused(self):
+        packet = self.packet_with(None)
+        packet.write_text(packet.read_text() + 'needs: [docker]\n')
+        self.assertIn(SHAPE, self.register(packet=str(packet), code=2))
+
+    def test_needs_sharing_a_line_with_another_input_is_refused_naming_where_it_goes(self):
+        packet = self.packet_with(None)
+        packet.write_text(packet.read_text().replace('ticket: fx/01', 'ticket: fx/01  needs: [docker]'))
+        self.assertIn(SHAPE, self.register(packet=str(packet), code=2))
 
     def test_an_assignment_needs_value_that_is_not_a_bracketed_list_is_refused(self):
         refused = self.register(packet=str(self.packet_with('needs: docker')), code=2)
-        self.assertIn('needs must be a bracketed list of network, docker, setuid, repo-write, dev-fd', refused)
+        self.assertIn(SHAPE, refused)
 
 
 if __name__ == '__main__':

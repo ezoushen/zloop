@@ -600,14 +600,13 @@ def submitted_at(db, attempt):
 
 
 def assigned_needs(assignment):
-    """The capabilities an assignment's `needs:` lines name, None when it has none or one is not a one-line
-    bracketed list. Only a line that starts with `needs:` counts, so prose quoting needs inside another input is
-    no list, and every such line counts, so a quoted front matter line cannot hide the assignment's own."""
-    lines = re.findall(r'^[ \t]*needs:[ \t]*(.*?)[ \t]*$', assignment, re.M)
-    lists = [re.fullmatch(r'\[([^\]]*)\]', line) for line in lines]
-    if not lists or not all(lists):
-        return None
-    return list(dict.fromkeys(need.strip() for listed in lists for need in listed.group(1).split(',') if need.strip()))
+    """The capabilities an assignment's `needs` input names, None unless it is exactly one line of its own before
+    `ticket context:` holding a one-line bracketed list. The ticket context may quote an issue, and nothing in it
+    is the assignment's needs."""
+    head = re.split(r'(?:^|\s)ticket context:', assignment, maxsplit=1)[0]
+    lines = re.findall(r'^[ \t]*needs:[ \t]*(.*?)[ \t]*$', head, re.M)
+    listed = re.fullmatch(r'\[([^\]]*)\]', lines[0]) if len(lines) == 1 else None
+    return list(dict.fromkeys(need.strip() for need in listed.group(1).split(',') if need.strip())) if listed else None
 
 
 def needs_problems(assignment):
@@ -615,7 +614,7 @@ def needs_problems(assignment):
     allowed = ', '.join(capability_probe.NEEDS)
     needs = assigned_needs(assignment)
     if needs is None:
-        return f'needs must be a bracketed list of {allowed}'
+        return f'needs must be one line of its own, before ticket context, holding a bracketed list of {allowed}'
     return '; '.join(f'needs {need!r} is not one of {allowed}' for need in needs if need not in capability_probe.NEEDS)
 
 
@@ -630,12 +629,11 @@ def unmet_needs(saved, evidence):
     job = DEFINITIONS['jobs'][saved['job']]
     if 'ticket' not in job['inputs']:
         return None
-    # As registration validated them, whatever the assignment file says now or whether it is still there.
+    # The needs and ticket registration validated, whatever the assignment file says now; an attempt registered
+    # before they were saved falls back to the file.
     declared, ticket = set(saved.get('needs') or []), saved.get('ticket')
-    if packet.is_file():
-        assignment = packet.read_text(errors='replace')
-        declared |= set(assigned_needs(assignment) or [])
-        ticket = ticket or agent_defs.input_value(job, assignment, 'ticket')
+    if ticket is None and packet.is_file():
+        ticket = agent_defs.input_value(job, packet.read_text(errors='replace'), 'ticket')
     declared |= set(capability_probe.ticket_needs(ticket))
     known = [need for need in capability_probe.NEEDS if need in declared]
     needs = known + sorted(declared - set(known))  # An unknown need is never met.
