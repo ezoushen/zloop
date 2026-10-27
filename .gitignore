@@ -6,3 +6,6 @@ __pycache__/
 .venv/
 # Development journals live in a separate private repository.
 journals/
+
+# Claude Code writes engine type declarations into the plugin on each load.
+.claude-plugin/types/

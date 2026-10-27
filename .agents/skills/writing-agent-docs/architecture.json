@@ -240,7 +240,8 @@
    ],
    "code": [
     "scripts/worker_lifecycle.py",
-    "scripts/effort_spend.py"
+    "scripts/effort_spend.py",
+    "scripts/panel_state.py"
    ]
   },
   "checks": {

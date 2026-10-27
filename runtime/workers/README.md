@@ -22,3 +22,4 @@ Rules for the orchestrator and its workers, in the order a worker runs.
 | [long-sessions.md](long-sessions.md) | after a compaction or resume, and when a session runs long |
 | [design-hold.md](design-hold.md) | when a worker may need to break or reinterpret the agreement |
 | [legacy-preferences.md](legacy-preferences.md) | when an unconfigured native worker has older models.json preferences |
+| [panel.md](panel.md) | the card a host draws from an effort's card, attempts and tickets |

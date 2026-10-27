@@ -1,6 +1,7 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const SECTION = "zloop_harness";
@@ -12,6 +13,113 @@ const bashBounded = () => process.env.ZLOOP_BASH_TIMEOUT !== "off";
 
 // setTimeout rejects a delay above 2^31 - 1 ms, about 24.8 days.
 const WAKE_MAX_MS = 2 ** 31 - 1;
+
+// The panel: this session's effort drawn below the editor, from the rows its fact source reports.
+const PANEL_KEY = "zloop";
+const PANEL_INTERVAL_MS = 2000;
+const execFileAsync = promisify(execFile);
+
+/** A character the terminal draws in two cells: East Asian wide and fullwidth blocks, and emoji presentation. */
+const WIDE = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6\u2300-\u23FF\u2600-\u27BF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}\u{20000}-\u{2FFFD}]/u;
+/** Characters that take no cell of their own: variation selectors and zero-width marks. */
+const ZERO = /[\u200B-\u200F\u2060\uFE0E\uFE0F]/u;
+
+/** The cells `character` occupies. */
+const cellsOf = (character) => {
+  if (ZERO.test(character)) return 0;
+  return WIDE.test(character) ? 2 : 1;
+};
+
+/** `text` cut to `width` terminal cells, ended with an ellipsis when anything was dropped. */
+export function truncateCells(text, width) {
+  if (width <= 0) return "";
+  let out = "";
+  let used = 0;
+  for (const character of text) {
+    const cells = cellsOf(character);
+    if (used + cells > width) {
+      while (used > width - 1 && out) {
+        const dropped = [...out].pop();
+        out = out.slice(0, -dropped.length);
+        used -= cellsOf(dropped);
+      }
+      return `${out}…`;
+    }
+    out += character;
+    used += cells;
+  }
+  return out;
+}
+
+/** The rows a snapshot draws; a live effort's rows, else nothing. */
+export function panelRows(found) {
+  if (!found || !found.active || !Array.isArray(found.rows)) return [];
+  return found.rows.filter((row) => row && typeof row.text === "string" && row.text);
+}
+
+/** The theme tone each row kind takes; a run row keeps the default text style. */
+const TONES = {
+  headline: { token: "accent", bold: true },
+  wait: { token: "warning" },
+  blocker: { token: "error" },
+  next: { token: "muted" },
+  counts: { token: "dim" },
+  more: { token: "dim" },
+};
+
+/** `text` in its kind's tone: styled after truncation, so styling never changes the cells it occupies. */
+function toned(theme, kind, text) {
+  const tone = TONES[kind];
+  if (!tone) return text;
+  return tone.bold ? theme.style(text, { fg: tone.token, bold: true }) : theme.fg(tone.token, text);
+}
+
+/** What the last tick drew and on which context, so an unchanged snapshot repaints nothing. */
+let drawnPanel = null;
+let drawnCtx = null;
+
+/**
+ * Draw one snapshot: the rows below the editor while the effort is live, else neither surface. The card carries every
+ * fact, so the status line stays with the engine. A snapshot that could not be read clears both. A stale context drops
+ * the tick and clears the repaint memory; the timer keeps the context it was started with, so a replaced session ends
+ * this panel until its own session start arms a new one.
+ */
+export async function panelTick(ctx, found) {
+  try {
+    const rows = panelRows(found);
+    const drawn = JSON.stringify(rows.map((row) => row.text));
+    if (ctx === drawnCtx && drawn === drawnPanel) return;
+    drawnCtx = ctx;
+    drawnPanel = drawn;
+    if (rows.length === 0) {
+      ctx.ui.setWidget(PANEL_KEY, undefined);
+      ctx.ui.setStatus(PANEL_KEY, undefined);
+      return;
+    }
+    ctx.ui.setWidget(PANEL_KEY, (_tui, theme) => ({
+      render(width) {
+        return rows.map((row) => toned(theme, row.kind, truncateCells(row.text, width)));
+      },
+      invalidate() {},
+    }), { placement: "belowEditor" });
+  } catch {
+    // The context belongs to a replaced session; the next tick draws on the fresh one.
+    drawnCtx = null;
+    drawnPanel = null;
+  }
+}
+
+/** Read this session's snapshot: the parsed answer, or null when the fact source fails or prints something else. */
+async function readPanelSnapshot(root, repo, session) {
+  try {
+    const { stdout } = await execFileAsync("python3",
+      ["-B", join(root, "scripts", "panel_state.py"), "--repo", repo, "--session-id", session, "--json"],
+      { encoding: "utf8", timeout: 8000 });
+    return JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+}
 
 // The top-level scalar fields of a SKILL.md's frontmatter: unquoted, and a > or | block's indented lines joined.
 function frontmatter(path) {
@@ -307,6 +415,24 @@ export default function (pi) {
     } catch {
       // The launch goes unlogged; the stop check still lists live agents nobody registered.
     }
+    return undefined;
+  });
+
+  // The panel: the effort's rows under the editor while it is live, refreshed from the fact source.
+  let panelTimer;
+  pi.on("session_start", (_event, ctx) => {
+    if (!ctx.hasUI || panelTimer || process.env.ZLOOP_PANEL === "off") return undefined;
+    const session = ctx.sessionManager.getSessionId();
+    const repo = ctx.cwd;
+    panelTimer = setInterval(() => {
+      readPanelSnapshot(root, repo, session).catch(() => null).then((found) => panelTick(ctx, found));
+    }, PANEL_INTERVAL_MS);
+    panelTimer.unref?.();
+    return undefined;
+  });
+  pi.on("session_shutdown", () => {
+    if (panelTimer) clearInterval(panelTimer);
+    panelTimer = undefined;
     return undefined;
   });
 }
