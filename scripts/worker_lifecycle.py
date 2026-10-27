@@ -719,9 +719,11 @@ def record(db, data, refuse_changes=False):
             if os.environ.get('HERDR_PANE_ID'):
                 # The registering host's pane; the yield hooks hold only that host for this worker.
                 saved['coordinator'] = os.environ['HERDR_PANE_ID']
-            session = next((os.environ[name] for name in SESSION_VARIABLES if os.environ.get(name)), None)
-            if session:
-                saved['session'] = session  # The registering host session, which decides before the pane.
+            sessions = [os.environ[name] for name in SESSION_VARIABLES if os.environ.get(name)]
+            if sessions:
+                # The registering host session, which decides before the pane; a host started inside another's shell
+                # also exports the outer one's, so every exported session is kept.
+                saved['session'], saved['sessions'] = sessions[0], sessions
             if 'journal' in data:
                 require(text(data['journal']) and Path(data['journal']).is_absolute(),
                         'journal must be an absolute decisions journal path')

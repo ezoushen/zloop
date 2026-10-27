@@ -4,9 +4,10 @@
 Reads every run's workers.sqlite under the main checkout's .scratch/*/reports/ that
 changed in the last day, without writing to it, and applies the lifecycle's yield
 gate to the workers this session registered (by host session, else pane), or, for one that
-recorded neither, to the session bound to coordinate its effort. Sessions share the checkout:
-another session's workers, launches and run states never hold this one, and a row or state
-that cannot be read is named only to its effort's bound session. Every session is also held for each Herdr launch it logged (hooks/herdr_launch.py)
+recorded neither, to the session bound to coordinate its effort (with none bound, to every
+session). Sessions share the checkout: another session's workers and launches never hold this
+one, and a row or state that cannot be read is named to the sessions it could hide a gap
+from. Every session is also held for each Herdr launch it logged (hooks/herdr_launch.py)
 into a ticket worktree that no attempt accounts for and it did not dismiss; one without
 ZLOOP_WORKER, the marker every worker is launched with, also for each other such live
 agent of its Herdr workspace that no other session logged. The session bound to coordinate an effort (next_tickets.py
@@ -80,17 +81,20 @@ def gaps(cwd, session=None):
     module, missing = None, []
     for state in sorted(root.glob('.scratch/*/reports/workers.sqlite')):
         # Sessions share the folder: a worker holds only the session that registered it, by host session before pane;
-        # one registered with neither recorded, and a row or state that cannot be read, the session bound to
-        # coordinate its effort.
-        bound = read_binding(state.with_name(BINDING), pane, session)[1]
+        # one registered with neither recorded holds the session bound to coordinate its effort, or, with none bound,
+        # every session that is not a worker, since nothing tells its owner apart.
+        binding, bound = read_binding(state.with_name(BINDING), pane, session)
+        unbound = binding is None and not state.with_name(BINDING).exists()
+        recent = time.time() - state.stat().st_mtime <= RECENT_SECONDS
         try:
             saved_attempts, malformed, _ = read_state(state)
         except Exception as error:
-            missing += [f'{state}: cannot be read ({error}); fix or remove it'] if bound else []
+            missing += [f'{state}: cannot be read ({error}); fix or remove it'] if unreadable_holds(
+                state, pane, session, bound, recent) else []
             continue
         missing += [f'{state}: attempt row {key} is malformed; fix or remove it' for key, saved in malformed
                     if bound or (isinstance(saved, dict) and attributed(saved) and owns(saved, pane, session))]
-        if time.time() - state.stat().st_mtime > RECENT_SECONDS:
+        if not recent:
             continue
         module = module or lifecycle()
         # A session inside a worker's own worktree is that worker, not its coordinator.
@@ -98,18 +102,32 @@ def gaps(cwd, session=None):
                      for saved in saved_attempts if 'worktree' in saved)
 
         def coordinated(saved):
-            return owns(saved, pane, session) if attributed(saved) else bound and not worker
+            return owns(saved, pane, session) if attributed(saved) else (bound or unbound) and not worker
         db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
         try:
             missing += [f'{state}: {gap}' for gap in module.yield_gaps(db, coordinated, saved_attempts)]
         except Exception as error:  # Named to whoever it could hide a gap from: its coordinator and its workers' own.
-            if bound or any(coordinated(saved) for saved in saved_attempts):
+            if any(coordinated(saved) for saved in saved_attempts) or unreadable_holds(state, pane, session, bound,
+                                                                                       recent):
                 missing.append(f'{state}: cannot be read ({error}); fix or remove it')
         finally:
             db.close()
     # Every session answers for its own launches; a worker (its launch set ZLOOP_WORKER) not for its siblings.
     return (missing + unregistered(root, pane, session, siblings=not os.environ.get('ZLOOP_WORKER')),
             stale_tabs(root, pane, session) + undelivered(root, pane, session) + unfinished_runs(root, session))
+
+
+def unreadable_holds(state, pane, session, bound, recent):
+    """Whether a run state that cannot be read is named to this session: it hides its owners' gaps, so it is named to
+    the session bound to its effort and to each pane or host session its bytes still record; recording none, to every
+    session while it is recent."""
+    try:
+        raw = state.read_bytes().decode(errors='replace')
+    except OSError:
+        raw = ''
+    if bound or any(value and re.search(rf'(?<![\w:.-]){re.escape(value)}(?![\w:.-])', raw) for value in (pane, session)):
+        return True
+    return recent and not re.search(r'"(?:session|sessions|coordinator)": *[\["]', raw)
 
 
 def read_state(state):
@@ -149,6 +167,8 @@ def well_formed(saved):
         return False
     if any(key in saved and saved[key] is not None and not text(saved[key]) for key in ('coordinator', 'session')):
         return False
+    if 'sessions' in saved and not (isinstance(saved['sessions'], list) and all(map(text, saved['sessions']))):
+        return False
     herdr, monitor = saved.get('herdr'), saved.get('monitor')
     if herdr is not None and not (isinstance(herdr, dict)
                                   and all(text(herdr.get(key)) for key in ('session', 'workspace_id', 'tab_id'))):
@@ -165,8 +185,10 @@ def attributed(saved):
 
 
 def owns(saved, pane, session):
-    """Whether this session registered the attempt: by host session before pane."""
-    return same_coordinator({'pane': saved.get('coordinator'), 'session': saved.get('session')}, pane, session)
+    """Whether this session registered the attempt: by host session before pane. A host started inside another's shell
+    exports the outer host's session too, so each exported session counts."""
+    return any(same_coordinator({'pane': saved.get('coordinator'), 'session': known}, pane, session)
+               for known in saved.get('sessions') or [saved.get('session')])
 
 
 def card_state(path):

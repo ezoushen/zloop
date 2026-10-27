@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -697,6 +698,24 @@ console.log(JSON.stringify(await handlers.agent_before_settle(
         db.close()
         self.assertEqual(self.check(session='host-1'), [f'{self.state}: ticket-1/1: no armed wait'])
 
+    def test_a_state_that_cannot_be_read_is_named_to_the_sessions_it_records_or_to_all_while_recent(self):
+        # Rule: an unreadable state hides its owner's gaps, so it is named to each session or pane it still records,
+        # or, recording none, to every session while it is recent; once old, only to its effort's bound coordinator.
+        self.live_attempt('ticket-1/1', 'w1:p1', 'host-1')
+        db = sqlite3.connect(self.state)
+        db.execute('DROP TABLE events')
+        db.commit()
+        db.close()
+        unreadable = self.check(session='host-1')
+        self.assertEqual(len(unreadable), 1, unreadable)
+        self.assertRegex(unreadable[0], rf'^{re.escape(str(self.state))}: cannot be read \(.+\); fix or remove it$')
+        self.assertEqual(self.check(pane='w1:p2', session='host-2'), [])
+        self.state.write_bytes(b'not a database')
+        self.assertRegex(self.check(pane='w1:p2', session='host-2')[0], 'cannot be read')
+        old = time.time() - 3 * 24 * 3600
+        os.utime(self.state, (old, old))
+        self.assertEqual(self.check(pane='w1:p2', session='host-2'), [])
+
     def live_attempt(self, attempt, pane, session):
         self.register(f'builder-{attempt[7]}', attempt, pane=pane, session=session)
         self.lifecycle('startup', attempt, pane, observed={'runtime': 'claude', 'model': 'sonnet'},
@@ -712,11 +731,26 @@ console.log(JSON.stringify(await handlers.agent_before_settle(
         self.assertEqual(self.check(pane='w1:p2', session='host-2'), [])
         self.assertEqual(self.check(pane=None, session='host-2'), [])
 
-    def test_a_worker_registered_without_a_coordinator_holds_only_the_session_bound_to_its_effort(self):
-        # Rule: with no pane and no host session recorded, the effort's bound coordinator answers for the worker; a
-        # session bound to no effort, or to another, is not held for it.
-        self.live_attempt('ticket-1/1', None, None)
+    def test_a_worker_registered_by_a_host_started_inside_another_holds_the_inner_host(self):
+        # Rule: a host started in another host's shell inherits the outer session ID; the worker still holds the
+        # session that registered it.
+        self.lifecycle('register', 'ticket-1/1', None,
+                       env={'CLAUDE_CODE_SESSION_ID': 'claude-outer', 'CODEX_SESSION_ID': 'codex-inner'},
+                       assignment='ticket-1', repo=str(self.repo), worktree=str(self.worktree), head='head-1',
+                       execution=str(self.execution), runtime='claude', worker='builder-1', native_session='native-1',
+                       owned=True, packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        self.lifecycle('startup', 'ticket-1/1', None, observed={'runtime': 'claude', 'model': 'sonnet'},
+                       evidence=['native.jsonl:1'])
+        self.lifecycle('submitted', 'ticket-1/1', None, evidence=['native.jsonl:2:accepted prompt'])
+        self.assertEqual(self.check(pane=None, session='codex-inner'), [f'{self.state}: ticket-1/1: no armed wait'])
         self.assertEqual(self.check(pane=None, session='host-2'), [])
+
+    def test_a_worker_registered_without_a_coordinator_holds_the_session_bound_to_its_effort(self):
+        # Rule: with no pane and no host session recorded (OpenCode exports no session ID), the effort's bound
+        # coordinator answers for the worker; with none bound, nothing tells its owner apart, so every session that is
+        # not a worker is held rather than none.
+        self.live_attempt('ticket-1/1', None, None)
+        self.assertEqual(self.check(pane=None, session='host-2'), [f'{self.state}: ticket-1/1: no armed wait'])
         ticket = self.repo / '.scratch/effort/issues/01-task.md'
         ticket.parent.mkdir(parents=True)
         ticket.write_text('---\nticket: effort/01\nstatus: ready\nblocked_by: []\ntouches: [t01]\ndevices: []\n---\n')
