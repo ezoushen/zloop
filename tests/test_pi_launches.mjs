@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +12,10 @@ for (const name of ["HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_ENV", "ZLOOP_W
   "PI_SUBAGENT_PARENT_SESSION"]) {
   delete process.env[name];
 }
-const bin = mkdtempSync(join(tmpdir(), "zloop-pi-bin-"));
+// Every fixture lives under one folder, removed when the run exits, pass or fail.
+const temp = mkdtempSync(join(tmpdir(), "zloop-pi-"));
+process.on("exit", () => rmSync(temp, { recursive: true, force: true }));
+const bin = mkdtempSync(join(temp, "bin-"));
 writeFileSync(join(bin, "herdr"), "#!/bin/sh\nexit 1\n");
 chmodSync(join(bin, "herdr"), 0o755);
 process.env.PATH = `${bin}:${process.env.PATH}`;
@@ -20,7 +23,7 @@ process.env.PATH = `${bin}:${process.env.PATH}`;
 const handlers = [];
 const pi = { on: (name, handler) => name === "tool_call" && handlers.push(handler), registerCommand() {}, registerTool() {} };
 (await import(bootstrap)).default(pi);
-const repo = mkdtempSync(join(tmpdir(), "zloop-pi-repo-"));
+const repo = mkdtempSync(join(temp, "repo-"));
 execFileSync("git", ["init", "-q", repo]);
 const ctx = { cwd: repo, sessionManager: { getSessionId: () => "ses_pi" } };
 const call = async (command, toolName = "bash") => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,11 +11,14 @@ const plugin = resolve(dirname(fileURLToPath(import.meta.url)), "../hosts/openco
 for (const name of ["HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_ENV", "ZLOOP_WORKER", "ZLOOP_YIELD_HOOK"]) {
   delete process.env[name];
 }
-const bin = mkdtempSync(join(tmpdir(), "zloop-oc-bin-"));
+// Every fixture lives under one folder, removed when the run exits, pass or fail.
+const temp = mkdtempSync(join(tmpdir(), "zloop-oc-"));
+process.on("exit", () => rmSync(temp, { recursive: true, force: true }));
+const bin = mkdtempSync(join(temp, "bin-"));
 writeFileSync(join(bin, "herdr"), "#!/bin/sh\nexit 1\n");
 chmodSync(join(bin, "herdr"), 0o755);
 // python3 as the plugin finds it: it records each run's arguments, and waits `ZLOOP_TEST_SLOW` seconds when set.
-const wrap = mkdtempSync(join(tmpdir(), "zloop-oc-wrap-"));
+const wrap = mkdtempSync(join(temp, "wrap-"));
 const runs = join(wrap, "runs.log");
 const python = execFileSync("sh", ["-c", "command -v python3"], { encoding: "utf8" }).trim();
 writeFileSync(join(wrap, "python3"), `#!/bin/sh\necho "$*" >> '${runs}'\nsleep "\${ZLOOP_TEST_SLOW:-0}"\nexec '${python}' "$@"\n`);
@@ -34,7 +37,7 @@ const until = async (check, what) => {
 // A checkout whose launch log holds one launch, that no attempt registered, by each session in `gaps`: real
 // yield-gate gaps for those sessions and none for any other. `end` always has one.
 function checkout(gaps, end = "ses_end") {
-  const repo = mkdtempSync(join(tmpdir(), "zloop-oc-repo-"));
+  const repo = mkdtempSync(join(temp, "repo-"));
   execFileSync("git", ["init", "-q", repo]);
   mkdirSync(join(repo, ".scratch"));
   writeFileSync(join(repo, ".scratch/herdr-launches.jsonl"), [...gaps, end].map((session) => JSON.stringify({
