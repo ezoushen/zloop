@@ -1,7 +1,7 @@
 ---
 name: ticket
 agent: builder
-inputs: ["ticket", "ticket context", "focus", "checks", "timing", "checkpoint", "return", "brief", "report", "evidence", "worktree", "branch", "project instructions"]
+inputs: ["ticket", "needs", "ticket context", "focus", "checks", "timing", "checkpoint", "return", "brief", "report", "evidence", "worktree", "branch", "project instructions"]
 returns: ["## Implemented"]
 independent_of: []
 acceptance: true
@@ -16,7 +16,7 @@ worktree, where `worktree` and `branch` name the effort's
 
 ## Inputs
 
-The assignment names `ticket`, `brief`, `report`, `worktree`, `branch`, `evidence`,
+The assignment names `ticket`, `needs`, `brief`, `report`, `worktree`, `branch`, `evidence`,
 `project instructions`, and sometimes `comments` (a previous attempt's failing
 output — start from it). All paths are absolute main-checkout paths; the worktree
 has no `.scratch/`. `ticket` is a canonical remote ID/URL with the current issue
@@ -47,7 +47,7 @@ Reuse passing evidence only when relevant code, inputs and environment match; re
 its original head and provenance. Run missing or invalidated checks and repair
 failures caused by this ticket without another request. Keep unavailable required
 checks explicit.
-A ticket with `needs` runs `capability_probe.py` in its worktree first and returns blocked naming a need it reports unavailable; otherwise it saves the output in the evidence directory and lists that file in its result evidence.
+A ticket whose assignment `needs`, or local front matter `needs`, names a capability runs `capability_probe.py` in its worktree first and returns blocked naming a need it reports unavailable; otherwise it saves the output in the evidence directory and lists that file in its result evidence.
 For important failure paths, check that the test actually reaches the failing
 operation and that its assertion can fail; a dry-run bypass is not refusal evidence.
 The standard's deliberate break of each test's rule is the negative control; it is

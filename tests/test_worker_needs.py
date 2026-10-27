@@ -15,17 +15,20 @@ def probe(worktree, **statuses):
 
 
 class CollectionNeeds(WorkerLifecycleCase):
-    def ticket(self, needs=None, value=None, trailing=''):
+    def ticket(self, needs=None, value=None, trailing='', assigned=()):
         """A local ticket file, with a `needs:` line when needs is given, and the packet that points a worker at it.
 
-        value replaces the packet's `ticket:` value; trailing follows it on the same line."""
+        value replaces the packet's `ticket:` value; trailing follows it on the same line; assigned is the packet's
+        own `needs:` list."""
         path = self.root / 'ticket.md'
         path.write_text('---\nticket: fx/01\nstatus: ready\nblocked_by: []\n'
                         + (f'needs: [{", ".join(needs)}]\n' if needs is not None else '') + '---\n# 01: task\n')
         packet = self.root / 'packet.txt'
         lines = support.assignment_file(self.root, 'ticket').read_text().splitlines()
         shown = f'ticket: {path if value is None else value}{trailing}'
-        packet.write_text('\n'.join(shown if line.startswith('ticket:') else line for line in lines) + '\n')
+        lines = [shown if line.startswith('ticket:') else line for line in lines if not line.startswith('needs:')]
+        lines.append(f'needs: [{", ".join(assigned)}]')
+        packet.write_text('\n'.join(lines) + '\n')
         return packet
 
     def complete(self, packet, report=None, status='completed', code=0):
@@ -79,9 +82,50 @@ class CollectionNeeds(WorkerLifecycleCase):
         self.complete(self.ticket(['docker'], value='https://tracker.example/issue/7'))
         self.assertEqual(self.cli('status')['attempts'][0]['result']['status'], 'completed')
 
+    def test_a_remote_ticket_needing_docker_by_its_assignment_is_not_collected_without_a_probe(self):
+        refused = self.complete(self.ticket(value='https://tracker.example/issue/7', assigned=['docker']), code=2)
+        self.assertIn('The ticket needs docker: no probe of this worktree in the result evidence', refused)
+
+    def test_a_remote_ticket_needing_docker_by_its_assignment_is_collected_when_the_probe_shows_docker(self):
+        self.complete(self.ticket(value='https://tracker.example/issue/7', assigned=['docker']),
+                      probe(self.root, docker='available'))
+        self.assertEqual(self.cli('status')['attempts'][0]['result']['status'], 'completed')
+
+    def test_a_local_tickets_needs_count_even_when_its_assignment_names_others(self):
+        # Both lists count, named in the probe's vocabulary order.
+        refused = self.complete(self.ticket(['docker'], assigned=['network']), probe(self.root, setuid='available'),
+                                code=2)
+        self.assertIn('The ticket needs network, docker: the probe reports network missing, docker missing', refused)
+
     def test_a_ticket_path_to_a_missing_file_is_refused(self):
         refused = self.complete(self.ticket(['docker'], value=str(self.root / 'gone.md')), code=2)
         self.assertIn('names a ticket file that does not exist', refused)
+
+
+class RegistrationNeeds(WorkerLifecycleCase):
+    def packet_with(self, needs_line):
+        """A ticket assignment for a remote ticket whose `needs` line is needs_line, or none when it is None."""
+        lines = [line for line in support.assignment_file(self.root, 'ticket').read_text().splitlines()
+                 if not line.startswith('needs:')]
+        packet = self.root / 'packet.txt'
+        packet.write_text('\n'.join(lines + ([needs_line] if needs_line is not None else [])) + '\n')
+        return packet
+
+    def test_a_ticket_assignment_without_needs_is_refused_so_a_remote_ticket_cannot_skip_the_probe(self):
+        refused = self.register(packet=str(self.packet_with(None)), code=2)
+        self.assertIn('The ticket assignment lacks needs', refused)
+
+    def test_a_ticket_assignment_needing_nothing_is_registered(self):
+        self.register(packet=str(self.packet_with('needs: []')))
+        self.assertEqual(len(self.cli('status')['attempts']), 1)
+
+    def test_an_assignment_need_outside_the_probe_vocabulary_is_refused_naming_the_allowed_needs(self):
+        refused = self.register(packet=str(self.packet_with('needs: [docker, gpu]')), code=2)
+        self.assertIn("needs 'gpu' is not one of network, docker, setuid, repo-write, dev-fd", refused)
+
+    def test_an_assignment_needs_value_that_is_not_a_bracketed_list_is_refused(self):
+        refused = self.register(packet=str(self.packet_with('needs: docker')), code=2)
+        self.assertIn('needs must be a bracketed list of network, docker, setuid, repo-write, dev-fd', refused)
 
 
 if __name__ == '__main__':

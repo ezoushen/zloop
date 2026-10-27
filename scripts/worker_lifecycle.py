@@ -599,8 +599,26 @@ def submitted_at(db, attempt):
     return min(times) if times else None
 
 
+def assigned_needs(job, assignment):
+    """The capabilities an assignment's own `needs: [...]` input names, None when it is absent or not a list."""
+    value = agent_defs.input_value(job, assignment, 'needs')
+    listed = re.fullmatch(r'\[(.*)\]', value or '')
+    return [need.strip() for need in listed.group(1).split(',') if need.strip()] if listed else None
+
+
+def needs_problems(job, assignment):
+    """Why an assignment's `needs` input is not a bracketed list of probe capabilities, else ''."""
+    allowed = ', '.join(capability_probe.NEEDS)
+    needs = assigned_needs(job, assignment)
+    if needs is None:
+        return f'needs must be a bracketed list of {allowed}'
+    return '; '.join(f'needs {need!r} is not one of {allowed}' for need in needs if need not in capability_probe.NEEDS)
+
+
 def unmet_needs(saved, evidence):
     """Why a completed ticket attempt's evidence does not show its ticket's needs available, else None.
+
+    The needs are those the assignment names together with those a local ticket's front matter declares.
 
     The worker's own probe is a JSON file named in the result evidence; the coordinator's environment says
     nothing about a sandboxed worker's."""
@@ -608,7 +626,10 @@ def unmet_needs(saved, evidence):
     job = DEFINITIONS['jobs'][saved['job']]
     if 'ticket' not in job['inputs'] or not packet.is_file():
         return None
-    needs = capability_probe.ticket_needs(agent_defs.input_value(job, packet.read_text(errors='replace'), 'ticket'))
+    assignment = packet.read_text(errors='replace')
+    declared = set(capability_probe.ticket_needs(agent_defs.input_value(job, assignment, 'ticket')))
+    declared |= set(assigned_needs(job, assignment) or [])
+    needs = [need for need in capability_probe.NEEDS if need in declared]
     reports = []
     for entry in evidence if isinstance(evidence, list) else []:
         try:
@@ -676,6 +697,8 @@ def record(db, data, refuse_changes=False):
             missing = agent_defs.missing_inputs(job, packet.read_text(errors='replace'))
             require(not missing, f'The {execution["job"]} assignment lacks {", ".join(missing)}; write each as '
                                  f'`name: value` (see {job["path"]})')
+            problem = 'needs' in job['inputs'] and needs_problems(job, packet.read_text(errors='replace'))
+            require(not problem, f'The {execution["job"]} assignment {problem}')
             runtime = execution.get('target_runtime') or execution.get('harness')
             require(runtime is None or runtime == data['runtime'], 'Runtime conflicts with resolved execution')
             closed = closed_sessions(db)
