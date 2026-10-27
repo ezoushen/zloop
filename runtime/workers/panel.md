@@ -20,12 +20,11 @@ It reads, read-only: the effort's run card (`.scratch/<slug>/autopilot.md`), its
 (`.scratch/<slug>/issues/`). A session working in a worktree still reads its main checkout's state. An unreadable
 state file drops only the rows it would have supplied.
 
-Which effort is this session's: the effort whose `reports/coordinator.json` names this session — the binding
-`next_tickets.py --coordinate` writes — else the run card whose `session:` names it, else the effort holding this
-session's decision journal, else the newest effort no other session claims. So two sessions in one checkout each read
-their own effort. An effort reached only by that last rule was merely adopted, and its headline is marked `adopted`
-(beside `draft` when the card is unconfirmed); one another session coordinates is never adopted. An effort need not have a card; its tickets, workers or journal are
-enough, and with no card the headline names it alone.
+Which effort is this session's: the one whose `reports/coordinator.json` names this session — the binding
+`next_tickets.py --coordinate` writes — else the run card naming it, else the effort holding its decision journal, else
+the newest one no other session claims. Reaching one only by that last rule adopts it, so its headline says `adopted`
+(before `draft`) and an effort another session coordinates is never adopted. An effort need not have a card: its
+tickets, workers or journal are enough, and the headline then has no phase.
 
 Live means the card is unconfirmed, or an attempt is live, or a blocker is recorded, or the card is still open or
 stopped on `waiting-on-user`, `paused-allowance`, `paused-by-user` or `blocked`. A run that reached `delivered`,
@@ -33,15 +32,11 @@ stopped on `waiting-on-user`, `paused-allowance`, `paused-by-user` or `blocked`.
 
 Rows are ordered by what the person needs first: the headline, then running workers (three, then `+N more`), a
 worker whose result is ready to collect, one blocker by precedence (the run's own stop first, then a blocked
-ticket), the next step, and the counts.
-
-## Tones
-
-Each host gives a row its kind's emphasis; the words never change, and styling is applied after truncation so it cannot
-widen a line. A run row keeps the host's default text style.
+ticket), the next step, and the counts. Each host tones a row by its kind — after truncation, so the words stay
+identical and styling cannot widen a line — and a run row keeps the default style:
 
 | Row kind | Pi theme token | Claude Code `Text` |
-|---|---|---|
+| --- | --- | --- |
 | `headline` | `accent`, bold | bold |
 | `wait` | `warning` | `warning` |
 | `blocker` | `error` | `error` |
