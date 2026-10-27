@@ -22,10 +22,11 @@ export default {
   id: "zloop",
   setup: async (ctx) => {
     const stop = new AbortController();
-    // When each held session's hold was admitted: the turn it starts ends unchecked, however it ends, so a gap the
-    // agent cannot clear never loops. A turn end published before then is an older turn the hold already covers.
-    // Shared by the plugin's setups for every directory, so a session moved while held keeps its hold.
+    // When each held session's hold was admitted, and by which setup: the turn it starts ends unchecked, however it
+    // ends, so a gap the agent cannot clear never loops. A turn end published before then is an older turn the hold
+    // already covers. Shared by the plugin's setups for every directory, so a session moved while held keeps its hold.
     const held = (globalThis[Symbol.for("zloop.opencode.held")] ??= new Map());
+    const hold = (sessionID, at) => held.set(sessionID, { at, by: stop });
     void (async () => {
       for await (const event of ctx.event.subscribe({ signal: stop.signal })) {
         if (!ENDS.has(event.type)) continue;
@@ -40,13 +41,14 @@ export default {
         // directory answers for it.
         if (resolve(info.location.directory) !== resolve(ctx.location.directory)) continue;
         if (held.has(sessionID)) {
-          if ((event.created ?? Infinity) >= held.get(sessionID)) held.delete(sessionID);
+          if ((event.created ?? Infinity) >= held.get(sessionID).at) held.delete(sessionID);
           continue;
         }
         // A subagent's child session is not held for its parent's gaps; the parent's own turn end answers for them.
         if (event.type !== "session.execution.succeeded" || info.parentID || process.env.ZLOOP_YIELD_HOOK === "off") {
           continue;
         }
+        hold(sessionID, Infinity);  // Claimed while it is checked, so a setup it moves to meanwhile skips it.
         let gate;
         try {
           gate = await check(info.location.directory, sessionID);
@@ -58,13 +60,16 @@ export default {
               + "`ZLOOP_YIELD_HOOK=off` for this stop.",
           };
         }
-        if (!gate.missing.length) continue;
+        if (!gate.missing.length) {
+          held.delete(sessionID);
+          continue;
+        }
         try {
           const sent = Date.now();
           const message = await ctx.session.prompt({ sessionID, text: gate.reason });
-          held.set(sessionID, message?.time?.created ?? sent);
+          hold(sessionID, message?.time?.created ?? sent);
         } catch {
-          // The session or server is gone: there is no turn left to hold.
+          held.delete(sessionID);  // The session or server is gone: there is no turn left to hold.
         }
       }
     })();
@@ -86,6 +91,8 @@ export default {
     });
     return async () => {
       stop.abort();
+      // The turns this setup held may end unseen once it is gone, so its replacement checks them again.
+      for (const [sessionID, { by }] of held) if (by === stop) held.delete(sessionID);
       await launches.dispose();
     };
   },

@@ -93,7 +93,14 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
     push("succeeded", end);  // Its own held turn ends, so the next settle is checked again.
   };
   // OpenCode sets the plugin up once for each directory it serves, all on one server.
-  const elsewhere = async (directory = checkout([])) => definition.setup({ ...ctx, location: { directory } });
+  // `slow` delays that setup's session lookups, so the test can order it against the first one.
+  const elsewhere = async (directory = checkout([]), slow = 0) => definition.setup({
+    ...ctx, location: { directory },
+    session: { ...ctx.session, get: async (input) => {
+      await new Promise((done) => setTimeout(done, slow));
+      return ctx.session.get(input);
+    } },
+  });
   return { repo, end, sent, hooks, push, holds, settle, cleanup, elsewhere };
 }
 
@@ -158,6 +165,35 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   assert.equal(host.holds("ses_v"), 2, "the next turn is checked");
   await other();
   await host.cleanup();
+}
+
+{
+  // A session that moves while its turn end is checked is held once: the check claims the turn end before it runs.
+  const written = {};
+  const host = await load(["ses_w"], {}, 0, written);
+  const there = checkout(["ses_w"]);
+  const other = await host.elsewhere(there, 40);
+  host.push("succeeded", "ses_w");
+  setTimeout(() => { written.ses_w = there; }, 5);  // Moved after the first setup looked it up, before the second.
+  await until(() => host.holds("ses_w") === 1, "the hold");
+  await new Promise((done) => setTimeout(done, 1000));
+  assert.equal(host.holds("ses_w"), 1);
+  await other();
+  await host.cleanup();
+}
+
+{
+  // A reload drops the holds of the setup it replaces, whose held turns may end unseen: the session's next turn is
+  // checked rather than passed.
+  const host = await load(["ses_z"]);
+  host.push("succeeded", "ses_z");
+  await host.settle();
+  await host.cleanup();  // Reloaded before the held turn's end arrives.
+  const again = await host.elsewhere(host.repo);
+  host.push("succeeded", "ses_z");
+  await host.settle();
+  assert.equal(host.holds("ses_z"), 2);
+  await again();
 }
 
 {
@@ -264,8 +300,8 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
 {
   // ZLOOP_YIELD_HOOK=off turns the gate off, as on the other hosts.
   process.env.ZLOOP_YIELD_HOOK = "off";
-  const host = await load(["ses_a"]);
-  host.push("succeeded", "ses_a");
+  const host = await load(["ses_o"]);
+  host.push("succeeded", "ses_o");
   await new Promise((done) => setTimeout(done, 1500));
   assert.deepEqual(host.sent, []);
   await host.cleanup();
