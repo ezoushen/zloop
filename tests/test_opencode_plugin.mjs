@@ -50,6 +50,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   const end = `ses_end_${++loads}`;
   const repo = checkout(gaps, end);
   const subscribers = new Set();
+  let stopped = 0;
   const sent = [];
   let admitted = 0;
   // Set to refuse, or to admit after another delay, the prompts sent from then on.
@@ -67,6 +68,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
             if (subscriber.queue.length) yield subscriber.queue.shift();
             else await new Promise((done) => { subscriber.wake = done; });
           }
+          stopped += 1;  // The setup asked for its next event after it was stopped: it is done with the last one.
         },
       }),
     },
@@ -112,7 +114,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
       return ctx.session.get(input);
     } },
   });
-  return { repo, end, sent, hooks, push, holds, settle, cleanup, elsewhere, control };
+  return { repo, end, sent, hooks, push, holds, settle, cleanup, elsewhere, control, stopped: () => stopped };
 }
 
 {
@@ -260,9 +262,9 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   const host = await load(["ses_c"]);
   process.env.ZLOOP_TEST_SLOW = "1";
   host.push("succeeded", "ses_c");
-  await new Promise((done) => setTimeout(done, 300));
+  await until(() => checked("ses_c"), "the check to start");
   await host.cleanup();  // Replaced while the check runs.
-  await new Promise((done) => setTimeout(done, 1500));
+  await until(() => host.stopped() === 1, "the replaced setup to finish with the turn end");
   delete process.env.ZLOOP_TEST_SLOW;
   assert.equal(host.holds("ses_c"), 0);
 }
@@ -280,7 +282,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   wait = 400;
   host.push("succeeded", "ses_k");  // The held turn's end.
   setTimeout(() => replaced(), 100);  // Replaced while it looks the session up.
-  await new Promise((done) => setTimeout(done, 1500));
+  await host.settle();  // The replacement handles events in order, so it has handled the held turn's end.
   assert.equal(host.holds("ses_k"), 1);
   await replacement();
 }
