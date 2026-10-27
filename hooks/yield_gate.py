@@ -169,7 +169,8 @@ def well_formed(saved):
         return False
     if any(key in saved and saved[key] is not None and not text(saved[key]) for key in ('coordinator', 'session')):
         return False
-    if 'sessions' in saved and not (isinstance(saved['sessions'], list) and all(map(text, saved['sessions']))):
+    if any(key in saved and not (isinstance(saved[key], list) and all(map(text, saved[key])))
+           for key in ('sessions', 'launch_sessions')):
         return False
     herdr, monitor = saved.get('herdr'), saved.get('monitor')
     if herdr is not None and not (isinstance(herdr, dict)
@@ -392,14 +393,15 @@ def handles(worker):
 
 
 def clears(saved, launch):
-    """Whether an attempt accounts for a logged launch: it names the launch's pane or agent, and the host session
-    recorded at registration is the one that launched it when both know one; else the coordinator recorded at
+    """Whether an attempt accounts for a logged launch: it names the launch's pane or agent, and a host session
+    recorded at registration, or one whose launches it was recorded to clear, is the one that launched it when both
+    know one; else the coordinator recorded at
     registration is the pane that launched it, and only a launch made outside Herdr can instead be cleared by an
     attempt with no recorded coordinator, registered no earlier."""
     if not handles(saved['worker']) & {launch['agent'], launch['pane']}:
         return False
     if recorded_sessions(saved) and launch['coordinator']['session']:
-        return launch['coordinator']['session'] in recorded_sessions(saved)
+        return launch['coordinator']['session'] in recorded_sessions(saved) + saved.get('launch_sessions', [])
     if saved.get('coordinator') or launch['coordinator']['pane']:
         return saved.get('coordinator') == launch['coordinator']['pane']
     return (saved['registered_at'] or 0) >= calendar.timegm(time.strptime(launch['time'], '%Y-%m-%dT%H:%M:%SZ'))

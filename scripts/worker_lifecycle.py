@@ -773,6 +773,11 @@ def record(db, data, refuse_changes=False):
                 # The registering host session, which decides before the pane; a host started inside another's shell
                 # also exports the outer one's, so every exported session is kept.
                 saved['session'], saved['sessions'] = sessions[0], sessions
+            parent = os.environ.get('PI_SUBAGENT_PARENT_SESSION', '').strip()
+            if os.environ.get('PI_SUBAGENT_CHILD') == '1' and parent:
+                # Inside a pi-subagents child, whatever host registers, Pi logged the child's launches under the
+                # parent; this clears them without holding the parent for a host that answers for itself.
+                saved['launch_sessions'] = [parent]
             if 'journal' in data:
                 require(text(data['journal']) and Path(data['journal']).is_absolute(),
                         'journal must be an absolute decisions journal path')

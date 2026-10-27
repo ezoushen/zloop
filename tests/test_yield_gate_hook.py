@@ -236,7 +236,8 @@ class YieldGateHook(GateRepo):
                 'demo/4': dict({key: value for key, value in whole.items() if key != 'runtime'}, closed=True),
                 'demo/5': dict(whole, attempt='demo/5', worktree=7),
                 'demo/6': dict(whole, attempt='demo/6', herdr={'tab_id': 'w1:t1'}, result={'status': 'completed'},
-                               coordinator='w1:p7')}
+                               coordinator='w1:p7'),
+                'demo/7': dict(whole, attempt='demo/7', launch_sessions='pi-parent')}
         db.executemany('INSERT INTO attempts VALUES (?, ?)', [(key, json.dumps(row)) for key, row in rows.items()])
         db.execute('INSERT INTO events VALUES (1, ?, ?, ?, 0)', ('demo/1', 'register', json.dumps({})))
         db.commit()
@@ -251,7 +252,7 @@ class YieldGateHook(GateRepo):
         os.utime(other, (old, old))
         self.assertEqual(self.check(pane=None, session='host-9'),
                          [f'{other}: attempt row {key} is malformed; fix or remove it'
-                          for key in ('demo/2', 'demo/3', 'demo/4', 'demo/5', 'demo/6')])
+                          for key in ('demo/2', 'demo/3', 'demo/4', 'demo/5', 'demo/6', 'demo/7')])
 
     def test_codex_uses_the_same_stop_protocol(self):
         self.assertEqual(self.stop(host='codex')['decision'], 'block')
@@ -669,16 +670,35 @@ console.log('null');
                        packet=str(support.assignment_file(self.execution.parent, 'ticket')))
         self.assertNotIn(self.gap('builder-1', 'w1:p5'), self.check(pane=None, session='pi-parent'))
 
+    def test_a_pi_subagents_child_in_a_claude_shell_clears_its_parents_hold_by_registering(self):
+        # The whole Pi tree runs in a Claude session's shell, so the child exports the outer session first; its
+        # registration still clears the launch Pi logged under the parent.
+        child = {'PI_SUBAGENT_CHILD': '1', 'PI_SUBAGENT_PARENT_SESSION': 'pi-parent', 'PI_SESSION_ID': 'pi-1',
+                 'CLAUDE_CODE_SESSION_ID': 'claude-outer'}
+        self.pi("""
+await handlers.tool_call({ type: 'tool_call', toolCallId: '1', toolName: 'bash',
+  input: { command: 'herdr agent start builder-1 --kind codex --pane w1:p5' } }, ctx);
+console.log('null');
+""", env=child)
+        self.assertEqual(self.check(pane=None, session='pi-parent'), [self.gap('builder-1', 'w1:p5')])
+        self.lifecycle('register', 'ticket-1/2', None, env=child, assignment='ticket-1', repo=str(self.repo),
+                       worktree=str(self.worktree), head='head-1', execution=str(self.execution), runtime='claude',
+                       worker='w1:p5', native_session='native-2', owned=True,
+                       packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        self.assertEqual(self.check(pane=None, session='pi-parent'), [])
+
     def test_only_a_pi_subagents_child_registers_under_its_parent_session(self):
         # A Claude session a Pi child started, and a root Pi session with a parent session left in its environment,
-        # each register under their own session, as their launches are logged.
-        child = {'PI_SUBAGENT_CHILD': '1', 'PI_SUBAGENT_PARENT_SESSION': 'pi-parent'}
+        # each register under their own session, as their launches are logged. The Claude session inherits the
+        # child's markers and PI_SESSION_ID from Pi's bash.
+        child = {'PI_SUBAGENT_CHILD': '1', 'PI_SUBAGENT_PARENT_SESSION': 'pi-parent', 'PI_SESSION_ID': 'pi-child'}
         self.launch('herdr agent start builder-1 --kind codex --pane w1:p5', pane=None, session='host-1')
         self.pi("""
 await handlers.tool_call({ type: 'tool_call', toolCallId: '1', toolName: 'bash',
   input: { command: 'herdr agent start builder-2 --kind codex --pane w1:p6' } }, ctx);
 console.log('null');
 """, env={'PI_SUBAGENT_PARENT_SESSION': 'pi-stale'})
+        self.launch('herdr agent start builder-3 --kind codex --pane w1:p6', pane=None, session='pi-stale')
         for attempt, worker, env in (('ticket-1/2', 'w1:p5', dict(child, CLAUDE_CODE_SESSION_ID='host-1')),
                                      ('ticket-1/3', 'w1:p6', {'PI_SUBAGENT_PARENT_SESSION': 'pi-stale',
                                                               'PI_SESSION_ID': 'pi-1'})):
@@ -688,6 +708,8 @@ console.log('null');
                            packet=str(support.assignment_file(self.execution.parent, 'ticket')))
         self.assertNotIn(self.gap('builder-1', 'w1:p5'), self.check(pane=None, session='host-1'))
         self.assertNotIn(self.gap('builder-2', 'w1:p6'), self.check(pane=None, session='pi-1'))
+        # The root Pi session clears nothing the stale session it names launched.
+        self.assertIn(self.gap('builder-3', 'w1:p6'), self.check(pane=None, session='pi-stale'))
         # Neither session's worker holds the Pi parent, which launched neither.
         claude = dict(child, CLAUDE_CODE_SESSION_ID='host-1')
         self.lifecycle('startup', 'ticket-1/2', None, env=claude, observed={'runtime': 'claude', 'model': 'sonnet'},
