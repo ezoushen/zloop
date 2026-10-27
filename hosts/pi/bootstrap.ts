@@ -25,7 +25,10 @@ const WIDE = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F
 const ZERO = /[\u200B-\u200F\u2060\uFE0E\uFE0F]/u;
 
 /** The cells `character` occupies. */
-const cellsOf = (character) => (ZERO.test(character) ? 0 : WIDE.test(character) ? 2 : 1);
+const cellsOf = (character) => {
+  if (ZERO.test(character)) return 0;
+  return WIDE.test(character) ? 2 : 1;
+};
 
 /** `text` cut to `width` terminal cells, ended with an ellipsis when anything was dropped. */
 export function truncateCells(text, width) {
@@ -48,10 +51,27 @@ export function truncateCells(text, width) {
   return out;
 }
 
-/** The lines a snapshot draws; a live effort's rows, else nothing. */
-export function panelLines(found) {
+/** The rows a snapshot draws; a live effort's rows, else nothing. */
+export function panelRows(found) {
   if (!found || !found.active || !Array.isArray(found.rows)) return [];
-  return found.rows.filter((row) => row && typeof row.text === "string" && row.text).map((row) => row.text);
+  return found.rows.filter((row) => row && typeof row.text === "string" && row.text);
+}
+
+/** The theme tone each row kind takes; a run row keeps the default text style. */
+const TONES = {
+  headline: { token: "accent", bold: true },
+  wait: { token: "warning" },
+  blocker: { token: "error" },
+  next: { token: "muted" },
+  counts: { token: "dim" },
+  more: { token: "dim" },
+};
+
+/** `text` in its kind's tone: styled after truncation, so styling never changes the cells it occupies. */
+function toned(theme, kind, text) {
+  const tone = TONES[kind];
+  if (!tone) return text;
+  return tone.bold ? theme.style(text, { fg: tone.token, bold: true }) : theme.fg(tone.token, text);
 }
 
 /** What the last tick drew and on which context, so an unchanged snapshot repaints nothing. */
@@ -66,19 +86,19 @@ let drawnCtx = null;
  */
 export async function panelTick(ctx, found) {
   try {
-    const lines = panelLines(found);
-    const drawn = JSON.stringify(lines);
+    const rows = panelRows(found);
+    const drawn = JSON.stringify(rows.map((row) => row.text));
     if (ctx === drawnCtx && drawn === drawnPanel) return;
     drawnCtx = ctx;
     drawnPanel = drawn;
-    if (lines.length === 0) {
+    if (rows.length === 0) {
       ctx.ui.setWidget(PANEL_KEY, undefined);
       ctx.ui.setStatus(PANEL_KEY, undefined);
       return;
     }
-    ctx.ui.setWidget(PANEL_KEY, () => ({
+    ctx.ui.setWidget(PANEL_KEY, (_tui, theme) => ({
       render(width) {
-        return lines.map((line) => truncateCells(line, width));
+        return rows.map((row) => toned(theme, row.kind, truncateCells(row.text, width)));
       },
       invalidate() {},
     }), { placement: "belowEditor" });

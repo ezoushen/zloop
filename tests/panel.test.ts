@@ -20,7 +20,10 @@ const beneath = (on: any, stdout?: string, pinned?: (string | undefined)[]) => {
   on("session.start", () => ({ cwd: "/work" }));
   on("session.id", () => ({ value: "session-1" }));
   on("session.cwd", () => ({ value: "/work" }));
-  on("process.run", () => ({ value: { exitCode: stdout ? 0 : 2, stdout: stdout ?? "", stderr: "boom" } }));
+  on("process.run", () => ({
+    value: { exitCode: stdout ? 0 : 2, stdout: stdout ?? "", stderr: "boom",
+             isStdoutTruncated: false, isStderrTruncated: false },
+  }));
   on("ui.status", (_$: any, e: any) => {
     pinned?.push(e.text);
     return { value: undefined };
@@ -78,7 +81,9 @@ describe("zloop panel", () => {
     on("session.start", () => ({ cwd: "/work" }));
     on("session.id", () => ({ value: "session-1" }));
     on("session.cwd", () => ({ value: "/work" }));
-    on("process.run", () => ({ value: { exitCode: 0, stdout: "not json", stderr: "" } }));
+    on("process.run", () => ({
+      value: { exitCode: 0, stdout: "not json", stderr: "", isStdoutTruncated: false, isStderrTruncated: false },
+    }));
     on("ui.render", { component: "AbovePrompt" }, () => ({ type: "Text", props: {}, children: ["engine band"] }));
     mock.clock(on);
     await started($);
@@ -128,5 +133,26 @@ describe("zloop panel", () => {
     expect(cut[1].endsWith("…")).toBe(true);
     const cells = [...cut[1]].reduce((total, character) => total + (character === "🚀" ? 2 : 1), 0);
     expect(cells).toBeLessThanOrEqual(5);
+  });
+
+  test("gives every row its kind's emphasis", async ($, on) => {
+    const rows = [
+      { kind: "headline", text: "demo · dispatch" },
+      { kind: "run", text: "▶ builder · demo/02 · sonnet · quiet 1m" },
+      { kind: "wait", text: "result ready · demo/01 · quiet 2m" },
+      { kind: "blocker", text: "blocked: demo/04 · no credential" },
+      { kind: "counts", text: "1 done · 1 blocked · 1 ready · 1 live" },
+    ];
+    beneath(on, snapshot({ rows }));
+    await started($);
+    const ui = await band($);
+    const nodes = await ui.findAll({ type: "Text" });
+    // The words are unchanged; only each kind's own props differ.
+    expect(nodes.map((node: any) => node.text)).toEqual(rows.map((row) => row.text));
+    expect(nodes[0].props.bold).toBe(true);
+    expect(nodes[1].props.color).toBeUndefined();
+    expect(nodes[2].props.color).toBe("warning");
+    expect(nodes[3].props.color).toBe("error");
+    expect(nodes[4].props.color).toBe("subtle");
   });
 });

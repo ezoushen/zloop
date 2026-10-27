@@ -25,8 +25,14 @@ const snapshot = (rows, extra = {}) => ({
 
 const widgets = (calls) => calls.filter((entry) => entry.call === "widget");
 const statuses = (calls) => calls.filter((entry) => entry.call === "status");
-// Pi takes a factory that builds the component for the active terminal and theme.
-const rendered = (call, width) => call.content({}, {}).render(width);
+// Pi takes a factory that builds the component for the active terminal and theme. The stub theme marks each tone so a
+// case can assert it; the words are compared with the marks stripped.
+const THEME = {
+  fg: (token, text) => `<${token}>${text}</${token}>`,
+  style: (text, options) => `<${options.fg}${options.bold ? '+bold' : ''}>${text}</${options.fg}>`,
+};
+const plain = (line) => line.replace(/<\/?[^>]+>/g, "");
+const rendered = (call, width) => call.content({}, THEME).render(width).map(plain);
 
 // Rows draw below the editor, in the snapshot's order, through the factory form that re-renders on a resize.
 {
@@ -110,4 +116,25 @@ const rendered = (call, width) => call.content({}, {}).render(width);
   assert.ok(rendered(widgets(astral.calls)[0], 7)[0].endsWith("…"));
 }
 
-console.log("pi panel: 7 cases passed");
+// Rows carry their kind's tone from the active theme, and the words stay the same.
+{
+  const rows = [
+    { kind: "headline", text: "demo · dispatch" },
+    { kind: "run", text: "▶ builder · demo/02 · sonnet · quiet 1m" },
+    { kind: "wait", text: "result ready · demo/01 · quiet 2m" },
+    { kind: "blocker", text: "blocked: demo/04 · no credential" },
+    { kind: "counts", text: "1 done · 1 blocked · 1 ready · 1 live" },
+  ];
+  const { calls, ctx } = recording();
+  await panel.panelTick(ctx, snapshot(rows, { effort: "toned" }));
+  const [widget] = widgets(calls);
+  assert.deepEqual(widget.content({}, THEME).render(80), [
+    "<accent+bold>demo · dispatch</accent>",
+    "▶ builder · demo/02 · sonnet · quiet 1m",
+    "<warning>result ready · demo/01 · quiet 2m</warning>",
+    "<error>blocked: demo/04 · no credential</error>",
+    "<dim>1 done · 1 blocked · 1 ready · 1 live</dim>",
+  ]);
+}
+
+console.log("pi panel: 8 cases passed");

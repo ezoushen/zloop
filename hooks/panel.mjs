@@ -10,7 +10,10 @@ const WIDE = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F
 const ZERO = /[\u200B-\u200F\u2060\uFE0E\uFE0F]/u;
 
 /** The cells `character` occupies. */
-const cellsOf = (character) => (ZERO.test(character) ? 0 : WIDE.test(character) ? 2 : 1);
+const cellsOf = (character) => {
+  if (ZERO.test(character)) return 0;
+  return WIDE.test(character) ? 2 : 1;
+};
 
 /** `text` cut to `width` terminal cells, ended with an ellipsis when anything was dropped. */
 function truncateCells(text, width) {
@@ -32,6 +35,16 @@ function truncateCells(text, width) {
   }
   return out;
 }
+
+/** The emphasis each row kind takes; a run row keeps the default style. */
+const TONES = {
+  headline: { bold: true },
+  wait: { color: "warning" },
+  blocker: { color: "error" },
+  next: { color: "subtle" },
+  counts: { color: "subtle" },
+  more: { color: "subtle" },
+};
 
 /** The snapshot last read, or null when the fact source could not answer. */
 let snapshot = null;
@@ -85,7 +98,7 @@ export function register(on) {
     const width = e?.props?.bodyColumns ?? 80;
     return C.Box({
       flexDirection: "column",
-      children: rows.map((row) => C.Text({ children: truncateCells(row.text, width) })),
+      children: rows.map((row) => C.Text({ children: truncateCells(row.text, width), ...(TONES[row.kind] ?? {}) })),
     });
   });
 }
