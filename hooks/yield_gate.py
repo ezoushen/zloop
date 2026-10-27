@@ -98,14 +98,13 @@ def gaps(cwd, session=None):
                      for saved in saved_attempts if 'worktree' in saved)
 
         def coordinated(saved):
-            if not well_formed(saved):
-                return False
             return owns(saved, pane, session) if attributed(saved) else bound and not worker
         db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
         try:
-            missing += [f'{state}: {gap}' for gap in module.yield_gaps(db, coordinated)]
-        except Exception as error:
-            missing += [f'{state}: cannot be read ({error}); fix or remove it'] if bound else []
+            missing += [f'{state}: {gap}' for gap in module.yield_gaps(db, coordinated, saved_attempts)]
+        except Exception as error:  # Named to whoever it could hide a gap from: its coordinator and its workers' own.
+            if bound or any(coordinated(saved) for saved in saved_attempts):
+                missing.append(f'{state}: cannot be read ({error}); fix or remove it')
         finally:
             db.close()
     # Every session answers for its own launches; a worker (its launch set ZLOOP_WORKER) not for its siblings.
@@ -215,7 +214,7 @@ def stale_tabs(root, pane, session):
             continue
         for saved in saved_attempts:
             herdr = saved.get('herdr') or {}
-            mine = bound if bound is not None else bool(pane) and saved.get('coordinator') == pane
+            mine = bound if bound is not None else attributed(saved) and owns(saved, pane, session)
             # A retired attempt's tab was confirmed gone before its closure was recorded.
             if not (herdr.get('tab_id') and saved.get('result') and not saved.get('retained')
                     and not saved.get('closed') and mine):
@@ -429,9 +428,9 @@ def unregistered(root, pane, session, siblings=True):
         else:
             launches.append(record)
     # Another coordinator's logged launch, dismissed or not, is that session's worker, never a live sibling of this one.
-    workers |= {handle for record in records if 'dismissed' not in record
-                and not same_coordinator(record['coordinator'], pane, session)
-                for handle in (record['agent'], record['pane'])}
+    # By pane: a running Herdr server does not reuse a pane ID, while an agent name is reused freely.
+    workers |= {record['pane'] for record in records if 'dismissed' not in record
+                and not same_coordinator(record['coordinator'], pane, session)}
     launches = [launch for launch in launches if same_coordinator(launch['coordinator'], pane, session)
                 and not any(clears(saved, launch) for saved in attempts)
                 and ('cwd' not in launch or Path(launch['cwd']).resolve().is_relative_to(worktrees))]

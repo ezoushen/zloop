@@ -79,7 +79,7 @@ def get(db, attempt):
 
 
 def closed_sessions(db):
-    return {(row.get('runtime'), row.get('native_session')): row for row in attempts(db) if row.get('closed')}
+    return {(row['runtime'], row['native_session']): row for row in attempts(db) if row.get('closed')}
 
 
 def final_retirement(db, saved, declined=False):
@@ -171,11 +171,13 @@ def gaps(db, data, stage, revision=None):
     return missing
 
 
-def yield_gaps(db, include=lambda saved: True):
-    """Name each way a host that yields now would miss an event of an included worker."""
+def yield_gaps(db, include=lambda saved: True, rows=None):
+    """Name each way a host that yields now would miss an event of an included worker; `rows`, when given, are the
+    attempts to judge instead of every row of db."""
     missing = []
-    closed = closed_sessions(db)
-    included = [saved for saved in attempts(db) if include(saved)]
+    rows = attempts(db) if rows is None else rows
+    closed = {(row['runtime'], row['native_session']) for row in rows if row.get('closed')}
+    included = [saved for saved in rows if include(saved)]
     names = {saved['attempt'] for saved in included}
     receipts = [row for row in pending(db) if row['kind'] in ('wait-finished', 'hold') and row['attempt'] in names]
     for saved in included:

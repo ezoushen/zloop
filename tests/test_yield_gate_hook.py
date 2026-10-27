@@ -682,6 +682,21 @@ console.log(JSON.stringify(await handlers.agent_before_settle(
                                       pane='w1:p2').returncode, 0)
         self.assertEqual(self.check(session='host-1'), [])
 
+    def test_a_name_another_session_once_launched_does_not_hide_a_new_agent_in_another_pane(self):
+        # Rule: another session's launch identifies its agent by pane, which Herdr never reuses; an agent name may be.
+        self.launch('herdr agent start builder --kind codex --pane w1:p5', pane='w1:p2', session='host-2')
+        self.serve(agents=[self.agent('builder', 'w1:p9', self.worktree)])
+        self.assertEqual(self.check(session='host-1'), [self.live('builder', 'w1:p9', self.worktree)])
+
+    def test_a_row_that_cannot_be_read_hides_no_gap_of_the_sessions_own_workers(self):
+        # Rule: a broken row of a shared run state is left out; this session's own workers are still checked.
+        self.live_attempt('ticket-1/1', 'w1:p1', 'host-1')
+        db = sqlite3.connect(self.state)
+        db.execute('INSERT INTO attempts VALUES (?, ?)', ('zz/1', '{not json'))
+        db.commit()
+        db.close()
+        self.assertEqual(self.check(session='host-1'), [f'{self.state}: ticket-1/1: no armed wait'])
+
     def live_attempt(self, attempt, pane, session):
         self.register(f'builder-{attempt[7]}', attempt, pane=pane, session=session)
         self.lifecycle('startup', attempt, pane, observed={'runtime': 'claude', 'model': 'sonnet'},
@@ -1240,6 +1255,16 @@ class StaleTabs(GateRepo):
         self.collect(kind='retain', reason='the repair round reuses this context', next_use='ticket-1 repair',
                      evidence=['review finding F1'])
         self.assertEqual(self.check(pane='w1:p1'), [])
+
+    def test_an_open_tab_holds_only_the_host_session_that_registered_it_in_a_shared_pane(self):
+        # Rule (sessions sharing a folder): as for the gate's findings, the host session decides before the pane.
+        self.lifecycle('register', pane='w1:p1', env={'CLAUDE_CODE_SESSION_ID': 'host-A'}, assignment='ticket-1',
+                       repo=str(self.repo), worktree=str(self.repo), head='head-1', execution=str(self.execution),
+                       runtime='claude', worker='builder-1', native_session='native-1', owned=True,
+                       herdr={'session': 'default'}, packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        self.collect()
+        self.assertEqual(self.check(pane='w1:p1', session='host-B'), [])
+        self.assertEqual(self.check(pane='w1:p1', session='host-A'), [self.gap()])
 
     def test_a_retired_attempt_is_not_checked_for_an_open_tab(self):
         # Decision 4: retirement recorded closure only once Herdr reported its tab gone (`tab_not_found`), so a tab
