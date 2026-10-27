@@ -25,6 +25,14 @@ def card(path, phase='dispatch', session='S', terminal='', confirmed='yes 2026-1
     return path
 
 
+def coordinator(effort, sessions):
+    """The binding `next_tickets.py --coordinate` writes: the session running the effort."""
+    path = effort / 'reports' / 'coordinator.json'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({'pane': 'w1J:p36', 'sessions': sessions, 'autofix': True}))
+    return path
+
+
 def ticket(path, name, status='ready', blocker=None):
     """A local ticket with the front matter the board reads."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -253,7 +261,8 @@ class PanelState(unittest.TestCase):
         os.utime(newer, (later, later))
         found = self.snapshot('S')
         self.assertEqual('omega', found['effort'])
-        self.assertEqual(['omega'], self.row_texts(found, 'headline'))
+        # Nothing binds omega to this session, so the headline says the panel adopted it.
+        self.assertEqual(['omega · adopted'], self.row_texts(found, 'headline'))
 
     def test_a_worktree_checkout_reads_the_main_checkouts_scratch(self):
         card(self.scratch / 'demo' / 'autopilot.md')
@@ -275,6 +284,35 @@ class PanelState(unittest.TestCase):
         path = self.scratch / 'demo' / 'autopilot.md'
         path.write_text(path.read_text().replace('timer:', 'timer: 2026-10-27T06:00Z via zloop_wake'))
         self.assertIn('06:00', self.row_texts(self.snapshot(), 'blocker')[0])
+
+    def test_the_coordinated_effort_wins_over_a_newer_unclaimed_one(self):
+        card(self.scratch / 'alpha' / 'autopilot.md', session='unknown')
+        coordinator(self.scratch / 'alpha', ['S'])
+        newer = self.scratch / 'beta' / 'issues' / '01-a.md'
+        ticket(newer, 'beta/01', status='ready')
+        later = time.time() + 120
+        os.utime(newer, (later, later))
+        self.assertEqual('alpha', self.snapshot('S')['effort'])
+
+    def test_the_coordinated_effort_is_not_marked_adopted(self):
+        card(self.scratch / 'alpha' / 'autopilot.md', session='unknown')
+        coordinator(self.scratch / 'alpha', ['S'])
+        self.assertEqual(['alpha · dispatch'], self.row_texts(self.snapshot('S'), 'headline'))
+
+    def test_an_adopted_effort_says_so(self):
+        card(self.scratch / 'other' / 'autopilot.md', session='unknown')
+        coordinator(self.scratch / 'other', ['someone-else'])
+        ticket(self.scratch / 'beta' / 'issues' / '01-a.md', 'beta/01', status='ready')
+        found = self.snapshot('S')
+        self.assertEqual('beta', found['effort'])
+        self.assertEqual(['beta · adopted'], self.row_texts(found, 'headline'))
+
+    def test_two_sessions_each_see_their_own_effort(self):
+        for slug, session in (('alpha', 'S'), ('beta', 'T')):
+            card(self.scratch / slug / 'autopilot.md', session='unknown')
+            coordinator(self.scratch / slug, [session])
+        self.assertEqual('alpha', self.snapshot('S')['effort'])
+        self.assertEqual('beta', self.snapshot('T')['effort'])
 
 
 if __name__ == '__main__':
