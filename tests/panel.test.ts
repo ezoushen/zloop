@@ -141,7 +141,9 @@ describe("zloop panel", () => {
       { kind: "run", text: "▶ builder · demo/02 · sonnet · quiet 1m" },
       { kind: "wait", text: "result ready · demo/01 · quiet 2m" },
       { kind: "blocker", text: "blocked: demo/04 · no credential" },
+      { kind: "next", text: "next: demo/06" },
       { kind: "counts", text: "1 done · 1 blocked · 1 ready · 1 live" },
+      { kind: "more", text: "+2 more" },
     ];
     beneath(on, snapshot({ rows }));
     await started($);
@@ -154,5 +156,7 @@ describe("zloop panel", () => {
     expect(nodes[2].props.color).toBe("warning");
     expect(nodes[3].props.color).toBe("error");
     expect(nodes[4].props.color).toBe("subtle");
+    expect(nodes[5].props.color).toBe("subtle");
+    expect(nodes[6].props.color).toBe("subtle");
   });
 });

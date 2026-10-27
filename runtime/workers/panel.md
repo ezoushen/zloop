@@ -23,8 +23,8 @@ state file drops only the rows it would have supplied.
 Which effort is this session's: the effort whose `reports/coordinator.json` names this session — the binding
 `next_tickets.py --coordinate` writes — else the run card whose `session:` names it, else the effort holding this
 session's decision journal, else the newest effort no other session claims. So two sessions in one checkout each read
-their own effort. An effort reached only by that last rule was merely adopted, and its headline ends with `adopted`;
-one another session coordinates is never adopted. An effort need not have a card; its tickets, workers or journal are
+their own effort. An effort reached only by that last rule was merely adopted, and its headline is marked `adopted`
+(beside `draft` when the card is unconfirmed); one another session coordinates is never adopted. An effort need not have a card; its tickets, workers or journal are
 enough, and with no card the headline names it alone.
 
 Live means the card is unconfirmed, or an attempt is live, or a blocker is recorded, or the card is still open or

@@ -200,6 +200,8 @@ def bound_sessions(effort):
         saved = json.loads((effort / 'reports' / COORDINATOR).read_text())
     except (OSError, ValueError):
         return None
+    if not isinstance(saved, dict):
+        return None
     sessions = saved.get('sessions')
     return [str(session) for session in sessions] if isinstance(sessions, list) else []
 
@@ -259,7 +261,7 @@ def snapshot(repo, session_id, now):
         return {'active': False, 'effort': effort.name, 'phase': phase, 'draft': draft, 'rows': [], 'strip': None}
     headline = f'{effort.name} · {phase}' if phase else effort.name
     if not bound:
-        headline += ' · adopted' 
+        headline += ' · adopted'
     rows = [{'kind': 'headline', 'text': headline + (' · draft' if draft else '')}]
     running, waiting = [], []
     for age, data, awaiting in attempts:

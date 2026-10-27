@@ -294,6 +294,13 @@ class PanelState(unittest.TestCase):
         os.utime(newer, (later, later))
         self.assertEqual('alpha', self.snapshot('S')['effort'])
 
+    def test_a_binding_that_is_not_an_object_is_unreadable_not_fatal(self):
+        card(self.scratch / 'alpha' / 'autopilot.md', session='unknown')
+        (self.scratch / 'alpha' / 'reports').mkdir(parents=True)
+        (self.scratch / 'alpha' / 'reports' / 'coordinator.json').write_text('[]')
+        ticket(self.scratch / 'beta' / 'issues' / '01-a.md', 'beta/01', status='ready')
+        self.assertEqual('beta', self.snapshot('S')['effort'])
+
     def test_the_coordinated_effort_is_not_marked_adopted(self):
         card(self.scratch / 'alpha' / 'autopilot.md', session='unknown')
         coordinator(self.scratch / 'alpha', ['S'])
@@ -301,8 +308,12 @@ class PanelState(unittest.TestCase):
 
     def test_an_adopted_effort_says_so(self):
         card(self.scratch / 'other' / 'autopilot.md', session='unknown')
-        coordinator(self.scratch / 'other', ['someone-else'])
+        coordinated = coordinator(self.scratch / 'other', ['someone-else'])
         ticket(self.scratch / 'beta' / 'issues' / '01-a.md', 'beta/01', status='ready')
+        # The coordinated effort is the newer one, so only the exclusion can keep this session off it.
+        later = time.time() + 120
+        for path in (coordinated, self.scratch / 'other' / 'autopilot.md'):
+            os.utime(path, (later, later))
         found = self.snapshot('S')
         self.assertEqual('beta', found['effort'])
         self.assertEqual(['beta · adopted'], self.row_texts(found, 'headline'))

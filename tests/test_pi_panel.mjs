@@ -32,6 +32,12 @@ const THEME = {
   style: (text, options) => `<${options.fg}${options.bold ? '+bold' : ''}>${text}</${options.fg}>`,
 };
 const plain = (line) => line.replace(/<\/?[^>]+>/g, "");
+// The cells a line occupies, as the panel counts them: zero-width marks take none, wide characters take two.
+const cells = (line) =>
+  [...line].reduce((total, character) => {
+    if (/[\uFE0E\uFE0F\u200B-\u200F\u2060]/.test(character)) return total;
+    return total + (/[\u{1F000}-\u{1FAFF}\u{20000}-\u{2FFFD}]/u.test(character) ? 2 : 1);
+  }, 0);
 const rendered = (call, width) => call.content({}, THEME).render(width).map(plain);
 
 // Rows draw below the editor, in the snapshot's order, through the factory form that re-renders on a resize.
@@ -123,7 +129,9 @@ const rendered = (call, width) => call.content({}, THEME).render(width).map(plai
     { kind: "run", text: "▶ builder · demo/02 · sonnet · quiet 1m" },
     { kind: "wait", text: "result ready · demo/01 · quiet 2m" },
     { kind: "blocker", text: "blocked: demo/04 · no credential" },
+    { kind: "next", text: "next: demo/06" },
     { kind: "counts", text: "1 done · 1 blocked · 1 ready · 1 live" },
+    { kind: "more", text: "+2 more" },
   ];
   const { calls, ctx } = recording();
   await panel.panelTick(ctx, snapshot(rows, { effort: "toned" }));
@@ -133,8 +141,24 @@ const rendered = (call, width) => call.content({}, THEME).render(width).map(plai
     "▶ builder · demo/02 · sonnet · quiet 1m",
     "<warning>result ready · demo/01 · quiet 2m</warning>",
     "<error>blocked: demo/04 · no credential</error>",
+    "<muted>next: demo/06</muted>",
     "<dim>1 done · 1 blocked · 1 ready · 1 live</dim>",
+    "<dim>+2 more</dim>",
   ]);
 }
 
-console.log("pi panel: 8 cases passed");
+// A toned row is cut before it is styled, so the tone mark wraps exactly the text that remains.
+{
+  const rows = [{ kind: "wait", text: "result ready · demo/01 · quiet 2m" }];
+  const { calls, ctx } = recording();
+  await panel.panelTick(ctx, snapshot(rows, { effort: "narrow" }));
+  const [widget] = widgets(calls);
+  const [raw] = widget.content({}, THEME).render(20);
+  const words = raw.replace(/<\/?[^>]+>/g, "");
+  assert.equal(raw, `<warning>${words}</warning>`, "the mark wraps the cut text, not part of it");
+  assert.ok(words.endsWith("…"), `expected an ellipsis, got ${JSON.stringify(words)}`);
+  assert.ok(words.length < rows[0].text.length, "the row was actually cut");
+  assert.ok(cells(words) <= 20, `expected at most 20 cells, got ${cells(words)}`);
+}
+
+console.log("pi panel: 9 cases passed");
