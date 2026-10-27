@@ -647,6 +647,26 @@ console.log('null');
                        packet=str(support.assignment_file(self.execution.parent, 'ticket')))
         self.assertNotIn(self.gap('builder-1', 'w1:p5'), self.check(pane=None, session='pi-parent'))
 
+    def test_only_a_pi_subagents_child_registers_under_its_parent_session(self):
+        # A Claude session a Pi child started, and a root Pi session with a parent session left in its environment,
+        # each register under their own session, as their launches are logged.
+        child = {'PI_SUBAGENT_CHILD': '1', 'PI_SUBAGENT_PARENT_SESSION': 'pi-parent'}
+        self.launch('herdr agent start builder-1 --kind codex --pane w1:p5', pane=None, session='host-1')
+        self.pi("""
+await handlers.tool_call({ type: 'tool_call', toolCallId: '1', toolName: 'bash',
+  input: { command: 'herdr agent start builder-2 --kind codex --pane w1:p6' } }, ctx);
+console.log('null');
+""", env={'PI_SUBAGENT_PARENT_SESSION': 'pi-stale'})
+        for attempt, worker, env in (('ticket-1/2', 'w1:p5', dict(child, CLAUDE_CODE_SESSION_ID='host-1')),
+                                     ('ticket-1/3', 'w1:p6', {'PI_SUBAGENT_PARENT_SESSION': 'pi-stale',
+                                                              'PI_SESSION_ID': 'pi-1'})):
+            self.lifecycle('register', attempt, None, env=env, assignment='ticket-1', repo=str(self.repo),
+                           worktree=str(self.worktree), head='head-1', execution=str(self.execution), runtime='claude',
+                           worker=worker, native_session=f'native-{attempt}', owned=True,
+                           packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        self.assertNotIn(self.gap('builder-1', 'w1:p5'), self.check(pane=None, session='host-1'))
+        self.assertNotIn(self.gap('builder-2', 'w1:p6'), self.check(pane=None, session='pi-1'))
+
     def test_a_live_agent_in_a_worktree_is_a_gap_until_an_attempt_registers_it(self):
         # Rule 3: an agent nobody logged (started by hand, or before the hook) still holds its workspace's coordinator.
         other = self.repo / '.worktrees/ticket-2'
