@@ -40,11 +40,13 @@ SESSION_VARIABLES = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_I
 
 
 def host_sessions():
-    """The host sessions that answer at stop for what this process does: each one exported, and in a pi-subagents
-    runner child, which is never held, its parent session too, under which Pi's extension logs the child's launches."""
-    sessions = [os.environ[name] for name in SESSION_VARIABLES if os.environ.get(name)]
+    """The host sessions that answer at stop for what this process does: each one exported, and for a pi-subagents
+    runner child's own Pi session, which is never held, its parent session too, under which Pi's extension logs the
+    child's launches. A Claude or Codex session the child started answers for itself."""
+    names = [name for name in SESSION_VARIABLES if os.environ.get(name)]
+    sessions = [os.environ[name] for name in names]
     parent = os.environ.get('PI_SUBAGENT_PARENT_SESSION', '').strip()
-    if os.environ.get('PI_SUBAGENT_CHILD') == '1' and parent:
+    if names[:1] == ['PI_SESSION_ID'] and os.environ.get('PI_SUBAGENT_CHILD') == '1' and parent:
         sessions.append(parent)
     return sessions
 

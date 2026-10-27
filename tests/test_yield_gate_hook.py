@@ -688,6 +688,13 @@ console.log('null');
                            packet=str(support.assignment_file(self.execution.parent, 'ticket')))
         self.assertNotIn(self.gap('builder-1', 'w1:p5'), self.check(pane=None, session='host-1'))
         self.assertNotIn(self.gap('builder-2', 'w1:p6'), self.check(pane=None, session='pi-1'))
+        # Neither session's worker holds the Pi parent, which launched neither.
+        claude = dict(child, CLAUDE_CODE_SESSION_ID='host-1')
+        self.lifecycle('startup', 'ticket-1/2', None, env=claude, observed={'runtime': 'claude', 'model': 'sonnet'},
+                       evidence=['native.jsonl:1'])
+        self.lifecycle('submitted', 'ticket-1/2', None, env=claude, evidence=['native.jsonl:2:accepted prompt'])
+        self.assertTrue(any('ticket-1/2' in gap for gap in self.check(pane=None, session='host-1')))
+        self.assertFalse([gap for gap in self.check(pane=None, session='pi-parent') if 'ticket-1/' in gap])
 
     def test_a_live_agent_in_a_worktree_is_a_gap_until_an_attempt_registers_it(self):
         # Rule 3: an agent nobody logged (started by hand, or before the hook) still holds its workspace's coordinator.
