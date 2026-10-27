@@ -26,7 +26,9 @@ export default {
     // ends, so a gap the agent cannot clear never loops. A turn end published before then is an older turn the hold
     // already covers. Shared by the plugin's setups for every directory, so a session moved while held keeps its hold.
     const held = (globalThis[Symbol.for("zloop.opencode.held")] ??= new Map());
-    const hold = (sessionID, at) => held.set(sessionID, { at, by: stop });
+    const hold = (sessionID, at, claimed) => held.set(sessionID, { at, by: stop, claimed });
+    // A setup releases only its own claim: another setup may hold the session by now.
+    const release = (sessionID) => held.get(sessionID)?.by === stop && held.delete(sessionID);
     void (async () => {
       for await (const event of ctx.event.subscribe({ signal: stop.signal })) {
         if (!ENDS.has(event.type)) continue;
@@ -37,18 +39,21 @@ export default {
         } catch {
           continue;  // The session is gone: there is no turn left to hold.
         }
+        if (stop.signal.aborted) break;  // Replaced while it looked: the replacement answers from here.
         // OpenCode sets the plugin up once per directory and sends each every session's events: only the session's own
         // directory answers for it.
         if (resolve(info.location.directory) !== resolve(ctx.location.directory)) continue;
-        if (held.has(sessionID)) {
-          if ((event.created ?? Infinity) >= held.get(sessionID).at) held.delete(sessionID);
+        const entry = held.get(sessionID);
+        // A turn end newer than the one a setup is still checking is checked in its own right.
+        if (entry && !(entry.at === Infinity && (event.created ?? Infinity) > entry.claimed)) {
+          if ((event.created ?? Infinity) >= entry.at) held.delete(sessionID);
           continue;
         }
         // A subagent's child session is not held for its parent's gaps; the parent's own turn end answers for them.
         if (event.type !== "session.execution.succeeded" || info.parentID || process.env.ZLOOP_YIELD_HOOK === "off") {
           continue;
         }
-        hold(sessionID, Infinity);  // Claimed while it is checked, so a setup it moves to meanwhile skips it.
+        hold(sessionID, Infinity, event.created);  // Claimed while checked, so a setup it moves to skips this turn end.
         let gate;
         try {
           gate = await check(info.location.directory, sessionID);
@@ -60,8 +65,8 @@ export default {
               + "`ZLOOP_YIELD_HOOK=off` for this stop.",
           };
         }
-        if (!gate.missing.length) {
-          held.delete(sessionID);
+        if (stop.signal.aborted || !gate.missing.length) {
+          release(sessionID);
           continue;
         }
         try {
@@ -69,7 +74,7 @@ export default {
           const message = await ctx.session.prompt({ sessionID, text: gate.reason });
           hold(sessionID, message?.time?.created ?? sent);
         } catch {
-          held.delete(sessionID);  // The session or server is gone: there is no turn left to hold.
+          release(sessionID);  // The session or server is gone: there is no turn left to hold.
         }
       }
     })();
@@ -92,7 +97,7 @@ export default {
     return async () => {
       stop.abort();
       // The turns this setup held may end unseen once it is gone, so its replacement checks them again.
-      for (const [sessionID, { by }] of held) if (by === stop) held.delete(sessionID);
+      for (const sessionID of held.keys()) release(sessionID);
       await launches.dispose();
     };
   },

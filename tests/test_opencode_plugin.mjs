@@ -45,6 +45,8 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   const subscribers = new Set();
   const sent = [];
   let admitted = 0;
+  // Set to refuse, or to admit after another delay, the prompts sent from then on.
+  const control = { refuse: false, admission: undefined };
   const hooks = {};
   const ctx = {
     location: { directory: repo },
@@ -68,8 +70,10 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
       // OpenCode runs its prompt hooks before it admits the message, and stamps the message when it does.
       prompt: async (input) => {
         sent.push(input);
-        await new Promise((done) => setTimeout(done, admission));
+        const refused = control.refuse;
+        await new Promise((done) => setTimeout(done, control.admission ?? admission));
         admitted += 1;
+        if (refused) throw new Error("session gone");
         return { id: `msg_${sent.length}`, time: { created: Date.now() }, delivery: "steer" };
       },
     },
@@ -101,7 +105,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
       return ctx.session.get(input);
     } },
   });
-  return { repo, end, sent, hooks, push, holds, settle, cleanup, elsewhere };
+  return { repo, end, sent, hooks, push, holds, settle, cleanup, elsewhere, control };
 }
 
 {
@@ -161,8 +165,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   await host.settle();
   assert.equal(host.holds("ses_v"), 1);
   host.push("succeeded", "ses_v");
-  await host.settle();
-  assert.equal(host.holds("ses_v"), 2, "the next turn is checked");
+  await until(() => host.holds("ses_v") === 2, "the next turn's check where the session now is");
   await other();
   await host.cleanup();
 }
@@ -180,6 +183,40 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   assert.equal(host.holds("ses_w"), 1);
   await other();
   await host.cleanup();
+}
+
+{
+  // A newer turn that ends where the session moved, while its older turn is still checked, is checked in its own right.
+  const written = {};
+  const host = await load([], {}, 0, written);
+  const there = checkout(["ses_n"]);
+  const other = await host.elsewhere(there);
+  host.push("succeeded", "ses_n");  // Checked where it was, with no gap there.
+  setTimeout(() => {
+    written.ses_n = there;
+    host.push("succeeded", "ses_n");
+  }, 10);
+  await until(() => host.holds("ses_n") === 1, "the newer turn's hold");
+  await other();
+  await host.cleanup();
+}
+
+{
+  // A setup that is replaced while its hold is admitted, and whose prompt then fails, leaves its replacement's hold alone.
+  const host = await load(["ses_y"]);
+  Object.assign(host.control, { refuse: true, admission: 600 });
+  host.push("succeeded", "ses_y");
+  await until(() => host.holds("ses_y") === 1, "the first hold to be sent");
+  await host.cleanup();
+  Object.assign(host.control, { refuse: false, admission: undefined });
+  const again = await host.elsewhere(host.repo);
+  host.push("succeeded", "ses_y");  // A newer turn, held by the replacement.
+  await until(() => host.holds("ses_y") === 2, "the replacement's hold");
+  await new Promise((done) => setTimeout(done, 700));  // The replaced setup's prompt has failed by now.
+  host.push("succeeded", "ses_y");  // The held turn's end.
+  await host.settle();
+  assert.equal(host.holds("ses_y"), 2);
+  await again();
 }
 
 {
