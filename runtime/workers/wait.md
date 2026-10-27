@@ -67,13 +67,19 @@ undelivered receipt; fix those first. On Claude Code and Codex (Stop hooks), Pi
 (extension) and OpenCode (plugin, once the turn has ended) the plugin also runs it when
 you stop, over runs active in the last day, and sends you back once. `ZLOOP_YIELD_HOOK=off` disables the hooks. The stop check holds:
 
-- for the gate's findings, only the Herdr pane that registered the worker or, outside
-  Herdr, sessions that are not inside a worker's own worktree;
+- for the gate's findings, only the session that registered the worker (its host session,
+  else its Herdr pane); for a worker that recorded neither, the session bound to coordinate
+  its effort, unless that session is inside a worker's own worktree. Several sessions can
+  share one checkout: another session's workers, launches and run states never hold this
+  one. A run-state row the lifecycle does not write, or a state that cannot be read, is
+  left out of every check and named only to the session bound to its effort (a malformed
+  row also to the session it records);
 - every session, however old the run, for each Herdr launch it logged
   ([launch log](prepare.md)) into `.worktrees/` or a cwd Herdr did not report, and,
   unless its launch marked it a worker (`ZLOOP_WORKER`, as [prepare](prepare.md) says) and
   it is inside Herdr, for each other live agent of its workspace whose cwd is in
-  `.worktrees/` (none when the checkout has no `.worktrees/`). The hold lasts while no
+  `.worktrees/` and whose launch no other session logged (none when the checkout has no
+  `.worktrees/`). The hold lasts while no
   attempt names that pane or agent (alone or in a `<session>/<pane>/<name>` handle) and
   none of the session's dismissals accounts for it. For a launch, the naming attempt is
   never one another host session registered when it and the launch's coordinator both

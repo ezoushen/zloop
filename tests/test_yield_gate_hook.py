@@ -217,21 +217,40 @@ class YieldGateHook(GateRepo):
         self.serve(fail='connection refused')
         self.assertEqual(self.check(), [f'{self.state}: ticket-1/1: no armed wait'])
 
-    def test_an_attempt_recorded_without_a_worktree_does_not_break_the_check(self):
-        # Rule: a run state written by hand (a demo or fixture) may hold an attempt with no worktree. It cannot make
-        # this session a worker, and it never stops the other runs' gaps from being checked.
+    def test_malformed_attempt_rows_are_named_only_to_their_efforts_coordinator_and_break_no_check(self):
+        # Rule: a run state written by hand (a demo or fixture) may hold rows the lifecycle never writes. Each is left
+        # out of every check and named only to the session bound to its effort, so it neither breaks nor holds another
+        # session's check; a row with no worktree but otherwise whole is an ordinary attempt.
         other = self.repo / '.scratch/demo/reports/workers.sqlite'
         other.parent.mkdir(parents=True)
         db = sqlite3.connect(other)
         db.execute('CREATE TABLE attempts (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
         db.execute('CREATE TABLE events (id INTEGER PRIMARY KEY, attempt TEXT NOT NULL, kind TEXT NOT NULL, '
                    'payload TEXT NOT NULL, acknowledged INTEGER NOT NULL)')
-        db.execute('INSERT INTO attempts VALUES (?, ?)', ('demo/1', json.dumps(
-            {'attempt': 'demo/1', 'assignment': 'demo/01', 'repo': str(self.repo), 'runtime': 'claude',
-             'native_session': 'demo-a', 'worker': 'w-demo-a', 'owned': True})))
+        whole = {'attempt': 'demo/1', 'assignment': 'demo/01', 'repo': str(self.repo), 'runtime': 'claude',
+                 'native_session': 'demo-a', 'worker': 'w-demo-a', 'owned': True}
+        rows = {'demo/1': whole,
+                'demo/2': {key: value for key, value in whole.items() if key != 'worker'},
+                'demo/3': {key: value for key, value in whole.items() if key != 'attempt'},
+                'demo/4': dict({key: value for key, value in whole.items() if key != 'runtime'}, closed=True),
+                'demo/5': dict(whole, attempt='demo/5', worktree=7),
+                'demo/6': dict(whole, attempt='demo/6', herdr={'tab_id': 'w1:t1'}, result={'status': 'completed'},
+                               coordinator='w1:p7')}
+        db.executemany('INSERT INTO attempts VALUES (?, ?)', [(key, json.dumps(row)) for key, row in rows.items()])
+        db.execute('INSERT INTO events VALUES (1, ?, ?, ?, 0)', ('demo/1', 'register', json.dumps({})))
         db.commit()
         db.close()
+        old = time.time() - 3 * 24 * 3600
+        os.utime(other, (old, old))  # However old the state, it holds no other session.
         self.assertEqual(self.check(), [f'{self.state}: ticket-1/1: no armed wait'])
+        ticket = self.repo / '.scratch/demo/issues/01-task.md'
+        ticket.parent.mkdir(parents=True)
+        ticket.write_text('---\nticket: demo/01\nstatus: ready\nblocked_by: []\ntouches: [t01]\ndevices: []\n---\n')
+        self.bind(pane=None, slug='demo', CLAUDE_CODE_SESSION_ID='host-9')
+        os.utime(other, (old, old))
+        self.assertEqual(self.check(pane=None, session='host-9'),
+                         [f'{other}: attempt row {key} is malformed; fix or remove it'
+                          for key in ('demo/2', 'demo/3', 'demo/4', 'demo/5', 'demo/6')])
 
     def test_codex_uses_the_same_stop_protocol(self):
         self.assertEqual(self.stop(host='codex')['decision'], 'block')
@@ -250,7 +269,9 @@ class YieldGateHook(GateRepo):
                        worker='pane-2', native_session='native-2', owned=True,
                        packet=str(support.assignment_file(execution.parent, 'ticket')))
         self.assertIsNone(self.stop(cwd=worktree, pane=None))
-        self.assertEqual(self.stop(pane=None)['decision'], 'block')
+        # ticket-1/1 holds the pane that registered it, not a session elsewhere.
+        self.assertEqual(self.stop()['decision'], 'block')
+        self.assertIsNone(self.stop(pane=None))
 
     def test_runs_idle_for_a_day_and_other_directories_are_not_checked(self):
         before = self.state.stat().st_mtime
@@ -649,6 +670,45 @@ console.log(JSON.stringify(await handlers.agent_before_settle(
         # Outside Herdr only the launch host-1 logged is named, not the workspace's live agents.
         self.assertEqual(self.check(pane=None, session='host-1'), [self.gap('builder-1', 'w1:p5')])
 
+    def test_a_live_agent_another_coordinator_launched_holds_only_that_coordinator(self):
+        # Rule (sessions sharing a folder): an agent whose launch another session logged is that session's worker, not
+        # a sibling of every coordinator in the Herdr workspace.
+        self.launch('herdr agent start panel-1 --kind codex --pane w1:p5', pane='w1:p2', session='host-2')
+        self.serve(agents=[self.agent('panel-1', 'w1:p5', self.worktree)])
+        self.assertEqual(self.check(session='host-1'), [])
+        self.assertEqual(self.check(pane='w1:p2', session='host-2'), [self.gap('panel-1', 'w1:p5')])
+        # Its coordinator dismissing it hands it to nobody else.
+        self.assertEqual(self.dismiss('--pane', 'w1:p5', '--session', 'host-2', '--reason', 'a demo pane',
+                                      pane='w1:p2').returncode, 0)
+        self.assertEqual(self.check(session='host-1'), [])
+
+    def live_attempt(self, attempt, pane, session):
+        self.register(f'builder-{attempt[7]}', attempt, pane=pane, session=session)
+        self.lifecycle('startup', attempt, pane, observed={'runtime': 'claude', 'model': 'sonnet'},
+                       evidence=['native.jsonl:1'])
+        self.lifecycle('submitted', attempt, pane, evidence=['native.jsonl:2:accepted prompt'])
+
+    def test_a_workers_lifecycle_gaps_hold_only_the_session_that_registered_it(self):
+        # Rule (sessions sharing a folder): another session's worker never holds this session, in Herdr or outside it.
+        self.live_attempt('ticket-1/1', 'w1:p1', 'host-1')
+        mine = [f'{self.state}: ticket-1/1: no armed wait']
+        self.assertEqual(self.check(session='host-1'), mine)
+        self.assertEqual(self.check(pane=None, session='host-1'), mine)
+        self.assertEqual(self.check(pane='w1:p2', session='host-2'), [])
+        self.assertEqual(self.check(pane=None, session='host-2'), [])
+
+    def test_a_worker_registered_without_a_coordinator_holds_only_the_session_bound_to_its_effort(self):
+        # Rule: with no pane and no host session recorded, the effort's bound coordinator answers for the worker; a
+        # session bound to no effort, or to another, is not held for it.
+        self.live_attempt('ticket-1/1', None, None)
+        self.assertEqual(self.check(pane=None, session='host-2'), [])
+        ticket = self.repo / '.scratch/effort/issues/01-task.md'
+        ticket.parent.mkdir(parents=True)
+        ticket.write_text('---\nticket: effort/01\nstatus: ready\nblocked_by: []\ntouches: [t01]\ndevices: []\n---\n')
+        self.bind(pane=None, slug='effort', CLAUDE_CODE_SESSION_ID='host-3')
+        self.assertEqual(self.check(pane=None, session='host-3'), [f'{self.state}: ticket-1/1: no armed wait'])
+        self.assertEqual(self.check(pane=None, session='host-2'), [])
+
     def test_an_unmarked_worker_in_its_registered_worktree_is_not_held_for_the_runs_lifecycle_gaps(self):
         # Re-review 3 (main's rule, restored for the lifecycle gaps): a session whose cwd is inside a worktree an
         # attempt registered is that worker, marked or not. Probe: a native worker outside Herdr, unmarked.
@@ -660,7 +720,7 @@ console.log(JSON.stringify(await handlers.agent_before_settle(
                            evidence=['native.jsonl:1'])
             self.lifecycle('submitted', attempt, evidence=['native.jsonl:2:accepted prompt'])
         self.assertEqual(self.check(cwd=self.worktree, pane=None, session='native-child'), [])
-        self.assertEqual(self.check(pane=None, session='host-1'),
+        self.assertEqual(self.check(session='host-1'),
                          [f'{self.state}: ticket-1/1: no armed wait', f'{self.state}: ticket-2/1: no armed wait'])
 
     def test_a_marked_worker_answers_for_its_own_launches_but_not_its_siblings_wherever_it_runs(self):

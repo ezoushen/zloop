@@ -79,7 +79,7 @@ def get(db, attempt):
 
 
 def closed_sessions(db):
-    return {(row['runtime'], row['native_session']): row for row in attempts(db) if row.get('closed')}
+    return {(row.get('runtime'), row.get('native_session')): row for row in attempts(db) if row.get('closed')}
 
 
 def final_retirement(db, saved, declined=False):

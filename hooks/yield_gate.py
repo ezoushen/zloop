@@ -3,10 +3,13 @@
 
 Reads every run's workers.sqlite under the main checkout's .scratch/*/reports/ that
 changed in the last day, without writing to it, and applies the lifecycle's yield
-gate. Every session is also held for each Herdr launch it logged (hooks/herdr_launch.py)
+gate to the workers this session registered (by host session, else pane), or, for one that
+recorded neither, to the session bound to coordinate its effort. Sessions share the checkout:
+another session's workers, launches and run states never hold this one, and a row or state
+that cannot be read is named only to its effort's bound session. Every session is also held for each Herdr launch it logged (hooks/herdr_launch.py)
 into a ticket worktree that no attempt accounts for and it did not dismiss; one without
 ZLOOP_WORKER, the marker every worker is launched with, also for each other such live
-agent of its Herdr workspace. The session bound to coordinate an effort (next_tickets.py
+agent of its Herdr workspace that no other session logged. The session bound to coordinate an effort (next_tickets.py
 --coordinate; without one, the pane that registered the attempt) is held for each collected
 attempt, neither retained nor retired, whose Herdr tab is still open, and for an effort whose
 review report (before it records one, the binding) records autofix: true and no blocker, with
@@ -76,26 +79,95 @@ def gaps(cwd, session=None):
     cwd, pane = Path(cwd).resolve(), os.environ.get('HERDR_PANE_ID')
     module, missing = None, []
     for state in sorted(root.glob('.scratch/*/reports/workers.sqlite')):
+        # Sessions share the folder: a worker holds only the session that registered it, by host session before pane;
+        # one registered with neither recorded, and a row or state that cannot be read, the session bound to
+        # coordinate its effort.
+        bound = read_binding(state.with_name(BINDING), pane, session)[1]
+        try:
+            saved_attempts, malformed, _ = read_state(state)
+        except Exception as error:
+            missing += [f'{state}: cannot be read ({error}); fix or remove it'] if bound else []
+            continue
+        missing += [f'{state}: attempt row {key} is malformed; fix or remove it' for key, saved in malformed
+                    if bound or (isinstance(saved, dict) and attributed(saved) and owns(saved, pane, session))]
         if time.time() - state.stat().st_mtime > RECENT_SECONDS:
             continue
         module = module or lifecycle()
+        # A session inside a worker's own worktree is that worker, not its coordinator.
+        worker = any(Path(saved['worktree']) != root and cwd.is_relative_to(saved['worktree'])
+                     for saved in saved_attempts if 'worktree' in saved)
+
+        def coordinated(saved):
+            if not well_formed(saved):
+                return False
+            return owns(saved, pane, session) if attributed(saved) else bound and not worker
         db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
         try:
-            # A session inside a worker's own worktree is that worker, not its coordinator. An attempt written by hand
-            # without a worktree places no session.
-            worker = any(saved.get('worktree') and Path(saved['worktree']) != root
-                         and cwd.is_relative_to(saved['worktree']) for saved in module.attempts(db))
-
-            def coordinated(saved):
-                if pane and saved.get('coordinator'):
-                    return saved['coordinator'] == pane
-                return not worker
             missing += [f'{state}: {gap}' for gap in module.yield_gaps(db, coordinated)]
+        except Exception as error:
+            missing += [f'{state}: cannot be read ({error}); fix or remove it'] if bound else []
         finally:
             db.close()
     # Every session answers for its own launches; a worker (its launch set ZLOOP_WORKER) not for its siblings.
     return (missing + unregistered(root, pane, session, siblings=not os.environ.get('ZLOOP_WORKER')),
             stale_tabs(root, pane, session) + undelivered(root, pane, session) + unfinished_runs(root, session))
+
+
+def read_state(state):
+    """(well-formed attempts, (row id, data) of each malformed row, each attempt's registration time) of a run state.
+    Raises when the state cannot be read."""
+    db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
+    try:
+        rows = db.execute('SELECT id, data FROM attempts ORDER BY id').fetchall()
+        events = db.execute("SELECT attempt, payload FROM events WHERE kind = 'register'").fetchall()
+    finally:
+        db.close()
+    saved_attempts, malformed, registered = [], [], {}
+    for key, data in rows:
+        try:
+            saved = json.loads(data)
+        except ValueError:
+            saved = None
+        if well_formed(saved):
+            saved_attempts.append(saved)
+        else:
+            malformed.append((key, saved))
+    for attempt, payload in events:
+        try:
+            registered[attempt] = json.loads(payload)['recorded_at']
+        except (ValueError, TypeError, KeyError):
+            pass
+    return saved_attempts, malformed, registered
+
+
+def well_formed(saved):
+    """Whether an attempt row has the shape the lifecycle writes, as far as the stop checks read it."""
+    text = lambda value: isinstance(value, str) and value != ''
+    if not (isinstance(saved, dict) and all(text(saved.get(key)) for key in ('attempt', 'worker', 'runtime',
+                                                                              'native_session'))):
+        return False
+    if 'worktree' in saved and not (text(saved['worktree']) and Path(saved['worktree']).is_absolute()):
+        return False
+    if any(key in saved and saved[key] is not None and not text(saved[key]) for key in ('coordinator', 'session')):
+        return False
+    herdr, monitor = saved.get('herdr'), saved.get('monitor')
+    if herdr is not None and not (isinstance(herdr, dict)
+                                  and all(text(herdr.get(key)) for key in ('session', 'workspace_id', 'tab_id'))):
+        return False
+    if monitor is not None and not (isinstance(monitor, dict) and (
+            monitor.get('state') != 'running' or (isinstance(monitor.get('pid'), int) and 'stamp' in monitor))):
+        return False
+    return True
+
+
+def attributed(saved):
+    """Whether an attempt recorded the session or pane that registered it."""
+    return bool(saved.get('session') or saved.get('coordinator'))
+
+
+def owns(saved, pane, session):
+    """Whether this session registered the attempt: by host session before pane."""
+    return same_coordinator({'pane': saved.get('coordinator'), 'session': saved.get('session')}, pane, session)
 
 
 def card_state(path):
@@ -132,17 +204,15 @@ def unfinished_runs(root, session):
 def stale_tabs(root, pane, session):
     """Name each collected attempt, neither retained nor retired, whose recorded Herdr tab its session still lists, for
     the session bound to coordinate its effort or, with none bound, the pane that registered it, however old the run."""
-    module, listed, missing = None, {}, []
+    listed, missing = {}, []
     for state in sorted(root.glob('.scratch/*/reports/workers.sqlite')):
-        module = module or lifecycle()
         # An unreadable binding decides nothing here (undelivered names it); the registering pane does.
         binding, mine = read_binding(state.with_name(BINDING), pane, session)
         bound = mine if binding else None
-        db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
         try:
-            saved_attempts = module.attempts(db)
-        finally:
-            db.close()
+            saved_attempts = read_state(state)[0]
+        except Exception:  # gaps() names a state that cannot be read to its effort's coordinator.
+            continue
         for saved in saved_attempts:
             herdr = saved.get('herdr') or {}
             mine = bound if bound is not None else bool(pane) and saved.get('coordinator') == pane
@@ -229,11 +299,11 @@ def awaited(state):
     if not state.is_file():
         return False
     module = lifecycle()
-    db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
     try:
-        closed, saved_attempts = module.closed_sessions(db), module.attempts(db)
-    finally:
-        db.close()
+        saved_attempts = read_state(state)[0]
+    except Exception:  # A state that cannot be read shows no running wait.
+        return False
+    closed = {(saved['runtime'], saved['native_session']) for saved in saved_attempts if saved.get('closed')}
     return any((saved.get('submitted') or saved.get('submission_requested')) and not saved.get('result')
                and (saved['runtime'], saved['native_session']) not in closed and module.watching(saved)
                and module.process_stamp(saved['monitor']['pid']) == saved['monitor']['stamp']
@@ -331,16 +401,13 @@ def unregistered(root, pane, session, siblings=True):
     launch it logged into a ticket worktree or an unknown cwd (an attempt of another host session never accounts for
     it when both know one), with `siblings` each other live agent in a ticket worktree of its Herdr workspace; and
     each unreadable log line."""
-    module, attempts = None, []
+    attempts = []
     for state in root.glob('.scratch/*/reports/workers.sqlite'):
-        module = module or lifecycle()
-        db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
         try:
-            registered = {row[0]: json.loads(row[1])['recorded_at']
-                          for row in db.execute("SELECT attempt, payload FROM events WHERE kind = 'register'")}
-            attempts += [dict(saved, registered_at=registered.get(saved['attempt'])) for saved in module.attempts(db)]
-        finally:
-            db.close()
+            saved_attempts, _, registered = read_state(state)
+        except Exception:  # gaps() names a state that cannot be read to its effort's coordinator.
+            continue
+        attempts += [dict(saved, registered_at=registered.get(saved['attempt'])) for saved in saved_attempts]
     workers = {handle for saved in attempts for handle in handles(saved['worker'])}
     log, worktrees = root / LAUNCHES, (root / '.worktrees').resolve()
     records, unreadable = [], []
@@ -361,6 +428,10 @@ def unregistered(root, pane, session, siblings=True):
                         or not same_coordinator(launch['coordinator'], record['by']['pane'], record['by']['session'])]
         else:
             launches.append(record)
+    # Another coordinator's logged launch, dismissed or not, is that session's worker, never a live sibling of this one.
+    workers |= {handle for record in records if 'dismissed' not in record
+                and not same_coordinator(record['coordinator'], pane, session)
+                for handle in (record['agent'], record['pane'])}
     launches = [launch for launch in launches if same_coordinator(launch['coordinator'], pane, session)
                 and not any(clears(saved, launch) for saved in attempts)
                 and ('cwd' not in launch or Path(launch['cwd']).resolve().is_relative_to(worktrees))]
