@@ -3,6 +3,7 @@
 
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import stat
@@ -88,16 +89,48 @@ class CapabilityProbe(unittest.TestCase):
         self.assertEqual(status, 'unavailable', evidence)
         self.assertIn('read back without the setuid bit', evidence)
 
-    def test_repo_write_is_unavailable_when_the_common_git_dir_refuses_writes_the_worktree_git_dir_takes(self):
-        # Rule: a commit writes objects and refs into the repository's common git dir, so repo-write is available only
-        # when that dir takes writes too, not only the linked worktree's own git dir.
-        self.stub_all(True)
-        objects = self.common / 'objects'
-        objects.chmod(0o555)
-        self.addCleanup(objects.chmod, 0o755)
-        report = self.probe()
-        self.assertEqual(report['repo-write']['status'], 'unavailable', report['repo-write'])
-        self.assertIn(f'cannot create a file in {objects}', report['repo-write']['evidence'])
+    def real_worktree(self, *init):
+        """A linked worktree of a real repository with one commit, probed with the real git."""
+        (self.bin / 'git').unlink(missing_ok=True)
+        (self.bin / 'git').symlink_to(shutil.which('git'))
+        main = self.root / 'main'
+        git = ['git', '-c', 'user.name=t', '-c', 'user.email=t@t']
+        subprocess.run([*git, 'init', '-q', '-b', 'main', *init, str(main)], check=True)
+        subprocess.run([*git, '-C', str(main), 'commit', '-q', '--allow-empty', '-m', 'one'], check=True)
+        subprocess.run([*git, '-C', str(main), 'worktree', 'add', '-q', str(self.root / 'linked')], check=True)
+        return main / '.git'
+
+    def probe_in(self, cwd):
+        process = subprocess.run([sys.executable, '-B', str(PROBE)], capture_output=True, text=True,
+                                 env=dict(os.environ, PATH=str(self.bin)), cwd=cwd)
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        return json.loads(process.stdout)['repo-write']
+
+    def read_only(self, path):
+        path.chmod(0o555)
+        self.addCleanup(path.chmod, 0o755)
+
+    def test_repo_write_is_unavailable_when_the_branch_refs_of_the_common_git_dir_refuse_writes(self):
+        # Rule: a commit writes its branch ref into the repository's common git dir, so repo-write is available only
+        # when that write succeeds, not only when the linked worktree's own git dir takes a file.
+        common = self.real_worktree()
+        self.read_only(common / 'refs' / 'heads')
+        result = self.probe_in(self.root / 'linked')
+        self.assertEqual(result['status'], 'unavailable', result)
+
+    def test_repo_write_is_unavailable_when_a_reftable_store_refuses_writes(self):
+        # Rule: a repository may keep its refs outside refs/; the probe judges the store git actually writes.
+        common = self.real_worktree('--ref-format=reftable')
+        self.read_only(common / 'reftable')
+        result = self.probe_in(self.root / 'linked')
+        self.assertEqual(result['status'], 'unavailable', result)
+
+    def test_repo_write_in_a_writable_linked_worktree_is_available_and_leaves_no_probe_branch(self):
+        common = self.real_worktree()
+        result = self.probe_in(self.root / 'linked')
+        self.assertEqual(result['status'], 'available', result)
+        branches = subprocess.run(['git', '--git-dir', str(common), 'branch', '--list'], capture_output=True, text=True, check=True)
+        self.assertEqual(branches.stdout.split(), ['+', 'linked', '*', 'main'])
 
     def test_the_report_names_the_worktree_it_was_taken_in(self):
         self.assertEqual(self.probe()['worktree'], str(self.root.resolve()))

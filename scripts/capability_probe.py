@@ -14,18 +14,19 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import time
 
 NEEDS = ('network', 'docker', 'setuid', 'repo-write', 'dev-fd')  # What a ticket's `needs:` may name.
 TIMEOUT = 15  # seconds one probe command may run
 
 
-def run(argv):
+def run(argv, stdin=''):
     """The finished command, or the reason it could not run."""
     path = shutil.which(argv[0])
     if not path:
         return None, f'{argv[0]} is not on PATH'
     try:
-        return subprocess.run([path, *argv[1:]], capture_output=True, text=True, timeout=TIMEOUT), None
+        return subprocess.run([path, *argv[1:]], input=stdin, capture_output=True, text=True, timeout=TIMEOUT), None
     except (OSError, subprocess.TimeoutExpired) as error:
         return None, f'{" ".join(argv)} could not run: {error}'
 
@@ -69,21 +70,31 @@ def dev_fd(process):
 
 
 def repo_write():
-    """A commit writes the worktree's own git dir (index, HEAD) and the common dir's objects and refs, so each must
-    take a file."""
-    argv = ['git', 'rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir']
-    process, why = run(argv)
+    """Write as a commit does: a file in the worktree's git dir (its index), then a commit object and a branch ref through
+    git, so the repository's object and ref stores are judged wherever and however they are kept. The ref is deleted
+    again; the unreferenced commit object stays until git prunes it."""
+    process, why = run(['git', 'rev-parse', '--absolute-git-dir'])
     if why or process.returncode:
-        return 'unknown', why or f'`{" ".join(argv)}` exited {process.returncode}: {detail(process)}'
-    git_dir, common = process.stdout.split('\n')[:2]
-    dirs = list(dict.fromkeys([git_dir, str(Path(common) / 'objects'), str(Path(common) / 'refs')]))
-    for path in dirs:
-        try:
-            with tempfile.NamedTemporaryFile(dir=path):
-                pass
-        except OSError as error:
-            return 'unavailable', f'cannot create a file in {path}: {error}'
-    return 'available', f'created and removed a file in {", ".join(dirs)}'
+        return 'unknown', why or f'`git rev-parse --absolute-git-dir` exited {process.returncode}: {detail(process)}'
+    git_dir = process.stdout.strip()
+    try:
+        with tempfile.NamedTemporaryFile(dir=git_dir):
+            pass
+    except OSError as error:
+        return 'unavailable', f'cannot create a file in {git_dir}: {error}'
+    ref = f'refs/heads/zloop-probe-{os.getpid()}'
+    identity = ['-c', 'user.name=zloop probe', '-c', 'user.email=probe@zloop.invalid']
+    steps = [['git', 'mktree'], ['git', *identity, 'commit-tree', '{}', '-m', f'zloop capability probe {time.time()}'],
+             ['git', 'update-ref', ref, '{}'], ['git', 'update-ref', '-d', ref]]
+    value = ''
+    for step in steps:
+        argv = [value if arg == '{}' else arg for arg in step]
+        process, why = run(argv)
+        if why or process.returncode:
+            shown = ' '.join(argv[:1] + [arg for arg in argv[1:] if arg not in identity])
+            return ('unknown', why) if why else ('unavailable', f'`{shown}` exited {process.returncode}: {detail(process)}')
+        value = process.stdout.strip() or value
+    return 'available', f'created a file in {git_dir}, and a commit and the branch ref {ref}, then deleted the ref'
 
 
 def ticket_needs(ticket):
