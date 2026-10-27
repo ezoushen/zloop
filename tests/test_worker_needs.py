@@ -118,6 +118,14 @@ class CollectionNeeds(WorkerLifecycleCase):
         refused = self.complete(packet, code=2)
         self.assertIn('The ticket needs docker: no probe of this worktree in the result evidence', refused)
 
+    def test_a_local_tickets_needs_hold_when_the_assignment_goes_before_collection(self):
+        refused = self.complete(self.ticket(['docker']), code=2, after_register=lambda packet: packet.unlink())
+        self.assertIn('The ticket needs docker: no probe of this worktree in the result evidence', refused)
+
+    def test_an_unknown_need_is_not_met_even_when_a_probe_claims_it(self):
+        refused = self.complete(self.ticket(['gpu']), probe(self.root, gpu='available'), code=2)
+        self.assertIn('The ticket needs gpu: it is not a capability the probe checks', refused)
+
     def test_a_local_tickets_needs_count_even_when_its_assignment_names_others(self):
         # Both lists count, named in the probe's vocabulary order.
         refused = self.complete(self.ticket(['docker'], assigned=['network']), probe(self.root, setuid='available'),
@@ -149,6 +157,17 @@ class RegistrationNeeds(WorkerLifecycleCase):
     def test_an_assignment_need_outside_the_probe_vocabulary_is_refused_naming_the_allowed_needs(self):
         refused = self.register(packet=str(self.packet_with('needs: [docker, gpu]')), code=2)
         self.assertIn("needs 'gpu' is not one of network, docker, setuid, repo-write, dev-fd", refused)
+
+    def test_needs_quoted_inside_another_inputs_prose_is_not_the_assignments_needs(self):
+        packet = self.packet_with('needs: []')
+        packet.write_text(packet.read_text().replace(
+            'ticket context: /fixture/ticket-context', 'ticket context: issue 7 says the runner needs: [GPU, 16GB]'))
+        self.register(packet=str(packet))
+        self.assertEqual(len(self.cli('status')['attempts']), 1)
+
+    def test_a_needs_line_that_does_not_close_its_list_is_refused_even_after_a_well_formed_one(self):
+        refused = self.register(packet=str(self.packet_with('needs: []\nneeds: [docker,\n  network]')), code=2)
+        self.assertIn('needs must be a bracketed list of network, docker, setuid, repo-write, dev-fd', refused)
 
     def test_an_assignment_needs_value_that_is_not_a_bracketed_list_is_refused(self):
         refused = self.register(packet=str(self.packet_with('needs: docker')), code=2)

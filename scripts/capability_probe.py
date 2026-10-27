@@ -137,6 +137,9 @@ def unmet(needs, reports, worktree):
             and (Path(report['worktree']).resolve() == here or here in Path(report['worktree']).resolve().parents)]
     if not mine:
         return f'The ticket needs {names}: no probe of this worktree in the result evidence (run capability_probe.py there)'
+    unknown = [need for need in needs if need not in NEEDS]
+    if unknown:
+        return f'The ticket needs {", ".join(unknown)}: it is not a capability the probe checks'
     found = {need: (mine[-1].get(need) or {}).get('status', 'missing') for need in needs}
     short = {need: status for need, status in found.items() if status != 'available'}
     if not short:

@@ -600,13 +600,14 @@ def submitted_at(db, attempt):
 
 
 def assigned_needs(assignment):
-    """The capabilities an assignment's `needs: [...]` lists name, None when it has no such list.
-
-    Every list counts, so needs quoted from an issue earlier in the text cannot hide the assignment's own."""
-    lists = re.findall(r'(?:^|\s)needs:[ \t]*\[([^\]\n]*)\]', assignment, re.M)
-    if not lists:
+    """The capabilities an assignment's `needs:` lines name, None when it has none or one is not a one-line
+    bracketed list. Only a line that starts with `needs:` counts, so prose quoting needs inside another input is
+    no list, and every such line counts, so a quoted front matter line cannot hide the assignment's own."""
+    lines = re.findall(r'^[ \t]*needs:[ \t]*(.*?)[ \t]*$', assignment, re.M)
+    lists = [re.fullmatch(r'\[([^\]]*)\]', line) for line in lines]
+    if not lists or not all(lists):
         return None
-    return list(dict.fromkeys(need.strip() for listed in lists for need in listed.split(',') if need.strip()))
+    return list(dict.fromkeys(need.strip() for listed in lists for need in listed.group(1).split(',') if need.strip()))
 
 
 def needs_problems(assignment):
@@ -629,11 +630,13 @@ def unmet_needs(saved, evidence):
     job = DEFINITIONS['jobs'][saved['job']]
     if 'ticket' not in job['inputs']:
         return None
-    declared = set(saved.get('needs') or [])  # As registration validated them, whatever the file says now.
+    # As registration validated them, whatever the assignment file says now or whether it is still there.
+    declared, ticket = set(saved.get('needs') or []), saved.get('ticket')
     if packet.is_file():
         assignment = packet.read_text(errors='replace')
-        declared |= set(capability_probe.ticket_needs(agent_defs.input_value(job, assignment, 'ticket')))
         declared |= set(assigned_needs(assignment) or [])
+        ticket = ticket or agent_defs.input_value(job, assignment, 'ticket')
+    declared |= set(capability_probe.ticket_needs(ticket))
     known = [need for need in capability_probe.NEEDS if need in declared]
     needs = known + sorted(declared - set(known))  # An unknown need is never met.
     reports = []
@@ -706,6 +709,8 @@ def record(db, data, refuse_changes=False):
             problem = 'needs' in job['inputs'] and needs_problems(packet.read_text(errors='replace'))
             require(not problem, f'The {execution["job"]} assignment {problem}')
             needs = assigned_needs(packet.read_text(errors='replace')) if 'needs' in job['inputs'] else None
+            ticket = (agent_defs.input_value(job, packet.read_text(errors='replace'), 'ticket')
+                      if 'ticket' in job['inputs'] else None)
             runtime = execution.get('target_runtime') or execution.get('harness')
             require(runtime is None or runtime == data['runtime'], 'Runtime conflicts with resolved execution')
             closed = closed_sessions(db)
@@ -741,6 +746,8 @@ def record(db, data, refuse_changes=False):
                          requested=dict(scope, **settings, runtime=data['runtime']), verified=False)
             if needs is not None:
                 saved['needs'] = needs
+            if ticket is not None:
+                saved['ticket'] = ticket
             if placed:
                 saved['herdr'] = placed
             if DEFINITIONS['agents'][execution['agent']]['writes'] == 'none':
