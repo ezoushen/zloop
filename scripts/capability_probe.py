@@ -69,16 +69,21 @@ def dev_fd(process):
 
 
 def repo_write():
-    process, why = run(['git', 'rev-parse', '--absolute-git-dir'])
+    """A commit writes the worktree's own git dir (index, HEAD) and the common dir's objects and refs, so each must
+    take a file."""
+    argv = ['git', 'rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir']
+    process, why = run(argv)
     if why or process.returncode:
-        return 'unknown', why or f'`git rev-parse --absolute-git-dir` exited {process.returncode}: {detail(process)}'
-    git_dir = process.stdout.strip()
-    try:
-        with tempfile.NamedTemporaryFile(dir=git_dir):
-            pass
-    except OSError as error:
-        return 'unavailable', f'cannot create a file in {git_dir}: {error}'
-    return 'available', f'created and removed a file in {git_dir}'
+        return 'unknown', why or f'`{" ".join(argv)}` exited {process.returncode}: {detail(process)}'
+    git_dir, common = process.stdout.split('\n')[:2]
+    dirs = list(dict.fromkeys([git_dir, str(Path(common) / 'objects'), str(Path(common) / 'refs')]))
+    for path in dirs:
+        try:
+            with tempfile.NamedTemporaryFile(dir=path):
+                pass
+        except OSError as error:
+            return 'unavailable', f'cannot create a file in {path}: {error}'
+    return 'available', f'created and removed a file in {", ".join(dirs)}'
 
 
 def ticket_needs(ticket):

@@ -26,8 +26,10 @@ class CapabilityProbe(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.bin = self.root / 'bin'
         self.bin.mkdir()
-        self.git_dir = self.root / 'repo.git'
-        self.git_dir.mkdir()
+        self.common = self.root / 'repo.git'  # A linked worktree's git dir sits inside the repository's common dir.
+        self.git_dir = self.common / 'worktrees' / 'w'
+        for path in (self.git_dir, self.common / 'objects', self.common / 'refs'):
+            path.mkdir(parents=True)
 
     def stub(self, name, body):
         path = self.bin / name
@@ -40,7 +42,8 @@ class CapabilityProbe(unittest.TestCase):
         self.stub('curl', f'exit {code}')
         self.stub('docker', f'exit {code}')
         self.stub('bash', f'[ {code} = 0 ] && echo ok; exit {code}')
-        self.stub('git', f'echo {self.git_dir if works else self.root / "missing"}')
+        git_dir, common = (self.git_dir, self.common) if works else (self.root / 'missing', self.root / 'missing')
+        self.stub('git', f'case "$*" in *--git-common-dir*) echo {git_dir}; echo {common};; *) echo {git_dir};; esac')
 
     def probe(self, **env):
         process = subprocess.run([sys.executable, '-B', str(PROBE)], capture_output=True, text=True,
@@ -76,7 +79,7 @@ class CapabilityProbe(unittest.TestCase):
     def test_setuid_is_available_when_the_bit_set_on_a_file_reads_back(self):
         report = self.probe(TMPDIR=str(self.root))
         self.assertEqual(report['setuid']['status'], 'available', report['setuid'])
-        self.assertEqual(sorted(self.root.glob('*')), [self.bin, self.git_dir])  # The probe file is removed.
+        self.assertEqual(sorted(self.root.glob('*')), [self.bin, self.common])  # The probe file is removed.
 
     def test_setuid_is_unavailable_when_the_file_system_strips_the_bit(self):
         probe = support.load_script('capability_probe.py')
@@ -84,6 +87,17 @@ class CapabilityProbe(unittest.TestCase):
             status, evidence = probe.setuid()
         self.assertEqual(status, 'unavailable', evidence)
         self.assertIn('read back without the setuid bit', evidence)
+
+    def test_repo_write_is_unavailable_when_the_common_git_dir_refuses_writes_the_worktree_git_dir_takes(self):
+        # Rule: a commit writes objects and refs into the repository's common git dir, so repo-write is available only
+        # when that dir takes writes too, not only the linked worktree's own git dir.
+        self.stub_all(True)
+        objects = self.common / 'objects'
+        objects.chmod(0o555)
+        self.addCleanup(objects.chmod, 0o755)
+        report = self.probe()
+        self.assertEqual(report['repo-write']['status'], 'unavailable', report['repo-write'])
+        self.assertIn(f'cannot create a file in {objects}', report['repo-write']['evidence'])
 
     def test_the_report_names_the_worktree_it_was_taken_in(self):
         self.assertEqual(self.probe()['worktree'], str(self.root.resolve()))
