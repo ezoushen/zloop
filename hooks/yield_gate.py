@@ -120,17 +120,16 @@ def gaps(cwd, session=None):
 
 
 def unreadable_holds(state, pane, session, bound, recent):
-    """Whether a run state that cannot be read is named to this session: it hides its owners' gaps, so it is named to
-    the session bound to its effort and to each pane or host session its bytes still record; recording none, to every
-    session that is not a worker while it is recent."""
+    """Whether a run state that cannot be read is named to this session: it hides its owners' gaps, and a worker that
+    recorded no owner may be among them, so it is named to every session that is not a worker while it is recent, and
+    always to the session bound to its effort and each pane or host session its bytes still record."""
     try:
         raw = state.read_bytes().decode(errors='replace')
     except OSError:
         raw = ''
     if bound or any(value and re.search(rf'(?<![\w:.-]){re.escape(value)}(?![\w:.-])', raw) for value in (pane, session)):
         return True
-    # A Herdr placement's own "session" names a Herdr server, not a host session, so only these keys record an owner.
-    return recent and not os.environ.get('ZLOOP_WORKER') and not re.search(r'"(?:sessions|coordinator)": *[\["]', raw)
+    return recent and not os.environ.get('ZLOOP_WORKER')
 
 
 def read_state(state):
@@ -190,10 +189,15 @@ def attributed(saved):
 def owns(saved, pane, session):
     """Whether this session registered the attempt: by host session before pane. A host started inside another's shell
     exports the outer host's session too, so each exported session counts."""
-    known = saved.get('sessions') if isinstance(saved.get('sessions'), list) else []
-    known = [value for value in known if isinstance(value, str)] or [saved.get('session')]
-    return any(same_coordinator({'pane': saved.get('coordinator'), 'session': value if isinstance(value, str) else None},
-                                pane, session) for value in known)
+    return any(same_coordinator({'pane': saved.get('coordinator'), 'session': known}, pane, session)
+               for known in recorded_sessions(saved) or [None])
+
+
+def recorded_sessions(saved):
+    """The host sessions an attempt's registrar exported: its session list, else its one session."""
+    listed = saved.get('sessions') if isinstance(saved.get('sessions'), list) else []
+    return [value for value in listed if isinstance(value, str)] or (
+        [saved['session']] if isinstance(saved.get('session'), str) else [])
 
 
 def card_state(path):
@@ -394,8 +398,8 @@ def clears(saved, launch):
     attempt with no recorded coordinator, registered no earlier."""
     if not handles(saved['worker']) & {launch['agent'], launch['pane']}:
         return False
-    if saved.get('session') and launch['coordinator']['session']:
-        return saved['session'] == launch['coordinator']['session']
+    if recorded_sessions(saved) and launch['coordinator']['session']:
+        return launch['coordinator']['session'] in recorded_sessions(saved)
     if saved.get('coordinator') or launch['coordinator']['pane']:
         return saved.get('coordinator') == launch['coordinator']['pane']
     return (saved['registered_at'] or 0) >= calendar.timegm(time.strptime(launch['time'], '%Y-%m-%dT%H:%M:%SZ'))

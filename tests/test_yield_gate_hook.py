@@ -698,9 +698,10 @@ console.log(JSON.stringify(await handlers.agent_before_settle(
         db.close()
         self.assertEqual(self.check(session='host-1'), [f'{self.state}: ticket-1/1: no armed wait'])
 
-    def test_a_state_that_cannot_be_read_is_named_to_the_sessions_it_records_or_to_all_while_recent(self):
-        # Rule: an unreadable state hides its owner's gaps, so it is named to each session or pane it still records,
-        # or, recording none, to every session while it is recent; once old, only to its effort's bound coordinator.
+    def test_a_state_that_cannot_be_read_is_named_to_all_while_recent_then_to_the_sessions_it_records(self):
+        # Rule: an unreadable state hides its owners' gaps, and a worker that recorded no owner may be among them, so it
+        # is named to every session while recent; once old, to its effort's bound coordinator and each pane or session
+        # its bytes still record.
         self.live_attempt('ticket-1/1', 'w1:p1', 'host-1')
         db = sqlite3.connect(self.state)
         db.execute('DROP TABLE events')
@@ -709,12 +710,26 @@ console.log(JSON.stringify(await handlers.agent_before_settle(
         unreadable = self.check(session='host-1')
         self.assertEqual(len(unreadable), 1, unreadable)
         self.assertRegex(unreadable[0], rf'^{re.escape(str(self.state))}: cannot be read \(.+\); fix or remove it$')
-        self.assertEqual(self.check(pane='w1:p2', session='host-2'), [])
+        # Recent, it may hide a worker that recorded no owner, so every session is told.
+        self.assertRegex(self.check(pane='w1:p2', session='host-2')[0], 'cannot be read')
         self.state.write_bytes(b'not a database')
         self.assertRegex(self.check(pane='w1:p2', session='host-2')[0], 'cannot be read')
         old = time.time() - 3 * 24 * 3600
         os.utime(self.state, (old, old))
         self.assertEqual(self.check(pane='w1:p2', session='host-2'), [])
+        self.state.write_bytes(b'not a database ' + b'"coordinator": "w1:p1"')
+        os.utime(self.state, (old, old))
+        self.assertRegex(self.check(session='host-1')[0], 'cannot be read')
+
+    def test_a_launch_is_cleared_by_its_hosts_registration_under_an_inherited_outer_session(self):
+        # Rule: the attempt counts every host session its registrar exported, for launches as for its gaps.
+        self.launch('herdr agent start builder-1 --kind codex --pane w1:p5', session='codex-inner')
+        self.lifecycle('register', 'ticket-1/1', 'w1:p1',
+                       env={'CLAUDE_CODE_SESSION_ID': 'claude-outer', 'CODEX_SESSION_ID': 'codex-inner'},
+                       assignment='ticket-1', repo=str(self.repo), worktree=str(self.worktree), head='head-1',
+                       execution=str(self.execution), runtime='claude', worker='builder-1', native_session='native-1',
+                       owned=True, packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        self.assertEqual(self.check(session='codex-inner'), [])
 
     def write_rows(self, *rows, events=True):
         """A run state of hand-written attempt rows, recent, with no coordinator binding."""
