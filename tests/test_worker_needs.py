@@ -31,10 +31,14 @@ class CollectionNeeds(WorkerLifecycleCase):
         packet.write_text('\n'.join(lines) + '\n')
         return packet
 
-    def complete(self, packet, report=None, status='completed', code=0):
-        """Register and start the attempt with no probe, then record its result with the probe file as evidence."""
+    def complete(self, packet, report=None, status='completed', code=0, after_register=None):
+        """Register and start the attempt with no probe, then record its result with the probe file as evidence.
+
+        after_register, when given, runs between registration and the result."""
         self.register(packet=str(packet))
         self.ready()
+        if after_register:
+            after_register(packet)
         evidence = ['checks.log@head-1']
         if report is not None:
             file = self.root / 'probe.json'
@@ -90,6 +94,29 @@ class CollectionNeeds(WorkerLifecycleCase):
         self.complete(self.ticket(value='https://tracker.example/issue/7', assigned=['docker']),
                       probe(self.root, docker='available'))
         self.assertEqual(self.cli('status')['attempts'][0]['result']['status'], 'completed')
+
+    def test_the_needs_registered_still_hold_when_the_assignment_changes_or_goes_before_collection(self):
+        for change in (lambda packet: packet.write_text(packet.read_text().replace('needs: [docker]', 'needs: []')),
+                       lambda packet: packet.unlink()):
+            with self.subTest(change=change):
+                self.setUp()
+                refused = self.complete(self.ticket(value='https://tracker.example/issue/7', assigned=['docker']),
+                                        code=2, after_register=change)
+                self.assertIn('The ticket needs docker: no probe of this worktree in the result evidence', refused)
+
+    def test_an_unknown_need_in_a_local_tickets_front_matter_is_not_met(self):
+        refused = self.complete(self.ticket(['gpu']), code=2)
+        self.assertIn('The ticket needs gpu: no probe of this worktree in the result evidence', refused)
+
+    def test_a_needs_list_quoted_earlier_in_the_assignment_does_not_hide_the_assigned_needs(self):
+        packet = self.ticket(value='https://tracker.example/issue/7', assigned=['docker'])
+        lines = packet.read_text().splitlines()
+        context = next(i for i, line in enumerate(lines) if line.startswith('ticket context:'))
+        lines[context] = 'ticket context: the issue body quotes front matter blocked_by: [] needs: []'
+        lines.insert(context + 1, lines.pop())  # the assignment's own needs line now follows the quoted one
+        packet.write_text('\n'.join(lines) + '\n')
+        refused = self.complete(packet, code=2)
+        self.assertIn('The ticket needs docker: no probe of this worktree in the result evidence', refused)
 
     def test_a_local_tickets_needs_count_even_when_its_assignment_names_others(self):
         # Both lists count, named in the probe's vocabulary order.

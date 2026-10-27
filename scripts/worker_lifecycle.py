@@ -599,17 +599,20 @@ def submitted_at(db, attempt):
     return min(times) if times else None
 
 
-def assigned_needs(job, assignment):
-    """The capabilities an assignment's own `needs: [...]` input names, None when it is absent or not a list."""
-    value = agent_defs.input_value(job, assignment, 'needs')
-    listed = re.fullmatch(r'\[(.*)\]', value or '')
-    return [need.strip() for need in listed.group(1).split(',') if need.strip()] if listed else None
+def assigned_needs(assignment):
+    """The capabilities an assignment's `needs: [...]` lists name, None when it has no such list.
+
+    Every list counts, so needs quoted from an issue earlier in the text cannot hide the assignment's own."""
+    lists = re.findall(r'(?:^|\s)needs:[ \t]*\[([^\]\n]*)\]', assignment, re.M)
+    if not lists:
+        return None
+    return list(dict.fromkeys(need.strip() for listed in lists for need in listed.split(',') if need.strip()))
 
 
-def needs_problems(job, assignment):
+def needs_problems(assignment):
     """Why an assignment's `needs` input is not a bracketed list of probe capabilities, else ''."""
     allowed = ', '.join(capability_probe.NEEDS)
-    needs = assigned_needs(job, assignment)
+    needs = assigned_needs(assignment)
     if needs is None:
         return f'needs must be a bracketed list of {allowed}'
     return '; '.join(f'needs {need!r} is not one of {allowed}' for need in needs if need not in capability_probe.NEEDS)
@@ -624,12 +627,15 @@ def unmet_needs(saved, evidence):
     nothing about a sandboxed worker's."""
     packet = Path(saved.get('packet') or '')
     job = DEFINITIONS['jobs'][saved['job']]
-    if 'ticket' not in job['inputs'] or not packet.is_file():
+    if 'ticket' not in job['inputs']:
         return None
-    assignment = packet.read_text(errors='replace')
-    declared = set(capability_probe.ticket_needs(agent_defs.input_value(job, assignment, 'ticket')))
-    declared |= set(assigned_needs(job, assignment) or [])
-    needs = [need for need in capability_probe.NEEDS if need in declared]
+    declared = set(saved.get('needs') or [])  # As registration validated them, whatever the file says now.
+    if packet.is_file():
+        assignment = packet.read_text(errors='replace')
+        declared |= set(capability_probe.ticket_needs(agent_defs.input_value(job, assignment, 'ticket')))
+        declared |= set(assigned_needs(assignment) or [])
+    known = [need for need in capability_probe.NEEDS if need in declared]
+    needs = known + sorted(declared - set(known))  # An unknown need is never met.
     reports = []
     for entry in evidence if isinstance(evidence, list) else []:
         try:
@@ -697,8 +703,9 @@ def record(db, data, refuse_changes=False):
             missing = agent_defs.missing_inputs(job, packet.read_text(errors='replace'))
             require(not missing, f'The {execution["job"]} assignment lacks {", ".join(missing)}; write each as '
                                  f'`name: value` (see {job["path"]})')
-            problem = 'needs' in job['inputs'] and needs_problems(job, packet.read_text(errors='replace'))
+            problem = 'needs' in job['inputs'] and needs_problems(packet.read_text(errors='replace'))
             require(not problem, f'The {execution["job"]} assignment {problem}')
+            needs = assigned_needs(packet.read_text(errors='replace')) if 'needs' in job['inputs'] else None
             runtime = execution.get('target_runtime') or execution.get('harness')
             require(runtime is None or runtime == data['runtime'], 'Runtime conflicts with resolved execution')
             closed = closed_sessions(db)
@@ -732,6 +739,8 @@ def record(db, data, refuse_changes=False):
                     '(launch.verify); resolve it again with agent_models.py --route')
             saved = dict(data, agent=execution['agent'], job=execution['job'], execution_snapshot=execution,
                          requested=dict(scope, **settings, runtime=data['runtime']), verified=False)
+            if needs is not None:
+                saved['needs'] = needs
             if placed:
                 saved['herdr'] = placed
             if DEFINITIONS['agents'][execution['agent']]['writes'] == 'none':
