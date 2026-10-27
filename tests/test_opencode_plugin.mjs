@@ -370,20 +370,20 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   const before = logged().length;
   const call = (command) => ({ tool: "shell", sessionID: "ses_log", agent: "build", messageID: "msg_1", id: "call_1",
     input: { command, description: "start a worker" } });
-  await host.hooks["execute.before"](call("herdr agent start w9 --cwd .worktrees/x -- opencode"));
-  await host.hooks["execute.before"](call("herdr agent \\\n  start w11 --cwd .worktrees/y -- opencode"));
+  await host.hooks["execute.before"](call("herdr agent start w9 --kind opencode --pane w1:p9"));
+  await host.hooks["execute.before"](call("herdr agent \\\n  start w11 --kind opencode --pane w1:p11"));
   assert.deepEqual(logged().slice(before).map((record) => ({ ...record, time: undefined })), [
-    { time: undefined, agent: "w9", pane: null, coordinator: { pane: null, session: "ses_log" } },
-    { time: undefined, agent: "w11", pane: null, coordinator: { pane: null, session: "ses_log" } },
+    { time: undefined, agent: "w9", pane: "w1:p9", coordinator: { pane: null, session: "ses_log" } },
+    { time: undefined, agent: "w11", pane: "w1:p11", coordinator: { pane: null, session: "ses_log" } },
   ]);
 
   // Another tool's input that mentions such a command launches nothing and is not logged.
-  await host.hooks["execute.before"]({ ...call("herdr agent start w12"), tool: "task" });
+  await host.hooks["execute.before"]({ ...call("herdr agent start w12 --kind opencode --pane w1:p12"), tool: "task" });
   assert.equal(logged().length, before + 2);
 
   // Logging that fails never blocks the call.
   process.env.PATH = bin;
-  await host.hooks["execute.before"](call("herdr agent start w10"));
+  await host.hooks["execute.before"](call("herdr agent start w10 --kind opencode --pane w1:p10"));
   process.env.PATH = path;
   assert.equal(logged().length, before + 2);
   await host.cleanup();
@@ -393,7 +393,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   // A subagent's launch is logged under its root session, whose stop answers for it; the subagent is never held.
   const host = await load([], { ses_kid: "ses_top", ses_grandkid: "ses_kid" });
   const call = (sessionID, agent) => host.hooks["execute.before"]({ tool: "shell", sessionID, agent: "general",
-    messageID: "msg_1", id: "call_1", input: { command: `herdr agent start ${agent} --cwd .worktrees/k -- opencode` } });
+    messageID: "msg_1", id: "call_1", input: { command: `herdr agent start ${agent} --kind opencode --pane w1:${agent}` } });
   await call("ses_kid", "w20");
   await call("ses_grandkid", "w21");
   const logged = readFileSync(join(host.repo, ".scratch/herdr-launches.jsonl"), "utf8").trim().split("\n")

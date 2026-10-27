@@ -36,21 +36,21 @@ const logged = () => {
 };
 
 // A launch is logged under the session however the command is written, a line continuation included.
-await call("herdr agent start w1 --cwd .worktrees/a -- pi");
-await call("herdr agent \\\n  start w2 --cwd .worktrees/b -- pi", "bg_run");
+await call("herdr agent start w1 --kind pi --pane w1:pa");
+await call("herdr agent \\\n  start w2 --kind pi --pane w1:pb", "bg_run");
 assert.deepEqual(logged(), [{ agent: "w1", session: "ses_pi" }, { agent: "w2", session: "ses_pi" }]);
 
 // A root session keeps its launches even with a parent session left in its environment, which only a child heeds.
 process.env.PI_SUBAGENT_PARENT_SESSION = "ses_stale";
-await call("herdr agent start w5 --cwd .worktrees/e -- pi");
+await call("herdr agent start w5 --kind pi --pane w1:pe");
 assert.deepEqual(logged().at(-1), { agent: "w5", session: "ses_pi" });
 // A pi-subagents child logs its launch under the session that launched it, whose stop answers for it.
 process.env.PI_SUBAGENT_CHILD = "1";
 process.env.PI_SUBAGENT_PARENT_SESSION = "ses_parent";
-await call("herdr agent start w3 --cwd .worktrees/c -- pi");
+await call("herdr agent start w3 --kind pi --pane w1:pc");
 // A child with no parent session named logs under its own.
 delete process.env.PI_SUBAGENT_PARENT_SESSION;
-await call("herdr agent start w4 --cwd .worktrees/d -- pi");
+await call("herdr agent start w4 --kind pi --pane w1:pd");
 delete process.env.PI_SUBAGENT_CHILD;
 assert.deepEqual(logged().slice(3), [{ agent: "w3", session: "ses_parent" }, { agent: "w4", session: "ses_pi" }]);
 console.log("Pi launch logging: every launch, a child's under its parent session: ok");
