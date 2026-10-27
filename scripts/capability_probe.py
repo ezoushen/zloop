@@ -82,19 +82,35 @@ def repo_write():
             pass
     except OSError as error:
         return 'unavailable', f'cannot create a file in {git_dir}: {error}'
-    ref = f'refs/heads/zloop-probe-{os.getpid()}'
+    ref = f'refs/heads/zloop-probe-{os.getpid()}-{os.urandom(4).hex()}'
     identity = ['-c', 'user.name=zloop probe', '-c', 'user.email=probe@zloop.invalid']
-    steps = [['git', 'mktree'], ['git', *identity, 'commit-tree', '{}', '-m', f'zloop capability probe {time.time()}'],
-             ['git', 'update-ref', ref, '{}'], ['git', 'update-ref', '-d', ref]]
-    value = ''
-    for step in steps:
-        argv = [value if arg == '{}' else arg for arg in step]
-        process, why = run(argv)
-        if why or process.returncode:
-            shown = ' '.join(argv[:1] + [arg for arg in argv[1:] if arg not in identity])
-            return ('unknown', why) if why else ('unavailable', f'`{shown}` exited {process.returncode}: {detail(process)}')
-        value = process.stdout.strip() or value
-    return 'available', f'created a file in {git_dir}, and a commit and the branch ref {ref}, then deleted the ref'
+    tree, why = git_value(['git', 'mktree'])
+    if why:
+        return why
+    commit, why = git_value(['git', *identity, 'commit-tree', tree, '-m', f'zloop capability probe {time.time()}'])
+    if why:
+        return why
+    # An empty old value creates the ref only if it is absent, and deleting it names the probe's commit, so no other
+    # branch is ever moved or removed.
+    _, why = git_value(['git', 'update-ref', ref, commit, ''])
+    if why:
+        return why
+    _, left = git_value(['git', 'update-ref', '-d', ref, commit])
+    # A commit lands even where the deletion cannot lock packed-refs, so a ref left behind is reported, not a failure.
+    kept = f'; could not delete {ref} again: {left[1]}' if left else ', then deleted the ref'
+    return 'available', f'created a file in {git_dir}, and a commit and the branch ref {ref}{kept}'
+
+
+def git_value(argv):
+    """The command's printed value, or (status, evidence) for a step that could not run (unknown) or failed
+    (unavailable). The commit identity stays out of the evidence."""
+    process, why = run(argv)
+    if why:
+        return None, ('unknown', why)
+    if process.returncode:
+        shown = ' '.join(arg for arg in argv if arg != '-c' and not arg.startswith('user.'))
+        return None, ('unavailable', f'`{shown}` exited {process.returncode}: {detail(process)}')
+    return process.stdout.strip(), None
 
 
 def ticket_needs(ticket):

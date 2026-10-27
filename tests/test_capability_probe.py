@@ -125,6 +125,15 @@ class CapabilityProbe(unittest.TestCase):
         result = self.probe_in(self.root / 'linked')
         self.assertEqual(result['status'], 'unavailable', result)
 
+    def test_repo_write_is_available_when_only_the_probe_ref_cannot_be_deleted_again(self):
+        # Rule: repo-write means a commit can land. With the common git dir's root read-only a commit still lands (git
+        # only fails to lock packed-refs on deletion), so the probe reports available and names the ref it left.
+        common = self.real_worktree()
+        self.read_only(common)
+        result = self.probe_in(self.root / 'linked')
+        self.assertEqual(result['status'], 'available', result)
+        self.assertRegex(result['evidence'], r'could not delete refs/heads/zloop-probe-\d+')
+
     def test_repo_write_in_a_writable_linked_worktree_is_available_and_leaves_no_probe_branch(self):
         common = self.real_worktree()
         result = self.probe_in(self.root / 'linked')
