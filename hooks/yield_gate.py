@@ -446,7 +446,12 @@ def unregistered(root, pane, session, siblings=True):
             record = json.loads(line)
         except ValueError:
             record = None
-        if readable(record):
+        if readable(record) and 'dismissed' not in record and record['agent'] is None and record['pane'] is None:
+            # An older hook's line for a start that ran no agent: nothing can clear it, so only its coordinator is
+            # told to remove it.
+            unreadable += [f'{log}: launch log line {number} names no agent or pane, so no attempt or dismissal can '
+                           'clear it; remove it'] if same_coordinator(record['coordinator'], pane, session) else []
+        elif readable(record):
             records.append(record)
         else:  # Named, and ignored for matching, so one bad line hides no other gap.
             unreadable.append(f'{log}: launch log line {number} is unreadable; fix or remove it')

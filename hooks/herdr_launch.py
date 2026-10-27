@@ -84,7 +84,9 @@ def starts(command):
                 else:
                     names.append(words[at])
                 at += 1
-            yield session, names[0] if names else None, options.get('--pane')
+            # Herdr refuses a start without a name or pane, and --help only prints the usage: none starts an agent.
+            if names and options.get('--pane') and '--help' not in options and '-h' not in names:
+                yield session, names[0] if names else None, options.get('--pane')
 
 
 def pane_cwd(session, pane, deadline):

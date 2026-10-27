@@ -395,6 +395,28 @@ class UnregisteredWorkers(GateRepo):
             ('a-4', 'w1:p14', str(self.worktree)), ('a-5', 'w1:p15', None), ('a-6', 'w1:p16', str(self.worktree)),
             ('a-7', 'w1:p17', None)])
 
+    def test_a_start_herdr_would_refuse_or_only_explain_is_not_logged(self):
+        # Rule: `herdr agent start` needs a name and a pane, and with --help only prints its usage, so none of these
+        # starts an agent; logged, each would hold its coordinator for a worker nothing can register or dismiss.
+        for command in ('herdr agent start a-1 --kind codex --pane w1:p11 --help',
+                        'herdr agent start a-4 -h --kind codex --pane w1:p14',
+                        'herdr agent start --kind codex --pane w1:p12', 'herdr agent start a-2 --kind codex',
+                        'herdr agent start a-3 --kind codex --pane w1:p13'):
+            self.launch(command, pane=None)
+        self.assertEqual([(record['agent'], record['pane']) for record in self.logged()], [('a-3', 'w1:p13')])
+
+    def test_a_logged_launch_with_no_name_or_pane_is_named_only_to_its_coordinator(self):
+        # Rule: an older hook logged such a line; no registration or dismissal can match it, so the stop names the line
+        # to remove, and only to the session that logged it.
+        log = self.repo / '.scratch/herdr-launches.jsonl'
+        self.launch('herdr agent start builder-1 --kind codex --pane w1:p5')
+        with log.open('a') as stream:
+            stream.write(json.dumps({'time': '2026-10-20T10:00:00Z', 'agent': None, 'pane': None,
+                                     'coordinator': {'pane': 'w1:p1', 'session': 'host-1'}}) + '\n')
+        unnamed = f'{log}: launch log line 2 names no agent or pane, so no attempt or dismissal can clear it; remove it'
+        self.assertEqual(self.check(session='host-1'), [self.gap('builder-1', 'w1:p5'), unnamed])
+        self.assertNotIn(unnamed, self.check(pane='w1:p2', session='host-2'))
+
     def test_logging_never_blocks_the_command_even_when_herdr_or_the_log_fails(self):
         # Rule 1: a hung Herdr still leaves a record with the cwd unknown; an unwritable log only loses the record.
         self.serve(hang=True)
