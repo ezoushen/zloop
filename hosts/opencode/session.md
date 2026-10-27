@@ -4,12 +4,11 @@ Select with `harness=opencode`; there is no zloop OpenCode bootstrap extension.
 Load shared skills through OpenCode's native skill discovery and preserve their
 explicit invocation policy.
 
-The plugin `plugin.js` applies the worker lifecycle's yield gate and logs each
-`herdr agent start` for it. OpenCode cannot refuse a stop, so once a root session's turn
-succeeds with a gap the plugin sends the hold's message as a prompt in that session, once
-per stop. A child session, a one-shot `opencode run` (it exits before the new turn
-finishes) and a worker on Herdr's private server (its isolated configuration loads no
-plugin) are not held; a child session's launches are its root session's.
+The plugin `plugin.js` runs the yield gate and logs each `herdr agent start`. OpenCode
+cannot refuse a stop, so when a root session's turn succeeds with a gap, the plugin prompts
+that session with the hold's message, once per stop. Child sessions, one-shot
+`opencode run` sessions and workers on Herdr's private server are not held; a child
+session's launches count as its root session's.
 
 Before configuring, launching or acting as a worker, also read [workers.md](workers.md). In
 worker messages, `adapter` is this file's absolute path.
