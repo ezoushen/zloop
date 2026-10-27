@@ -81,9 +81,10 @@ def gaps(cwd, session=None):
         module = module or lifecycle()
         db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
         try:
-            # A session inside a worker's own worktree is that worker, not its coordinator.
-            worker = any(Path(saved['worktree']) != root and cwd.is_relative_to(saved['worktree'])
-                         for saved in module.attempts(db))
+            # A session inside a worker's own worktree is that worker, not its coordinator. An attempt written by hand
+            # without a worktree places no session.
+            worker = any(saved.get('worktree') and Path(saved['worktree']) != root
+                         and cwd.is_relative_to(saved['worktree']) for saved in module.attempts(db))
 
             def coordinated(saved):
                 if pane and saved.get('coordinator'):

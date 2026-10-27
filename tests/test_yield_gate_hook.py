@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -214,6 +215,22 @@ class YieldGateHook(GateRepo):
         # Review 4: a Herdr session in a repository with no .worktrees/ has no ticket worker to look for, so a broken
         # Herdr neither slows nor holds it; its lifecycle gaps still show.
         self.serve(fail='connection refused')
+        self.assertEqual(self.check(), [f'{self.state}: ticket-1/1: no armed wait'])
+
+    def test_an_attempt_recorded_without_a_worktree_does_not_break_the_check(self):
+        # Rule: a run state written by hand (a demo or fixture) may hold an attempt with no worktree. It cannot make
+        # this session a worker, and it never stops the other runs' gaps from being checked.
+        other = self.repo / '.scratch/demo/reports/workers.sqlite'
+        other.parent.mkdir(parents=True)
+        db = sqlite3.connect(other)
+        db.execute('CREATE TABLE attempts (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
+        db.execute('CREATE TABLE events (id INTEGER PRIMARY KEY, attempt TEXT NOT NULL, kind TEXT NOT NULL, '
+                   'payload TEXT NOT NULL, acknowledged INTEGER NOT NULL)')
+        db.execute('INSERT INTO attempts VALUES (?, ?)', ('demo/1', json.dumps(
+            {'attempt': 'demo/1', 'assignment': 'demo/01', 'repo': str(self.repo), 'runtime': 'claude',
+             'native_session': 'demo-a', 'worker': 'w-demo-a', 'owned': True})))
+        db.commit()
+        db.close()
         self.assertEqual(self.check(), [f'{self.state}: ticket-1/1: no armed wait'])
 
     def test_codex_uses_the_same_stop_protocol(self):
