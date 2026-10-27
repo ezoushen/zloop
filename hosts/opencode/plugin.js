@@ -72,7 +72,9 @@ export default {
         try {
           const sent = Date.now();
           const message = await ctx.session.prompt({ sessionID, text: gate.reason });
-          hold(sessionID, message?.time?.created ?? sent);
+          // A setup replaced meanwhile records nothing: its replacement checks the held turn again.
+          if (stop.signal.aborted) release(sessionID);
+          else hold(sessionID, message?.time?.created ?? sent);
         } catch {
           release(sessionID);  // The session or server is gone: there is no turn left to hold.
         }

@@ -14,7 +14,14 @@ for (const name of ["HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_ENV", "ZLOOP_W
 const bin = mkdtempSync(join(tmpdir(), "zloop-oc-bin-"));
 writeFileSync(join(bin, "herdr"), "#!/bin/sh\nexit 1\n");
 chmodSync(join(bin, "herdr"), 0o755);
-const path = `${bin}:${process.env.PATH}`;
+// python3 as the plugin finds it: it records each run's arguments, and waits `ZLOOP_TEST_SLOW` seconds when set.
+const wrap = mkdtempSync(join(tmpdir(), "zloop-oc-wrap-"));
+const runs = join(wrap, "runs.log");
+const python = execFileSync("sh", ["-c", "command -v python3"], { encoding: "utf8" }).trim();
+writeFileSync(join(wrap, "python3"), `#!/bin/sh\necho "$*" >> '${runs}'\nsleep "\${ZLOOP_TEST_SLOW:-0}"\nexec '${python}' "$@"\n`);
+chmodSync(join(wrap, "python3"), 0o755);
+const checked = (sessionID) => readFileSync(runs, "utf8").split("\n").some((run) => run.endsWith(` ${sessionID}`));
+const path = `${bin}:${wrap}:${process.env.PATH}`;
 process.env.PATH = path;
 
 const until = async (check, what) => {
@@ -98,10 +105,10 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   };
   // OpenCode sets the plugin up once for each directory it serves, all on one server.
   // `slow` delays that setup's session lookups, so the test can order it against the first one.
-  const elsewhere = async (directory = checkout([]), slow = 0) => definition.setup({
+  const elsewhere = async (directory = checkout([]), slow = () => 0) => definition.setup({
     ...ctx, location: { directory },
     session: { ...ctx.session, get: async (input) => {
-      await new Promise((done) => setTimeout(done, slow));
+      await new Promise((done) => setTimeout(done, typeof slow === "function" ? slow() : slow));
       return ctx.session.get(input);
     } },
   });
@@ -234,6 +241,51 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
 }
 
 {
+  // A setup replaced while its hold is admitted leaves no hold behind: the session's next turn is checked.
+  const host = await load(["ses_t"]);
+  host.control.admission = 300;
+  host.push("succeeded", "ses_t");
+  await until(() => host.holds("ses_t") === 1, "the hold to be sent");
+  await host.cleanup();  // Replaced while the hold is admitted.
+  host.control.admission = undefined;
+  await new Promise((done) => setTimeout(done, 400));
+  const again = await host.elsewhere(host.repo);
+  host.push("succeeded", "ses_t");
+  await until(() => host.holds("ses_t") === 2, "the next turn's hold");
+  await again();
+}
+
+{
+  // A setup replaced while its check runs sends nothing: its replacement answers for the session.
+  const host = await load(["ses_c"]);
+  process.env.ZLOOP_TEST_SLOW = "1";
+  host.push("succeeded", "ses_c");
+  await new Promise((done) => setTimeout(done, 300));
+  await host.cleanup();  // Replaced while the check runs.
+  await new Promise((done) => setTimeout(done, 1500));
+  delete process.env.ZLOOP_TEST_SLOW;
+  assert.equal(host.holds("ses_c"), 0);
+}
+
+{
+  // A setup replaced while it looks a session up does not act on it: the held turn's end it saw is its replacement's.
+  const host = await load(["ses_k"]);
+  await host.cleanup();
+  const replaced = await host.elsewhere(host.repo, () => 200);
+  let wait = 0;
+  const replacement = await host.elsewhere(host.repo, () => wait);
+  host.push("succeeded", "ses_k");
+  await until(() => host.holds("ses_k") === 1, "the first hold");
+  await new Promise((done) => setTimeout(done, 1000));  // Both setups have handled it.
+  wait = 400;
+  host.push("succeeded", "ses_k");  // The held turn's end.
+  setTimeout(() => replaced(), 100);  // Replaced while it looks the session up.
+  await new Promise((done) => setTimeout(done, 1500));
+  assert.equal(host.holds("ses_k"), 1);
+  await replacement();
+}
+
+{
   // A held turn that fails or is interrupted also ends the hold: the user's next turn is checked.
   const host = await load(["ses_f", "ses_i"]);
   host.push("succeeded", "ses_f");
@@ -288,6 +340,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   host.push("succeeded", "ses_clean");
   await host.settle();
   assert.deepEqual(host.sent.map((input) => input.sessionID), [host.end]);
+  assert.equal(checked("ses_child"), false, "a child's turn end runs no check");
   await host.cleanup();
 }
 
@@ -341,6 +394,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   host.push("succeeded", "ses_o");
   await new Promise((done) => setTimeout(done, 1500));
   assert.deepEqual(host.sent, []);
+  assert.equal(checked("ses_o"), false, "no check runs");
   await host.cleanup();
   delete process.env.ZLOOP_YIELD_HOOK;
 }
