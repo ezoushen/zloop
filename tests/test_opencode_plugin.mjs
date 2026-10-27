@@ -25,20 +25,23 @@ const until = async (check, what) => {
 };
 
 // A checkout whose launch log holds one launch, that no attempt registered, by each session in `gaps`: real
-// yield-gate gaps for those sessions and none for any other. `ses_end` always has one.
-function checkout(gaps) {
+// yield-gate gaps for those sessions and none for any other. `end` always has one.
+function checkout(gaps, end = "ses_end") {
   const repo = mkdtempSync(join(tmpdir(), "zloop-oc-repo-"));
   execFileSync("git", ["init", "-q", repo]);
   mkdirSync(join(repo, ".scratch"));
-  writeFileSync(join(repo, ".scratch/herdr-launches.jsonl"), [...gaps, "ses_end"].map((session) => JSON.stringify({
+  writeFileSync(join(repo, ".scratch/herdr-launches.jsonl"), [...gaps, end].map((session) => JSON.stringify({
     time: "2026-10-27T00:00:00Z", agent: `w-${session}`, pane: `p-${session}`, coordinator: { pane: null, session },
   }) + "\n").join(""));
   return repo;
 }
 
 // A stand-in for OpenCode's plugin context: events pushed by the test, sessions with a directory and an optional parent.
+let loads = 0;
 async function load(gaps, parents = {}, admission = 0, written = {}) {
-  const repo = checkout(gaps);
+  // Each load closes with its own session: the plugin's holds outlive one setup, as they do across OpenCode's.
+  const end = `ses_end_${++loads}`;
+  const repo = checkout(gaps, end);
   const subscribers = new Set();
   const sent = [];
   let admitted = 0;
@@ -82,16 +85,16 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
     }
   };
   const holds = (sessionID) => sent.filter((input) => input.sessionID === sessionID).length;
-  // Events are handled in order, so once `ses_end`'s hold arrives every earlier event has been handled.
+  // Events are handled in order, so once `end`'s hold arrives every earlier event has been handled.
   const settle = async () => {
-    const before = holds("ses_end");
-    push("succeeded", "ses_end");
-    await until(() => holds("ses_end") > before && admitted === sent.length, "the closing hold");
-    push("succeeded", "ses_end");  // Its own held turn ends, so the next settle is checked again.
+    const before = holds(end);
+    push("succeeded", end);
+    await until(() => holds(end) > before && admitted === sent.length, "the closing hold");
+    push("succeeded", end);  // Its own held turn ends, so the next settle is checked again.
   };
   // OpenCode sets the plugin up once for each directory it serves, all on one server.
-  const elsewhere = async () => definition.setup({ ...ctx, location: { directory: checkout([]) } });
-  return { repo, sent, hooks, push, holds, settle, cleanup, elsewhere };
+  const elsewhere = async (directory = checkout([])) => definition.setup({ ...ctx, location: { directory } });
+  return { repo, end, sent, hooks, push, holds, settle, cleanup, elsewhere };
 }
 
 {
@@ -134,6 +137,26 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   host.push("succeeded", "ses_d");
   await host.settle();
   assert.deepEqual([host.holds("ses_s"), host.holds("ses_d")], [1, 1]);
+  await host.cleanup();
+}
+
+{
+  // A session moved to another directory while it is held keeps its hold: the held turn ends unchecked wherever it ends,
+  // and the turn after is checked where the session now is.
+  const written = {};
+  const host = await load(["ses_v"], {}, 0, written);
+  const there = checkout(["ses_v"]);
+  const other = await host.elsewhere(there);
+  host.push("succeeded", "ses_v");
+  await host.settle();
+  written.ses_v = there;
+  host.push("succeeded", "ses_v");  // The held turn's end, now in `there`.
+  await host.settle();
+  assert.equal(host.holds("ses_v"), 1);
+  host.push("succeeded", "ses_v");
+  await host.settle();
+  assert.equal(host.holds("ses_v"), 2, "the next turn is checked");
+  await other();
   await host.cleanup();
 }
 
@@ -191,7 +214,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   host.push("interrupted", "ses_i");
   host.push("succeeded", "ses_clean");
   await host.settle();
-  assert.deepEqual(host.sent.map((input) => input.sessionID), ["ses_end"]);
+  assert.deepEqual(host.sent.map((input) => input.sessionID), [host.end]);
   await host.cleanup();
 }
 

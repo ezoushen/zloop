@@ -24,23 +24,31 @@ export default {
     const stop = new AbortController();
     // When each held session's hold was admitted: the turn it starts ends unchecked, however it ends, so a gap the
     // agent cannot clear never loops. A turn end published before then is an older turn the hold already covers.
-    const held = new Map();
+    // Shared by the plugin's setups for every directory, so a session moved while held keeps its hold.
+    const held = (globalThis[Symbol.for("zloop.opencode.held")] ??= new Map());
     void (async () => {
       for await (const event of ctx.event.subscribe({ signal: stop.signal })) {
         if (!ENDS.has(event.type)) continue;
         const sessionID = event.data.sessionID;
+        let info;
+        try {
+          info = await ctx.session.get({ sessionID });
+        } catch {
+          continue;  // The session is gone: there is no turn left to hold.
+        }
+        // OpenCode sets the plugin up once per directory and sends each every session's events: only the session's own
+        // directory answers for it.
+        if (resolve(info.location.directory) !== resolve(ctx.location.directory)) continue;
         if (held.has(sessionID)) {
           if ((event.created ?? Infinity) >= held.get(sessionID)) held.delete(sessionID);
           continue;
         }
-        if (event.type !== "session.execution.succeeded" || process.env.ZLOOP_YIELD_HOOK === "off") continue;
+        // A subagent's child session is not held for its parent's gaps; the parent's own turn end answers for them.
+        if (event.type !== "session.execution.succeeded" || info.parentID || process.env.ZLOOP_YIELD_HOOK === "off") {
+          continue;
+        }
         let gate;
         try {
-          const info = await ctx.session.get({ sessionID });
-          // OpenCode sets the plugin up once per directory and sends each every session's events: only the session's own
-          // directory holds it. A subagent's child session is not held for its parent's gaps; the parent's own turn end
-          // answers for them.
-          if (resolve(info.location.directory) !== resolve(ctx.location.directory) || info.parentID) continue;
           gate = await check(info.location.directory, sessionID);
         } catch (error) {  // A broken check never passes silently.
           gate = {
