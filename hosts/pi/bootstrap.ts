@@ -288,14 +288,20 @@ export default function (pi) {
     return undefined;
   });
 
+  // A pi-subagents child is never held, so its launches go under the session that launched it, whose stop answers for
+  // them, as a Claude subagent's share its parent's session.
+  const launcher = (ctx) => (process.env.PI_SUBAGENT_CHILD === "1" && process.env.PI_SUBAGENT_PARENT_SESSION?.trim())
+    || ctx.sessionManager.getSessionId();
+
   // Log each Herdr agent launch for the yield gate, as the Bash PreToolUse hook does on Claude and Codex.
   // A failing tool_call handler blocks the tool, so logging catches everything and never blocks.
   pi.on("tool_call", (event, ctx) => {
     const command = event.input?.command;
-    if (!["bash", "bg_run"].includes(event.toolName) || !/herdr[\s\S]*agent\s+start/.test(command)) return undefined;
+    // The logger finds each launch, however the command writes it.
+    if (!["bash", "bg_run"].includes(event.toolName) || !(typeof command === "string" && command.includes("herdr"))) return undefined;
     try {
       execFileSync("python3", [`${root}/hooks/herdr_launch.py`], {
-        input: JSON.stringify({ tool_input: { command }, cwd: ctx.cwd, session_id: ctx.sessionManager.getSessionId() }),
+        input: JSON.stringify({ tool_input: { command }, cwd: ctx.cwd, session_id: launcher(ctx) }),
         timeout: 10000,
       });
     } catch {

@@ -388,6 +388,20 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
 }
 
 {
+  // A subagent's launch is logged under its root session, whose stop answers for it; the subagent is never held.
+  const host = await load([], { ses_kid: "ses_top", ses_grandkid: "ses_kid" });
+  const call = (sessionID, agent) => host.hooks["execute.before"]({ tool: "shell", sessionID, agent: "general",
+    messageID: "msg_1", id: "call_1", input: { command: `herdr agent start ${agent} --cwd .worktrees/k -- opencode` } });
+  await call("ses_kid", "w20");
+  await call("ses_grandkid", "w21");
+  const logged = readFileSync(join(host.repo, ".scratch/herdr-launches.jsonl"), "utf8").trim().split("\n")
+    .map((line) => JSON.parse(line)).filter((record) => record.agent?.startsWith("w2"))
+    .map((record) => ({ agent: record.agent, session: record.coordinator.session }));
+  assert.deepEqual(logged, [{ agent: "w20", session: "ses_top" }, { agent: "w21", session: "ses_top" }]);
+  await host.cleanup();
+}
+
+{
   // ZLOOP_YIELD_HOOK=off turns the gate off, as on the other hosts.
   process.env.ZLOOP_YIELD_HOOK = "off";
   const host = await load(["ses_o"]);

@@ -87,10 +87,14 @@ export default {
       const command = input?.command;
       if (tool !== "shell" || !command?.includes("herdr")) return;  // The logger finds each launch, however written.
       try {
-        const info = await ctx.session.get({ sessionID });
+        // A subagent is never held, so its launch goes under its root session, whose stop answers for it.
+        let info = await ctx.session.get({ sessionID });
+        for (const seen = new Set([info.id]); info.parentID && !seen.has(info.parentID); seen.add(info.id)) {
+          info = await ctx.session.get({ sessionID: info.parentID });
+        }
         const logger = run("python3", [`${root}/hooks/herdr_launch.py`], { timeout: 10000 });
         logger.child.stdin.on("error", () => {});  // A logger that exits early must not take the server down.
-        logger.child.stdin.end(JSON.stringify({ tool_input: { command }, cwd: info.location.directory, session_id: sessionID }));
+        logger.child.stdin.end(JSON.stringify({ tool_input: { command }, cwd: info.location.directory, session_id: info.id }));
         await logger;
       } catch {
         // The launch goes unlogged; the stop check still lists live agents nobody registered.
