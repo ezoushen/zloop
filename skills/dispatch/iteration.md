@@ -49,7 +49,7 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    adapter: <absolute active adapter>  plugin_root: <absolute>  repo: <absolute main checkout>
    agent_file: <plugin_root>/agents/builder.md  job_file: <plugin_root>/skills/dispatch/jobs/ticket.md
    ticket: <canonical ID/URL or absolute local ticket path>
-   needs: <[capabilities] the criteria's Verify commands use: a local ticket's front matter, else the effort's execution inputs; [] when none; its own line, before ticket context>
+   needs: <the ticket's needs list, [] when none; its own line, before ticket context>
    ticket context: <current issue content, criteria, dependencies, priority and revision>
    focus: <highest-priority outcome, next acceptance condition and deferred optional work>
    checks: <each check's criterion or project requirement and tier: focused and affected for this worker; full gate and E2E with phase and owner; reusable proof>

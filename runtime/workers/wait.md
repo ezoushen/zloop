@@ -67,14 +67,10 @@ undelivered receipt; fix those first. On Claude Code and Codex (Stop hooks), Pi
 (extension) and OpenCode (plugin, once the turn has ended) the plugin also runs it when
 you stop, over runs active in the last day, and sends you back once. `ZLOOP_YIELD_HOOK=off` disables the hooks. The stop check holds:
 
-- for the gate's findings, only the session that registered the worker (any host session
-  it exported, else its Herdr pane); for a worker that recorded neither, the session bound
-  to coordinate its effort or, with none bound, every session, in each case unless it is
-  inside a worker's own worktree. Several sessions can share one checkout: another
-  session's workers and launches never hold this one. A run-state row the lifecycle does
-  not write is left out of every check and named to the session bound to its effort and
-  the session it records; a state that cannot be read is named to every session for a day,
-  and after that to its bound session and each session or pane its bytes still record;
+- for the gate's findings, only the session that registered the worker (by host session,
+  else Herdr pane), or for a worker that recorded neither, the session bound to its effort
+  or every session when none is, never one inside a worker's own worktree. Another
+  session's workers never hold this one; run state the check cannot judge is named, not passed;
 - every session, however old the run, for each Herdr launch it logged
   ([launch log](prepare.md)) into `.worktrees/` or a cwd Herdr did not report, and,
   unless its launch marked it a worker (`ZLOOP_WORKER`, as [prepare](prepare.md) says) and
