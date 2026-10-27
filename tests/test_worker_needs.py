@@ -171,6 +171,14 @@ class RegistrationNeeds(WorkerLifecycleCase):
         refused = self.register(packet=str(self.packet_with('needs: []\nneeds: [docker,\n  network]')), code=2)
         self.assertIn(SHAPE, refused)
 
+    def test_two_needs_lines_are_refused_so_a_later_one_cannot_cancel_the_first(self):
+        refused = self.register(packet=str(self.packet_with('needs: [docker]\nneeds: []')), code=2)
+        self.assertIn(SHAPE, refused)
+
+    def test_needs_sharing_its_line_with_the_ticket_context_is_refused(self):
+        refused = self.register(packet=str(self.packet_with('needs: []  ticket context: x')), code=2)
+        self.assertIn(SHAPE, refused)
+
     def test_a_needs_line_after_the_ticket_context_is_refused(self):
         packet = self.packet_with(None)
         packet.write_text(packet.read_text() + 'needs: [docker]\n')

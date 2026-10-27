@@ -603,7 +603,7 @@ def assigned_needs(assignment):
     """The capabilities an assignment's `needs` input names, None unless it is exactly one line of its own before
     `ticket context:` holding a one-line bracketed list. The ticket context may quote an issue, and nothing in it
     is the assignment's needs."""
-    head = re.split(r'(?:^|\s)ticket context:', assignment, maxsplit=1)[0]
+    head = re.split(r'^[ \t]*ticket context:', assignment, maxsplit=1, flags=re.M)[0]
     lines = re.findall(r'^[ \t]*needs:[ \t]*(.*?)[ \t]*$', head, re.M)
     listed = re.fullmatch(r'\[([^\]]*)\]', lines[0]) if len(lines) == 1 else None
     return list(dict.fromkeys(need.strip() for need in listed.group(1).split(',') if need.strip())) if listed else None
