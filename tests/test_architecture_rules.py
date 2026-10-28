@@ -381,6 +381,7 @@ class TargetFolders(Fixture):
     """The repository's own config applies size, link, orphan and code-path rules to every target folder."""
 
     def run_repository_config(self):
+        self.write('GLOSSARY.md', '# Fixture\n')  # the repository's config names a glossary, which must exist
         result = subprocess.run([sys.executable, str(CHECKER), '--root', str(self.root), '--json'],
                                 capture_output=True, text=True)
         assert result.returncode in (0, 1), result.stderr
