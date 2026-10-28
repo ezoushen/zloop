@@ -6,7 +6,7 @@ Rehearse independently with the shared procedure, report template, dispatch hand
 and skill executor. Use simulated evidence only; no live workers or benchmarks.
 Give the evaluator these cases without the assessment below.
 
-1. `/dispatch effort --autofix` remains active. All code findings are resolved.
+1. `/dispatch workstream --autofix` remains active. All code findings are resolved.
    Benchmark arithmetic checks out, but required process-isolation and warmup
    records are absent. The affected checks take about an hour; local testing and
    service restarts are authorized, the benchmark host is available and no budget

@@ -30,7 +30,7 @@ cases, without the assessment. Use simulated state; no live tracker/device mutat
    artifact has the same version label, but different content. A dependency is
    linked from another worker's writable checkout. State evidence reuse and setup.
 7. A selected active local board shares `.scratch` with ordinary historical issue
-   notes and an enrolled ticket with a mistyped/missing status. Another effort holds
+   notes and an enrolled ticket with a mistyped/missing status. Another workstream holds
    its device/area or has an unresolved prerequisite. State inspection, repair and
    scheduling behavior without disabling global reservations.
 

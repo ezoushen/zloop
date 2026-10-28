@@ -14,13 +14,13 @@
    and its report contains only the starting base. State the disposition and next
    action without inventing a finished report.
 4. The run log lists A as implementing and B as blocked. The board marks A done,
-   its full report and commit verify, and that commit is integrated into the effort
+   its full report and commit verify, and that commit is integrated into the workstream
    branch. No worker remains active. B depends only on A and is within the accepted
    scope. State what to reconcile and what happens next. Then repeat with B also
-   integrated, no remaining selected work, and `/dispatch effort --autofix` active.
+   integrated, no remaining selected work, and `/dispatch workstream --autofix` active.
 5. Refinement has no project loop file yet. Two tickets edit separate modules but
    both load-test against the same shared staging database. The proposed
-   verification script uses retired fixture inputs. The existing effort branch
+   verification script uses retired fixture inputs. The existing workstream branch
    contains unmerged prerequisite work. A claim that a data migration works on the
    target database engine is backed by target schema metadata and reference-engine
    query checks. Use the refinement procedure to determine readiness and evidence.
