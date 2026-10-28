@@ -77,7 +77,7 @@ differs from the base; list deliberate edits in a JSON file passed with `--allow
 | `unowned` | An agent doc links or names a Markdown file no module owns, such as one in `docs/` | Move that file into the module that owns its subject |
 | `positional` | `above` or `below` that may point at moved text | Link or name the target instead |
 | `stale-name` | Text names a `.md` file that exists nowhere | Link the doc that now holds it, or add a generic project name to `known_names` |
-| `avoided-word` | An agent doc uses a phrase the glossary lists under `_Avoid_`, as a whole phrase in any case, plural or line wrap | Write the term the error names; quote a phrase you must name in backticks or a fenced block. A phrase that is also a glossary term (`effort`) is not matched alone: the glossary lists the longer phrase to avoid (`effort branch`) |
+| `avoided-word` | An agent doc uses a phrase the glossary lists under `_Avoid_`, as a whole phrase in any case, plural or line wrap, in frontmatter and link titles too | Write the term the error names; quote a phrase you must name in backticks or a fenced block (a link target is not a use, a link title is). A phrase that is also a glossary term (`effort`) is not matched alone: the glossary lists the longer phrase to avoid (`effort branch`) |
 | `dated`, `backslash`, `person` | Time-bound wording, Windows path, first/second-person description | Reword |
 | `description-budget` | Skill descriptions over the local budget in config | Shorten descriptions |
 

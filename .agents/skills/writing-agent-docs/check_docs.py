@@ -28,6 +28,7 @@ INLINE_LINK = re.compile(r'!?\[((?:[^\[\]]|\[[^\]]*\])*)\]\(\s*(<[^>]*>|(?:[^()\
                          r'(?:\s+(?:"[^"]*"|\'[^\']*\'|\([^)]*\)))?\s*\)')
 REFERENCE = re.compile(r'^\s{0,3}\[(?!\^)([^\]]+)\]:\s*(<[^>]*>|[^\s<>]*[./#:][^\s<>]*)'
                        r'(?:\s+(?:"[^"]*"|\'[^\']*\'|\([^)]*\)))?\s*$')
+TITLE = re.compile(r'\s+(?:"([^"]*)"|\'([^\']*)\'|\(([^)]*)\))\s*\)?\s*$')  # the end of a link or definition
 RELATIVE_DOC = re.compile(r'(?<![\w/.-])((?:\.\./)+[\w./-]*?\.md)\b')  # ../x.md named in text
 FENCE = re.compile(r'\s*(?:>\s*)*(`{3,}|~{3,})(.*)$')
 ATX = re.compile(r'\s{0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$')
@@ -96,27 +97,42 @@ def avoided_words(glossary):
     return avoided
 
 
+def read_text(line):
+    """The part of a line a person reads: code spans, link targets and definition targets are replaced by a
+    break, a link or definition keeps its label and its title, which is text, apart from each other."""
+    def keep(match):
+        title = TITLE.search(match.group(0))
+        return match.group(1) + '\0' + ''.join(title.groups(default='')) if title else match.group(1)
+    line = re.sub(r'(`+)(?:(?!\1).)+?\1', '\0', line)
+    return keep(match) if (match := REFERENCE.match(line)) else INLINE_LINK.sub(keep, line)
+
+
 def avoided_findings(path, rel, glossary, avoided):
     """Findings for each avoided phrase in a doc's prose. Matching is by whole phrase, ignoring case, with
-    an optional plural, across a line wrap or a hyphen. Inline code, fenced code and link targets quote a
-    phrase without using it; frontmatter values count as prose; the glossary's own `_Avoid_` lines are its definitions."""
+    an optional plural, across a line wrap or a hyphen. Inline code, fenced code and the targets of inline
+    links and reference definitions quote a phrase without using it; a link's title is text, and frontmatter
+    values count as prose; the glossary's own `_Avoid_` lines are its definitions. A phrase
+    used twice on a line is one finding for that line."""
     if not avoided:
         return []
     text, starts, previous = '', [], None
     for number, line in prose(path, front=True):
         if not line.strip() or path == glossary and line.startswith('_Avoid_:'):
             continue
-        line = INLINE_LINK.sub(lambda m: m.group(1), re.sub(r'(`+)(?:(?!\1).)+?\1', '\0', line))
+        line = read_text(line)
         text += '\n' if previous == number - 1 else '\0'  # a gap in the lines breaks a phrase
         starts.append((len(text), number))
         text += line
         previous = number
     offsets = [offset for offset, _ in starts]
-    findings = []
+    findings, reported = [], set()
     for phrase, term in avoided:
         pattern = r'(?<!\w)' + r'(?:\s+|-)'.join(map(re.escape, phrase.split())) + r'(?:e?s)?(?!\w)'
         for match in re.finditer(pattern, text, re.I):
             number = starts[bisect_right(offsets, match.start()) - 1][1]
+            if (phrase, number) in reported:
+                continue
+            reported.add((phrase, number))
             findings.append(Finding(rel(path), number, 'error', 'avoided-word',
                                     f'"{phrase}" is an _Avoid_ word in {rel(glossary)}; write {term}'))
     return findings

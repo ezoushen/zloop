@@ -379,6 +379,25 @@ class AvoidedWords(Fixture):
                    + 'Read [the guide](../../shared/guide.md).\n')
         self.assertEqual(self.avoided(), [])
 
+    def test_a_link_title_is_text_not_a_quote_and_does_not_join_the_label(self):
+        # Rule: a title is read by a person, so an avoided phrase in it is an error; the target and the label stay apart.
+        self.write('shared/guide.md', GUIDE + '\nSee [the guide](guide.md "Open the effort branch").\n'
+                   + 'See [an effort](guide.md "branch").\nSee [guide](guide.md "the `effort branch`").\n')
+        self.assertEqual(self.avoided(), [(
+            'shared/guide.md', 7, '"effort branch" is an _Avoid_ word in GLOSSARY.md; write Workstream')])
+
+    def test_a_reference_definition_quotes_its_target_like_an_inline_link_and_its_title_is_text(self):
+        self.write('shared/guide.md', GUIDE + '\nSee [g] and [also].\n\n[g]: effort-branch.md\n'
+                   + '[also]: guide.md "the effort branch"\n')
+        self.assertEqual(self.avoided(), [(
+            'shared/guide.md', 10, '"effort branch" is an _Avoid_ word in GLOSSARY.md; write Workstream')])
+
+    def test_a_phrase_used_twice_on_one_line_is_one_finding_for_that_line(self):
+        # Rule: a finding names a phrase and a line; the same phrase twice on a line is not reported twice.
+        self.write('shared/guide.md', GUIDE + '\nThe effort branch, then the effort branch again.\n')
+        self.assertEqual(self.avoided(), [(
+            'shared/guide.md', 7, '"effort branch" is an _Avoid_ word in GLOSSARY.md; write Workstream')])
+
     def test_a_phrase_that_is_also_a_term_matches_only_where_the_glossary_lists_a_longer_phrase(self):
         # Rule: "effort" is a term of its own (model effort), so it alone never errors; "effort branch" does.
         self.write('shared/guide.md', GUIDE + '\nSet the model effort, as no effort is spared.\n'
