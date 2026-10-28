@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Domain terms settle into the repository's GLOSSARY.md, and every phase uses them."""
+import re
 import subprocess
 import unittest
 
@@ -11,6 +12,36 @@ GLOSSARY = ROOT / 'runtime/domain/glossary.md'
 
 def prose(path):
     return ' '.join((ROOT / path).read_text().split())
+
+
+class ZloopGlossary(unittest.TestCase):
+    def test_each_domain_concept_has_one_definition_and_avoid_list(self):
+        text = (ROOT / 'GLOSSARY.md').read_text()
+        entries = re.findall(r'^\*\*([^*\n]+)\*\*:\n(.*?)(?=^\*\*|^#|\Z)', text, re.M | re.S)
+        terms = [term for term, _ in entries]
+        required = {
+            'Workstream', 'Ticket', 'Assignment', 'Attempt', 'Job', 'Agent',
+            'Builder', 'Reviewer', 'Verifier', 'Worker', 'Orchestrator', 'Host',
+            'Runtime', 'Executor', 'Route', 'Candidate', 'Pool', 'Profile',
+            'Router', 'Thinking', 'Effort', 'Mandate', 'Ledger', 'Alignment',
+            'Run card', 'Run', 'Phase', 'Checkpoint', 'Decision family', 'Report',
+            'Evidence', 'Check tier', 'Full gate', 'E2E', 'Board', 'Tracker',
+            'Slug', 'Panel', 'Allowance', 'Kind', 'Standard', 'ADR',
+            'Goal', 'Principle', 'Constraint', 'Decision', 'Hinge', 'Veto',
+            'Interview', 'Skill', 'Command', 'Session', 'Hook', 'Model',
+            'Runtime binding', 'Executor type', 'Provider', 'Backend', 'Capacity',
+            'Configuration scope', 'Calibration', 'Journal', 'Case', 'Review',
+            'Finding', 'Repair', 'Review target', 'Base', 'Head', 'Worktree',
+            'Branch', 'PR', 'Project', 'Milestone', 'Issue', 'Focus', 'Depth',
+        }
+        self.assertFalse(required - set(terms), f'missing terms: {sorted(required - set(terms))}')
+        self.assertEqual(len(terms), len(set(terms)), 'each concept has one canonical entry')
+        for term, body in entries:
+            with self.subTest(term=term):
+                definition, marker, avoided = body.partition('_Avoid_:')
+                self.assertTrue(definition.strip(), 'the term needs a definition')
+                self.assertEqual(marker, '_Avoid_:', 'the term needs an Avoid list')
+                self.assertTrue(avoided.strip(), 'use none when there are no avoided words')
 
 
 class Glossary(unittest.TestCase):
