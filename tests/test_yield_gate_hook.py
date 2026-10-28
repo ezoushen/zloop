@@ -126,7 +126,8 @@ else:
         script = f"""
 const bootstrap = await import({json.dumps((ROOT / 'hosts/pi/bootstrap.ts').as_uri())});
 const handlers = {{}};
-bootstrap.default({{ on: (event, handler) => {{ handlers[event] = handler; }}, registerTool() {{}}, registerCommand() {{}} }});
+bootstrap.default({{ on: (event, handler) => {{ handlers[event] = handler; }}, registerTool() {{}}, registerCommand() {{}},
+                   registerShortcut() {{}} }});
 const ctx = {{ cwd: {json.dumps(str(self.repo))}, sessionManager: {{ getSessionId: () => 'pi-1' }} }};
 {body}
 """
@@ -298,7 +299,8 @@ class YieldGateHook(GateRepo):
         script = f"""
 const bootstrap = await import({json.dumps((ROOT / 'hosts/pi/bootstrap.ts').as_uri())});
 const handlers = {{}};
-bootstrap.default({{ on: (event, handler) => {{ handlers[event] = handler; }}, registerTool() {{}}, registerCommand() {{}} }});
+bootstrap.default({{ on: (event, handler) => {{ handlers[event] = handler; }}, registerTool() {{}}, registerCommand() {{}},
+                   registerShortcut() {{}} }});
 const settle = (outcome) => handlers.agent_before_settle(
   {{ type: 'agent_before_settle', outcome, entries: [], continue: false }},
   {{ cwd: {json.dumps(str(self.repo))}, sessionManager: {{ getSessionId: () => 'pi-1' }} }});
