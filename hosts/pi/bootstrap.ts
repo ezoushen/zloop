@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
-const SECTION = "zloop_harness";
+const SECTION = "zloop_host";
 // Pi's bash has no default timeout, so one forgotten search of / can hold a session for hours. Claude Code and
 // OpenCode stop a foreground command after 2 minutes; this gives Pi the same bound unless
 // ZLOOP_BASH_TIMEOUT=off.
@@ -17,7 +17,7 @@ const WAKE_MAX_MS = 2 ** 31 - 1;
 // The panel: this session's workstream drawn below the editor, from the rows its fact source reports.
 const PANEL_KEY = "zloop";
 const PANEL_INTERVAL_MS = 2000;
-// The key that shows or hides the rows `+N more` stands for: free in Pi and in the extensions this harness runs with.
+// The key that shows or hides the rows `+N more` stands for: free in Pi and in the extensions this host runs with.
 const MORE_KEY = "ctrl+alt+w";
 const execFileAsync = promisify(execFile);
 
@@ -272,7 +272,7 @@ export default function (pi) {
     const herdr = process.env.HERDR_ENV === "1"
       ? ` Herdr environment detected: before delegation also read ${root}/hosts/herdr.md for routing, waits and cleanup.`
       : "";
-    const hint = `zloop harness: pi. When using a zloop skill, first read ${root}/bootstrap.md and ${root}/hosts/pi/session.md. Plugin root: ${root}. Load only this host session part; pass its absolute path and the agent and job files to workers.${bashBounded() ? ` Shell commands given no timeout stop after ${BASH_TIMEOUT_SECONDS} s: pass a timeout for a longer foreground command, or run it in the background.` : ""}${herdr}`;
+    const hint = `zloop host: pi. When using a zloop skill, first read ${root}/bootstrap.md and ${root}/hosts/pi/session.md. Plugin root: ${root}. Load only this host session part; pass its absolute path and the agent and job files to workers.${bashBounded() ? ` Shell commands given no timeout stop after ${BASH_TIMEOUT_SECONDS} s: pass a timeout for a longer foreground command, or run it in the background.` : ""}${herdr}`;
     // Returning systemPrompt forces the prompt for this run only, so runs that
     // start without a typed prompt revert to the structured one and every switch
     // invalidates the server's prefix cache. A section is diffed by Pi instead.

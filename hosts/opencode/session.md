@@ -1,6 +1,6 @@
 # OpenCode settings adapter
 
-Select with `harness=opencode`; there is no zloop OpenCode bootstrap extension.
+Select with `host=opencode`; there is no zloop OpenCode bootstrap extension.
 Load shared skills through OpenCode's native skill discovery and preserve their
 explicit invocation policy.
 

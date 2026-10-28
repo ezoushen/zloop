@@ -1,19 +1,19 @@
 # Runtime bootstrap
 
 The registered Claude/Codex SessionStart hook or Pi bootstrap extension supplies
-`zloop harness: claude|codex|pi`, the absolute plugin root, this bootstrap and the
+`zloop host: claude|codex|pi`, the absolute plugin root, this bootstrap and the
 active host's session part (`hosts/<host>/session.md`). Read this file and **only that
 host's session part** once per session before using a skill. Resolve shared files relative to the plugin
 root (two directories above this skill's `SKILL.md`), never the target repository.
 
-If the hint is absent, an explicit `harness=claude`, `harness=codex`, `harness=pi`
-or `harness=opencode` in the user's
-invocation selects `hosts/<harness>/session.md`. Do not guess from model names
+If the hint is absent, an explicit `host=claude`, `host=codex`, `host=pi`
+or `host=opencode` in the user's
+invocation selects `hosts/<host>/session.md`. Do not guess from model names
 or the presence of compatibility environment variables. Resolve the session part and
 plugin root before workers start. Consume this selection before forwarding phase
 arguments to command-line helpers. The bootstrap supplies context (Pi's also applies the
 worker lifecycle's yield gate when a run settles); explicit
-harness selection is also sufficient. Native permissions still apply.
+host selection is also sufficient. Native permissions still apply.
 
 Shared docs are grouped by reader, each folder with a README that lists its files:
 [workers](runtime/workers/README.md) (launch, wait for, collect and retire workers),

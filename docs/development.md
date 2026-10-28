@@ -69,10 +69,10 @@ calls:
 .venv/bin/python -B tests/test_router_profiles.py
 .venv/bin/python -B -m unittest discover -s tests -t tests
 # Installed CLI discovery, OpenCode 2 and Claude profile readers:
-ZLOOP_NATIVE=1 .venv/bin/python -B tests/test_cross_harness.py
+ZLOOP_NATIVE=1 .venv/bin/python -B tests/test_cross_host.py
 ZLOOP_NATIVE=1 .venv/bin/python -B tests/test_agent_models.py
 # Pi SDK discovery and bootstrap, isolated from user extensions:
-ZLOOP_NATIVE_PI=1 .venv/bin/python -B tests/test_cross_harness.py
+ZLOOP_NATIVE_PI=1 .venv/bin/python -B tests/test_cross_host.py
 ```
 
 They validate discovery, invocation metadata and registration. When this source is

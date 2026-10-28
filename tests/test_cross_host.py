@@ -30,11 +30,11 @@ def write_ticket(repo, name, status='ready', deps=(), area=None):
     return path
 
 
-class CrossHarness(unittest.TestCase):
+class CrossHost(unittest.TestCase):
     """Package, scheduler and lock regressions in temporary repositories with isolated state."""
 
     def setUp(self):
-        state = tempfile.TemporaryDirectory(prefix='zloop cross harness state ')
+        state = tempfile.TemporaryDirectory(prefix='zloop cross host state ')
         self.addCleanup(state.cleanup)
         environment = patch.dict(os.environ, support.isolated_env(state.name))
         environment.start()
@@ -201,17 +201,17 @@ class CrossHarness(unittest.TestCase):
                 for link in re.findall(r'\]\(([^)]+)\)', path.read_text()):
                     if '://' not in link and '<' not in link:
                         assert (path.parent / link.split('#')[0]).exists(), (path, link)
-        for harness, relative in (('claude', 'hooks/hooks.json'), ('codex', 'hosts/codex/hooks.json')):
+        for host, relative in (('claude', 'hooks/hooks.json'), ('codex', 'hosts/codex/hooks.json')):
             config = json.loads((PLUGIN / relative).read_text())['hooks']
-            assert set(config) == {'SessionStart', 'PreToolUse', 'Stop'}, (harness, config)
-            assert config['Stop'][0]['hooks'][0]['command'].endswith(f'hooks/yield_gate.py" {harness}'), config
+            assert set(config) == {'SessionStart', 'PreToolUse', 'Stop'}, (host, config)
+            assert config['Stop'][0]['hooks'][0]['command'].endswith(f'hooks/yield_gate.py" {host}'), config
             guards = {entry['matcher']: [hook['command'] for hook in entry['hooks']] for entry in config['PreToolUse']}
             # Both hosts log each Herdr launch before Bash runs it, so the yield gate can name unregistered workers;
             # Codex shows a hook's statusMessage on every matching call, so the launch hook has none.
             launch = [hook for entry in config['PreToolUse'] if entry['matcher'] == 'Bash' for hook in entry['hooks']
                       if hook['command'].endswith('hooks/herdr_launch.py"')]
             assert len(launch) == 1 and 'statusMessage' not in launch[0], guards
-            if harness == 'claude':
+            if host == 'claude':
                 guard = config['PreToolUse'][0]
                 assert guard['matcher'] == 'Agent|Task' and guard['hooks'][0]['command'].endswith('hooks/agent_model.py"')
                 assert guards['Bash'][0].endswith('hooks/pr_body.py"'), guards
@@ -220,11 +220,11 @@ class CrossHarness(unittest.TestCase):
             import shlex
             result = run(*shlex.split(command), input='{}')
             context = json.loads(result.stdout)['hookSpecificOutput']['additionalContext']
-            assert f'harness: {harness}' in context
+            assert f'zloop host: {host}. ' in context
             assert str(PLUGIN / 'bootstrap.md') in context
-            assert str(PLUGIN / 'hosts' / harness / 'session.md') in context
-            assert (PLUGIN / 'bootstrap.md').is_file() and (PLUGIN / 'hosts' / harness / 'session.md').is_file()
-            other = 'codex' if harness == 'claude' else 'claude'
+            assert str(PLUGIN / 'hosts' / host / 'session.md') in context
+            assert (PLUGIN / 'bootstrap.md').is_file() and (PLUGIN / 'hosts' / host / 'session.md').is_file()
+            other = 'codex' if host == 'claude' else 'claude'
             assert f'/hosts/{other}/' not in context
             for herdr in ('', '0', '1'):
                 result = subprocess.run(shlex.split(command), input='{}', text=True,
@@ -233,7 +233,7 @@ class CrossHarness(unittest.TestCase):
                 context = json.loads(result.stdout)['hookSpecificOutput']['additionalContext']
                 assert (str(PLUGIN / 'hosts/herdr.md') in context) == (herdr == '1')
                 assert str(PLUGIN / 'bootstrap.md') in context
-                assert str(PLUGIN / 'hosts' / harness / 'session.md') in context
+                assert str(PLUGIN / 'hosts' / host / 'session.md') in context
                 assert f'/hosts/{other}/' not in context
 
     def test_python_scripts_import_by_name_and_named_scripts_exist(self):
@@ -381,7 +381,7 @@ class CrossHarness(unittest.TestCase):
                     holder.wait()
 
 
-class NativeHarnesses(unittest.TestCase):
+class NativeHosts(unittest.TestCase):
     """Installed Claude, Codex, Pi and OpenCode package readers, without model calls."""
 
     @unittest.skipUnless(os.environ.get('ZLOOP_NATIVE') == '1', 'set ZLOOP_NATIVE=1 to check installed CLIs')

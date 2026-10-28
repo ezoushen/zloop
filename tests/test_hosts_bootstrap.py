@@ -62,6 +62,13 @@ class Bootstrap(unittest.TestCase):
                 if anchor:
                     self.assertTrue(has_heading(ROOT / path, anchor), owner)
 
+    def test_the_hint_names_the_host_and_an_explicit_host_selects_its_session_part_when_the_hint_is_absent(self):
+        text = ' '.join((ROOT / 'bootstrap.md').read_text().split())
+        self.assertIn('supplies `zloop host: claude|codex|pi`', text)
+        fallback = text[text.index('If the hint is absent'):].split('. Do not guess', 1)[0]
+        self.assertEqual(re.findall(r'`host=(\w+)`', fallback), list(HOSTS))
+        self.assertIn('selects `hosts/<host>/session.md`', fallback)
+
     def test_the_pr_row_names_the_delivery_checkpoint_before_the_check_watch(self):
         [owner] = [cell for trigger, cell in rows() if re.search(r'creat\w+ a PR', trigger)]
         self.assertRegex(owner, r'run the `delivery` checkpoint or record an evidenced skip, then the \[required-check watch\]')

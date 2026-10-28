@@ -86,7 +86,7 @@ with `opencode api skill.list`, which lists each skill with its `autoinvoke` fla
 six model-invocable ids (diagnose, explain, housekeeping, prototype, research, tdd) and
 the ten commands, loadable only by explicit id (`@align` and the like), should be
 present. The native check is
-`ZLOOP_NATIVE=1 .venv/bin/python -B tests/test_cross_harness.py NativeHarnesses`.
+`ZLOOP_NATIVE=1 .venv/bin/python -B tests/test_cross_host.py NativeHosts`.
 
 The server log shows `loading plugin` for `zloop.js` once the plugin link is read. This
 covers model settings, skill discovery and the yield gate; OpenCode still has no native
@@ -114,7 +114,7 @@ Run `/reload` in Pi, then `/zloop:dispatch <scope> --autofix` or
 session part before each turn, registers the `zloop_wake` tool, and registers
 `/zloop:<name>` for each command, completing its flags and modes and sending
 `/skill:<name> <args>`. With explicit
-extension loading disabled, supply `harness=pi` when invoking a phase instead.
+extension loading disabled, supply `host=pi` when invoking a phase instead.
 Planning/review can run without delegation where the shared procedure allows it;
 dispatch requires the installed `subagent` tool (pi-subagents). See the
 [Pi session part](../hosts/pi/session.md).
