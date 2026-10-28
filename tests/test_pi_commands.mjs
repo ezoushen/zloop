@@ -67,7 +67,7 @@ assert.deepEqual(await labels("remediate", "--base main "), ["tautological-tests
 // A word no literal names fills the hint's next open placeholder, ruling out the branches that placeholder excludes;
 // a flag's value is never read as a mode; a key= argument already given is not offered again.
 assert.equal(await labels("autopilot", "build a greeting tool "), null);
-assert.equal(await labels("brief", "my-effort "), null);
+assert.equal(await labels("brief", "my-workstream "), null);
 assert.equal(await labels("remediate", "tautological-tests src/ "), null);
 // remediate quotes a free-form goal, so an unquoted word is a path: no other scope is offered after it.
 assert.equal(await labels("remediate", "tests/ --p"), null);

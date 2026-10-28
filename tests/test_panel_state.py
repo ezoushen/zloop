@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The panel's fact source: which effort is live, and the rows a host draws for it."""
+"""The panel's fact source: which workstream is live, and the rows a host draws for it."""
 import json
 import os
 from pathlib import Path
@@ -25,9 +25,9 @@ def card(path, phase='dispatch', session='S', terminal='', confirmed='yes 2026-1
     return path
 
 
-def coordinator(effort, sessions):
-    """The binding `next_tickets.py --coordinate` writes: the session running the effort."""
-    path = effort / 'reports' / 'coordinator.json'
+def coordinator(workstream, sessions):
+    """The binding `next_tickets.py --coordinate` writes: the session running the workstream."""
+    path = workstream / 'reports' / 'coordinator.json'
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({'pane': 'w1J:p36', 'sessions': sessions, 'autofix': True}))
     return path
@@ -81,11 +81,12 @@ class PanelState(unittest.TestCase):
     def row_texts(self, snapshot, kind=None):
         return [row['text'] for row in snapshot['rows'] if kind is None or row['kind'] == kind]
 
-    def test_a_live_card_is_active_and_names_effort_and_phase(self):
+    def test_a_live_card_is_active_and_names_workstream_and_phase(self):
         card(self.scratch / 'demo' / 'autopilot.md', phase='dispatch')
         found = self.snapshot()
         self.assertTrue(found['active'])
-        self.assertEqual('demo', found['effort'])
+        self.assertEqual('demo', found['workstream'])
+        self.assertNotIn('effort', found)
         self.assertEqual('dispatch', found['phase'])
         self.assertEqual(['demo · dispatch'], self.row_texts(found, 'headline'))
 
@@ -101,7 +102,7 @@ class PanelState(unittest.TestCase):
 
     def test_a_delivered_run_with_nothing_live_draws_nothing(self):
         # Only the terminal state says delivered: the phase is still dispatch. The ready ticket shows the terminal
-        # state alone decides a carded effort, since a card-less one would stay live on that ticket.
+        # state alone decides a carded workstream, since a card-less one would stay live on that ticket.
         card(self.scratch / 'demo' / 'autopilot.md', phase='dispatch', terminal='delivered')
         ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='ready')
         found = self.snapshot()
@@ -158,19 +159,19 @@ class PanelState(unittest.TestCase):
         self.assertEqual([], [row for row in found['rows'] if row['kind'] in ('run', 'wait')])
         self.assertIn('workers.sqlite', result.stderr)
 
-    def test_the_effort_naming_this_session_wins(self):
+    def test_the_workstream_naming_this_session_wins(self):
         card(self.scratch / 'alpha' / 'autopilot.md', session='S')
         newer = card(self.scratch / 'beta' / 'autopilot.md', session='other')
         later = time.time() + 60
         os.utime(newer, (later, later))
-        self.assertEqual('alpha', self.snapshot('S')['effort'])
-        self.assertEqual('beta', self.snapshot('other')['effort'])
+        self.assertEqual('alpha', self.snapshot('S')['workstream'])
+        self.assertEqual('beta', self.snapshot('other')['workstream'])
 
-    def test_an_effort_claimed_by_another_session_is_not_shown(self):
+    def test_a_workstream_claimed_by_another_session_is_not_shown(self):
         card(self.scratch / 'beta' / 'autopilot.md', session='other')
         self.assertFalse(self.snapshot('S')['active'])
 
-    def test_counts_come_from_the_efforts_tickets(self):
+    def test_counts_come_from_the_workstreams_tickets(self):
         card(self.scratch / 'demo' / 'autopilot.md')
         ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='done')
         ticket(self.scratch / 'demo' / 'issues' / '02-b.md', 'demo/02', status='ready')
@@ -190,7 +191,7 @@ class PanelState(unittest.TestCase):
         ticket(self.scratch / 'demo' / 'issues' / '02-b.md', 'demo/02', status='ready')
         self.assertEqual(['next: demo/02'], self.row_texts(self.snapshot(), 'next'))
 
-    def test_the_strip_names_the_effort_its_state_and_its_next_step(self):
+    def test_the_strip_names_the_workstream_its_state_and_its_next_step(self):
         card(self.scratch / 'demo' / 'autopilot.md')
         ticket(self.scratch / 'demo' / 'issues' / '02-b.md', 'demo/02', status='ready')
         ticket(self.scratch / 'demo' / 'issues' / '03-c.md', 'demo/03', status='blocked', blocker='no credential')
@@ -249,30 +250,30 @@ class PanelState(unittest.TestCase):
         self.assertTrue(found['active'])
         self.assertIn('no approval', self.row_texts(found, 'blocker')[0])
 
-    def test_the_sessions_journal_names_the_effort_when_no_card_does(self):
-        # Journals live in the effort's artifact directory, which is its reports folder.
+    def test_the_sessions_journal_names_the_workstream_when_no_card_does(self):
+        # Journals live in the workstream's artifact directory, which is its reports folder.
         journal = self.scratch / 'gamma' / 'reports' / 'decisions-S.jsonl'
         journal.parent.mkdir(parents=True)
         journal.write_text('')
         ticket(journal.parent.parent / 'issues' / '01-a.md', 'gamma/01', status='implementing')
-        # A newer effort sits beside it, so only the journal rule can pick gamma.
+        # A newer workstream sits beside it, so only the journal rule can pick gamma.
         newer = self.scratch / 'omega' / 'issues' / '01-a.md'
         ticket(newer, 'omega/01', status='ready')
         later = time.time() + 120
         os.utime(newer, (later, later))
         found = self.snapshot('S')
-        self.assertEqual('gamma', found['effort'])
+        self.assertEqual('gamma', found['workstream'])
         self.assertIsNone(found['phase'])
         self.assertTrue(found['active'])
 
-    def test_an_effort_nothing_binds_to_this_session_is_not_shown(self):
+    def test_a_workstream_nothing_binds_to_this_session_is_not_shown(self):
         # A session just opened has no binding, card or journal of its own, so another session's live work stays off
         # its panel, however recent: the card says `unknown`, as a host that exposes no session ID writes it.
         card(self.scratch / 'demo' / 'autopilot.md', session='unknown')
         attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [live('12/ticket-1')])
         ticket(self.scratch / 'omega' / 'issues' / '01-a.md', 'omega/01', status='ready')
         found = self.snapshot('fresh')
-        self.assertEqual({'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'more': [],
+        self.assertEqual({'active': False, 'workstream': None, 'phase': None, 'draft': False, 'rows': [], 'more': [],
                           'strip': None},
                          found)
 
@@ -289,7 +290,7 @@ class PanelState(unittest.TestCase):
         subprocess.run(['git', '-C', str(self.repo), 'worktree', 'add', '-q', '--detach', str(worktree)],
                        check=True)
         found = PANEL.snapshot(worktree, 'S', time.time())
-        self.assertEqual('demo', found['effort'])
+        self.assertEqual('demo', found['workstream'])
 
     def test_an_allowance_pause_names_the_card_timers_resume(self):
         card(self.scratch / 'demo' / 'autopilot.md', terminal='paused-allowance')
@@ -297,23 +298,23 @@ class PanelState(unittest.TestCase):
         path.write_text(path.read_text().replace('timer:', 'timer: 2026-10-27T06:00Z via zloop_wake'))
         self.assertIn('06:00', self.row_texts(self.snapshot(), 'blocker')[0])
 
-    def test_the_coordinated_effort_wins_over_a_newer_unclaimed_one(self):
+    def test_the_coordinated_workstream_wins_over_a_newer_unclaimed_one(self):
         card(self.scratch / 'alpha' / 'autopilot.md', session='unknown')
         coordinator(self.scratch / 'alpha', ['S'])
         newer = self.scratch / 'beta' / 'issues' / '01-a.md'
         ticket(newer, 'beta/01', status='ready')
         later = time.time() + 120
         os.utime(newer, (later, later))
-        self.assertEqual('alpha', self.snapshot('S')['effort'])
+        self.assertEqual('alpha', self.snapshot('S')['workstream'])
 
     def test_a_binding_that_is_not_an_object_is_unreadable_not_fatal(self):
-        # The malformed binding is skipped, so the card naming this session still picks its effort.
+        # The malformed binding is skipped, so the card naming this session still picks its workstream.
         card(self.scratch / 'alpha' / 'autopilot.md', session='S')
         (self.scratch / 'alpha' / 'reports').mkdir(parents=True)
         (self.scratch / 'alpha' / 'reports' / 'coordinator.json').write_text('[]')
-        self.assertEqual('alpha', self.snapshot('S')['effort'])
+        self.assertEqual('alpha', self.snapshot('S')['workstream'])
 
-    def test_a_worker_this_session_registered_ties_its_effort(self):
+    def test_a_worker_this_session_registered_ties_its_workstream(self):
         # A run with no card, binding or journal, such as remediate's audit workers: the lifecycle records every host
         # session the registrar exported, here S started inside another host's shell, so `session` is the outer one.
         attempts(self.scratch / 'remediate-tests' / 'reports' / 'workers.sqlite',
@@ -321,23 +322,23 @@ class PanelState(unittest.TestCase):
                        sessions=['outer', 'S'])])
         found = self.snapshot('S')
         self.assertTrue(found['active'])
-        self.assertEqual('remediate-tests', found['effort'])
+        self.assertEqual('remediate-tests', found['workstream'])
         self.assertEqual(['remediate-tests', '▶ reviewer · remediate-tests/audit-1 · sonnet · quiet 30s',
                           'done: ticket 0'],
                          self.row_texts(found))
 
-    def test_of_the_efforts_tied_to_this_session_a_live_one_wins_then_the_binding_order(self):
+    def test_of_the_workstreams_tied_to_this_session_a_live_one_wins_then_the_binding_order(self):
         # The session dispatched alpha, which has delivered, and now runs remediate workers: they are what is live.
         card(self.scratch / 'alpha' / 'autopilot.md', session='unknown', phase='ended', terminal='delivered')
         coordinator(self.scratch / 'alpha', ['S'])
         state = attempts(self.scratch / 'remediate-x' / 'reports' / 'workers.sqlite',
                          [dict(live('1/audit-1'), session='S', sessions=['S'])])
-        self.assertEqual(('remediate-x', True), (self.snapshot('S')['effort'], self.snapshot('S')['active']))
+        self.assertEqual(('remediate-x', True), (self.snapshot('S')['workstream'], self.snapshot('S')['active']))
         # Both live: the binding comes before registered workers, however recent the workers.
         card(self.scratch / 'alpha' / 'autopilot.md', session='unknown')
         later = time.time() + 120
         os.utime(state, (later, later))
-        self.assertEqual(('alpha', True), (self.snapshot('S')['effort'], self.snapshot('S')['active']))
+        self.assertEqual(('alpha', True), (self.snapshot('S')['workstream'], self.snapshot('S')['active']))
 
     def test_of_two_live_runs_tied_by_workers_the_choice_holds_whichever_changed_last(self):
         # Every worker event rewrites its state; were the newest chosen, two live runs would swap on the panel, and a
@@ -347,15 +348,15 @@ class PanelState(unittest.TestCase):
         for touched in ('b-run', 'a-run', 'b-run'):
             later = time.time() + 120 + len(touched)
             os.utime(states[touched], (later, later))
-            self.assertEqual('a-run', self.snapshot('S')['effort'], f'after {touched} changed')
+            self.assertEqual('a-run', self.snapshot('S')['workstream'], f'after {touched} changed')
 
     def test_another_sessions_worker_ties_nothing_to_this_session(self):
         attempts(self.scratch / 'theirs' / 'reports' / 'workers.sqlite',
                  [dict(live('1/ticket-1'), session='T', sessions=['T'])])
-        self.assertEqual({'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'more': [],
+        self.assertEqual({'active': False, 'workstream': None, 'phase': None, 'draft': False, 'rows': [], 'more': [],
                           'strip': None},
                          self.snapshot('S'))
-        self.assertEqual('theirs', self.snapshot('T')['effort'])
+        self.assertEqual('theirs', self.snapshot('T')['workstream'])
 
     def test_a_hand_written_attempt_that_is_not_a_session_record_ties_nothing(self):
         # A `sessions` string that contains this session's id, and a row that is not an object, are skipped as data.
@@ -364,7 +365,7 @@ class PanelState(unittest.TestCase):
         db.execute('INSERT INTO attempts VALUES (?, ?)', ('1/ticket-2', json.dumps(['S'])))
         db.commit()
         db.close()
-        self.assertEqual({'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'more': [],
+        self.assertEqual({'active': False, 'workstream': None, 'phase': None, 'draft': False, 'rows': [], 'more': [],
                           'strip': None},
                          self.snapshot('S'))
 
@@ -381,11 +382,11 @@ class PanelState(unittest.TestCase):
     def test_an_attempt_registered_before_session_lists_ties_by_its_one_session(self):
         # Registrations from before 2026-10-27 record `session` alone.
         attempts(self.scratch / 'older' / 'reports' / 'workers.sqlite', [dict(live('1/ticket-1'), session='S')])
-        self.assertEqual('older', self.snapshot('S')['effort'])
+        self.assertEqual('older', self.snapshot('S')['workstream'])
         self.assertTrue(self.snapshot('S')['active'])
 
     def worker_run(self, slug='remediate-x'):
-        """A worker-run effort with no tickets, its attempts registered by S: audits, reproductions and repairs."""
+        """A worker-run workstream with no tickets, its attempts registered by S: audits, reproductions and repairs."""
         def attempt(attempt, assignment, job, status=None):
             row = dict(live(attempt, assignment=f'{slug}/{assignment}', agent='reviewer'), job=job, session='S',
                        sessions=['S'])
@@ -414,7 +415,7 @@ class PanelState(unittest.TestCase):
         db.close()
         self.assertEqual(['done: audit 2 · repair 0 · reproduce 1'], self.row_texts(self.snapshot('S'), 'counts'))
 
-    def test_an_effort_with_tickets_keeps_its_tickets_tally(self):
+    def test_a_workstream_with_tickets_keeps_its_tickets_tally(self):
         self.worker_run()
         ticket(self.scratch / 'remediate-x' / 'issues' / '01-a.md', 'remediate-x/01', status='ready')
         self.assertEqual(['0 done · 0 blocked · 1 ready · 0 live'], self.row_texts(self.snapshot('S'), 'counts'))
@@ -432,12 +433,12 @@ class PanelState(unittest.TestCase):
                 self.assertEqual(['done: audit 2 · repair 0 · reproduce 1'],
                                  self.row_texts(self.snapshot('S'), 'counts'))
 
-    def test_two_sessions_each_see_their_own_effort(self):
+    def test_two_sessions_each_see_their_own_workstream(self):
         for slug, session in (('alpha', 'S'), ('beta', 'T')):
             card(self.scratch / slug / 'autopilot.md', session='unknown')
             coordinator(self.scratch / slug, [session])
-        self.assertEqual('alpha', self.snapshot('S')['effort'])
-        self.assertEqual('beta', self.snapshot('T')['effort'])
+        self.assertEqual('alpha', self.snapshot('S')['workstream'])
+        self.assertEqual('beta', self.snapshot('T')['workstream'])
 
 
 if __name__ == '__main__':

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The panel's fact source: which effort is live, and the rows a host draws for it."""
+"""The panel's fact source: which workstream is live, and the rows a host draws for it."""
 import argparse
 import json
 from pathlib import Path
@@ -37,14 +37,14 @@ def card_state(path):
     return fields
 
 
-def claims(effort):
+def claims(workstream):
     """The session id a run card records, or None when it records none."""
-    recorded = card_state(effort / CARD).get('session', '')
+    recorded = card_state(workstream / CARD).get('session', '')
     return recorded if recorded and recorded != 'unknown' else None
 
 
-def efforts(repo):
-    """Every effort directory of the checkout: those with a run card, tickets, workers or a decision journal."""
+def workstreams(repo):
+    """Every workstream directory of the checkout: those with a run card, tickets, workers or a decision journal."""
     found = []
     for path in sorted((repo / SCRATCH).glob('*')):
         if path.is_dir() and ((path / CARD).is_file() or (path / 'issues').is_dir()
@@ -55,11 +55,11 @@ def efforts(repo):
     return found
 
 
-def activity(effort):
-    """When the effort last changed: the newest thing it holds that this panel reads."""
+def activity(workstream):
+    """When the workstream last changed: the newest thing it holds that this panel reads."""
     newest = 0.0
-    for path in [effort / CARD, effort / 'reports' / 'workers.sqlite', *effort.glob('decisions-*.jsonl'),
-                 *(effort / 'reports').glob('decisions-*.jsonl'), *effort.glob('issues/*.md')]:
+    for path in [workstream / CARD, workstream / 'reports' / 'workers.sqlite', *workstream.glob('decisions-*.jsonl'),
+                 *(workstream / 'reports').glob('decisions-*.jsonl'), *workstream.glob('issues/*.md')]:
         try:
             newest = max(newest, path.stat().st_mtime)
         except OSError:
@@ -79,12 +79,12 @@ def front_matter(path):
     return fields
 
 
-def tickets(effort):
-    """The effort's local tickets, in name order, with their front matter."""
-    return [(path, front_matter(path)) for path in sorted((effort / 'issues').glob('*.md'))]
+def tickets(workstream):
+    """The workstream's local tickets, in name order, with their front matter."""
+    return [(path, front_matter(path)) for path in sorted((workstream / 'issues').glob('*.md'))]
 
 
-def blocker_row(effort, state, found_tickets):
+def blocker_row(workstream, state, found_tickets):
     """The one blocker worth showing, by precedence: the run's own stop first, then its tickets."""
     terminal = state.get('terminal', '')
     if terminal in BLOCKERS:
@@ -106,8 +106,8 @@ def is_draft(state):
     return not confirmed or confirmed.lower().startswith('no')
 
 
-def live_effort(state, attempts, blocker, draft, found_tickets):
-    """Whether the effort is worth showing: work in flight, a blocker, a draft card, or work its board still holds."""
+def live_workstream(state, attempts, blocker, draft, found_tickets):
+    """Whether the workstream is worth showing: work in flight, a blocker, a draft card, or work its board holds."""
     if draft or blocker or attempts:
         return True
     if not state:
@@ -131,7 +131,7 @@ def next_row(state, found_tickets, draft):
 
 
 def counts_row(found_tickets):
-    """The effort's ticket tally, or None when it records no tickets."""
+    """The workstream's ticket tally, or None when it records no tickets."""
     if not found_tickets:
         return None
     tally = {'done': 0, 'blocked': 0, 'ready': 0, 'implementing': 0}
@@ -142,9 +142,9 @@ def counts_row(found_tickets):
                                      f"{tally['ready']} ready · {tally['implementing']} live"}
 
 
-def attempt_rows(effort):
-    """The attempt records the effort's worker state holds; none when it has no state or the state is unreadable."""
-    state = effort / 'reports' / 'workers.sqlite'
+def attempt_rows(workstream):
+    """The attempt records the workstream's worker state holds; none when it has no state or the state is unreadable."""
+    state = workstream / 'reports' / 'workers.sqlite'
     if not state.is_file():
         return []
     try:
@@ -170,10 +170,10 @@ def planned_counts(path):
             if isinstance(count, int) and not isinstance(count, bool) and count >= 0}
 
 
-def done_row(effort):
-    """The assignments each job of the effort's workers completed, jobs in name order; None when it has no workers."""
+def done_row(workstream):
+    """The assignments each job of the workstream's workers completed, jobs in name order; None without workers."""
     done = {}
-    for data in attempt_rows(effort):
+    for data in attempt_rows(workstream):
         if not (isinstance(data, dict) and isinstance(data.get('job'), str)
                 and isinstance(data.get('assignment'), str)):
             continue
@@ -182,7 +182,7 @@ def done_row(effort):
             finished.add(data['assignment'])
     if not done:
         return None
-    planned = planned_counts(effort / 'reports' / 'planned.json')
+    planned = planned_counts(workstream / 'reports' / 'planned.json')
     return {'kind': 'counts', 'text': 'done: ' + ' · '.join(
         f'{job} {len(done[job])}' + (f'/{planned[job]}' if job in planned else '') for job in sorted(done))}
 
@@ -199,9 +199,9 @@ def fmt_age(seconds):
     return f'{seconds // 86400}d'
 
 
-def live_attempts(effort, now):
-    """The effort's registered attempts that have neither a result nor a closure, most recently active first."""
-    state = effort / 'reports' / 'workers.sqlite'
+def live_attempts(workstream, now):
+    """The workstream's registered attempts that have neither a result nor a closure, most recently active first."""
+    state = workstream / 'reports' / 'workers.sqlite'
     if not state.is_file():
         return []
     try:
@@ -239,10 +239,10 @@ def model_of(data):
     return observed.get('model') or requested.get('model') or 'native'
 
 
-def bound_sessions(effort):
-    """The host sessions the effort's coordinator binding names, or None when it keeps no binding."""
+def bound_sessions(workstream):
+    """The host sessions the workstream's coordinator binding names, or None when it keeps no binding."""
     try:
-        saved = json.loads((effort / 'reports' / COORDINATOR).read_text())
+        saved = json.loads((workstream / 'reports' / COORDINATOR).read_text())
     except (OSError, ValueError):
         return None
     if not isinstance(saved, dict):
@@ -251,9 +251,9 @@ def bound_sessions(effort):
     return [str(session) for session in sessions] if isinstance(sessions, list) else []
 
 
-def registered_by(effort, session_id):
-    """Whether a worker attempt in the effort's state was registered by this host session."""
-    return any(session_id in recorded_sessions(data) for data in attempt_rows(effort))
+def registered_by(workstream, session_id):
+    """Whether a worker attempt in the workstream's state was registered by this host session."""
+    return any(session_id in recorded_sessions(data) for data in attempt_rows(workstream))
 
 
 def recorded_sessions(data):
@@ -267,27 +267,28 @@ def recorded_sessions(data):
 
 
 def tied(repo, session_id):
-    """The efforts a record ties to this session, each once, in binding order.
+    """The workstreams a record ties to this session, each once, in binding order.
 
-    A binding comes first: `next_tickets.py --coordinate` records the sessions running an effort, so two sessions in
-    one checkout each read their own. Then the card naming this session, its journal, and last the efforts whose
+    A binding comes first: `next_tickets.py --coordinate` records the sessions running a workstream, so two sessions in
+    one checkout each read their own. Then the card naming this session, its journal, and last the workstreams whose
     workers it registered, in name order, since every worker event rewrites a state and two live runs would otherwise
-    swap; their states are read only when the caller asks past the others. An effort no record ties to this session
+    swap; their states are read only when the caller asks past the others. A workstream no record ties to this session
     is another session's, however recent, so a session just opened shows none.
     """
-    found = efforts(repo)
+    found = workstreams(repo)
     recorded = dict.fromkeys([
-        *sorted((effort for effort in found if session_id in (bound_sessions(effort) or [])), key=activity,
+        *sorted((workstream for workstream in found if session_id in (bound_sessions(workstream) or [])), key=activity,
                 reverse=True),
-        *(effort for effort in found if claims(effort) == session_id),
-        *(effort for effort in found if any(effort.glob(f'decisions-{session_id}*.jsonl'))
-          or any((effort / 'reports').glob(f'decisions-{session_id}*.jsonl')))])
+        *(workstream for workstream in found if claims(workstream) == session_id),
+        *(workstream for workstream in found if any(workstream.glob(f'decisions-{session_id}*.jsonl'))
+          or any((workstream / 'reports').glob(f'decisions-{session_id}*.jsonl')))])
     yield from recorded
-    yield from (effort for effort in found if effort not in recorded and registered_by(effort, session_id))
+    yield from (workstream for workstream in found
+                if workstream not in recorded and registered_by(workstream, session_id))
 
 
 def main_checkout(repo):
-    """The checkout holding the effort state: a session working in a worktree still reads its main checkout."""
+    """The checkout holding the workstream state: a session working in a worktree still reads its main checkout."""
     repo = Path(repo)
     if (repo / SCRATCH).is_dir():
         return repo
@@ -303,28 +304,29 @@ def main_checkout(repo):
 
 
 def snapshot(repo, session_id, now):
-    """What this session's effort is doing, as the rows a host draws: the first live effort tied to it, else the first
-    tied one, quiet."""
+    """What this session's workstream is doing, as the rows a host draws: the first live workstream tied to it, else
+    the first tied one, quiet."""
     chosen = None
-    for effort in tied(main_checkout(repo), session_id):
-        state = card_state(effort / CARD)
-        found_tickets = tickets(effort)
+    for workstream in tied(main_checkout(repo), session_id):
+        state = card_state(workstream / CARD)
+        found_tickets = tickets(workstream)
         draft = is_draft(state) if state else False
-        blocker = blocker_row(effort, state, found_tickets)
-        attempts = live_attempts(effort, now)
-        live = live_effort(state, attempts, blocker, draft, found_tickets)
+        blocker = blocker_row(workstream, state, found_tickets)
+        attempts = live_attempts(workstream, now)
+        live = live_workstream(state, attempts, blocker, draft, found_tickets)
         if chosen is None or live:
-            chosen = effort, state, found_tickets, draft, blocker, attempts, live
+            chosen = workstream, state, found_tickets, draft, blocker, attempts, live
         if live:
             break
     if chosen is None:
-        return {'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'more': [], 'strip': None}
-    effort, state, found_tickets, draft, blocker, attempts, live = chosen
+        return {'active': False, 'workstream': None, 'phase': None, 'draft': False, 'rows': [], 'more': [],
+                'strip': None}
+    workstream, state, found_tickets, draft, blocker, attempts, live = chosen
     phase = state.get('phase') or None
     if not live:
-        return {'active': False, 'effort': effort.name, 'phase': phase, 'draft': draft, 'rows': [], 'more': [],
+        return {'active': False, 'workstream': workstream.name, 'phase': phase, 'draft': draft, 'rows': [], 'more': [],
                 'strip': None}
-    headline = f'{effort.name} · {phase}' if phase else effort.name
+    headline = f'{workstream.name} · {phase}' if phase else workstream.name
     rows = [{'kind': 'headline', 'text': headline + (' · draft' if draft else '')}]
     running, waiting = [], []
     for age, data, awaiting in attempts:
@@ -342,13 +344,13 @@ def snapshot(repo, session_id, now):
     step = next_row(state, found_tickets, draft)
     if step:
         rows.append(step)
-    counts = counts_row(found_tickets) if found_tickets else done_row(effort)
+    counts = counts_row(found_tickets) if found_tickets else done_row(workstream)
     if counts:
         rows.append(counts)
     closer = (blocker or step or {}).get('text', '')
-    strip = ' · '.join(part for part in (f'{effort.name} · {phase}' if phase else effort.name,
+    strip = ' · '.join(part for part in (f'{workstream.name} · {phase}' if phase else workstream.name,
                                          f'{len(running)} running' if running else '', closer) if part)
-    return {'active': True, 'effort': effort.name, 'phase': phase, 'draft': draft, 'rows': rows,
+    return {'active': True, 'workstream': workstream.name, 'phase': phase, 'draft': draft, 'rows': rows,
             'more': running[RUN_CAP:], 'strip': strip or None}
 
 
@@ -358,7 +360,7 @@ def render_text(found):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Report the panel rows for a session\'s effort.')
+    parser = argparse.ArgumentParser(description='Report the panel rows for a session\'s workstream.')
     parser.add_argument('--repo', required=True)
     parser.add_argument('--session-id', required=True)
     parser.add_argument('--json', action='store_true')

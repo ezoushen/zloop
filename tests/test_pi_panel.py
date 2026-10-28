@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The Pi panel draws a live effort's rows below the editor, clears both surfaces when it is not live, and /zloop-panel
+"""The Pi panel draws a live workstream's rows below the editor, clears both surfaces when it is not live, and /zloop-panel
 opens or closes it."""
 import shutil
 import subprocess

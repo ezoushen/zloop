@@ -2,9 +2,9 @@
 export type PaneMemory = {
   /** Whether the pane was open at the last look, so a pane gone since was closed by the person. */
   wasOpen: boolean
-  /** Whether the panel opened the pane unasked, which it then closes once the effort goes quiet. */
+  /** Whether the panel opened the pane unasked, which it then closes once the workstream goes quiet. */
   isUnasked: boolean
-  /** The effort live when the pane was closed by hand, which stays closed until another effort goes live. */
+  /** The workstream live when the pane was closed by hand, which stays closed until another workstream goes live. */
   closedFor: string | null
 }
 
@@ -14,7 +14,7 @@ export type Row = { kind: string; text: string }
 /** What scripts/panel_state.py answers for this session; the pane draws only what it reads. */
 export type Snapshot = {
   active: boolean
-  effort: string | null
+  workstream: string | null
   rows: Row[]
   /** The run rows `+N more` stands for; absent from a snapshot an earlier version stored. */
   more?: Row[]

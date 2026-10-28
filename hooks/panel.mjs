@@ -1,12 +1,12 @@
 /**
- * zloop's panel in Claude Code: this session's effort, drawn in a pane of its own.
+ * zloop's panel in Claude Code: this session's workstream, drawn in a pane of its own.
  * The rows come from the plugin's fact source, so Pi and Claude Code show the same words for the same state.
  */
 import { atom, read, update } from "claude-code";
 
 const REFRESH_MS = 2000;
 const PANE = "zloop-panel";
-const QUIET = "No zloop effort is live in this session.";
+const QUIET = "No zloop workstream is live in this session.";
 
 /** A character the terminal draws in two cells: East Asian wide and fullwidth blocks, and emoji presentation. */
 const WIDE = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6\u2300-\u23FF\u2600-\u27BF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}\u{20000}-\u{2FFFD}]/u;
@@ -61,7 +61,7 @@ let refreshing = false;
 const memory = atom({ plugin: "zloop", key: "pane" }, { wasOpen: false, isUnasked: false, closedFor: null },
   { shape: "pane-1" });
 /** The snapshot last read, or null when the fact source could not answer; kept so a reload draws it until the next. */
-const snapshot = atom({ plugin: "zloop", key: "snapshot" }, null, { shape: "snapshot-1" });
+const snapshot = atom({ plugin: "zloop", key: "snapshot" }, null, { shape: "snapshot-2" });
 /** Whether the person expanded `+N more` into the rows it stands for; kept so a reload keeps the choice. */
 const expanded = atom({ plugin: "zloop", key: "expanded" }, false, { shape: "expanded-1" });
 
@@ -79,15 +79,15 @@ async function readSnapshot($, cwd) {
   }
 }
 
-/** The live effort's name in `facts`, or null while nothing of this session is live. */
-const liveEffort = (facts) => (facts && facts.active ? String(facts.effort ?? "") : null);
+/** The live workstream's name in `facts`, or null while nothing of this session is live. */
+const liveWorkstream = (facts) => (facts && facts.active ? String(facts.workstream ?? "") : null);
 
 /**
- * Open the pane while this session's effort is live, and close the one opened for it once it goes quiet. While the
+ * Open the pane while this session's workstream is live, and close the one opened for it once it goes quiet. While the
  * pane waits undrawn (opened unasked on a narrow terminal), the snapshot's strip holds the status line instead.
  */
 async function follow($, facts) {
-  const live = liveEffort(facts);
+  const live = liveWorkstream(facts);
   const find = async () => (await $.ui.panes()).find((one) => one.id === PANE);
   let pane = await find();
   // Each field is written as soon as it is decided, before the next wait, so a /zloop-panel run meanwhile writes last.
@@ -110,11 +110,11 @@ async function follow($, facts) {
   $.ui.status(pane && !pane.isPlaced && live !== null && facts.strip ? String(facts.strip) : undefined);
 }
 
-/** `/zloop-panel`: close the pane when it is drawn, holding it closed for this effort; else open it until closed. */
+/** `/zloop-panel`: close the pane when drawn, holding it closed for this workstream; else open it until closed. */
 async function toggle($) {
   // A pane waiting undrawn counts as closed: the person's own open is what seats it.
   const isOpen = (await $.ui.panes()).some((one) => one.id === PANE && one.isPlaced);
-  const closedFor = isOpen ? liveEffort(await read($, snapshot)) : null;
+  const closedFor = isOpen ? liveWorkstream(await read($, snapshot)) : null;
   await update($, memory, () => ({ wasOpen: !isOpen, isUnasked: false, closedFor }));
   if (isOpen) {
     await $.ui.close({ id: PANE });

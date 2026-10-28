@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The Pi panel draws the fact source's rows below the editor while the effort is live, and clears both surfaces when
+// The Pi panel draws the fact source's rows below the editor while the workstream is live, and clears both surfaces when
 // it is not. Each case changes the snapshot's words, so the panel's repaint memory starts fresh for it.
 const bootstrap = resolve(dirname(fileURLToPath(import.meta.url)), "../hosts/pi/bootstrap.ts");
 const panel = await import(bootstrap);
@@ -23,7 +23,7 @@ function recording() {
 }
 
 const snapshot = (rows, extra = {}) => ({
-  active: true, effort: "demo", phase: "dispatch", draft: false, strip: "demo · dispatch · 1 running", rows, ...extra,
+  active: true, workstream: "demo", phase: "dispatch", draft: false, strip: "demo · dispatch · 1 running", rows, ...extra,
 });
 
 const widgets = (calls) => calls.filter((entry) => entry.call === "widget");
@@ -59,7 +59,7 @@ const rendered = (call, width) => call.content({}, THEME).render(width).map(plai
 // An inactive snapshot leaves no card and no strip behind.
 {
   const { calls, ctx } = recording();
-  await panel.panelTick(ctx, snapshot([], { active: false, rows: [], strip: null, effort: "idle" }));
+  await panel.panelTick(ctx, snapshot([], { active: false, rows: [], strip: null, workstream: "idle" }));
   assert.deepEqual(widgets(calls).map((widget) => widget.content), [undefined]);
   assert.deepEqual(statuses(calls).map((status) => status.text), [undefined]);
 }
@@ -109,18 +109,18 @@ const rendered = (call, width) => call.content({}, THEME).render(width).map(plai
   const WIDE_CASES = new Set(['✅', '⏳', '界']);
   const cells = (line) => [...line].reduce((total, character) => total + (WIDE_CASES.has(character) ? 2 : 1), 0);
   const { calls, ctx } = recording();
-  await panel.panelTick(ctx, snapshot([{ kind: "run", text: "⏳⏳⏳⏳⏳ ✅ done" }], { effort: "wide" }));
+  await panel.panelTick(ctx, snapshot([{ kind: "run", text: "⏳⏳⏳⏳⏳ ✅ done" }], { workstream: "wide" }));
   const [widget] = widgets(calls);
   const [line] = rendered(widget, 8);
   assert.ok(cells(line) <= 8, `${cells(line)} cells: ${line}`);
   assert.ok(line.endsWith("…"), line);
   // A line that fits is drawn unchanged, so an over-counting table cannot pass.
   const fits = recording();
-  await panel.panelTick(fits.ctx, snapshot([{ kind: "run", text: "abc ✅" }], { effort: "fits" }));
+  await panel.panelTick(fits.ctx, snapshot([{ kind: "run", text: "abc ✅" }], { workstream: "fits" }));
   assert.equal(rendered(widgets(fits.calls)[0], 8)[0], "abc ✅");
   // An astral wide character (🚀) takes two cells.
   const astral = recording();
-  await panel.panelTick(astral.ctx, snapshot([{ kind: "run", text: "🚀🚀🚀🚀" }], { effort: "astral" }));
+  await panel.panelTick(astral.ctx, snapshot([{ kind: "run", text: "🚀🚀🚀🚀" }], { workstream: "astral" }));
   assert.equal(rendered(widgets(astral.calls)[0], 8)[0], "🚀🚀🚀🚀");
   assert.ok(rendered(widgets(astral.calls)[0], 7)[0].endsWith("…"));
 }
@@ -137,7 +137,7 @@ const rendered = (call, width) => call.content({}, THEME).render(width).map(plai
     { kind: "more", text: "+2 more" },
   ];
   const { calls, ctx } = recording();
-  await panel.panelTick(ctx, snapshot(rows, { effort: "toned" }));
+  await panel.panelTick(ctx, snapshot(rows, { workstream: "toned" }));
   const [widget] = widgets(calls);
   assert.deepEqual(widget.content({}, THEME).render(80), [
     "<accent+bold>demo · dispatch</accent>",
@@ -154,7 +154,7 @@ const rendered = (call, width) => call.content({}, THEME).render(width).map(plai
 {
   const rows = [{ kind: "wait", text: "result ready · demo/01 · quiet 2m" }];
   const { calls, ctx } = recording();
-  await panel.panelTick(ctx, snapshot(rows, { effort: "narrow" }));
+  await panel.panelTick(ctx, snapshot(rows, { workstream: "narrow" }));
   const [widget] = widgets(calls);
   const [raw] = widget.content({}, THEME).render(20);
   const words = raw.replace(/<\/?[^>]+>/g, "");
@@ -165,7 +165,7 @@ const rendered = (call, width) => call.content({}, THEME).render(width).map(plai
 }
 
 // The extension under a stub Pi, its panel timer captured rather than left running: each tick reads the real fact
-// source over a fixture effort this session runs, whose card the source reports as the headline "demo · dispatch".
+// source over a fixture workstream this session runs, whose card the source reports as the headline "demo · dispatch".
 const fixture = mkdtempSync(join(tmpdir(), "pi-panel-"));
 process.on("exit", () => rmSync(fixture, { recursive: true, force: true }));
 mkdirSync(join(fixture, ".scratch/demo"), { recursive: true });
@@ -219,7 +219,7 @@ const shown = (calls) => {
 };
 const notices = (calls) => calls.filter((entry) => entry.call === "notify").map((entry) => entry.message);
 
-// The panel starts open: a live effort's rows draw with no command. /zloop-panel closes it at once and says so, and
+// The panel starts open: a live workstream's rows draw with no command. /zloop-panel closes it at once and says so, and
 // later ticks neither read nor draw. Run again, it opens the panel, says so, and the next tick draws the rows.
 {
   const session = started();

@@ -14,7 +14,7 @@ const bashBounded = () => process.env.ZLOOP_BASH_TIMEOUT !== "off";
 // setTimeout rejects a delay above 2^31 - 1 ms, about 24.8 days.
 const WAKE_MAX_MS = 2 ** 31 - 1;
 
-// The panel: this session's effort drawn below the editor, from the rows its fact source reports.
+// The panel: this session's workstream drawn below the editor, from the rows its fact source reports.
 const PANEL_KEY = "zloop";
 const PANEL_INTERVAL_MS = 2000;
 // The key that shows or hides the rows `+N more` stands for: free in Pi and in the extensions this harness runs with.
@@ -56,8 +56,8 @@ export function truncateCells(text, width) {
 const drawable = (row) => row && typeof row.text === "string" && row.text;
 
 /**
- * The rows a snapshot draws; a live effort's rows, else nothing. When rows hide behind `+N more`, that line names its
- * key, and expanded it gives way to the rows it stands for and a `show fewer` line; both lines are the expander.
+ * The rows a snapshot draws; a live workstream's rows, else nothing. When rows hide behind `+N more`, that line names
+ * its key, and expanded it gives way to the rows it stands for and a `show fewer` line; both lines are the expander.
  */
 export function panelRows(found, expanded = false) {
   if (!found || !found.active || !Array.isArray(found.rows)) return [];
@@ -93,10 +93,10 @@ let drawnPanel = null;
 let drawnCtx = null;
 
 /**
- * Draw one snapshot: the rows below the editor while the effort is live, else neither surface. The card carries every
- * fact, so the status line stays with the engine. A snapshot that could not be read clears both. A stale context drops
- * the tick and clears the repaint memory; the timer keeps the context it was started with, so a replaced session ends
- * this panel until its own session start arms a new one.
+ * Draw one snapshot: the rows below the editor while the workstream is live, else neither surface. The card carries
+ * every fact, so the status line stays with the engine. A snapshot that could not be read clears both. A stale context
+ * drops the tick and clears the repaint memory; the timer keeps the context it was started with, so a replaced session
+ * ends this panel until its own session start arms a new one.
  */
 export async function panelTick(ctx, found, view = {}) {
   try {
@@ -347,7 +347,7 @@ export default function (pi) {
   });
 
   // Keep working while a lifecycle worker could finish without waking this host, a worker this session launched is
-  // unregistered, or an effort it coordinates is undelivered under autofix: at most once per run, so a gap the host
+  // unregistered, or a workstream it coordinates is undelivered under autofix: at most once per run, so a gap the host
   // cannot fix never loops.
   let continued = false;
   pi.on("agent_settled", () => {
@@ -438,7 +438,7 @@ export default function (pi) {
     return undefined;
   });
 
-  // The panel: the effort's rows under the editor while it is live, refreshed from the fact source. It starts open
+  // The panel: the workstream's rows under the editor while it is live, refreshed from the fact source. It starts open
   // unless ZLOOP_PANEL=off, and /zloop-panel opens or closes it for this session; a closed panel reads nothing.
   // MORE_KEY, or a click on the expander, shows or hides the rows `+N more` stands for, redrawn at once.
   let panelTimer;

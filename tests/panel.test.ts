@@ -1,12 +1,12 @@
 import { describe, expect, mock, test } from "claude-code/testing";
 
-// The pane draws the fact source's rows while this session's effort is live, opens and closes with it, and leaves
+// The pane draws the fact source's rows while this session's workstream is live, opens and closes with it, and leaves
 // the band above the prompt to the engine.
 const PANE = "zloop-panel";
 
 const snapshot = (extra: Record<string, unknown> = {}) => ({
   active: true,
-  effort: "demo",
+  workstream: "demo",
   phase: "dispatch",
   draft: false,
   rows: [
@@ -17,7 +17,7 @@ const snapshot = (extra: Record<string, unknown> = {}) => ({
   strip: "demo · dispatch · 1 running",
   ...extra,
 });
-const QUIET = { active: false, effort: null, phase: null, draft: false, rows: [], strip: null };
+const QUIET = { active: false, workstream: null, phase: null, draft: false, rows: [], strip: null };
 
 // What the engine answers beneath the session: a clock, the fact source's output (changed by `world.facts`), the
 // panes it keeps open and the status line pinned.
@@ -101,7 +101,7 @@ const EXPANDED = ["demo · dispatch", run(1).text, run(2).text, run(3).text, run
                   "done: ticket 0"];
 
 describe("zloop panel", () => {
-  test("opens no pane while nothing is live, and opens it once this session's effort goes live", async ($, on) => {
+  test("opens no pane while nothing is live, and opens it once this session's workstream goes live", async ($, on) => {
     const { world, clock } = beneath(on, QUIET);
     await started($);
     await clock.advance(2000);
@@ -111,7 +111,7 @@ describe("zloop panel", () => {
     expect(world.panes.map((one) => one.id)).toEqual([PANE]);
   });
 
-  test("closes the pane it opened itself once the effort goes quiet", async ($, on) => {
+  test("closes the pane it opened itself once the workstream goes quiet", async ($, on) => {
     const { world, clock } = beneath(on, snapshot());
     await started($);
     expect(world.panes.map((one) => one.id)).toEqual([PANE]);
@@ -120,30 +120,30 @@ describe("zloop panel", () => {
     expect(world.panes).toEqual([]);
   });
 
-  test("a pane the person closed stays closed for that effort, and opens again for the next one", async ($, on) => {
+  test("a pane the person closed stays closed for that workstream, and opens again for the next one", async ($, on) => {
     const { world, clock } = beneath(on, snapshot());
     await started($);
     // The person's close mark: the engine drops the pane.
     world.panes = [];
     await clock.advance(4000);
     expect(world.opened).toEqual([PANE]);
-    world.facts = snapshot({ effort: "other" });
+    world.facts = snapshot({ workstream: "other" });
     await clock.advance(2000);
     expect(world.opened).toEqual([PANE, PANE]);
   });
 
-  test("a pane the person closed stays closed for the effort it showed when closed", async ($, on) => {
+  test("a pane the person closed stays closed for the workstream it showed when closed", async ($, on) => {
     const { world, clock } = beneath(on, snapshot());
     await started($);
-    // The pane opened for demo now shows another effort, which the person closes.
-    world.facts = snapshot({ effort: "other" });
+    // The pane opened for demo now shows another workstream, which the person closes.
+    world.facts = snapshot({ workstream: "other" });
     await clock.advance(2000);
     world.panes = [];
     await clock.advance(4000);
     expect(world.opened).toEqual([PANE]);
   });
 
-  test("a pane opened by /zloop-panel and closed by the person stays closed for the live effort", async ($, on) => {
+  test("a pane opened by /zloop-panel and closed by the person stays closed for the live workstream", async ($, on) => {
     const { world, clock } = beneath(on, QUIET);
     await started($);
     await $.command.run({ command: "zloop-panel" });
@@ -165,7 +165,7 @@ describe("zloop panel", () => {
     expect(world.panes.map((one) => [one.id, one.isPlaced])).toEqual([[PANE, true]]);
   });
 
-  test("a pane /zloop-panel seats while the panel is opening it stays open once the effort goes quiet", async ($, on) => {
+  test("a pane /zloop-panel seats while the panel is opening it stays open once the workstream goes quiet", async ($, on) => {
     const { world, clock } = beneath(on, QUIET);
     world.isPlaced = false;
     await started($);
@@ -197,7 +197,7 @@ describe("zloop panel", () => {
     expect(world.panes.map((one) => one.id)).toEqual([PANE]);
   });
 
-  test("/zloop-panel closes an open pane, and it stays closed for that effort", async ($, on) => {
+  test("/zloop-panel closes an open pane, and it stays closed for that workstream", async ($, on) => {
     const { world, clock } = beneath(on, snapshot());
     await started($);
     const ran = await $.command.run({ command: "zloop-panel" });
@@ -235,26 +235,26 @@ describe("zloop panel", () => {
     ]);
   });
 
-  test("says so in the pane when this session has no live effort", async ($, on) => {
+  test("says so in the pane when this session has no live workstream", async ($, on) => {
     beneath(on, snapshot({ active: false, strip: null }));
     await started($);
     // Rows still in a quiet snapshot are not drawn.
-    expect(await texts(await pane($))).toEqual(["No zloop effort is live in this session."]);
+    expect(await texts(await pane($))).toEqual(["No zloop workstream is live in this session."]);
   });
 
   test("says so in the pane when the fact source fails or prints no JSON", async ($, on) => {
     const { world, clock } = beneath(on);
     await started($);
     const ui = await pane($);
-    expect(await texts(ui)).toEqual(["No zloop effort is live in this session."]);
+    expect(await texts(ui)).toEqual(["No zloop workstream is live in this session."]);
     await ui.unmount();
     world.facts = "not json";
     await clock.advance(2000);
-    expect(await texts(await pane($))).toEqual(["No zloop effort is live in this session."]);
+    expect(await texts(await pane($))).toEqual(["No zloop workstream is live in this session."]);
   });
 
   // A hot reload of the plugin starts its module over and runs session.start again; the session's state stays.
-  test("a pane the person closed stays closed for that effort after a reload", async ($, on) => {
+  test("a pane the person closed stays closed for that workstream after a reload", async ($, on) => {
     const { world } = beneath(on, snapshot(), {
       pane: { shape: "pane-1", value: { wasOpen: false, isUnasked: false, closedFor: "demo" } },
     });
@@ -262,7 +262,7 @@ describe("zloop panel", () => {
     expect(world.opened).toEqual([]);
   });
 
-  test("a pane the panel opened itself still closes once the effort goes quiet after a reload", async ($, on) => {
+  test("a pane the panel opened itself still closes once the workstream goes quiet after a reload", async ($, on) => {
     const { world } = beneath(on, QUIET, {
       pane: { shape: "pane-1", value: { wasOpen: true, isUnasked: true, closedFor: null } },
     });
@@ -273,13 +273,19 @@ describe("zloop panel", () => {
   });
 
   test("after a reload the pane draws the rows last read until the next read lands", async ($, on) => {
-    beneath(on, undefined, { snapshot: { shape: "snapshot-1", value: snapshot() } });
+    beneath(on, undefined, { snapshot: { shape: "snapshot-2", value: snapshot() } });
     // Drawn before the reloaded module's session.start has read the fact source again.
     expect(await texts(await pane($))).toEqual([
       "demo · dispatch",
       "▶ builder · zloop-panel/02 · sonnet · quiet 1m",
       "1 done · 0 blocked · 2 ready · 1 live",
     ]);
+  });
+
+  test("a snapshot stored under the shape before `workstream` is declined, not drawn", async ($, on) => {
+    const earlier = { ...snapshot(), workstream: undefined, effort: "demo" };
+    beneath(on, undefined, { snapshot: { shape: "snapshot-1", value: earlier } });
+    expect(await texts(await pane($))).toEqual(["No zloop workstream is live in this session."]);
   });
 
   test("leaves the band above the prompt to the engine", async ($, on) => {
