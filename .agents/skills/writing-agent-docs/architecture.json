@@ -278,6 +278,7 @@
   },
   "domain": {
    "docs": [
+    "GLOSSARY.md",
     "runtime/domain/**/*.md"
    ],
    "code": [

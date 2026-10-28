@@ -1,5 +1,6 @@
 {
   "docs": [
+    "GLOSSARY.md",
     "skills/**/*.md",
     "agents/*.md",
     ".agents/skills/**/*.md",
@@ -34,6 +35,7 @@
   ],
   "code_doc_pattern": "(?<![\\w/.-])(?:(?:skills|agents|standards|runtime|hosts)/[\\w/-]+|bootstrap)\\.md",
   "entry_points": [
+    "GLOSSARY.md",
     "skills/*/SKILL.md",
     "agents/*.md",
     ".agents/skills/*/SKILL.md",
