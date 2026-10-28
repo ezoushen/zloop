@@ -174,11 +174,12 @@ def done_row(effort):
     """The assignments each job of the effort's workers completed, jobs in name order; None when it has no workers."""
     done = {}
     for data in attempt_rows(effort):
-        if not isinstance(data, dict) or not isinstance(data.get('job'), str):
+        if not (isinstance(data, dict) and isinstance(data.get('job'), str)
+                and isinstance(data.get('assignment'), str)):
             continue
         finished = done.setdefault(data['job'], set())
         if isinstance(data.get('result'), dict) and data['result'].get('status') == 'completed':
-            finished.add(data.get('assignment'))
+            finished.add(data['assignment'])
     if not done:
         return None
     planned = planned_counts(effort / 'reports' / 'planned.json')

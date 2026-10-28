@@ -377,12 +377,25 @@ class PanelState(unittest.TestCase):
         return attempts(self.scratch / slug / 'reports' / 'workers.sqlite', [
             attempt('p1/audit-1', 'p1', 'audit', 'completed'), attempt('p1/audit-2', 'p1', 'audit', 'completed'),
             attempt('p2/audit-1', 'p2', 'audit', 'completed'), attempt('p3/audit-1', 'p3', 'audit', 'failed'),
-            attempt('p4/audit-1', 'p4', 'audit'), attempt('r1/1', 'repro-p1', 'reproduce', 'completed'),
+            attempt('p4/audit-1', 'p4', 'audit'), attempt('p5/audit-1', 'p5', 'audit', 'blocked'),
+            attempt('r1/1', 'repro-p1', 'reproduce', 'completed'),
             attempt('x1/1', 'repair-p1', 'repair', 'cancelled')])
 
     def test_a_worker_run_without_tickets_counts_the_assignments_each_job_completed(self):
-        # p1 completed twice (a re-audit) and counts once; p3 failed, p4 still runs, and the repair was cancelled.
+        # p1 completed twice (a re-audit) and counts once; p3 failed, p4 still runs, p5 is blocked and the repair was
+        # cancelled.
         self.worker_run()
+        self.assertEqual(['done: audit 2 · repair 0 · reproduce 1'], self.row_texts(self.snapshot('S'), 'counts'))
+
+    def test_a_completed_row_without_a_string_assignment_counts_nothing(self):
+        state = self.worker_run()
+        db = sqlite3.connect(state)
+        for number, assignment in enumerate((['p9'], {'p': 9}, None)):
+            row = dict(live(f'odd/{number}'), job='audit', result={'status': 'completed'}, session='S', sessions=['S'])
+            db.execute('INSERT INTO attempts VALUES (?, ?)',
+                       (row['attempt'], json.dumps(dict(row, assignment=assignment))))
+        db.commit()
+        db.close()
         self.assertEqual(['done: audit 2 · repair 0 · reproduce 1'], self.row_texts(self.snapshot('S'), 'counts'))
 
     def test_an_effort_with_tickets_keeps_its_tickets_tally(self):
