@@ -96,13 +96,13 @@ waits, state reconciliation and automatic review continuation, and the
 - The read-only [usage helper](../runtime/resources/claude-usage.md) ranks local Claude session families,
   includes native workers and attributes related worktree sessions over an explicit
   time window. It reports recorded tokens without estimating account credits.
-- The read-only [effort spend report](../runtime/workers/effort-spend.md) divides an effort's worker and
+- The read-only [workstream spend report](../runtime/workers/effort-spend.md) divides a workstream's worker and
   coordinator tokens by its accepted tickets and shows what the coordinator's tokens
   went to. It reads Claude, Codex and Pi transcripts.
 - `scripts/allowance.py status` reports the Claude Code and Codex allowance windows and
   their pressure levels; see [selection](../runtime/routing/choose.md#allowance).
 - `scripts/outcomes.py summary [--agent <agent>] [--job <job>]` counts each
-  candidate's accepted, failed and pending attempts across efforts;
+  candidate's accepted, failed and pending attempts across workstreams;
   `scripts/outcomes.py import <decisions.jsonl | workers.sqlite>...` adds past decision
   journals and lifecycle state files once.
 
@@ -116,8 +116,8 @@ python3 /path/to/zloop/scripts/next_tickets.py --repo /path/to/project feature-n
 python3 /path/to/zloop/scripts/next_tickets.py --repo /path/to/project feature-name --set feature-name/01 status=implementing --counts
 ```
 
-Omit the slug for all efforts. An unknown slug or argument fails. Scope controls
-selection, board, counts and mutation; locks and validation still see other efforts.
+Omit the slug for all workstreams. An unknown slug or argument fails. Scope controls
+selection, board, counts and mutation; locks and validation still see other workstreams.
 Use one orchestrator per checkout. Invoke the plugin's resource lock
 (`scripts/resource_lock.py`) directly when a project needs it; never copy it into the
 project.
