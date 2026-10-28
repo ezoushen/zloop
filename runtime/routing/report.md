@@ -40,7 +40,7 @@ in the existing run reports/journals, not maintained skills or configuration.
 For Claude, [recorded usage accounting](../resources/claude-usage.md) includes the native
 family and separately associated worktree sessions. Keep requested settings beside
 runtime-confirmed settings; tokens do not establish subscription credits. The
-effort spend report (`effort_spend.py`) gives tokens per accepted ticket
+effort spend report (`workstream_spend.py`) gives tokens per accepted ticket
 across Claude, Codex and Pi workers and the host. Evaluate
 a cheaper routing choice on a bounded assignment through accepted review/repair
 closure before claiming a completion-cost improvement from synthetic scores.

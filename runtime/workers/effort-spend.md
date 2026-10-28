@@ -6,7 +6,7 @@ and the native transcripts that state names, needs only Python's standard librar
 and emits JSON on stdout. It makes no model calls and changes nothing.
 
 ```sh
-python3 /path/to/zloop/scripts/effort_spend.py \
+python3 /path/to/zloop/scripts/workstream_spend.py \
   --state /absolute/project/.scratch/<slug>/reports/workers.sqlite \
   --host /absolute/coordinator-transcript.jsonl \
   --since 2026-10-14T01:00:00+00:00 --until 2026-10-14T09:00:00+00:00

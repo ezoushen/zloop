@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the effort spend report through its CLI over recorded lifecycle state and transcripts."""
+"""Exercise the workstream spend report through its CLI over recorded lifecycle state and transcripts."""
 
 import json
 import os
@@ -13,11 +13,11 @@ from unittest.mock import patch
 import support
 
 
-SCRIPT = support.script('effort_spend.py')
+SCRIPT = support.script('workstream_spend.py')
 LIFECYCLE = support.script('worker_lifecycle.py')
 
 
-class EffortSpend(unittest.TestCase):
+class WorkstreamSpend(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='zloop spend ')
         self.addCleanup(self.tmp.cleanup)

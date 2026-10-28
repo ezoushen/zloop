@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report an effort's recorded token use per accepted ticket from lifecycle state and native transcripts."""
+"""Report a workstream's recorded token use per accepted ticket from lifecycle state and native transcripts."""
 
 import argparse
 from datetime import datetime
@@ -448,7 +448,7 @@ def report(state, roots, hosts=(), since=None, until=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--state', type=Path, required=True, help="the effort's workers.sqlite")
+    parser.add_argument('--state', type=Path, required=True, help="the workstream's workers.sqlite")
     parser.add_argument('--host', type=Path, action='append', default=[],
                         help='a coordinator transcript (Claude, Codex or Pi); repeatable, needs --since/--until')
     parser.add_argument('--since', help='inclusive ISO timestamp with timezone for host responses')

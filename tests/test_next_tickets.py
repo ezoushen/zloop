@@ -84,7 +84,7 @@ class Scheduling(unittest.TestCase):
     def test_a_recorded_branch_name_follows_git_rules_and_is_never_head_or_an_option(self):
         for name in ('-h', 'HEAD', 'feat/\x00bad', 'main~1', '', None):
             assert not nt.valid_branch_name(name), name
-        for name in ('main', 'feat/x-01', 'feat/x+01', '_effort', 'feat/v1.2'):
+        for name in ('main', 'feat/x-01', 'feat/x+01', '_workstream', 'feat/v1.2'):
             assert nt.valid_branch_name(name), name
 
     def test_acceptance_requires_base_section_and_checkboxes(self):
@@ -101,7 +101,7 @@ class BoardCLI(unittest.TestCase):
         subprocess.run(['git', 'init', '-q', '-b', 'main', str(self.root)], check=True)
 
     def write_ticket(self, name, status='ready', touches='runtime', blocked='', devices='', extra=''):
-        # inline/01 of a measured effort keeps the start measured_ticket recorded, as --set would have.
+        # inline/01 of a measured workstream keeps the start measured_ticket recorded, as --set would have.
         if name == 'inline/01' and getattr(self, 'inline_start', None) and 'start:' not in extra:
             extra += f'start: {self.inline_start}\n'
         slug, number = name.split('/')
@@ -194,35 +194,35 @@ class BoardCLI(unittest.TestCase):
         fm = nt.parse_front_matter(path.read_text())
         assert (fm['status'], 'blocker' in fm) == ('ready', False), fm
 
-    def test_a_ticket_moved_into_implementing_records_the_effort_head_it_starts_from(self):
-        # Rule (T12.2): the first move into implementing records `start:`, the effort branch head (main when the effort
+    def test_a_ticket_moved_into_implementing_records_the_workstream_head_it_starts_from(self):
+        # Rule (T12.2): the first move into implementing records `start:`, the workstream branch head (main when the workstream
         # has none); a recorded start never changes, and a ticket already live is not given one.
         start = lambda path: nt.parse_front_matter(path.read_text()).get('start')
         first = self.write_ticket('active/01')
         before = first.read_text()
         refused = self.cli('active', '--set', 'active/01', 'status=implementing', code=1).stderr
-        assert refused == ('active/01: no effort branch (feat/active) or main to record the start of implementing '
+        assert refused == ('active/01: no workstream branch (feat/active) or main to record the start of implementing '
                            'from\n'), refused
         assert first.read_text() == before
         on_main = self.commit('main head')
         self.cli('active', '--set', 'active/01', 'status=implementing')
         assert start(first) == on_main, first.read_text()
         self.git('switch', '-q', '-c', 'feat/active')
-        effort_head = self.commit('effort head')
+        workstream_head = self.commit('workstream head')
         self.git('switch', '-q', 'main')
         self.commit('main moves on')
         for status in ('ready', 'blocked'):
             path = self.write_ticket('active/02', status, touches='docs', extra='blocker: waits\n')
             self.cli('active', '--set', 'active/02', 'status=implementing')
-            assert start(path) == effort_head, (status, path.read_text())
+            assert start(path) == workstream_head, (status, path.read_text())
         self.cli('active', '--set', 'active/02', 'status=reviewing')
         self.cli('active', '--set', 'active/02', 'status=implementing')
-        assert start(path) == effort_head, path.read_text()
+        assert start(path) == workstream_head, path.read_text()
         self.cli('active', '--set', 'active/02', 'status=ready')
         self.git('switch', '-q', 'feat/active')
-        self.commit('the effort moves on')
+        self.commit('the workstream moves on')
         self.cli('active', '--set', 'active/02', 'status=implementing')
-        assert start(path) == effort_head, path.read_text()
+        assert start(path) == workstream_head, path.read_text()
         for status in ('reviewing', 'fixing', 'implementing'):
             live = self.write_ticket('active/03', status, touches='tests')
             self.cli('active', '--set', 'active/03', 'status=implementing')
@@ -252,7 +252,7 @@ class BoardCLI(unittest.TestCase):
         return self.git('rev-parse', 'HEAD')
 
     def write_report(self, base, branch=None, commits=(), body='', number='01', returned=None):
-        """A ticket report; a delegated ticket's (one off the effort branch) is returned by a collected worker attempt
+        """A ticket report; a delegated ticket's (one off the workstream branch) is returned by a collected worker attempt
         unless returned=False."""
         report = self.root / f'.scratch/inline/reports/{number}.md'
         report.parent.mkdir(parents=True, exist_ok=True)
@@ -281,7 +281,7 @@ class BoardCLI(unittest.TestCase):
         assert 'feat/inline-01' in self.cli('inline', '--accept', 'inline/01', code=1).stderr
 
     def test_a_builder_commit_in_its_coordinators_checkout_is_not_accepted(self):
-        # E4 claude builder 01: a native builder ran in its coordinator's directory and committed on the effort's
+        # E4 claude builder 01: a native builder ran in its coordinator's directory and committed on the workstream's
         # branch, leaving its own ticket branch at base; acceptance refuses the ticket branch with no commit past base.
         self.write_ticket('inline/01', 'implementing')
         base = self.commit('base')
@@ -292,7 +292,7 @@ class BoardCLI(unittest.TestCase):
         refused = self.cli('inline', '--accept', 'inline/01', code=1)
         assert refused.stderr == 'inline/01: no commit past base on feat/inline-01\n', refused.stderr
 
-    def test_a_shared_effort_branch_counts_only_the_commits_the_report_lists(self):
+    def test_a_shared_workstream_branch_counts_only_the_commits_the_report_lists(self):
         self.write_ticket('inline/01', 'implementing')
         base = self.commit('base')
         self.git('switch', '-q', '-c', 'feat/inline')
@@ -306,16 +306,16 @@ class BoardCLI(unittest.TestCase):
         self.write_report(base, 'feat/inline', body=f'- Evidence: reports/evidence/01/1/{other}/\n')
         assert 'no listed commit' in self.cli('inline', '--accept', 'inline/01', code=1).stderr
         self.git('switch', '-q', 'main')
-        off_branch = self.commit('on main, not on the effort branch')
+        off_branch = self.commit('on main, not on the workstream branch')
         self.git('switch', '-q', '-c', 'side', 'feat/inline')
-        unmerged = self.commit('past base but never merged into the effort branch')
+        unmerged = self.commit('past base but never merged into the workstream branch')
         self.git('switch', '-q', 'feat/inline')
-        self.commit('later work on the effort branch')
+        self.commit('later work on the workstream branch')
         for sha in (off_branch, base, unmerged):
             self.write_report(other, 'feat/inline', [sha])
             assert 'no listed commit' in self.cli('inline', '--accept', 'inline/01', code=1).stderr, sha
 
-    def test_a_ticket_is_done_only_once_a_passing_acceptance_is_in_the_effort_branch(self):
+    def test_a_ticket_is_done_only_once_a_passing_acceptance_is_in_the_workstream_branch(self):
         # jose retro: ticket 07 was set done after --accept refused it ("--set doesn't enforce").
         self.write_ticket('inline/01', 'implementing', extra='worker:\n')
         base = self.commit('base')
@@ -350,7 +350,7 @@ class BoardCLI(unittest.TestCase):
         assert 'inline/01: the report changed after its --accept; accept it again' in refused.stdout + refused.stderr
         report.write_text(kept)
         self.cli('inline', '--set', 'inline/01', 'status=done')
-        # A delegated ticket's accepted head must also be merged into the effort branch.
+        # A delegated ticket's accepted head must also be merged into the workstream branch.
         self.write_ticket('inline/02', 'implementing', touches='docs')
         self.git('switch', '-q', '-c', 'feat/inline-02')
         delegated = self.commit('delegated ticket work')
@@ -429,7 +429,7 @@ class BoardCLI(unittest.TestCase):
         refused = self.cli('inline', '--accept', 'inline/01', code=1)
         assert ('inline/01: .scratch/inline/reports/01.md changed after inline/01/implementation-1 returned it'
                 in refused.stderr), refused.stderr
-        # Relabelling it as inline work on the effort branch does not make a worker's report the orchestrator's.
+        # Relabelling it as inline work on the workstream branch does not make a worker's report the orchestrator's.
         self.git('branch', 'feat/inline', work)
         report.write_text(report.read_text().replace('## Implemented', 'branch: feat/inline\n## Implemented'))
         refused = self.cli('inline', '--accept', 'inline/01', code=1)
@@ -453,7 +453,7 @@ class BoardCLI(unittest.TestCase):
         (self.root / '.scratch/inline/measurements.json').write_text(json.dumps([entry]))
 
     def measured_ticket(self, command, extra='', tracked=None, edits=None, **entry):
-        """inline/01 is finished on feat/inline, checked out in the main checkout, and its effort records one measurement.
+        """inline/01 is finished on feat/inline, checked out in the main checkout, and its workstream records one measurement.
 
         `tracked` files are committed at the base; the ticket commit edits `edits`.
         """
@@ -687,8 +687,8 @@ class BoardCLI(unittest.TestCase):
             assert self.refusal() == (f"inline/01: allows {value!r} must read `<metric> <number>` or `<metric> tool`\n"), \
                 (value, self.refusal())
 
-    def test_an_effort_without_a_measurements_file_accepts_exactly_as_before(self):
-        # No file, no gate: another effort's file and this ticket's own `allows` line change nothing here.
+    def test_a_workstream_without_a_measurements_file_accepts_exactly_as_before(self):
+        # No file, no gate: another workstream's file and this ticket's own `allows` line change nothing here.
         self.measured_ticket('echo recall 1', extra='allows: recall 80\n')
         (self.root / '.scratch/inline/measurements.json').rename(self.root / '.scratch/inline/measurements.old')
         other = self.root / '.scratch/other/measurements.json'
@@ -895,22 +895,22 @@ class BoardCLI(unittest.TestCase):
         self.record_measurement('echo recall 100', paths=['tools/', 'measure.sh'])
         self.cli('inline', '--accept', 'inline/01')
 
-    def forked_ticket(self, effort=True):
+    def forked_ticket(self, workstream=True):
         """inline/01 in `.worktrees/inline-01`; its builder commits an edit of a listed path, then names that commit as `base:`.
 
-        With `effort`, feat/inline already holds a prior ticket's edit of measure.sh and the ticket forks from it.
+        With `workstream`, feat/inline already holds a prior ticket's edit of measure.sh and the ticket forks from it.
         """
         self.write_ticket('inline/01', 'implementing')
         self.write_files({'measure.sh': 'echo recall 100\n', 'tools/fixture.txt': 'x\n'})
         self.commit_gitignore()
         self.commit('base')
-        if effort:
+        if workstream:
             self.git('switch', '-q', '-c', 'feat/inline')
             self.write_files({'measure.sh': 'echo recall 100 # an earlier ticket\n'})
-            self.commit('prior ticket on the effort branch')
+            self.commit('prior ticket on the workstream branch')
             self.git('switch', '-q', 'main')
         worktree = self.root / '.worktrees/inline-01'
-        self.git('worktree', 'add', '-q', '-b', 'feat/inline-01', str(worktree), 'feat/inline' if effort else 'main')
+        self.git('worktree', 'add', '-q', '-b', 'feat/inline-01', str(worktree), 'feat/inline' if workstream else 'main')
         commit = ['-C', str(worktree), '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty']
         (worktree / 'tools/fixture.txt').write_text('edited so that the tool reads differently\n')
         self.git('-C', str(worktree), 'add', 'tools/fixture.txt')
@@ -921,20 +921,20 @@ class BoardCLI(unittest.TestCase):
         self.record_measurement('sh measure.sh', paths=['measure.sh', 'tools/fixture.txt'])
         self.write_report(moved, 'feat/inline-01', [work])
 
-    def test_a_moved_base_cannot_hide_a_tool_edit_and_earlier_effort_work_is_not_the_tickets_change(self):
+    def test_a_moved_base_cannot_hide_a_tool_edit_and_earlier_workstream_work_is_not_the_tickets_change(self):
         self.forked_ticket()
         assert self.refusal() == ("inline/01: measurement 'recall tool': the ticket changed what measures recall "
                                   "(tools/fixture.txt); that needs allows: recall tool citing a ledger row\n"), self.refusal()
 
-    def test_without_an_effort_branch_the_merge_base_with_main_catches_a_moved_base(self):
-        self.forked_ticket(effort=False)
+    def test_without_a_workstream_branch_the_merge_base_with_main_catches_a_moved_base(self):
+        self.forked_ticket(workstream=False)
         assert self.refusal() == ("inline/01: measurement 'recall tool': the ticket changed what measures recall "
                                   "(tools/fixture.txt); that needs allows: recall tool citing a ledger row\n"), self.refusal()
 
-    def test_a_ticket_with_no_effort_branch_or_main_to_compare_with_is_refused(self):
-        self.forked_ticket(effort=False)
+    def test_a_ticket_with_no_workstream_branch_or_main_to_compare_with_is_refused(self):
+        self.forked_ticket(workstream=False)
         self.git('branch', '-m', 'main', 'trunk')
-        assert self.refusal() == ("inline/01: no effort branch (feat/inline) or main exists to compare "
+        assert self.refusal() == ("inline/01: no workstream branch (feat/inline) or main exists to compare "
                                   "feat/inline-01 with\n"), self.refusal()
 
     def test_a_delegated_ticket_is_not_blamed_for_an_integrated_tool_change_it_merged_in(self):
@@ -947,7 +947,7 @@ class BoardCLI(unittest.TestCase):
         worktree = self.root / '.worktrees/inline-01'
         self.git('worktree', 'add', '-q', '-b', 'feat/inline-01', str(worktree), 'feat/inline')
         self.write_files({'measure.sh': 'echo recall 100 # an earlier ticket, allowed and integrated\n'})
-        self.commit('earlier ticket lands on the effort branch')
+        self.commit('earlier ticket lands on the workstream branch')
         self.git('switch', '-q', 'main')
         git = ['-C', str(worktree), '-c', 'user.name=t', '-c', 'user.email=t@t']
         self.git(*git, 'merge', '-q', '--no-edit', 'feat/inline')   # the merge dispatch makes before a restart
@@ -958,7 +958,7 @@ class BoardCLI(unittest.TestCase):
         assert 'carry the evidence' in self.cli('inline', '--accept', 'inline/01').stdout
 
     def test_an_inline_ticket_is_compared_from_its_recorded_start_not_from_the_reports_base(self):
-        # Rule (T12.2): on the effort branch itself the diff runs from the `start:` recorded when the ticket moved into
+        # Rule (T12.2): on the workstream branch itself the diff runs from the `start:` recorded when the ticket moved into
         # implementing; a base: moved past a tool edit hides nothing, and an earlier ticket's edit is not this one's.
         self.write_ticket('inline/01')
         self.write_files({'measure.sh': 'echo recall 100\n', 'src.txt': 'x\n'})
@@ -966,7 +966,7 @@ class BoardCLI(unittest.TestCase):
         base = self.commit('base')
         self.git('switch', '-q', '-c', 'feat/inline')
         self.write_files({'measure.sh': 'echo recall 100 # an earlier ticket\n'})
-        self.commit('an earlier ticket on the effort branch')
+        self.commit('an earlier ticket on the workstream branch')
         self.cli('inline', '--set', 'inline/01', 'status=implementing')
         self.write_files({'src.txt': 'the ticket work\n'})
         work = self.commit('ticket work')
@@ -981,29 +981,29 @@ class BoardCLI(unittest.TestCase):
                                   "(measure.sh); that needs allows: recall tool citing a ledger row\n"), self.refusal()
 
     def test_an_inline_ticket_without_a_start_on_its_branch_is_refused_naming_the_fix(self):
-        # Rule (T12.2): no `start:`, or one the effort branch does not contain, leaves nothing to compare from.
+        # Rule (T12.2): no `start:`, or one the workstream branch does not contain, leaves nothing to compare from.
         self.write_ticket('inline/01', 'implementing')
         self.commit_gitignore()
         base = self.commit('base')
         self.git('switch', '-q', '-c', 'side')
-        aside = self.commit('never on the effort branch')
+        aside = self.commit('never on the workstream branch')
         self.git('switch', '-q', '-c', 'feat/inline', base)
         self.record_measurement('echo recall 100', paths=['measure.sh'])
         self.write_report(base, 'feat/inline', [self.commit('ticket work')])
         assert self.refusal() == ("inline/01: an inline ticket is compared from its start:, and it has none; record "
-                                  "the effort branch commit it started from with --set inline/01 start=<sha>\n"), \
+                                  "the workstream branch commit it started from with --set inline/01 start=<sha>\n"), \
             self.refusal()
         for start in (aside, 'abc', '-h', 'f' * 40):
             self.write_ticket('inline/01', 'implementing', extra=f'start: {start}\n')
             assert self.refusal() == (f"inline/01: start: {start} is not an ancestor of feat/inline; delete that line "
-                                      "from the ticket, then record the effort branch commit it started from with "
+                                      "from the ticket, then record the workstream branch commit it started from with "
                                       "--set inline/01 start=<sha>\n"), (start, self.refusal())
         self.write_ticket('inline/01', 'implementing', extra=f'start: {base}\n')
         self.cli('inline', '--accept', 'inline/01')
 
     def test_an_inline_ticket_lists_a_commit_past_its_start(self):
         # Review 1 of T12.2: a start recorded after the ticket's own commits would hide them, so --accept needs a commit
-        # listed under ## Implemented that is past start on the effort branch.
+        # listed under ## Implemented that is past start on the workstream branch.
         self.write_ticket('inline/01')
         self.write_files({'measure.sh': 'echo recall 100\n'})
         self.commit_gitignore()
@@ -1057,8 +1057,8 @@ class BoardCLI(unittest.TestCase):
         return self.git('-C', str(worktree), 'rev-parse', 'HEAD')
 
     def test_a_stacked_ticket_is_not_blamed_for_its_dependencys_tool_change_but_is_for_its_own(self):
-        # Rule (T12.1): B's change is what differs at B's head from both its fork with the effort branch and the head of
-        # each same-effort blocked_by ticket that B's head contains; A's tool change is judged at A's own --accept.
+        # Rule (T12.1): B's change is what differs at B's head from both its fork with the workstream branch and the head of
+        # each same-workstream blocked_by ticket that B's head contains; A's tool change is judged at A's own --accept.
         a, b = self.stacked_tickets()
         blamed = ("inline/{}: measurement 'recall tool': the ticket changed what measures recall (measure.sh); "
                   "that needs allows: recall tool citing a ledger row\n")
@@ -1079,7 +1079,7 @@ class BoardCLI(unittest.TestCase):
         self.write_report(self.git('rev-parse', 'feat/inline'), 'feat/inline-02', [a_head])
         assert self.refusal('inline/02') == blamed.format('02'), self.refusal('inline/02')
         self.write_report(self.git('rev-parse', 'feat/inline'), 'feat/inline-01', [a_head])
-        # Only a blocked_by ticket of the same effort counts.
+        # Only a blocked_by ticket of the same workstream counts.
         self.write_ticket('other/01', 'done', touches='other')
         for blocked in ('', 'other/01'):
             self.write_ticket('inline/02', 'implementing', touches='docs', blocked=blocked)
@@ -1099,7 +1099,7 @@ class BoardCLI(unittest.TestCase):
         assert self.refusal('inline/02') == blamed.format('02'), self.refusal('inline/02')
 
     def test_a_dependency_head_the_fork_already_contains_excuses_no_revert(self):
-        # Review 1 of T12.1: a blocked_by head the effort branch already holds (integrated and never deleted, or a
+        # Review 1 of T12.1: a blocked_by head the workstream branch already holds (integrated and never deleted, or a
         # report naming main) is not a stacked base; B reverting the tool to that head's version is still B's change.
         self.write_ticket('inline/01', 'done')
         self.write_ticket('inline/02', 'implementing', touches='docs', blocked='inline/01')
@@ -1109,7 +1109,7 @@ class BoardCLI(unittest.TestCase):
         self.git('branch', 'feat/inline-01')   # A's branch, integrated long ago and never deleted
         self.git('switch', '-q', '-c', 'feat/inline')
         self.write_files({'measure.sh': 'echo recall 100 # v2, an approved tool change\n'})
-        fork = self.commit('an approved tool change on the effort branch')
+        fork = self.commit('an approved tool change on the workstream branch')
         self.git('switch', '-q', 'main')
         b = self.root / '.worktrees/inline-02'
         self.git('worktree', 'add', '-q', '-b', 'feat/inline-02', str(b), 'feat/inline')
@@ -1185,19 +1185,19 @@ class BoardCLI(unittest.TestCase):
         for value in ('HEAD', work, 'feat/inline~1', '-h', 'feat/missing'):
             self.write_report(base, value, [work])
             assert 'not an existing branch' in self.cli('inline', '--accept', 'inline/01', code=1).stderr, value
-        for name in ('feat/x+01', '_effort', 'feat/v1.2'):
+        for name in ('feat/x+01', '_workstream', 'feat/v1.2'):
             self.git('branch', name)
             self.write_report(base, name, [work])
             self.cli('inline', '--accept', 'inline/01')
 
     def deliver(self, slug, branch, start, head, workers=True):
-        """The effort's review report, clean and passed at head, as its reviewer and E2E worker returned it (two
+        """The workstream's review report, clean and passed at head, as its reviewer and E2E worker returned it (two
         collected attempts that review_by and e2e_by name) unless workers=False."""
         review = self.root / f'.scratch/{slug}/reports/spec-review.md'
         review.parent.mkdir(parents=True, exist_ok=True)
         self.rounds = getattr(self, 'rounds', {})
         self.rounds[slug] = n = self.rounds.get(slug, 0) + 1
-        evidence = (f'---\neffort_branch: {branch}\nreview_status: clean\ndocumentation_status: passed\n'
+        evidence = (f'---\nworkstream_branch: {branch}\nreview_status: clean\ndocumentation_status: passed\n'
                     f'review_head: {head}\nreview_base: {start}\nreview_diff_base: {start}\n'
                     f'e2e_status: passed\ne2e_head: {head}\n'
                     f'review_by: review/{slug}/{n}\ne2e_by: e2e/{slug}/{n}\n---\n')
@@ -1210,7 +1210,7 @@ class BoardCLI(unittest.TestCase):
     def ready_names(self, slug):
         return [t['ticket'] for t in json.loads(self.cli(slug).stdout)]
 
-    def test_an_effort_run_on_main_is_delivered_from_main_and_releases_its_dependents(self):
+    def test_a_workstream_run_on_main_is_delivered_from_main_and_releases_its_dependents(self):
         self.write_ticket('onmain/01', 'done')
         self.write_ticket('later/01', blocked='onmain/01', touches='docs')
         self.write_ticket('later/02', blocked='onmain/01', touches='tests')
@@ -1224,27 +1224,27 @@ class BoardCLI(unittest.TestCase):
         self.commit('later/01 lands on main')
         self.cli('onmain', '--delivery')
         assert self.ready_names('later') == ['later/01', 'later/02']
-        review.write_text(evidence.replace('effort_branch: main\n', ''))
+        review.write_text(evidence.replace('workstream_branch: main\n', ''))
         self.cli('onmain', '--delivery', code=1)
         assert self.ready_names('later') == []
-        review.write_text(evidence.replace('effort_branch: main', 'effort_branch: main~1'))
+        review.write_text(evidence.replace('workstream_branch: main', 'workstream_branch: main~1'))
         self.cli('onmain', '--delivery', code=1)
         review.write_text(evidence)
         later_review, later_evidence = self.deliver('later', 'main', start, start)
-        later_review.write_text(later_evidence.replace('effort_branch: main', 'effort_branch: main~1'))
+        later_review.write_text(later_evidence.replace('workstream_branch: main', 'workstream_branch: main~1'))
         assert self.ready_names('later') == []
         later_review.write_text(later_evidence)
-        unreviewed = review.read_text().replace('effort_branch: main~1', 'effort_branch: main')
+        unreviewed = review.read_text().replace('workstream_branch: main~1', 'workstream_branch: main')
         review.write_text(unreviewed.replace(head, start))
         self.cli('onmain', '--delivery', code=1)
 
     def merged_on_remote(self, slug, on_remote=True):
-        """An effort whose branch is deleted, reviewed and E2E passed at the head of feat/<slug>, which a bare remote's
+        """A workstream whose branch is deleted, reviewed and E2E passed at the head of feat/<slug>, which a bare remote's
         main holds (when on_remote) while local main stays at the start and has never fetched."""
         self.write_ticket(f'{slug}/01', 'done')
         start = self.commit('start')
         self.git('switch', '-q', '-c', f'feat/{slug}')
-        head = self.commit('effort work')
+        head = self.commit('workstream work')
         self.git('switch', '-q', 'main')
         remote = self.root.parent / f'{self.root.name}-remote.git'
         subprocess.run(['git', 'init', '-q', '--bare', '-b', 'main', str(remote)], check=True)
@@ -1255,7 +1255,7 @@ class BoardCLI(unittest.TestCase):
         self.git('branch', '-D', f'feat/{slug}')
         return start, head
 
-    def test_an_effort_merged_on_the_remote_is_finished_though_local_main_is_stale(self):
+    def test_a_workstream_merged_on_the_remote_is_finished_though_local_main_is_stale(self):
         # Rule: finished means the branch is gone and the reviewed and E2E heads are in the remote's main, even when
         # local main has not been updated from it.
         start, head = self.merged_on_remote('fx')
@@ -1280,14 +1280,14 @@ class BoardCLI(unittest.TestCase):
         # update local main from the remote, and never suggests making the branch again.
         self.merged_on_remote('fx', on_remote=False)
         refused = self.cli('fx', '--delivery', code=1).stderr
-        assert refused == (f'fx: effort branch feat/fx is not an existing branch, and its review_head and e2e_head are '
+        assert refused == (f'fx: workstream branch feat/fx is not an existing branch, and its review_head and e2e_head are '
                            f'in no main; update local main from the remote (`git -C {self.root.resolve()} fetch origin main`, '
                            f'then fast-forward main to origin/main)\n'), refused
         assert 'recreat' not in refused and 'git branch' not in refused, refused
 
     def test_delivery_names_each_field_that_fails(self):
-        # Rule 2 (the Pi run): a repair committed after review leaves review_head stale against the effort head, and
-        # E2E never ran; the gate names each failing field, not only the effort.
+        # Rule 2 (the Pi run): a repair committed after review leaves review_head stale against the workstream head, and
+        # E2E never ran; the gate names each failing field, not only the workstream.
         self.write_ticket('fx/01', 'done')
         start = self.commit('start')
         self.git('switch', '-q', '-c', 'feat/fx')

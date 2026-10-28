@@ -3,25 +3,26 @@
 
   next_tickets.py --repo /path/to/repo [slug] [--max-live N] [action]
 
-No action: JSON candidates. No slug: all efforts. Other efforts still hold locks.
+No action: JSON candidates. No slug: all workstreams. Other workstreams still hold locks.
 Actions: --board, --counts, --check, --accept TICKET,
          --can-verify TICKET, --delivery, --set TICKET status=VALUE (or worker=ID, start=SHA), --coordinate.
 --set TICKET status=blocked also needs blocker=REASON, which the ticket's front matter keeps. Entering implementing
-records start: (the effort branch head) when the ticket has none; start never changes once recorded. A passing
---accept records accepted: (the head it accepted); status=done needs it, merged into the effort branch.
-Only --set may be combined with --counts. --accept of a delegated ticket (its branch is not the effort branch)
-needs the report a collected worker attempt of the effort returned completed, unchanged since. It also runs the
+records start: (the workstream branch head) when the ticket has none; start never changes once recorded. A passing
+--accept records accepted: (the head it accepted); status=done needs it, merged into the workstream branch.
+Only --set may be combined with --counts. --accept of a delegated ticket (its branch is not the workstream branch)
+needs the report a collected worker attempt of the workstream returned completed, unchanged since. It also runs the
 standing measurements (.scratch/<slug>/measurements.json) at the ticket head, in a clean checkout, and refuses a
 missing or worse value.
 --delivery names each failing field. --coordinate [--autofix] records the calling session (its Herdr pane and host
 session IDs) and the repair authorization in .scratch/<slug>/reports/coordinator.json for the stop hooks; with no slug
-only efforts with active work (a live effort branch, or a ticket not done), and it refuses a session it cannot identify.
+only workstreams with active work (a live workstream branch, or a ticket not done), and it refuses a session it cannot
+identify.
 
 Tickets: .scratch/<slug>/issues/NN-title.md, with restricted YAML front matter
 (key: scalar and key: [a, b]). Only the orchestrator changes machine state.
-Cross-effort prerequisites require the entire source effort done and its retained
-branch merged into main and the target effort branch. --check detects missing
-edges and cycles between tickets or efforts. One orchestrator per checkout.
+Cross-workstream prerequisites require the entire source workstream done and its retained
+branch merged into main and the target workstream branch. --check detects missing
+edges and cycles between tickets or workstreams. One orchestrator per checkout.
 """
 import argparse
 from graphlib import CycleError, TopologicalSorter
@@ -85,7 +86,7 @@ def load():
             if fm["ticket"] in tickets:
                 sys.exit(f"{path}: duplicate ticket {fm['ticket']}")
             if path.parent.parent.name != spec_of(fm["ticket"]):
-                sys.exit(f"{path}: ticket effort differs from its directory")
+                sys.exit(f"{path}: ticket workstream differs from its directory")
             for key in ("blocked_by", "touches", "devices"):
                 if not isinstance(fm.get(key), list):
                     sys.exit(f"{path}: {key} must be a bracketed list")
@@ -113,9 +114,9 @@ def check(tickets):
     bad += [f"{t}: number differs from its filename {Path(fm['path']).name}" for t, fm in tickets.items()
             if not Path(fm["path"]).name.startswith(t.split("/")[-1] + "-")]
     graphs = {"ticket": {t: fm.get("blocked_by", []) for t, fm in tickets.items()},
-              "effort": {spec_of(t): set() for t in tickets}}
+              "workstream": {spec_of(t): set() for t in tickets}}
     for t, fm in tickets.items():
-        graphs["effort"][spec_of(t)].update(spec_of(d) for d in fm.get("blocked_by", [])
+        graphs["workstream"][spec_of(t)].update(spec_of(d) for d in fm.get("blocked_by", [])
                                            if spec_of(d) != spec_of(t))
     for label, graph in graphs.items():
         try:
@@ -139,10 +140,10 @@ def integrated(tickets, name, dependency):
         return False
     if not delivery_evidence(source):
         return False
-    prerequisite = branch_ref(effort_branch(source))
-    if prerequisite is None or not valid_branch_name(effort_branch(spec_of(name))):
+    prerequisite = branch_ref(workstream_branch(source))
+    if prerequisite is None or not valid_branch_name(workstream_branch(spec_of(name))):
         return False
-    target = branch_ref(effort_branch(spec_of(name)))
+    target = branch_ref(workstream_branch(spec_of(name)))
     bases = ["refs/heads/main"] + ([target] if target and target != "refs/heads/main" else [])
     return all(subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor", prerequisite, base],
                               capture_output=True).returncode == 0 for base in bases)
@@ -168,9 +169,9 @@ def branch_ref(name):
     return ref if exists.returncode == 0 else None
 
 
-def effort_branch(slug):
-    """feat/<slug>, or main when the user had the effort work directly on main."""
-    branch = (review_front_matter(slug) or {}).get('effort_branch')
+def workstream_branch(slug):
+    """feat/<slug>, or main when the user had the workstream work directly on main."""
+    branch = (review_front_matter(slug) or {}).get('workstream_branch')
     return branch if branch not in (None, '', []) else f'feat/{slug}'
 
 
@@ -179,10 +180,10 @@ def delivery_evidence(slug):
 
 
 def finished(slug):
-    """Whether the board records an effort as delivered and gone: its branch deleted, its reviewed head in main (local
-    or the remote's) and a passing E2E recorded at a head in main."""
+    """Whether the board records a workstream as delivered and gone: its branch deleted, its reviewed head in main
+    (local or the remote's) and a passing E2E recorded at a head in main."""
     fm = review_front_matter(slug) or {}
-    return (branch_ref(effort_branch(slug)) is None and fm.get('e2e_status') == 'passed'
+    return (branch_ref(workstream_branch(slug)) is None and fm.get('e2e_status') == 'passed'
             and all(merged(str(fm.get(key) or '')) for key in ('review_head', 'e2e_head')))
 
 
@@ -202,7 +203,7 @@ def delivery_problems(slug):
     """Structural delivery gate: each recorded field that fails it, [] when none does. The orchestrator must also
     judge the recorded evidence.
 
-    main keeps moving after an effort delivered on it, so there the reviewed head only has to stay in main.
+    main keeps moving after a workstream delivered on it, so there the reviewed head only has to stay in main.
     """
     fm = review_front_matter(slug)
     if fm is None:
@@ -218,7 +219,7 @@ def delivery_problems(slug):
     met = [key for key in VERDICTS if key not in unnamed
            and all(fm.get(field) == required for field, required in VERDICTS[key].items() if required)]
     problems += [problem for key in met for problem in verdict_problems(slug, key, fm)]
-    branch = effort_branch(slug)
+    branch = workstream_branch(slug)
     ref = branch_ref(branch)
     head = ref and subprocess.run(['git', '-C', str(ROOT), 'rev-parse', '--verify', f'{ref}^{{commit}}'],
                                   capture_output=True, text=True)
@@ -228,7 +229,7 @@ def delivery_problems(slug):
         update = (f", and its {' and '.join(gone)} {'is' if len(gone) == 1 else 'are'} in no main; update local main "
                   f'from the remote (`git -C {ROOT} fetch origin main`, then fast-forward main to origin/main)'
                   if gone else '')
-        return problems + [f'effort branch {branch} is not an existing branch{update}']
+        return problems + [f'workstream branch {branch} is not an existing branch{update}']
     base = fm.get('review_base', '')
     if not isinstance(base, str) or not re.fullmatch('[0-9a-f]{40}', base):
         return problems + [f'review_base: {base or "missing"} is not a 40-hex commit']
@@ -258,7 +259,7 @@ VERDICTS = {"review_by": {"review_status": "clean", "documentation_status": "pas
 def verdict_problems(slug, key, fm):
     """Each status the review report records must be the one every named worker attempt returned, as collected,
     with its report still saying so; e2e_by may name run_check logs of checks the orchestrator ran instead."""
-    attempts = {saved["attempt"]: saved for saved in effort_attempts(slug) if saved.get("result")}
+    attempts = {saved["attempt"]: saved for saved in workstream_attempts(slug) if saved.get("result")}
     problems = []
     for name in fm[key] if isinstance(fm[key], list) else [str(fm[key]).strip()]:
         saved = attempts.get(name)
@@ -402,7 +403,7 @@ def verify(tickets, name):
             problems.append(f"no listed commit under ## Implemented is past base on {branch}")
     notes = []
     if not problems:
-        problems = returned_problems(slug, report, ref, branch, delegated=ref != branch_ref(effort_branch(slug)))
+        problems = returned_problems(slug, report, ref, branch, delegated=ref != branch_ref(workstream_branch(slug)))
     if not problems:
         problems, notes = measurement_results(tickets[name], ref, text)
     for p in problems:
@@ -410,14 +411,14 @@ def verify(tickets, name):
     if not problems:
         for note in notes:
             print(f"{name}: {note}")
-        # The head and the report that passed: done needs both, the head merged into the effort branch.
+        # The head and the report that passed: done needs both, the head merged into the workstream branch.
         write_fields(tickets[name], {"accepted": commit_of(ref), "accepted_report": report_digest(report)})
         print(f"{name}: report and branch carry the evidence; judge the content now")
     return not problems
 
 
-def effort_attempts(slug):
-    """The worker attempts the effort's lifecycle state holds, collected or not; none without a state."""
+def workstream_attempts(slug):
+    """The worker attempts the workstream's lifecycle state holds, collected or not; none without a state."""
     state = ISSUES / slug / "reports" / "workers.sqlite"
     if not state.is_file():
         return []
@@ -435,9 +436,9 @@ def report_digest(report):
 
 def returned_problems(slug, report, ref, branch, delegated):
     """A delegated ticket's report, and any report a worker returned, must be one a collected worker attempt of the
-    effort returned completed, unchanged since and at the ticket head: the orchestrator judges a worker's evidence,
+    workstream returned completed, unchanged since and at the ticket head: the orchestrator judges a worker's evidence,
     it never writes it."""
-    collected = [saved for saved in effort_attempts(slug) if saved.get("result")]
+    collected = [saved for saved in workstream_attempts(slug) if saved.get("result")]
     # A worker's report may be collected as an immutable snapshot: its content, not its path, vouches for the report.
     digest = report_digest(report)
     returned = [saved for saved in collected if saved["result"].get("report_sha256") == digest]
@@ -459,7 +460,8 @@ def returned_problems(slug, report, ref, branch, delegated):
 
 
 def measurement_results(fm, ref, report):
-    """Run the effort's standing measurements at the ticket head; (problems, notes on what the ticket's `allows` excused).
+    """Run the workstream's standing measurements at the ticket head; (problems, notes on what the ticket's `allows`
+    excused).
 
     A ticket may not change what measures a metric (its entry's `paths`) nor make a metric worse than its baseline,
     unless its `allows` covers that metric.
@@ -520,35 +522,35 @@ def measurement_results(fm, ref, report):
 def tool_changes(fm, entries, allowed, ref, report):
     """(problems, notes) for tickets that changed files an entry lists in `paths`.
 
-    A delegated ticket is compared with the merge-base with its effort branch (main when the effort has none): that
-    excludes what it merged in from the effort, and a builder cannot hide an edit by moving `base:`. A stacked ticket
-    changed a file only when it also differs from each dependency head its head contains, so a dependency's own change
-    waits for that ticket's own acceptance. A ticket on the effort branch itself (inline) is compared from the `start:`
-    recorded when it moved into implementing, which the effort branch must contain, with a commit the report lists
-    past it. Only `allows: <metric> tool` with its ledger citation excuses an entry; the file names go in the problem
-    or note.
+    A delegated ticket is compared with the merge-base with its workstream branch (main when the workstream has
+    none): that excludes what it merged in from the workstream, and a builder cannot hide an edit by moving `base:`. A
+    stacked ticket changed a file only when it also differs from each dependency head its head contains, so a
+    dependency's own change waits for that ticket's own acceptance. A ticket on the workstream branch itself (inline) is
+    compared from the `start:` recorded when it moved into implementing, which the workstream branch must contain, with
+    a commit the report lists past it. Only `allows: <metric> tool` with its ledger citation excuses an entry; the
+    file names go in the problem or note.
     """
     slug = spec_of(fm["ticket"])
-    effort = branch_ref(effort_branch(slug)) or "refs/heads/main"
+    workstream = branch_ref(workstream_branch(slug)) or "refs/heads/main"
     start = str(fm.get("start") or "")
-    fix = f"record the effort branch commit it started from with --set {fm['ticket']} start=<sha>"
-    if ref == effort and not start:
+    fix = f"record the workstream branch commit it started from with --set {fm['ticket']} start=<sha>"
+    if ref == workstream and not start:
         return [f"an inline ticket is compared from its start:, and it has none; {fix}"], []
-    if ref == effort and not (re.fullmatch("[0-9a-f]{40}", start) and subprocess.run(
+    if ref == workstream and not (re.fullmatch("[0-9a-f]{40}", start) and subprocess.run(
             ["git", "-C", str(ROOT), "merge-base", "--is-ancestor", start, ref], capture_output=True).returncode == 0):
         return [f"start: {start} is not an ancestor of {ref.removeprefix('refs/heads/')}; delete that line from the "
                 f"ticket, then {fix}"], []
-    if ref == effort and not listed_commit_on(report, start, ref):
+    if ref == workstream and not listed_commit_on(report, start, ref):
         return [f"no commit listed under ## Implemented is past start: {start} on {ref.removeprefix('refs/heads/')}; "
                 "a start recorded after the ticket's commits would hide them"], []
-    if ref != effort:
-        fork = subprocess.run(["git", "-C", str(ROOT), "merge-base", effort, ref], capture_output=True, text=True)
+    if ref != workstream:
+        fork = subprocess.run(["git", "-C", str(ROOT), "merge-base", workstream, ref], capture_output=True, text=True)
         if fork.returncode:
-            return [f"no effort branch ({effort_branch(slug)}) or main exists to compare "
+            return [f"no workstream branch ({workstream_branch(slug)}) or main exists to compare "
                     f"{ref.removeprefix('refs/heads/')} with"], []
         start = fork.stdout.strip()
     changed = changed_files(start, ref)
-    if ref != effort:
+    if ref != workstream:
         for head in dependency_heads(fm, ref, start):
             changed &= changed_files(head, ref)
     problems, notes = [], []
@@ -570,9 +572,9 @@ def changed_files(start, ref):
 
 
 def dependency_heads(fm, ref, fork):
-    """The branch heads of the ticket's same-effort `blocked_by` tickets that ref contains and is not, and that its fork
-    with the effort branch does not contain: a stacked ticket forks from them. Each branch is the one its report names,
-    else feat/<slug>-<NN>."""
+    """The branch heads of the ticket's same-workstream `blocked_by` tickets that ref contains and is not, and that its
+    fork with the workstream branch does not contain: a stacked ticket forks from them. Each branch is the one its
+    report names, else feat/<slug>-<NN>."""
     slug = spec_of(fm["ticket"])
     own = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--verify", f"{ref}^{{commit}}"],
                          capture_output=True, text=True).stdout.strip()
@@ -658,7 +660,7 @@ def allowance_pairs(text):
 
 
 def ledger_row(slug, row):
-    """Whether row, such as U3, opens a table row of the effort's ledger: `| U3 (user) | ...`."""
+    """Whether row, such as U3, opens a table row of the workstream's ledger: `| U3 (user) | ...`."""
     ledger = ISSUES / slug / "ledger.md"
     return bool(re.fullmatch(r"[A-Za-z]+[0-9]+", row) and ledger.is_file()
                 and re.search(rf"^\|\s*{row}(?=[\s(|])", ledger.read_text(), re.M))
@@ -763,7 +765,7 @@ def listed_commit_on(text, base, ref):
 def set_field(tickets, name, assignments):
     """Write each `key=value` to the ticket's front matter; a blocked ticket keeps its reason as `blocker`.
 
-    A ticket moving into implementing from a status that is not live records `start:`, the effort head it starts
+    A ticket moving into implementing from a status that is not live records `start:`, the workstream head it starts
     from, unless it has one; `start` is written once and never changed.
     """
     fields = {}
@@ -782,10 +784,10 @@ def set_field(tickets, name, assignments):
         if not re.fullmatch("[0-9a-f]{40}", fields["start"]) or commit_of(fields["start"]) != fields["start"]:
             sys.exit(f"{name}: start={fields['start']} is not a 40-hex commit of this repository")
     elif fields.get("status") == "implementing" and not fm.get("start") and fm.get("status") not in LIVE:
-        effort = effort_branch(spec_of(name))
-        fields["start"] = commit_of(branch_ref(effort) or "refs/heads/main")
+        workstream = workstream_branch(spec_of(name))
+        fields["start"] = commit_of(branch_ref(workstream) or "refs/heads/main")
         if not fields["start"]:
-            sys.exit(f"{name}: no effort branch ({effort}) or main to record the start of implementing from")
+            sys.exit(f"{name}: no workstream branch ({workstream}) or main to record the start of implementing from")
     # The E2E sentinel lends a done ticket to `verifying` and gives it back; only a ticket lent that way returns
     # to done without its acceptance.
     if fields.get("status") == "verifying" and fm.get("status") == "done":
@@ -796,11 +798,11 @@ def set_field(tickets, name, assignments):
         accepted = fm.get("accepted") or ""
         if not re.fullmatch("[0-9a-f]{40}", accepted):
             sys.exit(f"{name}: status=done needs a passing --accept first")
-        effort = effort_branch(spec_of(name))
-        ref = branch_ref(effort)
+        workstream = workstream_branch(spec_of(name))
+        ref = branch_ref(workstream)
         if not ref or subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor", accepted, ref],
                                      capture_output=True).returncode != 0:
-            sys.exit(f"{name}: accepted {accepted} is not in {effort}; merge it before status=done")
+            sys.exit(f"{name}: accepted {accepted} is not in {workstream}; merge it before status=done")
         slug, nn = name.split("/")
         if report_digest(ISSUES / slug / "reports" / f"{nn}.md") != fm.get("accepted_report"):
             sys.exit(f"{name}: the report changed after its --accept; accept it again")
@@ -837,9 +839,9 @@ def write_fields(fm, fields):
 
 
 def coordinate(slug, autofix):
-    """Record the session running this command as the effort's coordinator, which the stop hooks hold: its Herdr pane,
-    the session IDs its hosts export (a host started inside another's shell inherits the outer one's), and whether
-    repairs are authorized until the review report records its own `autofix`."""
+    """Record the session running this command as the workstream's coordinator, which the stop hooks hold: its Herdr
+    pane, the session IDs its hosts export (a host started inside another's shell inherits the outer one's), and
+    whether repairs are authorized until the review report records its own `autofix`."""
     binding = {"pane": os.environ.get("HERDR_PANE_ID"),
                "sessions": [os.environ[name] for name in SESSION_VARIABLES if os.environ.get(name)], "autofix": autofix}
     path = ISSUES / slug / "reports" / "coordinator.json"
@@ -860,7 +862,7 @@ def main(argv):
     global ROOT, ISSUES
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", type=Path, required=True, help="absolute main checkout path")
-    parser.add_argument("slug", nargs="?", help="only this effort; locks still include the whole board")
+    parser.add_argument("slug", nargs="?", help="only this workstream; locks still include the whole board")
     parser.add_argument("--max-live", type=int, default=MAX_LIVE)
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument("--check", action="store_true")
@@ -869,7 +871,7 @@ def main(argv):
     actions.add_argument("--can-verify", metavar="TICKET")
     actions.add_argument("--delivery", action="store_true", help="require done tickets and current review/E2E evidence")
     actions.add_argument("--set", nargs="+", metavar=("TICKET", "ASSIGNMENT"))
-    actions.add_argument("--coordinate", action="store_true", help="bind this session as the efforts' coordinator")
+    actions.add_argument("--coordinate", action="store_true", help="bind this session as the workstreams' coordinator")
     parser.add_argument("--counts", action="store_true")
     parser.add_argument("--autofix", action="store_true", help="with --coordinate: repairs are authorized")
     args = parser.parse_args(argv)
@@ -902,11 +904,11 @@ def main(argv):
             sys.exit(f"no Herdr pane (HERDR_PANE_ID) or host session ID ({', '.join(SESSION_VARIABLES)}) here: "
                      "the stop hold cannot bind this session")
         slugs = sorted({spec_of(t) for t in selected})
-        if not args.slug:  # Only efforts with active work: a live effort branch, or a ticket not done.
-            slugs = [slug for slug in slugs if branch_ref(effort_branch(slug))
+        if not args.slug:  # Only workstreams with active work: a live workstream branch, or a ticket not done.
+            slugs = [slug for slug in slugs if branch_ref(workstream_branch(slug))
                      or any(fm['status'] != 'done' for t, fm in selected.items() if spec_of(t) == slug)]
             if not slugs:
-                sys.exit('no selected effort has work left to coordinate')
+                sys.exit('no selected workstream has work left to coordinate')
         for slug in slugs:
             coordinate(slug, args.autofix)
         return
@@ -930,7 +932,7 @@ def main(argv):
                     ([f"tickets not done: {', '.join(undone)}"] if undone else []) + delivery_problems(slug)]
         if bad:
             sys.exit('\n'.join(bad))
-        print('delivery evidence matches selected effort heads; inspect the recorded artifacts')
+        print('delivery evidence matches selected workstream heads; inspect the recorded artifacts')
         return
     for name, fn in ((args.accept, accept), (args.can_verify, can_verify)):
         if name:
