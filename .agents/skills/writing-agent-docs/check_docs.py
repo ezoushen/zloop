@@ -60,12 +60,15 @@ def strip_code(line):
     return re.sub(r'(`+)(?:(?!\1).)+?\1', '', line)
 
 
-def prose(path):
-    """(line number, text) for lines outside frontmatter and fenced code (backtick or tilde)."""
+def prose(path, front=False):
+    """(line number, text) for lines outside frontmatter and fenced code (backtick or tilde); with `front`,
+    the frontmatter lines too, without their `---` delimiters."""
     lines = path.read_text().splitlines()
     start = 0
     if len(lines) > 1 and lines[0] == '---' and re.match(r'[\w-]+:', lines[1]) and '---' in lines[1:]:
         start = lines.index('---', 1) + 1
+        if front:
+            yield from enumerate(lines[1:start - 1], 2)
     fence = None
     for number, line in enumerate(lines[start:], start + 1):
         match = FENCE.match(line)
@@ -96,11 +99,11 @@ def avoided_words(glossary):
 def avoided_findings(path, rel, glossary, avoided):
     """Findings for each avoided phrase in a doc's prose. Matching is by whole phrase, ignoring case, with
     an optional plural, across a line wrap or a hyphen. Inline code, fenced code and link targets quote a
-    phrase without using it; the glossary's own `_Avoid_` lines are its definitions."""
+    phrase without using it; frontmatter values count as prose; the glossary's own `_Avoid_` lines are its definitions."""
     if not avoided:
         return []
     text, starts, previous = '', [], None
-    for number, line in prose(path):
+    for number, line in prose(path, front=True):
         if not line.strip() or path == glossary and line.startswith('_Avoid_:'):
             continue
         line = INLINE_LINK.sub(lambda m: m.group(1), re.sub(r'(`+)(?:(?!\1).)+?\1', '\0', line))

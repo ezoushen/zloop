@@ -368,6 +368,17 @@ class AvoidedWords(Fixture):
                    + '\n```\nthe effort branch\n```\n\nSee [the guide](effort-branch.md).\n')
         self.assertEqual(self.avoided(), [])
 
+    def test_frontmatter_values_are_scanned_but_a_quoted_phrase_there_passes(self):
+        # Rule: a skill's description and argument-hint are agent-facing text, so an avoided phrase there is an error.
+        self.write('skills/tool/SKILL.md', '---\nname: tool\ndescription: Open the effort branch when asked.\n'
+                   + 'argument-hint: <effort-slug>\n---\n\n# Tool\n\nRead [the guide](../../shared/guide.md).\n')
+        self.assertEqual(self.avoided(), [
+            ('skills/tool/SKILL.md', 3, '"effort branch" is an _Avoid_ word in GLOSSARY.md; write Workstream'),
+            ('skills/tool/SKILL.md', 4, '"effort slug" is an _Avoid_ word in GLOSSARY.md; write Workstream')])
+        self.write('skills/tool/SKILL.md', '---\nname: tool\ndescription: Say `effort branch` never. Use when asked.\n---\n\n# Tool\n\n'
+                   + 'Read [the guide](../../shared/guide.md).\n')
+        self.assertEqual(self.avoided(), [])
+
     def test_a_phrase_that_is_also_a_term_matches_only_where_the_glossary_lists_a_longer_phrase(self):
         # Rule: "effort" is a term of its own (model effort), so it alone never errors; "effort branch" does.
         self.write('shared/guide.md', GUIDE + '\nSet the model effort, as no effort is spared.\n'
