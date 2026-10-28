@@ -176,7 +176,7 @@ def live_attempts(effort, now):
     pending = {attempt for attempt, acknowledged in db_pending if not acknowledged}
     shown = []
     for data in rows:
-        if data.get('closed'):
+        if not isinstance(data, dict) or data.get('closed'):
             continue
         has_result = bool(data.get('result'))
         awaiting = has_result and data['attempt'] in pending
@@ -237,8 +237,9 @@ def tied(repo, session_id):
 
     A binding comes first: `next_tickets.py --coordinate` records the sessions running an effort, so two sessions in
     one checkout each read their own. Then the card naming this session, its journal, and last the efforts whose
-    workers it registered, whose states are read only when the caller asks past the others. An effort no record ties
-    to this session is another session's, however recent, so a session just opened shows none.
+    workers it registered, in name order, since every worker event rewrites a state and two live runs would otherwise
+    swap; their states are read only when the caller asks past the others. An effort no record ties to this session
+    is another session's, however recent, so a session just opened shows none.
     """
     found = efforts(repo)
     recorded = dict.fromkeys([
@@ -248,8 +249,7 @@ def tied(repo, session_id):
         *(effort for effort in found if any(effort.glob(f'decisions-{session_id}*.jsonl'))
           or any((effort / 'reports').glob(f'decisions-{session_id}*.jsonl')))])
     yield from recorded
-    yield from sorted((effort for effort in found if effort not in recorded and registered_by(effort, session_id)),
-                      key=activity, reverse=True)
+    yield from (effort for effort in found if effort not in recorded and registered_by(effort, session_id))
 
 
 def main_checkout(repo):

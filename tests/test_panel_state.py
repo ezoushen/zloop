@@ -324,6 +324,16 @@ class PanelState(unittest.TestCase):
         os.utime(state, (later, later))
         self.assertEqual(('alpha', True), (self.snapshot('S')['effort'], self.snapshot('S')['active']))
 
+    def test_of_two_live_runs_tied_by_workers_the_choice_holds_whichever_changed_last(self):
+        # Every worker event rewrites its state; were the newest chosen, two live runs would swap on the panel, and a
+        # pane the person closed for one would reopen under the other's name.
+        states = {slug: attempts(self.scratch / slug / 'reports' / 'workers.sqlite',
+                                 [dict(live(f'1/{slug}'), session='S', sessions=['S'])]) for slug in ('a-run', 'b-run')}
+        for touched in ('b-run', 'a-run', 'b-run'):
+            later = time.time() + 120 + len(touched)
+            os.utime(states[touched], (later, later))
+            self.assertEqual('a-run', self.snapshot('S')['effort'], f'after {touched} changed')
+
     def test_another_sessions_worker_ties_nothing_to_this_session(self):
         attempts(self.scratch / 'theirs' / 'reports' / 'workers.sqlite',
                  [dict(live('1/ticket-1'), session='T', sessions=['T'])])
@@ -340,6 +350,15 @@ class PanelState(unittest.TestCase):
         db.close()
         self.assertEqual({'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'strip': None},
                          self.snapshot('S'))
+
+    def test_a_row_that_is_not_an_object_beside_this_sessions_worker_is_skipped(self):
+        state = attempts(self.scratch / 'mixed' / 'reports' / 'workers.sqlite',
+                         [dict(live('1/ticket-1'), session='S', sessions=['S'])])
+        db = sqlite3.connect(state)
+        db.execute('INSERT INTO attempts VALUES (?, ?)', ('1/ticket-2', json.dumps(['S'])))
+        db.commit()
+        db.close()
+        self.assertEqual(['mixed', '▶ builder · zloop-panel/01 · sonnet · quiet 30s'], self.row_texts(self.snapshot('S')))
 
     def test_an_attempt_registered_before_session_lists_ties_by_its_one_session(self):
         # Registrations from before 2026-10-27 record `session` alone.
