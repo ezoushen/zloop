@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -170,6 +170,13 @@ process.on("exit", () => rmSync(fixture, { recursive: true, force: true }));
 mkdirSync(join(fixture, ".scratch/demo"), { recursive: true });
 writeFileSync(join(fixture, ".scratch/demo/autopilot.md"), ["# demo — autopilot run card", "", "## State",
   'confirmed: yes 2026-10-27 "go"', "session: S", "phase: dispatch", "terminal: ", ""].join("\n"));
+// Each read of the fact source leaves a mark: the python3 first on PATH logs a panel_state.py call, then runs the real one.
+const shims = join(fixture, "shims");
+mkdirSync(shims);
+writeFileSync(join(shims, "python3"), `#!/bin/sh\ncase "$*" in *panel_state.py*) echo read >> "${join(fixture, "reads")}";; esac\n`
+  + 'PATH="${PATH#*:}" exec python3 "$@"\n', { mode: 0o755 });
+process.env.PATH = `${shims}:${process.env.PATH}`;
+const reads = () => (existsSync(join(fixture, "reads")) ? readFileSync(join(fixture, "reads"), "utf8").split("\n").length - 1 : 0);
 
 function started() {
   const starts = [];
@@ -205,16 +212,19 @@ const shown = (calls) => {
 const notices = (calls) => calls.filter((entry) => entry.call === "notify").map((entry) => entry.message);
 
 // The panel starts open: a live effort's rows draw with no command. /zloop-panel closes it at once and says so, and
-// later ticks draw nothing. Run again, it opens the panel, says so, and the next tick draws the rows.
+// later ticks neither read nor draw. Run again, it opens the panel, says so, and the next tick draws the rows.
 {
   const session = started();
+  const before = reads();
   await session.tick();
   assert.deepEqual(shown(session.calls), ["demo · dispatch"]);
+  assert.equal(reads(), before + 1);
   await session.command();
   assert.deepEqual(shown(session.calls), []);
   assert.deepEqual(notices(session.calls), ["zloop panel closed."]);
   await session.tick();
   assert.deepEqual(shown(session.calls), []);
+  assert.equal(reads(), before + 1, "a closed panel reads nothing");
   await session.command();
   assert.deepEqual(notices(session.calls), ["zloop panel closed.", "zloop panel opened."]);
   await session.tick();
