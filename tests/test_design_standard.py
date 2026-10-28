@@ -56,6 +56,11 @@ class DesignStandard(unittest.TestCase):
         self.assertIn('A module that receives its dependencies, and returns results instead of only changing shared '
                       'state, can be tested through its interface alone', text)
 
+    def test_outside_data_is_parsed_once_where_it_enters(self):
+        self.assertIn('**Parse outside data once, where it enters.** Input from files, commands, other processes or the '
+                      'network is checked at the seam where it enters, into a form that cannot hold an illegal value; '
+                      'code inside trusts that form instead of checking it again', prose(DESIGN))
+
     def test_a_seam_is_placed_by_what_the_dependency_is(self):
         text = prose(DESIGN)
         for rule in ('In-process computation and state need no seam: test through the module\'s interface',

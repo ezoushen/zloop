@@ -295,6 +295,33 @@ def attribute(db, attempt, kind, count, evidence):
             **({'ledger': unrecorded} if unrecorded else {})}
 
 
+def earlier_repairs(db, attempt):
+    """The repair attempts of the line of work the attempt belongs to: every `repairs` chain back to one first
+    attempt."""
+    rows = {row['attempt']: row for row in attempts(db)}
+
+    def first(name):
+        while rows[name].get('repairs'):
+            name = rows[name]['repairs']
+        return name
+    return [name for name, row in rows.items() if row.get('repairs') and first(name) == first(attempt)]
+
+
+def census(db):
+    """Per route (runtime/model), the collected attempts of this state and the review defects and repair rounds
+    attributed to them."""
+    routes = {}
+    for saved in attempts(db):
+        if saved.get('result'):
+            row = outcomes.attempt_row(db, saved, '')
+            counts = routes.setdefault(f"{row['runtime']}/{row['model']}",
+                                       dict(attempts=0, review_defects=0, repair_rounds=0))
+            counts['attempts'] += 1
+            for key in ('review_defects', 'repair_rounds'):
+                counts[key] += row.get(key, 0)
+    return routes
+
+
 def state_path(db):
     return str(Path(db.execute('PRAGMA database_list').fetchone()[2]).resolve())
 
@@ -781,9 +808,17 @@ def record(db, data, refuse_changes=False):
             if 'journal' in data:
                 require(text(data['journal']) and Path(data['journal']).is_absolute(),
                         'journal must be an absolute decisions journal path')
+            require('census' not in data, 'Registration computes the census; an event cannot supply it')
             if 'repairs' in data:
                 require(text(data['repairs']), 'repairs names the attempt whose work this one repairs')
                 require(get(db, data['repairs']).get('result'), 'A repaired attempt must be collected first')
+                if len(earlier_repairs(db, data['repairs'])) >= 2:
+                    found = census(db)
+                    require(text(data.get('premise')),
+                            'A third repair of one line of work needs premise: the one assumption its earlier '
+                            'fixes shared; weigh it against this census of collected attempts per route: '
+                            + json.dumps(found))
+                    saved['census'] = data['census'] = found
             if execution.get('backend'):
                 # A local backend's slot is shared by every effort on this machine.
                 capacity.acquire(execution['backend'], execution.get('capacity') or {},
@@ -961,6 +996,7 @@ def record(db, data, refuse_changes=False):
     return {'event_id': event_id, 'attempt': attempt, 'verified': saved['verified'],
             **({'partly_checked': partly} if partly else {}),
             **({'journal': journal} if journal else {}), **({'repairs': repaired} if repaired else {}),
+            **({'census': data['census']} if kind == 'register' and 'census' in data else {}),
             **({'ledger': unrecorded} if unrecorded else {})}
 
 
@@ -1470,7 +1506,7 @@ def status(db, attempt=None):
         summary = {key: saved[key] for key in ('attempt', 'assignment', 'agent', 'job', 'worker', 'native_session',
                    'herdr', 'head', 'requested', 'observed', 'observed_cwd', 'verified', 'monitor', 'result',
                    'accepted', 'declined', 'acceptance_deferred', 'retained', 'closed',
-                   'retirement_requested') if key in saved}
+                   'retirement_requested', 'premise', 'census') if key in saved}
         if saved.get('observed_cwd') and native_settings.outside(saved['observed_cwd'], saved['worktree'],
                                                                  saved['runtime']):
             summary['warnings'] = [f"the native record puts the worker in {saved['observed_cwd']}, outside its "

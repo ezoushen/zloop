@@ -41,6 +41,9 @@ project uses; say seam or interface, not boundary, and module, not component or 
 - **Shape the interface for its callers.** Prefer fewer operations, simpler inputs and
   more hidden inside. A module that receives its dependencies, and returns results
   instead of only changing shared state, can be tested through its interface alone.
+- **Parse outside data once, where it enters.** Input from files, commands, other
+  processes or the network is checked at the seam where it enters, into a form that
+  cannot hold an illegal value; code inside trusts that form instead of checking it again.
 - **Place a seam by what the dependency is.** In-process computation and state need
   no seam: test through the module's interface. A dependency with a local stand-in,
   such as an embedded database, runs in the tests behind an internal seam. An owned

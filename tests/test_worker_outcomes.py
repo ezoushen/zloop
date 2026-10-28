@@ -78,6 +78,64 @@ class Outcomes(WorkerLifecycleCase):
         self.assertIn('collected attempt', error)
         self.register('ticket-3/1', 'ticket-3', 'native-4', 'pane-4', repairs='ticket-2/1', code=2)
 
+    def collected(self, attempt, number, model='sonnet', **fields):
+        """A collected attempt on the claude/<model> route, registered with fields."""
+        self.execution.write_text(json.dumps({'harness': 'claude', 'agent': 'builder', 'job': 'ticket',
+                                             'settings': {'model': model, 'effort': 'high'}}))
+        self.register(attempt, attempt.split('/')[0], f'native-{number}', f'pane-{number}', **fields)
+        self.record('startup', attempt, observed={'runtime': 'claude', 'model': model, 'effort': 'high'},
+                    evidence=['native.jsonl:1'])
+        self.record('submitted', attempt, evidence=['native.jsonl:2:accepted prompt'])
+        self.watch(attempt)
+        self.record('reconciled', attempt, evidence=['native worker idle with its report'])
+        self.collect(attempt)
+
+    def test_a_third_repair_of_one_line_of_work_needs_the_premise_the_earlier_fixes_shared(self):
+        # Rule: two fixes of one line of work (the repairs chain back to its first attempt) that both failed review
+        # share a premise; the third is refused until the orchestrator states it.
+        self.collected('ticket-1/1', 1)
+        self.collected('ticket-1/repair-1', 2, repairs='ticket-1/1')
+        self.collected('ticket-1/repair-2', 3, repairs='ticket-1/repair-1')
+        error = self.register('ticket-1/repair-3', 'ticket-1', 'native-4', 'pane-4', repairs='ticket-1/repair-2',
+                              code=2)
+        self.assertIn('premise', error)
+        self.assertEqual(self.cli('status')['attempts'][-1]['attempt'], 'ticket-1/repair-2')
+
+    def test_only_the_third_repair_of_the_same_line_needs_a_premise(self):
+        # Rule: a first and a second repair go ahead, and repairs of another line of work count for that line only.
+        self.collected('ticket-1/1', 1)
+        self.collected('ticket-2/1', 2)
+        for number, (attempt, repaired) in enumerate((('ticket-1/repair-1', 'ticket-1/1'),
+                                                      ('ticket-1/repair-2', 'ticket-1/1'),
+                                                      ('ticket-2/repair-1', 'ticket-2/1'),
+                                                      ('ticket-2/repair-2', 'ticket-2/1')), start=3):
+            self.register(attempt, attempt.split('/')[0], f'native-{number}', f'pane-{number}', repairs=repaired)
+        error = self.register('ticket-1/repair-3', 'ticket-1', 'native-7', 'pane-7', repairs='ticket-1/1', code=2)
+        self.assertIn('premise', error)
+
+    def test_a_premised_third_repair_records_what_each_route_was_found_and_repaired_for(self):
+        # Rule: the census a third repair is weighed against comes from the state, never from the orchestrator: per
+        # route, its collected attempts and the review defects and repair rounds attributed to them before this one.
+        self.collected('ticket-1/1', 1)
+        self.cli('attribute', '--attempt', 'ticket-1/1', '--kind', 'review-defect', '--count', '3',
+                 '--evidence', 'round-1.md#F1')
+        self.collected('ticket-1/repair-1', 2, model='opus', repairs='ticket-1/1')
+        self.cli('attribute', '--attempt', 'ticket-1/repair-1', '--kind', 'review-defect', '--count', '2',
+                 '--evidence', 'round-2.md#F1')
+        self.collected('ticket-1/repair-2', 3, model='opus', repairs='ticket-1/repair-1')
+        self.cli('attribute', '--attempt', 'ticket-1/repair-2', '--kind', 'review-defect', '--evidence', 'round-3.md#F1')
+        premise = 'A check run names the revision it checked.'
+        error = self.register('ticket-1/repair-3', 'ticket-1', 'native-4', 'pane-4', repairs='ticket-1/repair-2',
+                              premise=premise, census={'claude/opus': {'attempts': 2}}, code=2)
+        self.assertIn('census', error)
+        result = self.register('ticket-1/repair-3', 'ticket-1', 'native-4', 'pane-4', repairs='ticket-1/repair-2',
+                               premise=premise)
+        census = {'claude/sonnet': {'attempts': 1, 'review_defects': 3, 'repair_rounds': 1},
+                  'claude/opus': {'attempts': 2, 'review_defects': 3, 'repair_rounds': 1}}
+        self.assertEqual(result['census'], census)
+        saved = self.cli('status')['attempts'][-1]
+        self.assertEqual((saved['premise'], saved['census']), (premise, census))
+
     def test_acceptance_is_recorded_once_on_a_completed_collected_attempt(self):
         self.register()
         self.ready()

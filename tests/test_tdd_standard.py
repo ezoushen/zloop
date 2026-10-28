@@ -76,6 +76,11 @@ class TddStandard(unittest.TestCase):
         self.assertIn('Tests of trivia, such as pass-through accessors or framework behavior, are not written to raise it',
                       text)
 
+    def test_a_rule_no_honest_test_can_reach_is_reported_untested_not_weakly_tested(self):
+        self.assertIn('**No honest test, no weak one.** When no seam the ticket names can hold an honest test of a '
+                      'rule, write none: report the rule untested, name what verifies it instead and leave its '
+                      'checkbox open with that reason', prose(TDD))
+
     def test_the_anti_patterns_are_named(self):
         text = prose(TDD)
         for name in ('**Implementation-coupled:**', '**Tautological:**', '**Horizontal slicing:**'):
