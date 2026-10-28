@@ -65,6 +65,9 @@ clean, so declare its outputs in `.gitignore`.
 has the ticket branch checked out. Each log is kept under
 `.scratch/<slug>/reports/evidence/<NN>/accept-<N>/<head>/`. It names what it refuses: a ticket whose
 diff touches an entry's `paths`, a metric with no value or a value worse than its baseline.
+An inline ticket, on the effort branch itself, is compared from its `start:`, the effort head
+that `--set <ticket> status=implementing` records when the ticket enters implementing from a status
+that is not live (`--set <ticket> start=<sha>` records a missing one; a recorded one never changes).
 
 A ticket may excuse metrics with front matter `allows:` holding one or more comma-separated
 pairs, each `<metric> <bound>` (the worst value it tolerates) or `<metric> tool` (it may change

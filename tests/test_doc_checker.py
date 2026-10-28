@@ -102,6 +102,15 @@ class DocChecker(Fixture):
         # Rule: agents also read the docs people read (README, rehearsals), so every checked doc fits one read.
         self.write('README.md', '# Project\n\nSee [tool](skills/tool/SKILL.md).\n' + 'x' * 2100 + '\n')
         self.assertEqual(self.check(), {('README.md', 1, 'size', 'error')})
+        size = (self.root / 'README.md').stat().st_size
+        self.config['debt'] = {'README.md': {'bytes': size}}
+        self.assertEqual(self.check(), {('README.md', 1, 'debt', 'warning')})
+
+    def test_a_peoples_doc_gets_only_the_size_rule_of_the_per_file_rules(self):
+        # Rule: contents lists and wording smells are for agent docs; a person's doc is held only to one read.
+        sections = ''.join(f'## Part {n}\n\n' + 'Line.\n' * 30 for n in range(3))
+        self.write('README.md', '# Project\n\nSee [tool](skills/tool/SKILL.md), as of 2026.\n\n' + sections)
+        self.assertEqual(self.check(), set())
 
     def test_a_skill_body_over_500_lines_is_an_error(self):
         self.config['max_bytes'] = 100000

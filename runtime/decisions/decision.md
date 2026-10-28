@@ -11,6 +11,8 @@ inspect saved evidence offline; replay makes bounded inference calls only when
 requested. Neither mode changes live prompts or starts training.
 
 Check enabled families as [phase checkpoints](phases.md#phase-checkpoints) describes.
+Worker selection uses the existing model router,
+which calls the shared helper after candidate filtering; do not duplicate that call.
 For live calls, use one journal in the root session's existing artifact directory.
 Pass its absolute `--journal` path and a stable `--assignment-id` identifying the
 assignment/attempt or phase/scope/revision. Carry the returned `checkpoint_id`

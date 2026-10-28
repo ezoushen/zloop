@@ -85,7 +85,12 @@ These fields describe the requested route, not observed runtime identity.
 
 Existing complete executor instances and maps of complete candidates remain
 supported, including inherit mode. Use these for destination defaults or a fixed
-assignment-specific executor/model policy. For catalog migration, see [migration](troubleshooting.md#migration).
+assignment-specific executor/model policy. For catalog migration, move the previous
+`model` value to `models.<name>.runtimes.<target>.id`, thinking policy alongside it,
+and launch routes to `runtimes.<target>.executors`. Confirm the destination from its
+installed contract or existing known setup; never infer it from model names or prose
+alone. Reconcile conflicting shared routes before saving. The old catalog layout
+fails with a migration diagnostic; it is not silently treated as native defaults.
 
 Use `thinking: {"default":"medium","allowed":["medium","high"]}` on a runtime
 binding, or `models.thinking` on a complete instance. The default must belong to the

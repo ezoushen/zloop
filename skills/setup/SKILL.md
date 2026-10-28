@@ -31,7 +31,8 @@ authorization and report its effective result.
 
 ## Direct changes
 
-Use the setup skill, typed the host's way. These are chat invocations, not shell commands. A request that
+Use `/zloop:setup` in Claude Code, `$zloop:setup` in Codex, or
+`/skill:setup` in Pi. These are chat invocations, not shell commands. A request that
 names `show`, `set` or `reset` goes straight to
 [select the configuration flow](#select-the-configuration-flow) without the tour.
 For example, using Claude's spelling:

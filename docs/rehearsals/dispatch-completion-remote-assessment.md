@@ -1,6 +1,6 @@
 # Dispatch completion and remote assessment
 
-### Assessment
+## Completion, ownership and timing assessment
 
 - Case 1 stays incomplete until selected findings close or the human changes their
   disposition; approved deferrals update only the named items. PR readiness cannot
@@ -24,7 +24,7 @@
   validates enrolled dependencies/cycles/locks/capacity across all efforts before
   scheduling. A selected slug does not make another effort's resource available.
 
-### Assessment
+## Remote execution and shared-account assessment
 
 - Case 1 uses the remote queue without a local mutex and runs the independent
   container check within capacity. The shared-device variant retains its existing

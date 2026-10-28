@@ -14,7 +14,7 @@ none is enabled, follow [phase checkpoints](phases.md#phase-checkpoints). When a
 family is enabled, run the [configured checkpoint command](checkpoint-command.md)
 at each reached phase's named boundary and check its expected phase record before
 handoff. Include an evidence-backed skip when no consultation is needed. Worker
-selection does not cover alignment, review triage or recovery. Recovery chooses an action before any worker reselection.
+selection already calls the shared helper; it does not cover alignment, review triage or recovery. Recovery chooses an action before any worker reselection.
 Surface new calibration warnings
 with their cause and recalibration action, deduplicating unchanged warnings.
 
