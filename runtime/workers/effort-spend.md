@@ -25,7 +25,7 @@ directories.
 ## What it reports
 
 - `accepted_tickets`: assignments of an `acceptance: true` job (`ticket`) with an attempt recorded as
-  [`accepted`](../runtime/workers/collect.md#accept-and-record-outcomes) and no `revert` attributed to it.
+  [`accepted`](collect.md#accept-and-record-outcomes) and no `revert` attributed to it.
   A worker's `completed` result is its own claim; acceptance is the orchestrator's.
 - `total` and `per_accepted_ticket`: worker and host tokens together, divided by the
   accepted tickets. With none, the ratio is `null` rather than a guess.

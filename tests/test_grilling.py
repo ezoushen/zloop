@@ -35,7 +35,7 @@ class Grilling(unittest.TestCase):
         align = prose(ROOT / 'skills/align/SKILL.md')
         self.assertIn('showing material ones for veto', align)
         self.assertNotIn('shows it for veto', align)
-        self.assertIn('lists material ones for veto', prose(ROOT / 'docs/planning-rehearsal.md'))
+        self.assertIn('lists material ones for veto', prose(ROOT / 'docs/rehearsals/planning.md'))
         self.assertNotIn('relax the round', align)
         self.assertNotIn('question-count/detail limit', align)
 

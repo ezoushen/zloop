@@ -87,7 +87,7 @@ When the orchestrator accepts a completed result and integrates it, record
 `accepted` on that attempt with the integrated `commit` and evidence. It is allowed
 after the worker's session closed, once per attempt. Acceptance is the
 orchestrator's judgement, not the worker's `completed` claim; the
-[effort spend report](../../docs/effort-spend.md) counts accepted tickets from it.
+[effort spend report](effort-spend.md) counts accepted tickets from it.
 
 Closing or retiring a completed `acceptance: true` attempt that is neither accepted nor
 declined settles it: the `closed` record, the `retire` input and the `collect`

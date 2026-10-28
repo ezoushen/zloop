@@ -55,7 +55,7 @@ differs from the base; list deliberate edits in a JSON file passed with `--allow
 
 | Code | Meaning | Fix |
 |---|---|---|
-| `size` | Doc over 12 KiB | Split it by reader, not by line count |
+| `size` | Doc over 12 KiB, README and `docs/` included | Split it by reader, not by line count |
 | `debt` | Over budget or missing contents, recorded in config | Shrink it when you touch it; lower the recorded size when the message says so; never raise it to make room |
 | `stale-debt` | A recorded debt no longer applies | Remove the entry |
 | `contents` | Over 100 lines with 3+ sections, no exact `Contents:` list | Add or update the list right after the title |
@@ -73,6 +73,7 @@ differs from the base; list deliberate edits in a JSON file passed with `--allow
 | `host-shape` | A folder under `hosts/` that does not hold exactly `session.md` and `workers.md` | Move other text to the runtime doc that owns it |
 | `shared-section` | A section, other than a file's title or only section, linked from 3+ files in other modules | Make it its own file, or link the whole file |
 | `unmapped` | No module in architecture.json owns the doc | Add its path to the owning module |
+| `unowned` | An agent doc links or names a Markdown file no module owns, such as one in `docs/` | Move that file into the module that owns its subject |
 | `positional` | `above` or `below` that may point at moved text | Link or name the target instead |
 | `stale-name` | Text names a `.md` file that exists nowhere | Link the doc that now holds it, or add a generic project name to `known_names` |
 | `dated`, `backslash`, `person` | Time-bound wording, Windows path, first/second-person description | Reword |

@@ -1,4 +1,4 @@
-# Workflow decisions
+# Decision phases
 
 Contents:
 - [Phase checkpoints](#phase-checkpoints)

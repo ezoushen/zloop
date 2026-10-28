@@ -279,8 +279,8 @@ def check(root, config, changed=None, architecture=None):
     in_scope = (lambda path: True) if changed is None else (lambda path: path in changed)
     basenames = tracked_names(root) | set(config.get('known_names', []))
 
-    # Size, contents and per-line smells in each agent doc.
-    for path in docs:
+    # Size in every checked doc, since agents read people's docs too; contents and per-line smells in agent docs.
+    for path in linking:
         if not in_scope(path):
             continue
         size, limit = path.stat().st_size, config['max_bytes']
@@ -294,6 +294,8 @@ def check(root, config, changed=None, architecture=None):
                                     f'{size} bytes, over {limit}: split it by reader so it fits one read'))
         elif 'bytes' in debt:
             findings.append(Finding(rel(path), 1, 'warning', 'stale-debt', 'within budget now; remove its recorded size'))
+        if path not in docs:
+            continue
         lines = path.read_text().splitlines()
         _, sections = outline(path)
         if (len(lines) <= 100 or len(sections) < 3) and debt.get('contents'):
@@ -336,8 +338,8 @@ def check(root, config, changed=None, architecture=None):
                                         '`above`/`below` breaks when text moves; link or name the target'))
 
     for name in config.get('debt', {}):
-        if root / name not in docs and (changed is None or not (root / name).exists()):
-            findings.append(Finding(name, 1, 'warning', 'stale-debt', 'not an agent doc in this repository; remove its recorded debt'))
+        if root / name not in linking and (changed is None or not (root / name).exists()):
+            findings.append(Finding(name, 1, 'warning', 'stale-debt', 'not a checked doc in this repository; remove its recorded debt'))
 
     # Skill frontmatter.
     total = 0
@@ -424,6 +426,10 @@ def check(root, config, changed=None, architecture=None):
         for path in docs:
             if architecture.module(rel(path)) is None:
                 findings.append(Finding(rel(path), 1, 'error', 'unmapped', 'no module in the architecture file owns this doc'))
+        for src, number, doc in sorted(set(edges)):
+            if doc.endswith('.md') and architecture.module(src) and architecture.module(doc) is None:
+                findings.append(Finding(src, number, 'error', 'unowned',
+                                        f'{src} -> {doc}: agents read what an agent doc links; move it into a module'))
         debt = architecture.debt
         for found in architecture.assess(sorted(set(edges)), 'docs', 'direction', debt.get('links', []), debt.get('cycles', [])):
             findings.append(Finding(*found))

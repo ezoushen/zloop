@@ -98,6 +98,11 @@ class DocChecker(Fixture):
         self.write('shared/guide.md', GUIDE)
         self.assertEqual(self.check(), {('shared/guide.md', 1, 'stale-debt', 'warning')})
 
+    def test_a_peoples_doc_over_the_byte_budget_is_an_error_too(self):
+        # Rule: agents also read the docs people read (README, rehearsals), so every checked doc fits one read.
+        self.write('README.md', '# Project\n\nSee [tool](skills/tool/SKILL.md).\n' + 'x' * 2100 + '\n')
+        self.assertEqual(self.check(), {('README.md', 1, 'size', 'error')})
+
     def test_a_skill_body_over_500_lines_is_an_error(self):
         self.config['max_bytes'] = 100000
         body = SKILL.format(name='tool', description='Runs the tool.') + 'line\n' * 496

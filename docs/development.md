@@ -85,17 +85,18 @@ frontmatter this package uses.
 
 **Still requires a live installed session in each host:** worker spawning and context
 loading, review/fix/E2E, and interruption/resume. These are not claimed as passing.
-Use the [review behavior rehearsal](review-rehearsal.md) for walkthrough discussion,
-review handoff and finding adjudication, and the
-[dispatch recovery rehearsal](dispatch-rehearsal.md) for executor completion, failed
-waits, state reconciliation and automatic review continuation.
+Use the [review behavior rehearsal](rehearsals/review.md) for walkthrough discussion,
+review handoff and finding adjudication, the
+[dispatch recovery rehearsal](rehearsals/dispatch.md) for executor completion, failed
+waits, state reconciliation and automatic review continuation, and the
+[planning rehearsal](rehearsals/planning.md) for the alignment question filter.
 
 ## Usage and spend tools
 
-- The read-only [usage helper](claude-usage.md) ranks local Claude session families,
+- The read-only [usage helper](../runtime/resources/claude-usage.md) ranks local Claude session families,
   includes native workers and attributes related worktree sessions over an explicit
   time window. It reports recorded tokens without estimating account credits.
-- The read-only [effort spend report](effort-spend.md) divides an effort's worker and
+- The read-only [effort spend report](../runtime/workers/effort-spend.md) divides an effort's worker and
   coordinator tokens by its accepted tickets and shows what the coordinator's tokens
   went to. It reads Claude, Codex and Pi transcripts.
 - `scripts/allowance.py status` reports the Claude Code and Codex allowance windows and

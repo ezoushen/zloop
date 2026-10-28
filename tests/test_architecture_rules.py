@@ -169,7 +169,19 @@ class ArchitectureRules(Fixture):
         self.write('flows/a/one.md', '# One\n\nSee [readme](../../README.md#project).\n')
         self.write('skills/tool/SKILL.md', SKILL.format(name='tool', description='Runs the tool.')
                    + '[one](../../flows/a/one.md)\n')
+        self.assertEqual(self.check(), {('flows/a/one.md', 3, 'unowned', 'error')})
+
+    def test_an_agent_doc_linking_or_naming_a_doc_no_module_owns_is_an_error_but_a_peoples_doc_may_link_it(self):
+        # Rule: a doc an agent doc sends agents to is an agent doc, owned by a module and checked as one.
+        self.config['linking'] += ['notes/**/*.md']
+        self.write('notes/helper.md', '# Helper\n\nRun the helper.\n')
+        self.write('README.md', '# Project\n\nSee [tool](skills/tool/SKILL.md) and [helper](notes/helper.md).\n')
         self.assertEqual(self.check(), set())
+        self.write('shared/guide.md', GUIDE + 'Use [the helper](../notes/helper.md).\nOr read ../notes/helper.md.\n')
+        self.assertEqual(self.check(), {('shared/guide.md', 6, 'unowned', 'error'),
+                                        ('shared/guide.md', 7, 'unowned', 'error')})
+        [message, _] = self.messages('unowned')
+        self.assertIn('notes/helper.md', message[2])
 
     def first_read_tree(self):
         self.architecture['levels'] = [['skills'], ['bootstrap'], ['flows'], ['runtime'], ['hosts']]
