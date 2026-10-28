@@ -42,7 +42,7 @@ Confirm them with the user: a seam the user did not confirm gets no test.
 Run the relevant tests once before the first new one, and record pre-existing failures as
 such, so none is later taken for this change's. Then work the standard's loop one rule
 per cycle, recording each cycle's failing, passing and break runs as the standard says.
-Show them as they happen, or keep them in the effort's report when one is under way.
+Show them as they happen, or keep them in the workstream's report when one is under way.
 
 ## Where the standard names a ticket
 

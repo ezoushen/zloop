@@ -39,7 +39,7 @@ class Research(unittest.TestCase):
         text = prose(DOC)
         self.assertIn("a helper agent of the host, not a job of the builder, reviewer or verifier", text)
         self.assertIn('](../../runtime/resources/capacity.md)', text)
-        self.assertIn("record it in the effort's run report when one exists", text)
+        self.assertIn('record it in the workstream\'s run report when one exists', text)
         self.assertNotIn('](../../runtime/workers/launch.md)', text)
 
     def test_invoked_directly_the_users_question_is_the_question(self):

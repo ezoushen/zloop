@@ -15,15 +15,15 @@ Include required compile/suite checks and E2E, not every step listed for unrelat
 areas. When the repository has CI workflows, the required gates include every job CI
 requires on the PR. Read them from `.github/workflows/` (or the CI configuration in
 use). Either run each locally, or record which CI jobs remain to be watched after
-the push. Consumer-repository branches made for the effort are review targets as
+the push. Consumer-repository branches made for the workstream are review targets as
 well. Review each against its own base. Record why operator-only pilots, production rollouts and post-merge checks
 fall outside this scope. If such an action is an explicit prerequisite within the
 accepted scope, retain it as a real blocker; never silently waive it or execute it
 without its authorization. No board or zloop project file is required for
 standalone review; use the repository's existing verification conventions.
 
-For a verified zloop effort, the orchestrator integrates accepted local
-repairs into the effort branch while no worker owns that worktree. Prefer
+For a verified zloop workstream, the orchestrator integrates accepted local
+repairs into the workstream branch while no worker owns that worktree. Prefer
 fast-forward; review any new merge result or conflict resolution before E2E.
 Before expensive gates, reconcile the intended integration base and known required
 dependency merges under existing authorization. Coordinate who owns the branch
@@ -84,12 +84,12 @@ otherwise missing evidence/access or unresolved requirements make it `incomplete
 Keep every per-check failure and gap visible. Neither status certifies verification.
 Recheck the target/base and local repair head before finishing; any movement or
 new tracked edits reopens affected review and verification. For a zloop
-effort, apply the board's delivery gate after teardown (`--delivery` only for local
+workstream, apply the board's delivery gate after teardown (`--delivery` only for local
 tickets). Unimplemented required work or broader uncovered scope still blocks it.
 On later user follow-ups, reconcile the selected issues and report before continuing.
 New code or relevant environment changes invalidate affected passes immediately:
 mark them incomplete, retain the old evidence, and review/verify the delta before
-restoring passed status. A completed subset does not certify the whole effort.
+restoring passed status. A completed subset does not certify the whole workstream.
 
 Autofix finishes when all applicable review/documentation/verification gates pass,
 or with the concrete blockers and remaining checks. Do not leave E2E at `not-run`

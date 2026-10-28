@@ -68,7 +68,7 @@ class ComposedPhases(unittest.TestCase):
         run = SKILL.read_text().split('## Run', 1)[1].split('\n## ', 1)[0]
         self.assertRegex(run, r'1\. \[refine\]\(\.\./refine/SKILL\.md\) the brief into tickets')
         self.assertRegex(run, r'\[dispatch\]\(\.\./dispatch/SKILL\.md\)[^\n]*`--autofix`')
-        self.assertRegex(' '.join(run.split()), r'\[pr\]\(\.\./pr/SKILL\.md\).*push the effort branch and open the PR')
+        self.assertRegex(' '.join(run.split()), r'\[pr\]\(\.\./pr/SKILL\.md\).*push the workstream branch and open the PR')
 
     def test_without_a_pr_host_the_run_ends_at_local_delivery_instead_of_publishing(self):
         run = ' '.join(SKILL.read_text().split('## Run', 1)[1].split('\n## ', 1)[0].split())
@@ -82,7 +82,7 @@ class ComposedPhases(unittest.TestCase):
                       'weakening a verify', 'narrowing a user decision'):
             self.assertIn(pause, pauses)
 
-    def test_an_effort_run_directly_on_main_ends_at_local_delivery(self):
+    def test_a_workstream_run_directly_on_main_ends_at_local_delivery(self):
         local = next(line for line in SKILL.read_text().split('## Stop', 1)[1].split('\n- ') if line.startswith('`delivered-local`'))
         self.assertIn('ran directly on `main`', ' '.join(local.split()))
 
@@ -241,7 +241,7 @@ class JumpIn(unittest.TestCase):
     def test_while_paused_nothing_starts_lands_or_goes_out_and_the_user_is_asked(self):
         paused = ' '.join(SKILL.read_text().split('## While paused', 1)[1].split('\n## ', 1)[0].split())
         self.assertIn('start no worker', paused)
-        self.assertIn('Workers already running finish, and their results wait unaccepted in the effort\'s reports', paused)
+        self.assertIn('Workers already running finish, and their results wait unaccepted in the workstream\'s reports', paused)
         self.assertIn('Integrate, push and publish nothing', paused)
         self.assertIn('The card grants nothing until `--take-over`', paused)
         self.assertIn('ask the user what the next decision needs', paused)
@@ -266,8 +266,9 @@ class Registration(unittest.TestCase):
         self.assertRegex(policy, r'(?m)^policy:\n  allow_implicit_invocation: false$')
 
     def test_decisions_follow_the_engineering_standard(self):
-        first_read = re.search(r'^First read:.*?(?:\n\n|\Z)', SKILL.read_text(), re.M | re.S).group(0)
-        self.assertIn('](../../standards/engineering.md)', first_read)
+        first_read = re.search(r'^First read:.*?(?:\n\n|\Z)', SKILL.read_text(), re.M | re.S)
+        assert first_read, 'autopilot has no First read paragraph'
+        self.assertIn('](../../standards/engineering.md)', first_read.group(0))
 
     def test_pause_is_listed_where_users_see_the_command(self):
         self.assertIn('argument-hint: "<goal> | --take-over [--auto-merge] | --pause"', SKILL.read_text())

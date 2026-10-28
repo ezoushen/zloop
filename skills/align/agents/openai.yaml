@@ -1,5 +1,8 @@
 interface:
   short_description: "Settle the goal, then plan WHAT / WHY / HOW"
-  default_prompt: "Use $zloop:align <idea or effort-slug> to settle the goal and constraints, then establish a scoped WHAT / WHY / HOW plan using accepted decisions; add --interactive for a human checkpoint."
+  default_prompt: >-
+    Use $zloop:align <idea or workstream-slug> to settle the goal and
+    constraints, then establish a scoped WHAT / WHY / HOW plan using
+    accepted decisions; add --interactive for a human checkpoint.
 policy:
   allow_implicit_invocation: false

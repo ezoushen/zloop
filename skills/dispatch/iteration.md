@@ -15,12 +15,12 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    executor's status and on-disk reports.
    An absent agent is interrupted work, not success: resume its worktree or start a replacement with
    what survived; never discard edits to retry.
-2. **Cross-effort edges.** The prerequisite effort must be done, with current review/E2E evidence, and
+2. **Cross-workstream edges.** The prerequisite workstream must be done, with current review/E2E evidence, and
    its `feat/<dependency>` tip an ancestor of local `main`. Merging into main needs the user's
    authorization; carry an existing one forward instead of asking again. Before selection, merge that
-   verified `main` into an existing effort worktree while no worker uses it, and verify the dependency tip
+   verified `main` into an existing workstream worktree while no worker uses it, and verify the dependency tip
    is there. Keep dependency branches until dependents start. Never infer equivalence after squash or
-   cherry-pick: re-cut the edge with explicit evidence. Never merge an unfinished effort, and never take
+   cherry-pick: re-cut the edge with explicit evidence. Never merge an unfinished workstream, and never take
    merge permission from a backlog request.
 3. **Select** candidates through the board operations; repair a scoped graph error or report an
    out-of-scope one. Admit only verified executor and account capacity, refreshing reservations before
@@ -28,14 +28,14 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    work, arm a notified wait for each worker, pass the [yield gate](../../runtime/workers/wait.md#wake-and-yield),
    then yield. With ready but unstartable work, identify the wait (area, capacity, dependency, integration);
    only when none can be resolved within scope, record the attempted resolution and block those tickets.
-4. **Launch.** From `repo`, ensure the effort branch and its worktree exist: `feat/<slug>` in its effort
-   worktree, or `main` when the user said to work [directly on main](modes.md#directly-on-main). A new effort
+4. **Launch.** From `repo`, ensure the workstream branch and its worktree exist: `feat/<slug>` in its workstream
+   worktree, or `main` when the user said to work [directly on main](modes.md#directly-on-main). A new workstream
    branches from `main` after fetching and comparing it with its remote; a stale or diverged base is reported and the
    verified remote tip used (on `main`, ask the user). Apart from working directly on main, never commit to the user's local `main`.
    Choose [how a ticket runs](modes.md). An inline ticket skips only the ticket branch and worktree, their preparation, the builder launch with its launch decision record, and the merge; everything else in steps 4 and 5 applies to both modes.
-   A delegated ticket gets a ticket branch and worktree from the effort branch (project naming, else
+   A delegated ticket gets a ticket branch and worktree from the workstream branch (project naming, else
    `feat/<slug>-<key>` in `.worktrees/<slug>-<key>`, where the key is the local `NN` or a stable safe remote
-   issue key from board operations); reuse existing ones after checking their identity, and merge the effort
+   issue key from board operations); reuse existing ones after checking their identity, and merge the workstream
    branch into a resumed one, keeping its local edits. When the user allows stacking, a dependent ticket may
    branch from an accepted but unintegrated ticket branch: record the stack in the run report and merge the
    base's later fixes into it before accepting it. Prepare fresh and recreated worktrees with the project's
@@ -77,11 +77,11 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    evidence. A failed return goes to recovery ([worker return](../../runtime/workers/return.md)), not to the
    user. Missing assigned implementation evidence → blocked, with the failure.
    Accepted → keep the [check evidence](../../runtime/checks/evidence.md) outside the worktree, merge the branch in the
-   effort worktree, record `accepted` with the commit and the tracker transition. Not accepted → `declined` with the reason.
+   workstream worktree, record `accepted` with the commit and the tracker transition. Not accepted → `declined` with the reason.
    Retire a worker only after an [acceptance decision](../../runtime/workers/collect.md#accept-and-record-outcomes); keep
    ticket worktrees through review, repair and E2E.
    Once an integrated build allows checks only the user can observe (`Verify (user)`), send the user one request covering all of them, [with context](../../runtime/ask/ask.md).
-   On a merge conflict, assign a builder the `merge-conflict` job in the effort worktree (not on
+   On a merge conflict, assign a builder the `merge-conflict` job in the workstream worktree (not on
    [main](modes.md#directly-on-main)); no other worker uses it until the orchestrator completes the merge.
 6. **Unblock.** A blocked ticket is the orchestrator's work: [research](../research/SKILL.md) missing facts,
    diagnose defects under [diagnosis](../diagnose/SKILL.md), decide engineering choices within the constraints, or
@@ -94,7 +94,7 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    and unresolved user choices; within the user's authorization and native permissions, do it, but a genuine
    operator-only restriction still applies. Verify target identities from the project's inventory and probe
    the relevant capability, not an unrelated privileged command. Record the blocker and continue independent work.
-7. **Report** fresh scoped counts, implementation separately from review and E2E, the effort branch, its
+7. **Report** fresh scoped counts, implementation separately from review and E2E, the workstream branch, its
    worktree and blocked tickets. Answer a direct user question first, from current recorded state, naming any
    pending check, before processing queued notifications. For a gate expected to take over 15 minutes, report
    its milestones and ETA from the start and keep reporting them; never go silent. Persist authorization and scope changes with the board updates, and

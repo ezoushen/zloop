@@ -24,7 +24,7 @@ Summaries must preserve the report's finding dispositions and decision sources;
 do not summarize accepted exceptions or unverified claims as disproved defects.
 When all findings are resolved but required evidence is still incomplete, report
 both facts; reserve "review complete" and "verified" for their satisfied gates.
-For operational efforts, distinguish script readiness, measured benefit, an adoption
+For operational workstreams, distinguish script readiness, measured benefit, an adoption
 decision, per-target application and rollout verification. Implementation counts and
 local integration do not establish those outcomes. Reconcile them and remaining
 investigation with the selected issues and dispatch report before claiming completion.

@@ -35,8 +35,8 @@ alternatives — the principal can veto. Align and refine append to one
 For a change you want to understand before assessing it, use
 [/zloop:review walkthrough](../review/walkthrough.md). It teaches and discusses the PR,
 then can hand agreed criteria into the same review procedure when requested.
-It is optional; direct review starts assessment without this learning step.
-For a progress snapshot of the active task or a named effort, use
+It is optional; direct review starts assessment without it.
+For a progress snapshot of the active task or a named workstream, use
 [/zloop:brief](SKILL.md); `/zloop:brief map` shows this map. When an
 explanation loses you, `/zloop:huh` backs up to what you missed and re-pitches it.
 
@@ -54,7 +54,7 @@ phase owners and gates remain in place; there is no second planning/review loop.
 
 Dispatch reuses [existing project execution facts](../../runtime/board/project-loop.md):
 commands, areas/resources, verification and environment constraints. Missing
-facts go in the effort's alignment/report; no maintained setup file is required.
+facts go in the workstream's alignment/report; no maintained setup file is required.
 Run history stays in reports/journals. Workers call shared plugin scripts directly.
 
 ## The outer loop
@@ -154,14 +154,14 @@ asks for material human choices. Follow-ups never expand the current review batc
 dispatch's [overall selection](../../runtime/board/scope.md)
 determines whether they enter the next batch under existing authorization.
 
-`review --autofix` owns scoped repairs, local effort integration and applicable E2E
+`review --autofix` owns scoped repairs, local workstream integration and applicable E2E
 verification, using the verifier's e2e-gate job and board reservations. Dispatch with
 autofix uses that same procedure. Reuse its result; there is no second E2E phase
 in dispatch or PR. Standalone read-only review remains a review/comment workflow.
 
 Autofix continues until review, documentation and applicable verification gates
 pass, or records concrete blockers. It does not require a separate full-delivery
-request to run tests. For a zloop effort the shared procedure also checks the
+request to run tests. For a zloop workstream the shared procedure also checks the
 board's delivery gate. PR consumes that completed evidence and owns
 its description/publication; invoking PR does not start testing or grant repairs.
 Implementation-only and read-only requests can therefore leave delivery gates

@@ -5,7 +5,7 @@ follow the [routing decision contract](../../runtime/routing/report.md).
 Front matter uses literal scalars, never quoted placeholders in a finished report.
 `review_by` and `e2e_by` name the collected worker attempts (one, or a list) whose own
 reports gave those statuses at those heads; for checks the orchestrator ran itself, `e2e_by`
-names their run_check logs. The delivery gate takes each status only from them. An effort the
+names their run_check logs. The delivery gate takes each status only from them. A workstream the
 user ran directly on main adds `workstream_branch: main`; the gate reads `feat/<slug>` otherwise.
 `autofix` is `true` only when repairs are authorized; while it is unset, dispatch's
 `--autofix` counts. `blocker` names the concrete blocker

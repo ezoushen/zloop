@@ -40,7 +40,7 @@ class DeliveryHistory(unittest.TestCase):
         before_pin = handoff[:handoff.index('before pinning the review head')]
         self.assertIn('commit the approved ones', before_pin)
         self.assertLess(before_pin.index('commit the approved ones'), before_pin.index('run the ADR number check'))
-        self.assertIn('the ADRs the effort adds', prose('skills/pr/SKILL.md'))
+        self.assertIn('the ADRs the workstream adds', prose('skills/pr/SKILL.md'))
         board = prose('runtime/board/board.md')
         self.assertIn('[ADR number check](../domain/adr.md#deliver-a-workstreams-decisions) passes on the workstream branch',
                       board)

@@ -1,8 +1,8 @@
 ---
 name: brief
-description: "Brief the user on current progress, remaining work, verification and decisions for the active task or a named effort, branch or PR, or show the pipeline map of which command to use."
+description: "Brief the user on current progress, remaining work, verification and decisions for the active task or a named workstream, branch or PR, or show the pipeline map of which command to use."
 disable-model-invocation: true
-argument-hint: "[map | <effort|branch|PR-number|PR-URL>] [<focus or question>] — defaults to the active task"
+argument-hint: "[map | <workstream|branch|PR-number|PR-URL>] [<focus or question>] — defaults to the active task"
 ---
 
 # brief
@@ -19,7 +19,7 @@ First read: the runtime bootstrap (`../../bootstrap.md`), the host session part.
 This is a manually requested, read-only briefing, not another workflow phase.
 Use the active task and its accepted scope unless the user names a different
 target. With `map` as the whole target, follow [show the pipeline map](#show-the-pipeline-map)
-instead; an effort named `map` is named by its path, `.scratch/map`. No zloop board
+instead; a workstream named `map` is named by its path, `.scratch/map`. No zloop board
 or report is required. If target identity is ambiguous, state what can be established
 and ask only for the missing selection; offer the map when no work is in progress.
 

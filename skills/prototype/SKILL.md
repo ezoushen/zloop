@@ -33,7 +33,7 @@ than one question, or one of neither kind, goes back to whoever asked.
 - For a logic question, drive the cases that are hard to reason about on paper; for
   a look question, offer a few clearly different variants side by side.
 
-Commit it only to the throwaway branch; it never merges into the effort branch or
+Commit it only to the throwaway branch; it never merges into the workstream branch or
 `main`, which keep only the verdict.
 
 Done when the run gives a verdict on the question, or shows the question cannot be
@@ -51,5 +51,5 @@ created from the current commit, so the user's checkout stays as it was. Give th
 verdict in the conversation, with the run command and the worktree's path, which stays
 until the user drops it, so they can see it for themselves; for a look question, say
 which variant to look at and how. When the verdict settles a design decision, offer to
-record it: a [ledger row](../../runtime/interview/record.md) when an effort is under way,
+record it: a [ledger row](../../runtime/interview/record.md) when a workstream is under way,
 and an ADR when it qualifies under the [ADR rules](../../runtime/domain/adr.md#when-to-offer-one).

@@ -14,7 +14,7 @@ Align assigns it: answer one question with throwaway code by [prototype](../../p
 ## Inputs
 
 The assignment names the `question`, a throwaway `branch` in its own `worktree`
-created from the effort's base, and the `report`. An assignment the
+created from the workstream's base, and the `report`. An assignment the
 [procedure's question rules](../../prototype/SKILL.md#the-question) refuse goes back to align.
 
 ## Finish line

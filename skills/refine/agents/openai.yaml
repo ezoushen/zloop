@@ -1,5 +1,8 @@
 interface:
   short_description: "Turn a brief or a plan agreed in chat into tickets"
-  default_prompt: "Use $zloop:refine <effort-slug> to turn its accepted alignment brief, or a plan agreed in chat, into tickets using this project's tracker convention."
+  default_prompt: >-
+    Use $zloop:refine <workstream-slug> to turn its accepted alignment
+    brief, or a plan agreed in chat, into tickets using this project's
+    tracker convention.
 policy:
   allow_implicit_invocation: false
