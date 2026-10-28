@@ -33,12 +33,14 @@ try {
     assert.equal(loaded.extensions.length, 1, pass);
     const extension = loaded.extensions[0];
     assert.deepEqual([...extension.tools.keys()], ["zloop_wake"]);
-    // Pi's own loader registers a /zloop:<skill> command for each skill the user types.
+    // Pi's own loader registers a /zloop:<skill> command for each skill the user types, and the extension
+    // adds /zloop-panel, which opens or closes the progress panel.
     assert.deepEqual([...extension.commands.keys()].sort(), ["align", "autopilot", "brief", "diagnose", "dispatch",
       "explain", "huh", "pr", "prototype", "refine", "remediate", "research", "review", "setup", "tdd"]
-      .map((skill) => `zloop:${skill}`).sort(), pass);
+      .map((skill) => `zloop:${skill}`).concat("zloop-panel").sort(), pass);
     assert.deepEqual([...extension.handlers.keys()],
-      ["before_agent_start", "agent_settled", "agent_before_settle", "tool_call", "tool_result"]);
+      ["before_agent_start", "agent_settled", "agent_before_settle", "tool_call", "tool_result",
+        "session_start", "session_shutdown"]);
     // Every tool_call handler runs in order on the same input until one blocks, as Pi's runner does.
     const call = async (event, ctx) => {
       let verdict;
@@ -100,6 +102,7 @@ try {
     assert.equal(handlers.length, 1);
     const result = await handlers[0]({ systemPrompt: "existing instructions" }, {});
     assert.ok(result.systemPrompt.startsWith("existing instructions\n"));
+    assert.ok(result.systemPrompt.includes("zloop host: pi. "));
     assert.ok(result.systemPrompt.includes(`${root}/bootstrap.md`));
     assert.ok(result.systemPrompt.includes(`${root}/hosts/pi/session.md`));
     assert.ok(!result.systemPrompt.includes("/hosts/claude/"));
@@ -126,6 +129,7 @@ try {
       { systemPrompt: "existing instructions", systemPromptOptions: { sections } }, {});
     assert.equal(structured, undefined);
     const section = Object.values(sections).join("");
+    assert.ok(section.includes("zloop host: pi. "));
     assert.ok(section.includes(`${root}/bootstrap.md`));
     assert.ok(section.includes(`${root}/hosts/pi/session.md`));
     assert.ok(!section.includes("existing instructions"));
