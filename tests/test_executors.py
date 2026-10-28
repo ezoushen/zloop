@@ -37,6 +37,14 @@ def fails(operation):
 class Executors(unittest.TestCase):
     """Executor configuration, routing profiles and the Bash handoff."""
 
+    def setUp(self):
+        # Routing reads the machine's allowance; an empty home keeps this machine's usage out of the result.
+        machine = tempfile.TemporaryDirectory(prefix='zloop machine ')
+        self.addCleanup(machine.cleanup)
+        environment = patch.dict(os.environ, support.isolated_env(machine.name))
+        environment.start()
+        self.addCleanup(environment.stop)
+
     def test_routing_profiles_select_validate_and_reject_unknown(self):
         with tempfile.TemporaryDirectory(prefix='zloop profiles ') as tmp:
             root = Path(tmp)

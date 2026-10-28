@@ -23,7 +23,10 @@ class Preferences(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix='zloop models ')
         self.addCleanup(tmp.cleanup)
-        environment = patch.dict(os.environ, {'ZLOOP_PROFILE': '', 'HERDR_ENV': ''})
+        # Routing reads the machine's allowance; an empty home keeps this machine's usage out of the result.
+        machine = tempfile.TemporaryDirectory(prefix='zloop machine ')
+        self.addCleanup(machine.cleanup)
+        environment = patch.dict(os.environ, support.isolated_env(machine.name, ZLOOP_PROFILE='', HERDR_ENV=''))
         environment.start()
         self.addCleanup(environment.stop)
         self.root = Path(tmp.name)
