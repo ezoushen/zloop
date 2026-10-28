@@ -55,6 +55,7 @@ class ZloopGlossary(unittest.TestCase):
             'Finding', 'Repair', 'Review target', 'Base', 'Head', 'Worktree',
             'Branch', 'PR', 'Project', 'Milestone', 'Issue', 'Focus', 'Depth',
             'Scope', 'Comment policy', 'Standing directive', 'Stop condition',
+            'Autopilot', 'Autofix', 'Walkthrough', 'Review layer',
         }
         self.assertFalse(required - set(terms), f'missing terms: {sorted(required - set(terms))}')
         self.assertEqual(len(terms), len({term.casefold() for term in terms}),

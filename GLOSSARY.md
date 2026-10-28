@@ -102,6 +102,10 @@ _Avoid_: none
 A continuing user instruction recorded in the ledger that governs later decisions and work.
 _Avoid_: none
 
+**Autopilot**:
+The command that runs a workstream's whole loop hands-off: one align interview, a confirmed run card, then refine, dispatch with autofix, review and the PR without further questions.
+_Avoid_: none
+
 **Run card**:
 The user-confirmed agreement for an autopilot run, including its scope, stop condition and reserved actions.
 _Avoid_: none
@@ -299,6 +303,18 @@ _Avoid_: none
 
 **Review**:
 Assessment of direction, scope and implementation against the mandate, accepted requirements and evidence.
+_Avoid_: none
+
+**Review layer**:
+One of the ordered levels a review assesses: direction (why, what, how), then scope, then implementation; an unresolved decision in a layer pauses only the review that depends on it.
+_Avoid_: none
+
+**Walkthrough**:
+A read-only explanation of a change that precedes a review, giving the user understanding and review criteria rather than an exhaustive assessment.
+_Avoid_: none
+
+**Autofix**:
+The review setting that permits scoped local repairs of confirmed findings and applicable E2E verification, and never authorizes publication.
 _Avoid_: none
 
 **Review target**:
