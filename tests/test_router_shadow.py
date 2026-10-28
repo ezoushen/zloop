@@ -93,7 +93,7 @@ class ShadowAndCapacity(RouterCase):
         route = self.resolve(candidate='glm')
         self.assertEqual((route['backend'], route['capacity']['slots']), ('dgx', 1))
         import capacity
-        state = self.root / 'effort/workers.sqlite'
+        state = self.root / 'workstream/workers.sqlite'
         state.parent.mkdir()
         import sqlite3
         with sqlite3.connect(state) as db:

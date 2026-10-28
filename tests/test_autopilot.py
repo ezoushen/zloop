@@ -260,7 +260,7 @@ class JumpIn(unittest.TestCase):
 
 
 class Registration(unittest.TestCase):
-    def test_only_the_user_starts_it_on_every_harness(self):
+    def test_only_the_user_starts_it_on_every_host(self):
         self.assertIn('disable-model-invocation: true', SKILL.read_text())
         policy = (ROOT / 'skills/autopilot/agents/openai.yaml').read_text()
         self.assertRegex(policy, r'(?m)^policy:\n  allow_implicit_invocation: false$')

@@ -80,7 +80,7 @@ retained evidence without running builds, driving a device or contacting service
 
 - Case 1 rejects the pass as incomplete scenario proof, checks driver readiness
   before another long run and requires successful interactions plus expected state
-  evidence. A harness failure alone does not establish a product defect.
+  evidence. A driver failure alone does not establish a product defect.
 - Case 2 reuses the unaffected executed pass with original provenance/equivalence,
   obtains missing proof for the other gate and never calls reuse a fresh run. A
   cache hit is neither proof nor an automatic reason to rerun when original evidence

@@ -272,7 +272,7 @@ class AdrIndex(unittest.TestCase):
         self.adr('0005-new.md')
         self.index(accepted=['0002-cents.md', '0003-async-api.md', '0005-new.md'], superseded=['0001-sync-api.md'],
                    deprecated=['0004-old-cache.md'])
-        git('add', '-A'); git('commit', '-qm', 'effort')
+        git('add', '-A'); git('commit', '-qm', 'workstream')
         git('checkout', '-q', 'main')
         code, out = check(self.repo, '--ref', 'feat/x', '--against', 'main')
         self.assertEqual(0, code, out)

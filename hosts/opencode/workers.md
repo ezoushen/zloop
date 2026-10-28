@@ -80,6 +80,6 @@ native dispatch lifecycle/worktree integration in OpenCode is not implemented or
 do not claim native end-to-end support or invent a substitute CLI. Configured
 external execution still needs its own capability checks and acceptance evidence.
 Configuration management does not install a provider, change the main agent,
-or enable another harness.
+or enable another host.
 
 The [executor guides](../executors/README.md) cover each executor type a route can select.

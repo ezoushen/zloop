@@ -11,7 +11,7 @@ an anchor, so a doc should be small enough to read whole. Codex shows tool outpu
 only up to its limit (`tool_output_token_limit`; 10k tokens for Codex models per
 the maintainers, 8,000 on this machine) and drops the middle beyond it. Claude Code
 shows a shell output over about 30 KB only as a saved file plus a preview, observed
-in this repository's transcripts. Measured here before the harness split: a quarter
+in this repository's transcripts. Measured here before the host split: a quarter
 of Codex reads of the large shared docs came back middle-truncated, and Claude agents
 mostly read guessed line windows of them. 12 KiB is about 3k tokens, so two or three
 docs fit one Codex read.

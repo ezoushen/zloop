@@ -104,6 +104,14 @@ class Glossary(unittest.TestCase):
         concepts = readme.split('## Concepts', 1)[1].split('\n## ', 1)[0]
         self.assertIn('](GLOSSARY.md)', concepts)
 
+    def test_nothing_outside_the_glossary_and_history_says_harness(self):
+        found = subprocess.run(
+            ['git', 'grep', '-n', '-I', '-i', 'harness',
+             '--', '.', ':!journals', ':!GLOSSARY.md', ':!tests/test_glossary.py', ':!tests/support.py'],
+            cwd=ROOT, capture_output=True, text=True)
+        self.assertIn(found.returncode, (0, 1), found.stderr)
+        self.assertEqual('', found.stdout)
+
     def test_no_doc_names_the_old_glossary_file(self):
         found = subprocess.run(
             ['git', 'grep', '-n', '-I', '-E', r'CONTEXT\.md',

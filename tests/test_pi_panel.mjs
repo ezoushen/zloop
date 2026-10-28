@@ -104,7 +104,7 @@ const rendered = (call, width) => call.content({}, THEME).render(width).map(plai
 }
 
 // Wide characters the terminal draws in two cells — including emoji outside the CJK blocks — keep the line inside the
-// width. Cell counts here come from this harness's own table, not from the renderer's.
+// width. Cell counts here come from this test's own table, not from the renderer's.
 {
   const WIDE_CASES = new Set(['✅', '⏳', '界']);
   const cells = (line) => [...line].reduce((total, character) => total + (WIDE_CASES.has(character) ? 2 : 1), 0);

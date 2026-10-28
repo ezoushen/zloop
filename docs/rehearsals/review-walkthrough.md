@@ -104,7 +104,7 @@ source inspection remains permitted. Any subsequent build must follow the workfl
   in a local lock. No imagined execution is reported as proof.
 
 If a stage fails, retain the response and fix the smallest instruction responsible.
-Record harness/model and distinguish a simulated trace from an executed check.
+Record host/model and distinguish a simulated trace from an executed check.
 
 ## Publication and Claude lifecycle cases
 

@@ -105,7 +105,7 @@ class Definitions(unittest.TestCase):
         self.edit('agents/checker.md', 'Never edits source', 'You are an expert reviewer. Never edits source')
         self.assertProblem('identity phrasing')
 
-    def test_agent_links_only_to_core_skills_or_harness_docs(self):
+    def test_agent_links_only_to_core_skills_or_host_docs(self):
         self.write('skills/review/layers.md', '# Layers\n')
         self.edit('agents/checker.md', 'Apply [craft]', 'Follow [layers](../skills/review/layers.md). Apply [craft]')
         self.assertProblem('links outside core skills')
