@@ -77,9 +77,9 @@ class TddStandard(unittest.TestCase):
                       text)
 
     def test_a_rule_no_honest_test_can_reach_is_reported_untested_not_weakly_tested(self):
-        self.assertIn('**No honest test, no weak one.** When no seam the ticket names can hold an honest test of a '
-                      'rule, write none: report the rule untested, name what verifies it instead and leave its '
-                      'checkbox open with that reason', prose(TDD))
+        self.assertIn('**No honest test, no weak one.** When neither the ticket\'s seams nor one the orchestrator '
+                      'approves can hold an honest test of a rule, write none: report the rule untested and name what '
+                      'verifies it instead', prose(TDD))
 
     def test_the_anti_patterns_are_named(self):
         text = prose(TDD)

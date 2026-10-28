@@ -295,24 +295,20 @@ def attribute(db, attempt, kind, count, evidence):
             **({'ledger': unrecorded} if unrecorded else {})}
 
 
-def earlier_repairs(db, attempt):
-    """The repair attempts of the line of work the attempt belongs to: every `repairs` chain back to one first
-    attempt."""
-    rows = {row['attempt']: row for row in attempts(db)}
-
-    def first(name):
-        while rows[name].get('repairs'):
-            name = rows[name]['repairs']
-        return name
-    return [name for name, row in rows.items() if row.get('repairs') and first(name) == first(attempt)]
+def fixes_in_chain(db, attempt):
+    """How many repairs the `repairs` chain holds from this attempt back to the first, the attempt included."""
+    count, saved = 0, get(db, attempt)
+    while saved.get('repairs'):
+        count, saved = count + 1, get(db, saved['repairs'])
+    return count
 
 
 def census(db):
-    """Per route (runtime/model), the collected attempts of this state and the review defects and repair rounds
-    attributed to them."""
+    """Per route (runtime/model), the collected attempts of this state that wrote work and the review defects and
+    repair rounds attributed to them."""
     routes = {}
     for saved in attempts(db):
-        if saved.get('result'):
+        if saved.get('result') and DEFINITIONS['agents'].get(saved.get('agent'), {}).get('writes', 'none') != 'none':
             row = outcomes.attempt_row(db, saved, '')
             counts = routes.setdefault(f"{row['runtime']}/{row['model']}",
                                        dict(attempts=0, review_defects=0, repair_rounds=0))
@@ -809,16 +805,17 @@ def record(db, data, refuse_changes=False):
                 require(text(data['journal']) and Path(data['journal']).is_absolute(),
                         'journal must be an absolute decisions journal path')
             require('census' not in data, 'Registration computes the census; an event cannot supply it')
+            require('premise' not in data or text(data['premise']), 'premise must be a sentence')
             if 'repairs' in data:
                 require(text(data['repairs']), 'repairs names the attempt whose work this one repairs')
                 require(get(db, data['repairs']).get('result'), 'A repaired attempt must be collected first')
-                if len(earlier_repairs(db, data['repairs'])) >= 2:
+                if fixes_in_chain(db, data['repairs']) >= 2:
                     found = census(db)
                     require(text(data.get('premise')),
-                            'A third repair of one line of work needs premise: the one assumption its earlier '
-                            'fixes shared; weigh it against this census of collected attempts per route: '
+                            'This repair fixes a fix of a fix; it needs premise: the one assumption the earlier '
+                            'fixes shared. Weigh it against this census of collected work per route: '
                             + json.dumps(found))
-                    saved['census'] = data['census'] = found
+                    saved['census'] = found
             if execution.get('backend'):
                 # A local backend's slot is shared by every effort on this machine.
                 capacity.acquire(execution['backend'], execution.get('capacity') or {},
@@ -996,7 +993,7 @@ def record(db, data, refuse_changes=False):
     return {'event_id': event_id, 'attempt': attempt, 'verified': saved['verified'],
             **({'partly_checked': partly} if partly else {}),
             **({'journal': journal} if journal else {}), **({'repairs': repaired} if repaired else {}),
-            **({'census': data['census']} if kind == 'register' and 'census' in data else {}),
+            **({'census': saved['census']} if kind == 'register' and 'census' in saved else {}),
             **({'ledger': unrecorded} if unrecorded else {})}
 
 

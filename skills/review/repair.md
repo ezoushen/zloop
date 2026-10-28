@@ -29,10 +29,10 @@ each finding retains its own deciding evidence. After repairs, verify original
 repros and required checks; review the repair delta and affected behavior. Preserve
 initial coverage, reopen impacted items, and update the reviewed head only after they pass. Two
 unsuccessful repair attempts for the same finding → record blocked with evidence;
-continue other findings. No unchanged third attempt. A third repair of one line of
-work attacks the premise: registration needs `premise`, the assumption the earlier
-fixes shared, and returns a census of review defects per route; remove a skewed cause
-(route or design) rather than patch again. With `--autofix`, continue
+continue other findings. No unchanged third attempt. When fixes keep needing fixes,
+attack the premise: a repair of a fix of a fix names in `premise` the assumption the
+earlier fixes shared; remove the skewed cause the returned census shows (route or
+design) rather than patch again. With `--autofix`, continue
 through the [E2E verification](e2e.md) even if no repairs were needed. A read-only
 review does not automatically run E2E.
 

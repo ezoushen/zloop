@@ -57,9 +57,9 @@ framework or test runner is assumed.
   the ticket has a test that fails when that rule breaks, including its boundary cases
   from the spec. A line-coverage figure is neither the goal nor proof. Tests of trivia,
   such as pass-through accessors or framework behavior, are not written to raise it.
-- **No honest test, no weak one.** When no seam the ticket names can hold an honest test
-  of a rule, write none: report the rule untested, name what verifies it instead and
-  leave its checkbox open with that reason.
+- **No honest test, no weak one.** When neither the ticket's seams nor one the
+  orchestrator approves can hold an honest test of a rule, write none: report the rule
+  untested and name what verifies it instead.
 
 ## Anti-patterns
 
