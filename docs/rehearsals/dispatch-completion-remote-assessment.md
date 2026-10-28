@@ -21,8 +21,8 @@
 - Case 6 refreshes relevant integration/release/artifact facts, pins copied or
   immutable inputs, and invalidates only affected proof; equal labels are insufficient.
 - Case 7 ignores unenrolled history, exposes/repairs invalid machine status, and
-  validates enrolled dependencies/cycles/locks/capacity across all efforts before
-  scheduling. A selected slug does not make another effort's resource available.
+  validates enrolled dependencies/cycles/locks/capacity across all workstreams before
+  scheduling. A selected slug does not make another workstream's resource available.
 
 ## Remote execution and shared-account assessment
 

@@ -1,7 +1,7 @@
 # zloop
 
 One workflow for Claude Code, Codex, Pi and OpenCode: **align → refine → dispatch → review → PR**.
-The plugin holds the procedures, agents, jobs and scripts; each effort's state lives in
+The plugin holds the procedures, agents, jobs and scripts; each workstream's state lives in
 the target repository under `.scratch/<slug>/`.
 
 ## Commands
@@ -34,6 +34,9 @@ Codex and Pi list it.
 
 ## Concepts
 
+- **One vocabulary.** [GLOSSARY.md](GLOSSARY.md) defines each concept once, with the
+  word to avoid where a drifted name exists, and every command, agent and host uses
+  those names.
 - **Mandate and ledger.** The user owns the goal, principles, constraints and any
   decision they reserve. Inside that mandate the agent investigates facts and makes
   reversible choices itself, asking only about material forks. Consequential

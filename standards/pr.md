@@ -15,7 +15,7 @@ Read this before writing a PR description and before every later edit or push to
 PR branch, whether or not `/zloop:pr` was invoked. It applies to free-text
 requests such as "update the PR description".
 
-A good description lets a reviewer who has never seen the effort answer four
+A good description lets a reviewer who has never seen the workstream answer four
 questions from the first screen:
 - what changed for users and consumers;
 - why;

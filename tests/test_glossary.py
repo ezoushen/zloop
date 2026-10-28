@@ -99,6 +99,11 @@ class Glossary(unittest.TestCase):
         self.assertIn("Use the project's [glossary](../../runtime/domain/glossary.md) for the words.",
                       prose('skills/refine/SKILL.md'))
 
+    def test_the_readme_concepts_section_links_the_glossary(self):
+        readme = (ROOT / 'README.md').read_text()
+        concepts = readme.split('## Concepts', 1)[1].split('\n## ', 1)[0]
+        self.assertIn('](GLOSSARY.md)', concepts)
+
     def test_no_doc_names_the_old_glossary_file(self):
         found = subprocess.run(
             ['git', 'grep', '-n', '-I', '-E', r'CONTEXT\.md',
