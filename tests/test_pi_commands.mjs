@@ -12,6 +12,7 @@ const pi = {
   on() {},
   registerTool() {},
   registerCommand: (name, options) => commands.set(name, options),
+  registerShortcut() {},
   sendUserMessage: (...args) => sent.push(args),
 };
 (await import(bootstrap)).default(pi);
@@ -114,7 +115,8 @@ try {
   skill("literal", "---\nname: literal\ndescription: d\nargument-hint: |\n  [--yes]\n---\n");
   const found = new Map();
   (await import(join(fixture, "hosts/pi/bootstrap.ts"))).default(
-    { on() {}, registerTool() {}, registerCommand: (name, options) => found.set(name, options), sendUserMessage() {} });
+    { on() {}, registerTool() {}, registerCommand: (name, options) => found.set(name, options), registerShortcut() {},
+      sendUserMessage() {} });
   const hinted = async (name) => (await found.get(`zloop:${name}`).getArgumentCompletions(""))?.map((item) => item.label);
   assert.deepEqual(await hinted("crlf"), ["--yes"]);
   assert.deepEqual(await hinted("single"), ["--yes"]);

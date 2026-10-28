@@ -21,7 +21,8 @@ chmodSync(join(bin, "herdr"), 0o755);
 process.env.PATH = `${bin}:${process.env.PATH}`;
 
 const handlers = [];
-const pi = { on: (name, handler) => name === "tool_call" && handlers.push(handler), registerCommand() {}, registerTool() {} };
+const pi = { on: (name, handler) => name === "tool_call" && handlers.push(handler), registerCommand() {},
+             registerShortcut() {}, registerTool() {} };
 (await import(bootstrap)).default(pi);
 const repo = mkdtempSync(join(temp, "repo-"));
 execFileSync("git", ["init", "-q", repo]);

@@ -17,6 +17,8 @@ const WAKE_MAX_MS = 2 ** 31 - 1;
 // The panel: this session's effort drawn below the editor, from the rows its fact source reports.
 const PANEL_KEY = "zloop";
 const PANEL_INTERVAL_MS = 2000;
+// The key that shows or hides the rows `+N more` stands for: free in Pi and in the extensions this harness runs with.
+const MORE_KEY = "ctrl+alt+w";
 const execFileAsync = promisify(execFile);
 
 /** A character the terminal draws in two cells: East Asian wide and fullwidth blocks, and emoji presentation. */
@@ -51,10 +53,22 @@ export function truncateCells(text, width) {
   return out;
 }
 
-/** The rows a snapshot draws; a live effort's rows, else nothing. */
-export function panelRows(found) {
+const drawable = (row) => row && typeof row.text === "string" && row.text;
+
+/**
+ * The rows a snapshot draws; a live effort's rows, else nothing. When rows hide behind `+N more`, that line names its
+ * key, and expanded it gives way to the rows it stands for and a `show fewer` line; both lines are the expander.
+ */
+export function panelRows(found, expanded = false) {
   if (!found || !found.active || !Array.isArray(found.rows)) return [];
-  return found.rows.filter((row) => row && typeof row.text === "string" && row.text);
+  const rows = found.rows.filter(drawable);
+  const more = Array.isArray(found.more) ? found.more.filter(drawable) : [];
+  if (!more.length) return rows;
+  return rows.flatMap((row) => {
+    if (row.kind !== "more") return [row];
+    if (!expanded) return [{ ...row, text: `${row.text} · ${MORE_KEY}`, expander: true }];
+    return [...more, { kind: "more", text: `show fewer · ${MORE_KEY}`, expander: true }];
+  });
 }
 
 /** The theme tone each row kind takes; a run row keeps the default text style. */
@@ -84,9 +98,9 @@ let drawnCtx = null;
  * the tick and clears the repaint memory; the timer keeps the context it was started with, so a replaced session ends
  * this panel until its own session start arms a new one.
  */
-export async function panelTick(ctx, found) {
+export async function panelTick(ctx, found, view = {}) {
   try {
-    const rows = panelRows(found);
+    const rows = panelRows(found, view.expanded);
     const drawn = JSON.stringify(rows.map((row) => row.text));
     if (ctx === drawnCtx && drawn === drawnPanel) return;
     drawnCtx = ctx;
@@ -99,6 +113,12 @@ export async function panelTick(ctx, found) {
     ctx.ui.setWidget(PANEL_KEY, (_tui, theme) => ({
       render(width) {
         return rows.map((row) => toned(theme, row.kind, truncateCells(row.text, width)));
+      },
+      // Fullscreen Pi routes clicks here; one on the expander line shows or hides the rows `+N more` stands for.
+      handleMouse(event) {
+        if (event.type !== "click" || !rows[event.y]?.expander) return undefined;
+        view.toggle?.();
+        return { handled: true };
       },
       invalidate() {},
     }), { placement: "belowEditor" });
@@ -420,8 +440,20 @@ export default function (pi) {
 
   // The panel: the effort's rows under the editor while it is live, refreshed from the fact source. It starts open
   // unless ZLOOP_PANEL=off, and /zloop-panel opens or closes it for this session; a closed panel reads nothing.
+  // MORE_KEY, or a click on the expander, shows or hides the rows `+N more` stands for, redrawn at once.
   let panelTimer;
   let panelOpen = process.env.ZLOOP_PANEL !== "off";
+  let panelCtx;
+  let panelFound = null;
+  const panelView = { expanded: false };
+  panelView.toggle = () => {
+    panelView.expanded = !panelView.expanded;
+    return panelOpen && panelCtx ? panelTick(panelCtx, panelFound, panelView) : undefined;
+  };
+  pi.registerShortcut(MORE_KEY, {
+    description: "Show or hide the zloop panel's hidden workers",
+    handler: async () => panelView.toggle(),
+  });
   pi.registerCommand("zloop-panel", {
     description: "Open or close the zloop panel",
     handler: async (_args, ctx) => {
@@ -434,8 +466,12 @@ export default function (pi) {
     if (!ctx.hasUI || panelTimer) return undefined;
     const session = ctx.sessionManager.getSessionId();
     const repo = ctx.cwd;
+    panelCtx = ctx;
     panelTimer = setInterval(() => panelOpen && readPanelSnapshot(root, repo, session).catch(() => null)
-      .then((found) => panelOpen && panelTick(ctx, found)), PANEL_INTERVAL_MS);
+      .then((found) => {
+        panelFound = found;
+        return panelOpen && panelTick(ctx, found, panelView);
+      }), PANEL_INTERVAL_MS);
     panelTimer.unref?.();
     return undefined;
   });

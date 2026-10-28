@@ -62,6 +62,8 @@ const memory = atom({ plugin: "zloop", key: "pane" }, { wasOpen: false, isUnaske
   { shape: "pane-1" });
 /** The snapshot last read, or null when the fact source could not answer; kept so a reload draws it until the next. */
 const snapshot = atom({ plugin: "zloop", key: "snapshot" }, null, { shape: "snapshot-1" });
+/** Whether the person expanded `+N more` into the rows it stands for; kept so a reload keeps the choice. */
+const expanded = atom({ plugin: "zloop", key: "expanded" }, false, { shape: "expanded-1" });
 
 /** Ask the fact source for this session's rows; failures and unparseable output leave nothing to draw. */
 async function readSnapshot($, cwd) {
@@ -153,15 +155,25 @@ export function register(on) {
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
     const facts = await read($, snapshot);
-    const rows = facts && facts.active && Array.isArray(facts.rows)
-      ? facts.rows.filter((row) => row && typeof row.text === "string" && row.text)
-      : [];
+    const drawable = (row) => row && typeof row.text === "string" && row.text;
+    const rows = facts && facts.active && Array.isArray(facts.rows) ? facts.rows.filter(drawable) : [];
+    const more = facts && Array.isArray(facts.more) ? facts.more.filter(drawable) : [];
+    const isExpanded = await read($, expanded);
     const C = $.ui.resolve(e);
     const width = e?.props?.bodyColumns ?? 80;
     if (!rows.length) return C.Text({ children: truncateCells(QUIET, width), color: "subtle" });
+    const text = (row) => C.Text({ children: truncateCells(row.text, width), ...(TONES[row.kind] ?? {}) });
+    // `+N more`, and `show fewer` in its place once pressed: a click, Enter under the focus, or `m` in the pane.
+    // A plain Button draws its hotkey and a colon before the label, three cells.
+    const expander = (label) => C.Button({ key: "more", hotkey: "m", plain: true, dimColor: true,
+                                           onPress: () => update($, expanded, (now) => !now),
+                                           children: truncateCells(label, width - 3) });
     return C.Box({
       flexDirection: "column",
-      children: rows.map((row) => C.Text({ children: truncateCells(row.text, width), ...(TONES[row.kind] ?? {}) })),
+      children: rows.flatMap((row) => {
+        if (row.kind !== "more" || !more.length) return [text(row)];
+        return isExpanded ? [...more.map(text), expander("show fewer")] : [expander(row.text)];
+      }),
     });
   });
 }

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -178,17 +179,19 @@ writeFileSync(join(shims, "python3"), `#!/bin/sh\ncase "$*" in *panel_state.py*)
 process.env.PATH = `${shims}:${process.env.PATH}`;
 const reads = () => (existsSync(join(fixture, "reads")) ? readFileSync(join(fixture, "reads"), "utf8").split("\n").length - 1 : 0);
 
-function started() {
+function started(repo = fixture) {
   const starts = [];
   const commands = new Map();
+  const shortcuts = new Map();
   panel.default({
     on: (name, handler) => name === "session_start" && starts.push(handler),
     registerCommand: (name, options) => commands.set(name, options),
+    registerShortcut: (key, options) => shortcuts.set(key, options),
     registerTool() {},
     sendUserMessage() {},
   });
   const { calls, ctx } = recording();
-  Object.assign(ctx, { cwd: fixture, sessionManager: { getSessionId: () => "S" } });
+  Object.assign(ctx, { cwd: repo, sessionManager: { getSessionId: () => "S" } });
   ctx.ui.notify = (message) => calls.push({ call: "notify", message });
   const ticks = [];
   const realInterval = globalThis.setInterval;
@@ -202,6 +205,11 @@ function started() {
     calls,
     tick: async () => { for (const tick of ticks) await tick(); },
     command: () => commands.get("zloop-panel").handler("", ctx),
+    shortcut: () => shortcuts.get("ctrl+alt+w").handler(ctx),
+    // A fullscreen click on line `y` of the card last drawn, as Pi routes it to the widget's component.
+    click: (y) => widgets(calls).at(-1).content({ requestRender() {} }, THEME)
+      .handleMouse?.({ type: "click", button: "left", x: 2, y, screenX: 2, screenY: 40 + y, width: 80, height: 9,
+                       shift: false, alt: false, ctrl: false, clickCount: 1 }),
   };
 }
 // The rows the card shows now: the last widget drawn, or none once it was cleared.
@@ -259,4 +267,67 @@ const notices = (calls) => calls.filter((entry) => entry.call === "notify").map(
   assert.deepEqual(shown(session.calls), ["demo · dispatch"]);
 }
 
-console.log("pi panel: 12 cases passed");
+// A second fixture: five live workers this session registered, so the card shows three and `+2 more`.
+const many = mkdtempSync(join(tmpdir(), "pi-panel-many-"));
+process.on("exit", () => rmSync(many, { recursive: true, force: true }));
+mkdirSync(join(many, ".scratch/many/reports"), { recursive: true });
+execFileSync("python3", ["-c", `
+import json, sqlite3, sys, time
+db = sqlite3.connect(sys.argv[1])
+db.execute('CREATE TABLE attempts (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
+db.execute('CREATE TABLE events (id INTEGER PRIMARY KEY, attempt TEXT NOT NULL, kind TEXT NOT NULL, '
+           'payload TEXT NOT NULL, acknowledged INTEGER NOT NULL)')
+for n in range(1, 6):
+    attempt = f'{n}/audit-1'
+    data = {'attempt': attempt, 'assignment': f'many/0{n}', 'agent': 'reviewer', 'job': 'audit',
+            'requested': {'model': 'sonnet'}, 'session': 'S', 'sessions': ['S']}
+    db.execute('INSERT INTO attempts VALUES (?, ?)', (attempt, json.dumps(data)))
+    db.execute('INSERT INTO events (attempt, kind, payload, acknowledged) VALUES (?, ?, ?, 1)',
+               (attempt, 'register', json.dumps({'recorded_at': time.time() - 60 * n - 5})))
+db.commit()
+`, join(many, ".scratch/many/reports/workers.sqlite")]);
+const ROW = (n) => `▶ reviewer · many/0${n} · sonnet · quiet ${n}m`;
+const COLLAPSED = ["many", ROW(1), ROW(2), ROW(3), "+2 more · ctrl+alt+w", "done: audit 0"];
+const EXPANDED = ["many", ROW(1), ROW(2), ROW(3), ROW(4), ROW(5), "show fewer · ctrl+alt+w", "done: audit 0"];
+
+// The `+N more` line names its key; Ctrl+Alt+W shows the rows it stands for in its place, then `show fewer`, and
+// pressed again hides them.
+{
+  const session = started(many);
+  await session.tick();
+  assert.deepEqual(shown(session.calls), COLLAPSED);
+  await session.shortcut();
+  assert.deepEqual(shown(session.calls), EXPANDED);
+  await session.tick();
+  assert.deepEqual(shown(session.calls), EXPANDED, "a later read keeps the choice");
+  await session.shortcut();
+  assert.deepEqual(shown(session.calls), COLLAPSED);
+}
+
+// In fullscreen a click on `+N more` expands and a click on `show fewer` collapses; a click on another line is left
+// to Pi.
+{
+  const session = started(many);
+  await session.tick();
+  assert.equal(session.click(1), undefined);
+  assert.deepEqual(shown(session.calls), COLLAPSED);
+  assert.deepEqual(session.click(4), { handled: true });
+  assert.deepEqual(shown(session.calls), EXPANDED);
+  assert.deepEqual(session.click(6), { handled: true });
+  assert.deepEqual(shown(session.calls), COLLAPSED);
+}
+
+// With nothing hidden there is no expander, whatever the key did; a closed panel draws nothing on the key.
+{
+  const session = started();
+  await session.tick();
+  await session.shortcut();
+  assert.deepEqual(shown(session.calls), ["demo · dispatch"]);
+  const closed = started(many);
+  await closed.tick();
+  await closed.command();
+  await closed.shortcut();
+  assert.deepEqual(shown(closed.calls), []);
+}
+
+console.log("pi panel: 15 cases passed");

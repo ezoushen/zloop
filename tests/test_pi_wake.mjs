@@ -11,7 +11,8 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const load = async () => {
   const sent = [];
   const tools = new Map();
-  const pi = { on() {}, registerCommand() {}, registerTool: (tool) => tools.set(tool.name, tool), sendUserMessage: (...args) => sent.push(args) };
+  const pi = { on() {}, registerCommand() {}, registerShortcut() {}, registerTool: (tool) => tools.set(tool.name, tool),
+               sendUserMessage: (...args) => sent.push(args) };
   (await import(`${bootstrap}?${Math.random()}`)).default(pi);
   return { sent, pi, tool: tools.get("zloop_wake") };
 };
@@ -58,7 +59,8 @@ assert.deepEqual(crashes.map(String), []);
 // A pending timer never holds the process open: a headless run that ends exits at once.
 const child = spawnSync(process.execPath, ["--input-type=module", "-e", `
   const tools = new Map();
-  (await import(${JSON.stringify(`file://${bootstrap}`)})).default({ on() {}, registerCommand() {}, registerTool: (t) => tools.set(t.name, t) });
+  (await import(${JSON.stringify(`file://${bootstrap}`)})).default(
+    { on() {}, registerCommand() {}, registerShortcut() {}, registerTool: (t) => tools.set(t.name, t) });
   await tools.get("zloop_wake").execute("x", { at: new Date(Date.now() + 3600e3).toISOString(), command: ${JSON.stringify(COMMAND)} });
 `], { timeout: 10000 });
 assert.equal(child.status, 0, String(child.stderr));

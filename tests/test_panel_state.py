@@ -122,6 +122,19 @@ class PanelState(unittest.TestCase):
         for row, number in zip(rows, (1, 2, 3)):
             self.assertIn(f'zloop-panel/0{number}', row)
 
+    def test_the_rows_more_stands_for_come_with_the_snapshot_in_rank_order(self):
+        card(self.scratch / 'demo' / 'autopilot.md')
+        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite',
+                 [live(f'12/ticket-{n}', assignment=f'zloop-panel/0{n}', quiet=60 * n) for n in range(1, 6)])
+        found = self.snapshot()
+        self.assertEqual([('run', '▶ builder · zloop-panel/04 · sonnet · quiet 4m'),
+                          ('run', '▶ builder · zloop-panel/05 · sonnet · quiet 5m')],
+                         [(row['kind'], row['text']) for row in found['more']])
+        # Nothing hidden, nothing more; a quiet snapshot holds none either.
+        (self.scratch / 'demo' / 'reports' / 'workers.sqlite').unlink()
+        self.assertEqual([], self.snapshot()['more'])
+        self.assertEqual([], self.snapshot('nobody')['more'])
+
     def test_one_blocker_row_by_precedence(self):
         card(self.scratch / 'demo' / 'autopilot.md', terminal='paused-by-user')
         ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='blocked', blocker='no approval')
@@ -259,7 +272,8 @@ class PanelState(unittest.TestCase):
         attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [live('12/ticket-1')])
         ticket(self.scratch / 'omega' / 'issues' / '01-a.md', 'omega/01', status='ready')
         found = self.snapshot('fresh')
-        self.assertEqual({'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'strip': None},
+        self.assertEqual({'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'more': [],
+                          'strip': None},
                          found)
 
     def test_a_worktree_checkout_reads_the_main_checkouts_scratch(self):
@@ -338,7 +352,8 @@ class PanelState(unittest.TestCase):
     def test_another_sessions_worker_ties_nothing_to_this_session(self):
         attempts(self.scratch / 'theirs' / 'reports' / 'workers.sqlite',
                  [dict(live('1/ticket-1'), session='T', sessions=['T'])])
-        self.assertEqual({'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'strip': None},
+        self.assertEqual({'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'more': [],
+                          'strip': None},
                          self.snapshot('S'))
         self.assertEqual('theirs', self.snapshot('T')['effort'])
 
@@ -349,7 +364,8 @@ class PanelState(unittest.TestCase):
         db.execute('INSERT INTO attempts VALUES (?, ?)', ('1/ticket-2', json.dumps(['S'])))
         db.commit()
         db.close()
-        self.assertEqual({'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'strip': None},
+        self.assertEqual({'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'more': [],
+                          'strip': None},
                          self.snapshot('S'))
 
     def test_a_row_that_is_not_an_object_beside_this_sessions_worker_is_skipped(self):

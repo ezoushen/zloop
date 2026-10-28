@@ -318,11 +318,12 @@ def snapshot(repo, session_id, now):
         if live:
             break
     if chosen is None:
-        return {'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'strip': None}
+        return {'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'more': [], 'strip': None}
     effort, state, found_tickets, draft, blocker, attempts, live = chosen
     phase = state.get('phase') or None
     if not live:
-        return {'active': False, 'effort': effort.name, 'phase': phase, 'draft': draft, 'rows': [], 'strip': None}
+        return {'active': False, 'effort': effort.name, 'phase': phase, 'draft': draft, 'rows': [], 'more': [],
+                'strip': None}
     headline = f'{effort.name} · {phase}' if phase else effort.name
     rows = [{'kind': 'headline', 'text': headline + (' · draft' if draft else '')}]
     running, waiting = [], []
@@ -348,7 +349,7 @@ def snapshot(repo, session_id, now):
     strip = ' · '.join(part for part in (f'{effort.name} · {phase}' if phase else effort.name,
                                          f'{len(running)} running' if running else '', closer) if part)
     return {'active': True, 'effort': effort.name, 'phase': phase, 'draft': draft, 'rows': rows,
-            'strip': strip or None}
+            'more': running[RUN_CAP:], 'strip': strip or None}
 
 
 def render_text(found):

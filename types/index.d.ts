@@ -16,11 +16,13 @@ export type Snapshot = {
   active: boolean
   effort: string | null
   rows: Row[]
+  /** The run rows `+N more` stands for; absent from a snapshot an earlier version stored. */
+  more?: Row[]
   strip: string | null
 }
 
 declare module 'claude-code' {
   interface PluginState {
-    zloop: { pane: Shaped<PaneMemory>; snapshot: Shaped<Snapshot | null> }
+    zloop: { pane: Shaped<PaneMemory>; snapshot: Shaped<Snapshot | null>; expanded: Shaped<boolean> }
   }
 }

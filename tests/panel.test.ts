@@ -86,6 +86,19 @@ const pane = ($: any, props: Record<string, unknown> = {}) =>
   $.ui.mount({ plugin: "zloop", surface: "terminal", component: "Pane", requestId: PANE,
                props: { ...PANE_PROPS, ...props } });
 const texts = async (ui: any) => (await ui.findAll({ type: "Text" })).map((node: any) => node.text);
+// Every line the pane shows, rows and buttons alike, in document order.
+const lines = async (ui: any) =>
+  (await ui.findAll({})).filter((node: any) => ["Text", "Button"].includes(node.type)).map((node: any) => node.text);
+// Five live workers: three drawn, two behind `+2 more`, which the snapshot carries as `more`.
+const run = (n: number) => ({ kind: "run", text: `▶ builder · zloop-panel/0${n} · sonnet · quiet ${n}m` });
+const capped = () => snapshot({
+  rows: [{ kind: "headline", text: "demo · dispatch" }, run(1), run(2), run(3), { kind: "more", text: "+2 more" },
+         { kind: "counts", text: "done: ticket 0" }],
+  more: [run(4), run(5)],
+});
+const COLLAPSED = ["demo · dispatch", run(1).text, run(2).text, run(3).text, "+2 more", "done: ticket 0"];
+const EXPANDED = ["demo · dispatch", run(1).text, run(2).text, run(3).text, run(4).text, run(5).text, "show fewer",
+                  "done: ticket 0"];
 
 describe("zloop panel", () => {
   test("opens no pane while nothing is live, and opens it once this session's effort goes live", async ($, on) => {
@@ -316,5 +329,24 @@ describe("zloop panel", () => {
     expect(nodes[4].props.color).toBe("subtle");
     expect(nodes[5].props.color).toBe("subtle");
     expect(nodes[6].props.color).toBe("subtle");
+  });
+
+  test("+N more is a button showing the rows it stands for in its place, and show fewer hides them", async ($, on) => {
+    beneath(on, capped());
+    await started($);
+    const ui = await pane($);
+    expect(await lines(ui)).toEqual(COLLAPSED);
+    // A click, Enter under the focus, or `m` while the pane holds the focus presses it.
+    expect((await ui.find({ type: "Button", key: "more" }))?.props).toMatchObject({ hotkey: "m", plain: true });
+    await ui.press({ key: "more" });
+    expect(await lines(ui)).toEqual(EXPANDED);
+    await ui.press({ key: "more" });
+    expect(await lines(ui)).toEqual(COLLAPSED);
+  });
+
+  test("the expansion outlives a reload of the plugin", async ($, on) => {
+    beneath(on, capped(), { expanded: { shape: "expanded-1", value: true } });
+    await started($);
+    expect(await lines(await pane($))).toEqual(EXPANDED);
   });
 });
