@@ -2,7 +2,7 @@
 name: setup
 description: "Explain the current zloop setup, or inspect, configure or reset worker models, routes, pools, routers, profiles, thinking bounds and decision opt-ins and calibration at user, project or session scope."
 disable-model-invocation: true
-argument-hint: "[<question> | show|set|reset [agent|router|decisions|profile|model-definition|runtime-definition|executor-definition] | calibrate | calibration status | check | retro <journal> | replay <journal> <cases>] [--scope user|project|session] [--route] [--config-profile <name>] [runtime=claude|codex|pi|opencode] [--candidate <id>] [thinking=<label|JSON>]"
+argument-hint: "[<question> | show|set|reset [agent|router|decisions|profile|model-definition|runtime-definition|executor-definition] | calibrate | calibration status | check | retro <journal> | replay <journal> <cases>] [--scope user|project|session] [--route] [--config-profile <name>] [host=claude|codex|pi|opencode] [--candidate <id>] [thinking=<label|JSON>]"
 ---
 
 # setup
@@ -72,7 +72,7 @@ executor's schema/adapter. Preserve structured legacy commands without
 --route, --config-profile, --scope session or pool options, and explicit models.json
 requests, using
 [legacy preferences](../../runtime/workers/legacy-preferences.md).
-The optional `runtime=` argument means the host for per-agent setup and the target
+The optional `host=` argument means the host for per-agent setup and the target
 preference host for legacy settings. If omitted, use the current host; never
 infer it from a model name. It does not change the main session or supply tools.
 Use [host selection](../../runtime/workers/launch.md#host-selection) to distinguish the

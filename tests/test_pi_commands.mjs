@@ -72,8 +72,8 @@ assert.equal(await labels("remediate", "tautological-tests src/ "), null);
 // remediate quotes a free-form goal, so an unquoted word is a path: no other scope is offered after it.
 assert.equal(await labels("remediate", "tests/ --p"), null);
 assert.deepEqual(await labels("setup", "--config-profile calibration "), ["show", "set", "reset", "calibrate",
-  "calibration", "check", "retro", "replay", "--scope", "--route", "runtime=claude", "runtime=codex", "runtime=pi",
-  "runtime=opencode", "--candidate", "thinking="]);
+  "calibration", "check", "retro", "replay", "--scope", "--route", "host=claude", "host=codex", "host=pi",
+  "host=opencode", "--candidate", "thinking="]);
 assert.equal(await labels("setup", "thinking=high th"), null);
 // A mode word comes before the free text after it in the hint; flags may come anywhere.
 assert.equal(await labels("review", "main w"), null);
@@ -83,8 +83,8 @@ assert.equal(await labels("remediate", '"make tests clearer" tests/ '), null);
 assert.deepEqual(await labels("remediate", '"make tests clearer" '), ["--base", "--project"]);
 // A word is a literal only where the hint allows that literal: elsewhere it is free text.
 assert.deepEqual(await labels("review", "draft --comments "), ["draft", "confirm", "post"]);
-assert.deepEqual(await labels("setup", "why calibration "), ["--scope", "--route", "--config-profile", "runtime=claude",
-  "runtime=codex", "runtime=pi", "runtime=opencode", "--candidate", "thinking="]);
+assert.deepEqual(await labels("setup", "why calibration "), ["--scope", "--route", "--config-profile", "host=claude",
+  "host=codex", "host=pi", "host=opencode", "--candidate", "thinking="]);
 
 // Every hint lists only real flags and modes as bare words, placeholders in <>, so a blank argument offers exactly
 // these and never a word of prose.
@@ -94,7 +94,7 @@ const START = {
   remediate: ["tautological-tests", "misleading-comments", "--base", "--project"], research: null,
   review: ["walkthrough", "--autofix", "--comments", "--base"],
   setup: ["show", "set", "reset", "calibrate", "calibration", "check", "retro", "replay", "--scope", "--route",
-    "--config-profile", "runtime=claude", "runtime=codex", "runtime=pi", "runtime=opencode", "--candidate",
+    "--config-profile", "host=claude", "host=codex", "host=pi", "host=opencode", "--candidate",
     "thinking="],
   tdd: null,
 };
