@@ -4,21 +4,21 @@
 Reads every run's workers.sqlite under the main checkout's .scratch/*/reports/ that
 changed in the last day, without writing to it, and applies the lifecycle's yield
 gate to the workers this session registered (by host session, else pane), or, for one that
-recorded neither, to the session bound to coordinate its effort (with none bound, to every
+recorded neither, to the session bound to coordinate its workstream (with none bound, to every
 session). Sessions share the checkout: another session's workers and launches never hold this
 one, and a row or state that cannot be read is named to the sessions it could hide a gap
 from. Every session is also held for each Herdr launch it logged (hooks/herdr_launch.py)
 into a ticket worktree that no attempt accounts for and it did not dismiss; one without
 ZLOOP_WORKER, the marker every worker is launched with, also for each other such live
-agent of its Herdr workspace that no other session logged. The session bound to coordinate an effort (next_tickets.py
---coordinate; without one, the pane that registered the attempt) is held for each collected
-attempt, neither retained nor retired, whose Herdr tab is still open, and for an effort whose
+agent of its Herdr workspace that no other session logged. The session bound to coordinate a workstream
+(next_tickets.py --coordinate; without one, the pane that registered the attempt) is held for each collected
+attempt, neither retained nor retired, whose Herdr tab is still open, and for a workstream whose
 review report (before it records one, the binding) records autofix: true and no blocker, with
 every ticket done and delivery failing, until it is finished (branch deleted, reviewed head in
 main or on the remote's main, E2E passed at a head in main). A session is also held while a
 confirmed autopilot run card (.scratch/<slug>/autopilot.md) naming it lacks one terminal state or its
-evidence. Neither the delivery hold nor the card hold applies while a live worker of the effort holds a running wait that will wake the
-host. A
+evidence. Neither the delivery hold nor the card hold applies while a live worker of the workstream holds a running
+wait that will wake the host. A
 check that cannot run, and a launch log line that is unreadable or malformed, are named gaps,
 never a pass. `claude` and `codex` speak their shared Stop
 hook protocol; `check <cwd> [session]` prints the gaps and the hold's message as JSON for other hosts. Set
@@ -43,7 +43,7 @@ COLLECT = ROOT / 'runtime/workers/collect.md'
 HANDOFF = ROOT / 'skills/dispatch/handoff.md'
 # hooks/herdr_launch.py appends each `herdr agent start` here, one JSON object per line.
 LAUNCHES = '.scratch/herdr-launches.jsonl'
-# scripts/next_tickets.py --coordinate records here, in an effort's reports/, the session that coordinates it.
+# scripts/next_tickets.py --coordinate records here, in a workstream's reports/, the session that coordinates it.
 BINDING = 'coordinator.json'
 # The states skills/autopilot/run-card.md lets a run end in.
 TERMINAL_STATES = ('delivered', 'delivered-local', 'merged', 'waiting-on-user', 'paused-allowance', 'paused-by-user',
@@ -73,7 +73,8 @@ def main_checkout(cwd):
 
 
 def gaps(cwd, session=None):
-    """(worker gaps, the coordinator's own gaps: stale tabs and undelivered efforts, each saying how to clear it)."""
+    """(worker gaps, the coordinator's own gaps: stale tabs and undelivered workstreams, each saying how to clear
+    it)."""
     root = main_checkout(cwd)
     if root is None:
         return [], []
@@ -81,8 +82,8 @@ def gaps(cwd, session=None):
     module, missing = None, []
     for state in sorted(root.glob('.scratch/*/reports/workers.sqlite')):
         # Sessions share the folder: a worker holds only the session that registered it, by host session before pane;
-        # one registered with neither recorded holds the session bound to coordinate its effort, or, with none bound,
-        # every session that is not a worker, since nothing tells its owner apart.
+        # one registered with neither recorded holds the session bound to coordinate its workstream, or, with none
+        # bound, every session that is not a worker, since nothing tells its owner apart.
         binding, bound = read_binding(state.with_name(BINDING), pane, session)
         unbound = binding is None and not state.with_name(BINDING).exists()
         recent = time.time() - state.stat().st_mtime <= RECENT_SECONDS
@@ -122,7 +123,7 @@ def gaps(cwd, session=None):
 def unreadable_holds(state, pane, session, bound, recent):
     """Whether a run state that cannot be read is named to this session: it hides its owners' gaps, and a worker that
     recorded no owner may be among them, so it is named to every session that is not a worker while it is recent, and
-    always to the session bound to its effort and each pane or host session its bytes still record."""
+    always to the session bound to its workstream and each pane or host session its bytes still record."""
     try:
         raw = state.read_bytes().decode(errors='replace')
     except OSError:
@@ -219,7 +220,7 @@ def card_state(path):
 
 def unfinished_runs(root, session):
     """Name each confirmed autopilot run card of this host session that lacks one terminal state or its evidence,
-    unless a live worker of the card's effort holds a running wait that will wake the host."""
+    unless a live worker of the card's workstream holds a running wait that will wake the host."""
     missing = []
     for path in sorted(root.glob('.scratch/*/autopilot.md')):
         state = card_state(path)
@@ -234,7 +235,8 @@ def unfinished_runs(root, session):
 
 def stale_tabs(root, pane, session):
     """Name each collected attempt, neither retained nor retired, whose recorded Herdr tab its session still lists, for
-    the session bound to coordinate its effort or, with none bound, the pane that registered it, however old the run."""
+    the session bound to coordinate its workstream or, with none bound, the pane that registered it, however old the
+    run."""
     listed, missing = {}, []
     for state in sorted(root.glob('.scratch/*/reports/workers.sqlite')):
         # An unreadable binding decides nothing here (undelivered names it); the registering pane does.
@@ -242,7 +244,7 @@ def stale_tabs(root, pane, session):
         bound = mine if binding else None
         try:
             saved_attempts = read_state(state)[0]
-        except Exception:  # gaps() names a state that cannot be read to its effort's coordinator.
+        except Exception:  # gaps() names a state that cannot be read to its workstream's coordinator.
             continue
         for saved in saved_attempts:
             herdr = saved.get('herdr') or {}
@@ -285,7 +287,7 @@ def herdr_error(result):
 
 
 def undelivered(root, pane, session):
-    """Name each effort this session was bound to coordinate (next_tickets.py --coordinate) whose delivery fails."""
+    """Name each workstream this session was bound to coordinate (next_tickets.py --coordinate) whose delivery fails."""
     board, tickets, missing = None, None, []
     for path in sorted(root.glob(f'.scratch/*/reports/{BINDING}')):
         slug = path.parent.parent.name
@@ -437,7 +439,7 @@ def unregistered(root, pane, session, siblings=True):
     for state in root.glob('.scratch/*/reports/workers.sqlite'):
         try:
             saved_attempts, _, registered = read_state(state)
-        except Exception:  # gaps() names a state that cannot be read to its effort's coordinator.
+        except Exception:  # gaps() names a state that cannot be read to its workstream's coordinator.
             continue
         attempts += [dict(saved, registered_at=registered.get(saved['attempt'])) for saved in saved_attempts]
     workers = {handle for saved in attempts for handle in handles(saved['worker'])}

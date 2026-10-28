@@ -19,7 +19,7 @@ CPU_SECONDS = 1.5
 
 
 class Checkouts(unittest.TestCase):
-    """A main checkout with a ticket worktree and an effort's reports directory."""
+    """A main checkout with a ticket worktree and a workstream's reports directory."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix='zloop read-only ')
@@ -33,7 +33,7 @@ class Checkouts(unittest.TestCase):
         subprocess.run(self.git + ['commit', '-q', '--allow-empty', '-m', 'init'], check=True)
         self.worktree = self.main / '.worktrees/review-1'
         subprocess.run(self.git + ['worktree', 'add', '-q', '--detach', str(self.worktree)], check=True)
-        self.reports = self.main / '.scratch/effort/reports'
+        self.reports = self.main / '.scratch/workstream/reports'
         self.reports.mkdir(parents=True)
 
     def assert_denied(self, decision, path, agent='zloop:reviewer'):
@@ -88,7 +88,7 @@ class ReadOnlyWrites(Checkouts):
                 self.assert_denied(self.run_hook('NotebookEdit', {'notebook_path': str(notebook), 'new_source': 'x'},
                                                  agent), notebook, agent)
                 # The reports directory itself, and a look-alike path that only starts with it, are not a report.
-                lookalike = self.main / '.scratch/effort/reports-old/03.md'
+                lookalike = self.main / '.scratch/workstream/reports-old/03.md'
                 self.assert_denied(self.run_hook('Write', {'file_path': str(lookalike), 'content': 'x'}, agent),
                                    lookalike, agent)
                 escape = f'{self.reports}/../../../src/app.py'

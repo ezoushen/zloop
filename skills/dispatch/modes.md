@@ -40,6 +40,6 @@ there, and delegated tickets merge into `main` under that instruction, which is 
 authorization. On `main` the orchestrator resolves an integration conflict itself: a
 builder never works on `main`. Never push. The integrated review covers the starting
 commit to the current `main` (pass `--base <starting commit>` to the review target), its
-report records `effort_branch: main` so the delivery gate reads
+report records `workstream_branch: main` so the delivery gate reads
 `main`, and PR publication is reported as not applicable; its delivery report lists the candidate ADRs
 for the user.

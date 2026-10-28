@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Machine-wide leases on local model backends, so the workers of every effort share their slots.
+"""Machine-wide leases on local model backends, so the workers of every workstream share their slots.
 
 A lease belongs to a lifecycle attempt. It ends when the attempt's result is collected or it closes,
 and a lease whose attempt is finished, unregistered or gone with its state file is reclaimed.

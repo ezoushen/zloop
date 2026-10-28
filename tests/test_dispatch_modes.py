@@ -62,7 +62,7 @@ class TicketModes(unittest.TestCase):
         self.assertIn('ensure the effort branch', prose(DISPATCH / 'iteration.md'))
         self.assertIn('Apart from working directly on main, never commit to the user', prose(DISPATCH / 'iteration.md'))
         board = prose(ROOT / 'runtime/board/board.md')
-        self.assertIn('With `effort_branch: main` the reviewed head must instead be an ancestor of the current `main`', board)
+        self.assertIn('With `workstream_branch: main` the reviewed head must instead be an ancestor of the current `main`', board)
         self.assertIn('later commits on `main` are not covered by that evidence', board)
         for rule in ('A stale or diverged local `main` is reported and the user asked before the first commit',
                      'On `main` the orchestrator resolves an integration conflict itself',
@@ -71,8 +71,8 @@ class TicketModes(unittest.TestCase):
 
     def test_an_effort_on_main_is_reviewed_from_its_starting_commit_and_has_no_pr(self):
         self.assertIn('review covers the starting commit to the current `main`', prose(MODES))
-        self.assertIn('`effort_branch: main`', prose(MODES))
-        self.assertIn('`effort_branch: main`', prose(ROOT / 'skills/review/report.md'))
+        self.assertIn('`workstream_branch: main`', prose(MODES))
+        self.assertIn('`workstream_branch: main`', prose(ROOT / 'skills/review/report.md'))
         self.assertIn('An effort the user ran directly on `main` has no branch to publish', prose(ROOT / 'skills/pr/SKILL.md'))
 
     def test_the_map_and_readme_name_both_modes(self):

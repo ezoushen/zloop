@@ -55,7 +55,7 @@ class LintPrBody(unittest.TestCase):
         self.assertEqual((report['errors'], report['warnings']), ([], []))
 
     def test_fences_with_attributes_do_not_hide_later_prose(self):
-        body = GOOD + '\n```python title="a.py"\nprint(1)\n```\n\nSee .scratch/effort/reports/1.md.\n'
+        body = GOOD + '\n```python title="a.py"\nprint(1)\n```\n\nSee .scratch/workstream/reports/1.md.\n'
         self.assertTrue(self.lint(body, code=1)['errors'])
 
     def test_formatting_and_length_are_left_to_project_style(self):
@@ -67,7 +67,7 @@ class LintPrBody(unittest.TestCase):
         self.assertEqual(self.lint(body)['errors'], [])
 
     def test_private_paths_and_links_are_errors(self):
-        for leak in ('.scratch/effort/reports/12.md', 'https://claude.ai/artifact/abc', '/Users/me/repo/file'):
+        for leak in ('.scratch/workstream/reports/12.md', 'https://claude.ai/artifact/abc', '/Users/me/repo/file'):
             with self.subTest(leak=leak):
                 report = self.lint(GOOD + f'\nSee {leak}.\n', code=1)
                 self.assertTrue(any(leak.split('/')[0] in e or 'private' in e for e in report['errors']))

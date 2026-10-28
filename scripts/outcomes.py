@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep each worker attempt's outcome across efforts and summarise it per agent, job and candidate.
+"""Keep each worker attempt's outcome across workstreams and summarise it per agent, job and candidate.
 
 The worker lifecycle writes an attempt's result, acceptance or decline, and later reverts.
 `import` adds past decision journals and lifecycle state files once. A job that requires acceptance

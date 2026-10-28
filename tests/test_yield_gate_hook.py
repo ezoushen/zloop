@@ -35,8 +35,8 @@ class GateRepo(unittest.TestCase):
         self.repo = Path(self.tmp.name).resolve() / 'project'
         self.repo.mkdir()
         subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
-        self.state = self.repo / '.scratch/effort/reports/workers.sqlite'
-        self.execution = self.repo / '.scratch/effort/reports/execution.json'
+        self.state = self.repo / '.scratch/workstream/reports/workers.sqlite'
+        self.execution = self.repo / '.scratch/workstream/reports/execution.json'
         self.execution.parent.mkdir(parents=True)
         self.execution.write_text(json.dumps({'agent': 'builder', 'job': 'ticket', 'settings': {'model': 'sonnet'}}))
         self.bin = Path(self.tmp.name) / 'bin'
@@ -137,7 +137,7 @@ const ctx = {{ cwd: {json.dumps(str(self.repo))}, sessionManager: {{ getSessionI
         return json.loads(result.stdout)
 
     def bind(self, pane='w1:p1', slug='fix', autofix=False, code=0, **sessions):
-        """Run dispatch's binding for effort `slug` (None: every effort), with `--autofix` when `autofix`, as an
+        """Run dispatch's binding for workstream `slug` (None: every workstream), with `--autofix` when `autofix`, as an
         orchestrator in Herdr pane `pane` (None: outside Herdr) whose host exports `sessions` (a SESSION_VARIABLES name
         to its value); the finished process, which must exit `code`."""
         result = subprocess.run([sys.executable, '-B', str(TICKETS), '--repo', str(self.repo), *filter(None, [slug]),
@@ -219,9 +219,9 @@ class YieldGateHook(GateRepo):
         self.serve(fail='connection refused')
         self.assertEqual(self.check(), [f'{self.state}: ticket-1/1: no armed wait'])
 
-    def test_malformed_attempt_rows_are_named_only_to_their_efforts_coordinator_and_break_no_check(self):
+    def test_malformed_attempt_rows_are_named_only_to_their_workstreams_coordinator_and_break_no_check(self):
         # Rule: a run state written by hand (a demo or fixture) may hold rows the lifecycle never writes. Each is left
-        # out of every check and named only to the session bound to its effort, so it neither breaks nor holds another
+        # out of every check and named only to the session bound to its workstream, so it neither breaks nor holds another
         # session's check; a row with no worktree but otherwise whole is an ordinary attempt.
         other = self.repo / '.scratch/demo/reports/workers.sqlite'
         other.parent.mkdir(parents=True)
@@ -540,7 +540,7 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
             self.launch(f'herdr agent start builder-{index} --kind codex --pane w1:p{index + 4}')
         for index in (5, 6):
             self.launch(f'herdr agent start builder-{index} --kind codex --pane w1:p{index + 4}', pane=None)
-        self.state = run('effort')
+        self.state = run('workstream')
         self.register('builder-2', 'ticket-2/1', pane='w1:p9')
         self.register('builder-3', 'ticket-3/1', pane='w1:p1')
         self.register('builder-5', 'ticket-5/1', pane=None)
@@ -789,7 +789,7 @@ console.log('null');
 
     def test_a_state_that_cannot_be_read_is_named_to_all_while_recent_then_to_the_sessions_it_records(self):
         # Rule: an unreadable state hides its owners' gaps, and a worker that recorded no owner may be among them, so it
-        # is named to every session while recent; once old, to its effort's bound coordinator and each pane or session
+        # is named to every session while recent; once old, to its workstream's bound coordinator and each pane or session
         # its bytes still record.
         self.live_attempt('ticket-1/1', 'w1:p1', 'host-1')
         db = sqlite3.connect(self.state)
@@ -884,16 +884,16 @@ console.log('null');
         self.assertEqual(self.check(pane=None, session='codex-inner'), [f'{self.state}: ticket-1/1: no armed wait'])
         self.assertEqual(self.check(pane=None, session='host-2'), [])
 
-    def test_a_worker_registered_without_a_coordinator_holds_the_session_bound_to_its_effort(self):
-        # Rule: with no pane and no host session recorded (OpenCode exports no session ID), the effort's bound
+    def test_a_worker_registered_without_a_coordinator_holds_the_session_bound_to_its_workstream(self):
+        # Rule: with no pane and no host session recorded (OpenCode exports no session ID), the workstream's bound
         # coordinator answers for the worker; with none bound, nothing tells its owner apart, so every session that is
         # not a worker is held rather than none.
         self.live_attempt('ticket-1/1', None, None)
         self.assertEqual(self.check(pane=None, session='host-2'), [f'{self.state}: ticket-1/1: no armed wait'])
-        ticket = self.repo / '.scratch/effort/issues/01-task.md'
+        ticket = self.repo / '.scratch/workstream/issues/01-task.md'
         ticket.parent.mkdir(parents=True)
-        ticket.write_text('---\nticket: effort/01\nstatus: ready\nblocked_by: []\ntouches: [t01]\ndevices: []\n---\n')
-        self.bind(pane=None, slug='effort', CLAUDE_CODE_SESSION_ID='host-3')
+        ticket.write_text('---\nticket: workstream/01\nstatus: ready\nblocked_by: []\ntouches: [t01]\ndevices: []\n---\n')
+        self.bind(pane=None, slug='workstream', CLAUDE_CODE_SESSION_ID='host-3')
         self.assertEqual(self.check(pane=None, session='host-3'), [f'{self.state}: ticket-1/1: no armed wait'])
         self.assertEqual(self.check(pane=None, session='host-2'), [])
 
@@ -915,7 +915,7 @@ console.log('null');
         # Rule 4: ZLOOP_WORKER skips only the live-sibling scan. Each marked session (in its worktree, at the
         # checkout root, in its coordinator's inherited pane, outside Herdr) is held for the helper it launched,
         # even after the helper's pane closed (probe H), and never for its siblings or its coordinator's launches.
-        sibling, marked = self.repo / '.worktrees/ticket-2', {'ZLOOP_WORKER': 'effort/ticket-1'}
+        sibling, marked = self.repo / '.worktrees/ticket-2', {'ZLOOP_WORKER': 'workstream/ticket-1'}
         self.launch('herdr agent start builder-1 --kind codex --pane w1:p5', session='coord-1')
         workers = (('w1:p5', 'builder-session', self.worktree), ('w1:p7', 'other-session', self.repo),
                    ('w1:p1', 'worker-1', self.worktree), (None, 'worker-2', self.repo))
@@ -995,7 +995,7 @@ console.log(JSON.stringify((await handlers.agent_before_settle(
         self.register('w1:p6', 'ticket-2/1')
         self.serve(agents=[self.agent('builder-1', 'w1:p5', first), self.agent('builder-2', 'w1:p6', second)])
         self.assertEqual(self.check(cwd=first, pane='w1:p5', session='worker-session',
-                                    env={'ZLOOP_WORKER': 'effort/ticket-1'}), [])
+                                    env={'ZLOOP_WORKER': 'workstream/ticket-1'}), [])
         self.assertEqual(self.check(session='host-1'), [])
 
     def test_a_coordinator_inside_a_worktree_is_still_held(self):
@@ -1075,8 +1075,8 @@ console.log(JSON.stringify([await settle(), await settle()]));
 
 
 class DeliveryHold(GateRepo):
-    """Dispatch binds the session that coordinates an effort; that session alone is held once when it stops with the
-    effort's delivery failing under autofix. The fixture is the Pi run: every ticket done, a repair committed after
+    """Dispatch binds the session that coordinates a workstream; that session alone is held once when it stops with the
+    workstream's delivery failing under autofix. The fixture is the Pi run: every ticket done, a repair committed after
     review left review_head stale, and E2E never ran."""
 
     def setUp(self):
@@ -1232,16 +1232,16 @@ class DeliveryHold(GateRepo):
         self.assertEqual(self.check(pane='w1:p1'), [])
 
     def held(self, slug, *problems):
-        """The delivery hold's gap for effort `slug`, naming `problems`."""
+        """The delivery hold's gap for workstream `slug`, naming `problems`."""
         return (f"{slug}: delivery incomplete under autofix: {'; '.join(problems)}. Continue the autofix handoff "
                 f'({ROOT}/skills/dispatch/handoff.md) until `python3 {ROOT}/scripts/next_tickets.py --repo {self.repo} '
                 f'{slug} --delivery` passes, or record `blocker: <reason>` in '
                 f'{self.repo}/.scratch/{slug}/reports/spec-review.md')
 
     def test_a_live_worker_with_a_running_wait_lets_the_coordinator_yield_but_a_lost_one_does_not(self):
-        # Rule: the hold is for a delivery stuck with nobody working on it. While a live worker of the effort has a
+        # Rule: the hold is for a delivery stuck with nobody working on it. While a live worker of the workstream has a
         # wait running that will wake the host, the host yields; once the wait is lost, or the worker is collected,
-        # the delivery hold names the effort again.
+        # the delivery hold names the workstream again.
         self.bind(pane='w1:p1')
         self.state = self.repo / '.scratch/fix/reports/workers.sqlite'
         self.lifecycle('register', 'fix/01/1', assignment='fix/01', repo=str(self.repo), worktree=str(self.repo),
@@ -1269,14 +1269,14 @@ class DeliveryHold(GateRepo):
         os.killpg(int(pidfile.read_text()), 9)
         self.assertEqual(self.check(pane='w1:p1'), [f'{self.state}: fix/01/1: wait process lost', self.gap()])
 
-    def test_an_effort_is_finished_only_when_merged_deleted_and_e2e_passed_at_a_head_in_main(self):
-        # Review 1, re-review F1: the board records a finished effort as its branch gone, its reviewed head in main and
+    def test_a_workstream_is_finished_only_when_merged_deleted_and_e2e_passed_at_a_head_in_main(self):
+        # Review 1, re-review F1: the board records a finished workstream as its branch gone, its reviewed head in main and
         # a passing E2E at a head in main. Merged and deleted before E2E ran (the Pi run's report), it is still held;
         # so is a passing E2E at a head main lacks, and a reviewed head main lacks.
         self.bind(pane='w1:p1')
         self.git('update-ref', 'refs/heads/main', self.head)
         self.git('branch', '-D', 'feat/fix')
-        missing = 'effort branch feat/fix is not an existing branch'
+        missing = 'workstream branch feat/fix is not an existing branch'
         self.assertEqual(self.check(pane='w1:p1'), [
             self.held('fix', 'e2e_status: not-run (needs passed)', 'e2e_by: none names no worker run', missing)])
         self.review(delivered=True)
@@ -1293,9 +1293,9 @@ class DeliveryHold(GateRepo):
         self.assertEqual(self.check(pane='w1:p1'), [
             self.held('fix', f'{missing}, and its review_head and e2e_head are in no main{update}')])
 
-    def test_an_old_effort_without_e2e_fields_is_bound_only_by_name_and_then_held_until_finished(self):
-        # Re-review F1, in an old real effort's shape: reviewed clean, no E2E or producer fields, merged into main
-        # and its branch deleted. Coordinating every effort binds only those with active work (a branch, or a ticket
+    def test_an_old_workstream_without_e2e_fields_is_bound_only_by_name_and_then_held_until_finished(self):
+        # Re-review F1, in an old real workstream's shape: reviewed clean, no E2E or producer fields, merged into main
+        # and its branch deleted. Coordinating every workstream binds only those with active work (a branch, or a ticket
         # not done), so not it; named explicitly, it is held until finished by the definition above.
         path = self.repo / '.scratch/audit/issues/01-task.md'
         path.parent.mkdir(parents=True)
@@ -1305,18 +1305,18 @@ class DeliveryHold(GateRepo):
         report.write_text(f'---\nreview_status: clean\ndocumentation_status: passed\nreview_base: {self.start}\n'
                           f'review_diff_base: {self.start}\nreview_head: {self.reviewed}\n---\n')
         self.git('update-ref', 'refs/heads/main', self.head)
-        self.review(delivered=True)  # A live effort branch is active work even once its delivery passes.
+        self.review(delivered=True)  # A live workstream branch is active work even once its delivery passes.
         bound = self.bind(slug=None).stdout
         self.assertEqual([line.split(':')[0] for line in bound.splitlines()], ['fix'], bound)
         self.review()
         self.bind(slug='audit', autofix=True)
         self.assertEqual(self.check(pane='w1:p1'), [
             self.held('audit', 'e2e_status: missing (needs passed)', 'review_by: missing names no worker run',
-                      'e2e_by: missing names no worker run', 'effort branch feat/audit is not an existing branch'),
+                      'e2e_by: missing names no worker run', 'workstream branch feat/audit is not an existing branch'),
             self.gap()])
 
-    def test_coordinating_every_effort_binds_only_those_with_work_left_and_refuses_when_none_has(self):
-        # Review 1: with no slug, --coordinate binds an effort with a ticket not done, or with delivery incomplete and
+    def test_coordinating_every_workstream_binds_only_those_with_work_left_and_refuses_when_none_has(self):
+        # Review 1: with no slug, --coordinate binds a workstream with a ticket not done, or with delivery incomplete and
         # its branch present; never a finished one (merged into main, branch deleted). With none left it refuses.
         for slug, status in (('wip', 'implementing'), ('old', 'done')):
             path = self.repo / f'.scratch/{slug}/issues/01-task.md'
@@ -1336,7 +1336,7 @@ class DeliveryHold(GateRepo):
         self.git('update-ref', 'refs/heads/main', self.head)
         self.git('branch', '-D', 'feat/fix')
         refused = self.bind(slug=None, code=1)
-        self.assertEqual(refused.stderr, 'no selected effort has work left to coordinate\n')
+        self.assertEqual(refused.stderr, 'no selected workstream has work left to coordinate\n')
         self.assertEqual(sorted(self.repo.glob('.scratch/*/reports/coordinator.json')), [])
 
     def test_while_a_ticket_is_not_done_the_coordinator_is_not_held_for_delivery(self):
@@ -1386,7 +1386,7 @@ class StaleTabs(GateRepo):
 
     def setUp(self):
         super().setUp()
-        self.tab = {'tab_id': 'w1:t5', 'workspace_id': 'w1', 'label': 'effort/ticket-1 builder', 'pane_count': 1}
+        self.tab = {'tab_id': 'w1:t5', 'workspace_id': 'w1', 'label': 'workstream/ticket-1 builder', 'pane_count': 1}
         self.serve(agents=[{'agent': 'claude', 'agent_status': 'idle', 'name': 'builder-1', 'pane_id': 'w1:p5',
                             'tab_id': 'w1:t5', 'workspace_id': 'w1'}], tabs={'default': [self.tab]})
         self.report = self.state.parent / 'ticket-1.md'
@@ -1455,16 +1455,16 @@ class StaleTabs(GateRepo):
         self.serve(fail='connection refused')
         self.assertEqual(self.check(pane='w1:p1'), [])
 
-    def test_the_session_bound_to_coordinate_the_effort_sees_its_stale_tabs_instead(self):
-        # Rules 3 and 5: once dispatch binds a session to the effort (a dispatch resumed in pane w1:p2, Claude session
+    def test_the_session_bound_to_coordinate_the_workstream_sees_its_stale_tabs_instead(self):
+        # Rules 3 and 5: once dispatch binds a session to the workstream (a dispatch resumed in pane w1:p2, Claude session
         # host-2), that session coordinates the run: it sees the open tab, and the pane that registered the worker,
         # or another conversation in w1:p2, does not.
         self.register(pane='w1:p1')
         self.collect()
-        ticket = self.repo / '.scratch/effort/issues/01-task.md'
+        ticket = self.repo / '.scratch/workstream/issues/01-task.md'
         ticket.parent.mkdir(parents=True)
-        ticket.write_text('---\nticket: effort/01\nstatus: done\nblocked_by: []\ntouches: [a]\ndevices: []\n---\n')
-        self.bind(pane='w1:p2', slug='effort', CLAUDE_CODE_SESSION_ID='host-2')
+        ticket.write_text('---\nticket: workstream/01\nstatus: done\nblocked_by: []\ntouches: [a]\ndevices: []\n---\n')
+        self.bind(pane='w1:p2', slug='workstream', CLAUDE_CODE_SESSION_ID='host-2')
         self.assertEqual(self.check(pane='w1:p2', session='host-2'), [self.gap()])
         self.assertEqual(self.check(pane='w1:p1'), [])
         self.assertEqual(self.check(pane='w1:p2', session='host-3'), [])
@@ -1476,7 +1476,7 @@ class StaleTabs(GateRepo):
         self.register()
         self.collect()
         binding = self.state.with_name('coordinator.json')
-        rebind = f'python3 {ROOT}/scripts/next_tickets.py --repo {self.repo} effort --coordinate'
+        rebind = f'python3 {ROOT}/scripts/next_tickets.py --repo {self.repo} workstream --coordinate'
         gap = f'{binding}: the coordinator binding cannot be read; rebind with `{rebind}`'
         binding.write_text('{"pane": "w1:p1", "sessions": ["host-1"')
         self.assertEqual(self.check(pane='w1:p1'), [self.gap(), gap])
@@ -1568,22 +1568,22 @@ class AutopilotCardHold(GateRepo):
         self.assertEqual(self.check(), [])
 
     def test_a_live_worker_with_a_running_wait_lets_the_run_yield_but_a_lost_one_does_not(self):
-        # Rule: a yield while a worker of the card's effort holds a running wait that will wake the host is not an end;
+        # Rule: a yield while a worker of the card's workstream holds a running wait that will wake the host is not an end;
         # the card hold applies again once the wait is lost.
-        path = self.card(slug='effort')
-        self.lifecycle('register', 'effort/01/1', assignment='effort/01', repo=str(self.repo), worktree=str(self.repo),
+        path = self.card(slug='workstream')
+        self.lifecycle('register', 'workstream/01/1', assignment='workstream/01', repo=str(self.repo), worktree=str(self.repo),
                        head='head-1', execution=str(self.execution), runtime='claude', worker='pane-1',
                        native_session='native-1', owned=True,
                        packet=str(support.assignment_file(self.execution.parent, 'ticket')))
-        self.lifecycle('startup', 'effort/01/1', observed={'runtime': 'claude', 'model': 'sonnet'},
+        self.lifecycle('startup', 'workstream/01/1', observed={'runtime': 'claude', 'model': 'sonnet'},
                        evidence=['native.jsonl:1'])
-        self.lifecycle('submitted', 'effort/01/1', evidence=['native.jsonl:2:accepted prompt'])
+        self.lifecycle('submitted', 'workstream/01/1', evidence=['native.jsonl:2:accepted prompt'])
         pidfile, request = self.state.parent / 'wait.pid', self.state.parent / 'wait.json'
         request.write_text(json.dumps({'argv': [sys.executable, '-c',
             f'import os,time; open({str(pidfile)!r}, "w").write(str(os.getpid())); time.sleep(30)'], 'timeout': 40,
             'notify': {'argv': [sys.executable, '-c', 'pass', '{receipt}'], 'timeout': 2}}))
         watcher = subprocess.Popen([sys.executable, '-B', str(LIFECYCLE), 'watch', '--state', str(self.state),
-                                    '--attempt', 'effort/01/1', '--input', str(request)], stdout=subprocess.PIPE,
+                                    '--attempt', 'workstream/01/1', '--input', str(request)], stdout=subprocess.PIPE,
                                    text=True, env=self.env('w1:p1'))
         self.addCleanup(lambda: watcher.poll() is None and (watcher.kill(), watcher.communicate()))
         deadline = time.monotonic() + 5
@@ -1594,7 +1594,7 @@ class AutopilotCardHold(GateRepo):
         watcher.kill()
         watcher.communicate(timeout=5)
         os.killpg(int(pidfile.read_text()), 9)
-        self.assertEqual(self.check(session='host-1'), [f'{self.state}: effort/01/1: wait process lost', self.gap(path)])
+        self.assertEqual(self.check(session='host-1'), [f'{self.state}: workstream/01/1: wait process lost', self.gap(path)])
 
 
 if __name__ == '__main__':

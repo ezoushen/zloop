@@ -6,7 +6,7 @@ Front matter uses literal scalars, never quoted placeholders in a finished repor
 `review_by` and `e2e_by` name the collected worker attempts (one, or a list) whose own
 reports gave those statuses at those heads; for checks the orchestrator ran itself, `e2e_by`
 names their run_check logs. The delivery gate takes each status only from them. An effort the
-user ran directly on main adds `effort_branch: main`; the gate reads `feat/<slug>` otherwise.
+user ran directly on main adds `workstream_branch: main`; the gate reads `feat/<slug>` otherwise.
 `autofix` is `true` only when repairs are authorized; while it is unset, dispatch's
 `--autofix` counts. `blocker` names the concrete blocker
 that stops delivery, and is `none` once nothing does. The stop hooks read both fields:

@@ -31,6 +31,10 @@ class WorkstreamSpend(unittest.TestCase):
         for path in (self.claude, self.codex, self.pi):
             path.mkdir()
 
+    def test_the_script_that_named_a_workstream_effort_is_gone(self):
+        # Rule: one name, no alias beside it.
+        self.assertFalse((SCRIPT.parent / 'effort_spend.py').exists())
+
     def lifecycle(self, action, *args):
         process = subprocess.run([sys.executable, '-B', str(LIFECYCLE), action, '--state', str(self.state), *args],
                                  capture_output=True, text=True)

@@ -65,7 +65,7 @@ class CrossHarness(unittest.TestCase):
             assert 'status: ready' in b.read_text()
             write_ticket(repo, 'b/01', 'implementing', area='shared')
             write_ticket(repo, 'a/01', area='shared')
-            assert names('a') == []  # Scope must still see other efforts' area locks.
+            assert names('a') == []  # Scope must still see other workstreams' area locks.
             write_ticket(repo, 'a/01')
             assert names('a', '--max-live', '1') == []
             write_ticket(repo, 'b/01', deps=['a/01'])
@@ -120,7 +120,7 @@ class CrossHarness(unittest.TestCase):
             source_report.write_text(evidence)
             assert names('b') == ['b/01']
             write_ticket(repo, 'a/02', 'implementing')
-            assert names('b') == []  # An unfinished prerequisite effort still holds the wave.
+            assert names('b') == []  # An unfinished prerequisite workstream still holds the wave.
             write_ticket(repo, 'a/02', 'done')
             changed = cli('b', '--set', 'b/01', 'status=implementing', '--counts')
             assert '1 live' in changed.stdout and '0 done' in changed.stdout
@@ -146,7 +146,7 @@ class CrossHarness(unittest.TestCase):
             assert cli('--check', ok=False).returncode != 0
             duplicate.unlink()
             write_ticket(repo, 'a/02', deps=['b/01'])
-            assert 'cycle' in cli('--check', ok=False).stderr.lower()  # effort-level cycle
+            assert 'cycle' in cli('--check', ok=False).stderr.lower()  # workstream-level cycle
             assert not (repo / 'scripts').exists()
 
     def test_package_manifests_skills_links_and_hooks(self):

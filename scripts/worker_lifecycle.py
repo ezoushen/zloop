@@ -817,7 +817,7 @@ def record(db, data, refuse_changes=False):
                             + json.dumps(found))
                     saved['census'] = found
             if execution.get('backend'):
-                # A local backend's slot is shared by every effort on this machine.
+                # A local backend's slot is shared by every workstream on this machine.
                 capacity.acquire(execution['backend'], execution.get('capacity') or {},
                                  state_path(db), attempt)
         else:

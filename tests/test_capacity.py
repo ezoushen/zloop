@@ -65,7 +65,7 @@ class Capacity(unittest.TestCase):
         self.assertIn('lane is at capacity (2/2)', error)
         self.collect('t1/1')
         self.register('t3/1')
-        # A lease whose effort state is gone is reclaimed.
+        # A lease whose workstream state is gone is reclaimed.
         other = self.root / 'other/workers.sqlite'
         other.parent.mkdir()
         self.register('t4/1', other, code=2)

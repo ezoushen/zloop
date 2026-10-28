@@ -12,7 +12,7 @@ python3 -B scripts/panel_state.py --repo <main checkout> --session-id <host sess
 ```
 
 Text mode prints one row per line and nothing when the effort is not live. `--json` prints
-`{"active", "effort", "phase", "draft", "rows": [{"kind", "text"}], "more", "strip"}`, with `kind` one of `headline`,
+`{"active", "workstream", "phase", "draft", "rows": [{"kind", "text"}], "more", "strip"}`, with `kind` one of `headline`,
 `run`, `wait`, `blocker`, `next`, `counts`, `more`, and `more` the run rows a `+N more` row stands for. Hosts render
 only these words; they never re-derive a fact.
 

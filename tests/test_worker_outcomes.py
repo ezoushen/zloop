@@ -120,7 +120,7 @@ class Outcomes(WorkerLifecycleCase):
 
     def test_a_premised_third_repair_records_what_each_route_was_found_and_repaired_for(self):
         # Rule: the census a third repair is weighed against comes from the state, never from the orchestrator: per
-        # route, the effort's collected attempts that wrote work and the review defects and repair rounds attributed
+        # route, the workstream's collected attempts that wrote work and the review defects and repair rounds attributed
         # to them before this one. Read-only reviewers on a route are not work review could find defects in.
         error = self.register('ticket-1/1', census={'claude/opus': {'attempts': 2}}, code=2)
         self.assertIn('census', error)
