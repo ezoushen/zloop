@@ -15,6 +15,22 @@ def prose(path):
 
 
 class ZloopGlossary(unittest.TestCase):
+    def test_effort_is_model_reasoning_and_maps_to_routing_thinking(self):
+        text = (ROOT / 'GLOSSARY.md').read_text()
+        entries = dict(re.findall(r'^\*\*([^*\n]+)\*\*:\n(.*?)(?=^\*\*|^#|\Z)', text, re.M | re.S))
+        definition = ' '.join(entries['Effort'].partition('_Avoid_:')[0].split())
+        for meaning in ("model's reasoning effort", 'routing configuration', '`thinking`'):
+            with self.subTest(meaning=meaning):
+                self.assertIn(meaning, definition)
+
+    def test_drifted_words_are_avoided_under_their_canonical_terms(self):
+        text = (ROOT / 'GLOSSARY.md').read_text()
+        entries = dict(re.findall(r'^\*\*([^*\n]+)\*\*:\n(.*?)(?=^\*\*|^#|\Z)', text, re.M | re.S))
+        for term, word in (('Workstream', 'effort'), ('Host', 'harness'), ('Attempt', 'run')):
+            with self.subTest(term=term):
+                avoided = entries[term].partition('_Avoid_:')[2].strip().split(', ')
+                self.assertIn(word, avoided)
+
     def test_each_domain_concept_has_one_definition_and_avoid_list(self):
         text = (ROOT / 'GLOSSARY.md').read_text()
         entries = re.findall(r'^\*\*([^*\n]+)\*\*:\n(.*?)(?=^\*\*|^#|\Z)', text, re.M | re.S)
@@ -33,9 +49,11 @@ class ZloopGlossary(unittest.TestCase):
             'Configuration scope', 'Calibration', 'Journal', 'Case', 'Review',
             'Finding', 'Repair', 'Review target', 'Base', 'Head', 'Worktree',
             'Branch', 'PR', 'Project', 'Milestone', 'Issue', 'Focus', 'Depth',
+            'Scope', 'Comment policy', 'Standing directive', 'Stop condition',
         }
         self.assertFalse(required - set(terms), f'missing terms: {sorted(required - set(terms))}')
-        self.assertEqual(len(terms), len(set(terms)), 'each concept has one canonical entry')
+        self.assertEqual(len(terms), len({term.casefold() for term in terms}),
+                         'each concept has one canonical entry')
         for term, body in entries:
             with self.subTest(term=term):
                 definition, marker, avoided = body.partition('_Avoid_:')
