@@ -14,7 +14,7 @@ Contents:
 
 **Workstream**:
 A body of work organized around one goal, containing its alignment, tickets, assignments and evidence.
-_Avoid_: effort
+_Avoid_: effort, effort branch, effort worktree, effort slug, effort spend
 
 **Ticket**:
 A bounded deliverable within a workstream, with acceptance criteria and dependencies, recorded on its tracker.

@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Domain terms settle into the repository's GLOSSARY.md, and every phase uses them."""
+import json
 import re
 import subprocess
+import sys
 import unittest
 
 import support
 
 ROOT = support.ROOT
+CHECKER = ROOT / '.agents/skills/writing-agent-docs'
+sys.path.insert(0, str(CHECKER))
+import check_docs  # noqa: E402
 GLOSSARY = ROOT / 'runtime/domain/glossary.md'
 
 
@@ -111,6 +116,18 @@ class Glossary(unittest.TestCase):
             cwd=ROOT, capture_output=True, text=True)
         self.assertIn(found.returncode, (0, 1), found.stderr)
         self.assertEqual('', found.stdout)
+
+    def test_the_doc_checker_reads_the_glossary_and_avoids_the_words_it_lists(self):
+        # Rule: the checker is configured with GLOSSARY.md; "effort" and "run" are terms too, so only the longer
+        # phrases and "harness" are matched.
+        self.assertEqual(json.loads((CHECKER / 'config.json').read_text())['glossary'], 'GLOSSARY.md')
+        avoided = dict(check_docs.avoided_words(ROOT / 'GLOSSARY.md'))
+        self.assertEqual(avoided['harness'], 'Host')
+        self.assertEqual({phrase: avoided[phrase] for phrase in ('effort branch', 'effort worktree', 'effort slug',
+                                                                  'effort spend')}, {
+            'effort branch': 'Workstream', 'effort worktree': 'Workstream',
+            'effort slug': 'Workstream', 'effort spend': 'Workstream'})
+        self.assertFalse({'effort', 'run', 'none'} & set(avoided))
 
     def test_no_doc_names_the_old_glossary_file(self):
         found = subprocess.run(

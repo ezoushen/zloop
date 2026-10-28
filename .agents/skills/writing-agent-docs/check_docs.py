@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Find smells in agent-facing Markdown: docs too big for one read, broken links and
-anchors, orphans, stale names and skill frontmatter outside the published format.
+anchors, orphans, stale names, words the glossary avoids and skill frontmatter outside
+the published format.
 
 usage: check_docs.py [--root DIR] [--config FILE] [--changed BASE] [--json]
 
@@ -10,6 +11,7 @@ BASE (plus untracked files) and flags positional references on added lines; link
 anchors, orphans and code paths stay repo-wide, because a move breaks other files.
 """
 import argparse
+from bisect import bisect_right
 import json
 import os
 from pathlib import Path
@@ -74,6 +76,47 @@ def prose(path):
                 fence = None
         else:
             yield number, line
+
+
+def avoided_words(glossary):
+    """[(phrase, term)] for each `_Avoid_` phrase of the glossary's entries. A phrase that is also another
+    entry's term is skipped, since the glossary uses that word for another concept and a match could not tell
+    the senses apart; list a longer phrase ("effort branch") to avoid one sense of it."""
+    entries = re.findall(r'^\*\*([^*\n]+)\*\*:\n(.*?)(?=^\*\*|^#|\Z)', glossary.read_text(), re.M | re.S)
+    terms = {term.casefold() for term, _ in entries}
+    avoided = []
+    for term, body in entries:
+        for line in re.findall(r'^_Avoid_:(.*)$', body, re.M):
+            phrases = [phrase.strip() for phrase in line.split(',')]
+            avoided += [(phrase, term) for phrase in phrases
+                        if phrase and phrase.casefold() != 'none' and phrase.casefold() not in terms]
+    return avoided
+
+
+def avoided_findings(path, rel, glossary, avoided):
+    """Findings for each avoided phrase in a doc's prose. Matching is by whole phrase, ignoring case, with
+    an optional plural, across a line wrap or a hyphen. Inline code, fenced code and link targets quote a
+    phrase without using it; the glossary's own `_Avoid_` lines are its definitions."""
+    if not avoided:
+        return []
+    text, starts, previous = '', [], None
+    for number, line in prose(path):
+        if not line.strip() or path == glossary and line.startswith('_Avoid_:'):
+            continue
+        line = INLINE_LINK.sub(lambda m: m.group(1), re.sub(r'(`+)(?:(?!\1).)+?\1', '\0', line))
+        text += '\n' if previous == number - 1 else '\0'  # a gap in the lines breaks a phrase
+        starts.append((len(text), number))
+        text += line
+        previous = number
+    offsets = [offset for offset, _ in starts]
+    findings = []
+    for phrase, term in avoided:
+        pattern = r'(?<!\w)' + r'(?:\s+|-)'.join(map(re.escape, phrase.split())) + r'(?:e?s)?(?!\w)'
+        for match in re.finditer(pattern, text, re.I):
+            number = starts[bisect_right(offsets, match.start()) - 1][1]
+            findings.append(Finding(rel(path), number, 'error', 'avoided-word',
+                                    f'"{phrase}" is an _Avoid_ word in {rel(glossary)}; write {term}'))
+    return findings
 
 
 def links(text):
@@ -277,6 +320,10 @@ def check(root, config, changed=None, architecture=None):
     skills = expand(root, config['skill_files'])
     entry = set(expand(root, config.get('entry_points', [])))
     in_scope = (lambda path: True) if changed is None else (lambda path: path in changed)
+    glossary = root / config['glossary'] if config.get('glossary') else None
+    if glossary and not glossary.is_file():
+        raise InputError(f'glossary {config["glossary"]} does not exist')
+    avoided = avoided_words(glossary) if glossary else []
     basenames = tracked_names(root) | set(config.get('known_names', []))
 
     # Size in every checked doc, since agents read people's docs too; contents and per-line smells in agent docs.
@@ -314,6 +361,7 @@ def check(root, config, changed=None, architecture=None):
             elif listed != sections:
                 findings.append(Finding(rel(path), 1, 'error', 'contents',
                                         'a long multi-section doc starts with "Contents:" listing every ## section in order'))
+        findings.extend(avoided_findings(path, rel, glossary, avoided))
         for number, line in prose(path):
             text = strip_code(line)
             if DATED.search(text):
@@ -474,7 +522,11 @@ def main():
     except (InputError, OSError, ValueError) as error:
         print(f'check_docs.py: {error}', file=sys.stderr)
         return 2
-    findings = check(root, config, changed, architecture)
+    try:
+        findings = check(root, config, changed, architecture)
+    except InputError as error:
+        print(f'check_docs.py: {error}', file=sys.stderr)
+        return 2
     if args.json:
         print(json.dumps(findings, indent=1))
     else:

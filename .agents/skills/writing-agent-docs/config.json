@@ -1,4 +1,5 @@
 {
+  "glossary": "GLOSSARY.md",
   "docs": [
     "GLOSSARY.md",
     "skills/**/*.md",

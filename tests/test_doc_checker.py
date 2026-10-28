@@ -324,5 +324,95 @@ class DocChecker(Fixture):
         self.assertEqual(self.check(), {('skills/tool/SKILL.md', 1, 'description-budget', 'warning')})
 
 
+GLOSSARY = """# Fixture
+
+## Language
+
+**Workstream**:
+A body of work organized around one goal.
+_Avoid_: effort, effort branch, effort slug
+
+**Effort**:
+The model's reasoning effort.
+_Avoid_: none
+
+**Host**:
+The app that runs the session.
+_Avoid_: gadget, app shell
+"""
+
+
+class AvoidedWords(Fixture):
+    """Rule: an agent doc does not use a word the glossary lists under `_Avoid_`; the error names the term to use."""
+
+    def setUp(self):
+        super().setUp()
+        self.config['glossary'] = 'GLOSSARY.md'
+        self.config['docs'] = [*CONFIG['docs'], 'GLOSSARY.md']
+        self.config['entry_points'] = [*CONFIG['entry_points'], 'GLOSSARY.md']
+        self.write('GLOSSARY.md', GLOSSARY)
+
+    def avoided(self):
+        return [(f['path'], f['line'], f['message']) for f in self.check_full() if f['code'] == 'avoided-word']
+
+    def test_an_avoided_phrase_is_an_error_naming_the_phrase_the_line_and_the_term_to_use(self):
+        self.write('shared/guide.md', GUIDE + '\nOpen the effort branch.\n')
+        self.assertEqual(self.avoided(), [(
+            'shared/guide.md', 7, '"effort branch" is an _Avoid_ word in GLOSSARY.md; write Workstream')])
+        self.assertEqual(self.check(), {('shared/guide.md', 7, 'avoided-word', 'error')})
+
+    def test_a_quoted_phrase_is_not_a_use_and_neither_is_a_link_target(self):
+        # The one way to quote: inline code or a fenced block; a link target is a file name, not prose.
+        self.write('shared/effort-branch.md', GUIDE)
+        self.write('shared/guide.md', GUIDE + '\nThe old word was `effort branch`, and ``a gadget`` too.\n'
+                   + '\n```\nthe effort branch\n```\n\nSee [the guide](effort-branch.md).\n')
+        self.assertEqual(self.avoided(), [])
+
+    def test_a_phrase_that_is_also_a_term_matches_only_where_the_glossary_lists_a_longer_phrase(self):
+        # Rule: "effort" is a term of its own (model effort), so it alone never errors; "effort branch" does.
+        self.write('shared/guide.md', GUIDE + '\nSet the model effort, as no effort is spared.\n'
+                   + 'Nothing here is gadgeted or none.\n')
+        self.assertEqual(self.avoided(), [])
+        self.write('shared/guide.md', GUIDE + '\nThe effort slug and the model effort.\n')
+        self.assertEqual(self.avoided(), [(
+            'shared/guide.md', 7, '"effort slug" is an _Avoid_ word in GLOSSARY.md; write Workstream')])
+
+    def test_a_phrase_is_found_ignoring_case_and_plural_across_a_wrap_and_a_hyphen(self):
+        self.write('shared/guide.md', GUIDE + '\nThe Effort Branch.\nAn effort-slug and two\nGadgets; its effort\nslugs.\n')
+        self.assertEqual(self.avoided(), [
+            ('shared/guide.md', 7, '"effort branch" is an _Avoid_ word in GLOSSARY.md; write Workstream'),
+            ('shared/guide.md', 8, '"effort slug" is an _Avoid_ word in GLOSSARY.md; write Workstream'),
+            ('shared/guide.md', 9, '"effort slug" is an _Avoid_ word in GLOSSARY.md; write Workstream'),
+            ('shared/guide.md', 9, '"gadget" is an _Avoid_ word in GLOSSARY.md; write Host')])
+
+    def test_a_phrase_does_not_join_words_across_a_paragraph_a_list_item_or_a_code_block(self):
+        self.write('shared/guide.md', GUIDE + '\nAn effort\n\nbranch of the tree.\n\n- the effort\n- branch\n\n'
+                   + 'An effort\n```\ncode\n```\nslug follows, as does an effort `x` slug.\n')
+        self.assertEqual(self.avoided(), [])
+
+    def test_the_glossary_passes_with_its_avoid_lists_but_not_a_definition_that_uses_an_avoided_word(self):
+        self.assertEqual(self.avoided(), [])
+        self.write('GLOSSARY.md', GLOSSARY.replace('around one goal.', 'around one goal, like a gadget.'))
+        self.assertEqual(self.avoided(), [(
+            'GLOSSARY.md', 6, '"gadget" is an _Avoid_ word in GLOSSARY.md; write Host')])
+
+    def test_a_peoples_doc_may_use_an_avoided_word(self):
+        # Rule: only the configured agent docs are held to the glossary; README and docs/ (ADRs included) are not.
+        self.write('README.md', '# Project\n\nSee [tool](skills/tool/SKILL.md) for the effort branch.\n')
+        self.assertEqual(self.avoided(), [])
+
+    def test_without_a_glossary_in_the_config_nothing_is_avoided_and_a_missing_glossary_is_invalid_input(self):
+        self.write('shared/guide.md', GUIDE + '\nOpen the effort branch.\n')
+        del self.config['glossary']
+        self.assertEqual(self.avoided(), [])
+        self.config['glossary'] = 'MISSING.md'
+        config = Path(self.config_dir.name) / 'checker.json'
+        config.write_text(json.dumps(self.config))
+        result = subprocess.run([sys.executable, str(CHECKER), '--root', str(self.root), '--config', str(config)],
+                                capture_output=True, text=True)
+        self.assertEqual((result.returncode, result.stdout), (2, ''))
+        self.assertIn('MISSING.md', result.stderr)
+
+
 if __name__ == '__main__':
     unittest.main()

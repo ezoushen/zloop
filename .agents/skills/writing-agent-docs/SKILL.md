@@ -34,7 +34,8 @@ Other hosts rely on the Git hooks: enable them once per clone with
 `git config core.hooksPath .githooks`.
 
 [config.json](config.json) says which files are agent docs, which files' links
-count, where code names doc paths, the byte budget and the recorded debt.
+count, where code names doc paths, the byte budget, the recorded debt and the `glossary` whose
+`_Avoid_` phrases agent docs must not use.
 [architecture.json](architecture.json) holds the module architecture: ordered levels
 (top may depend on lower ones and on itself, never on a sibling or a higher level),
 which files each module owns, the first-read budget and the debt for that contract.
@@ -76,6 +77,7 @@ differs from the base; list deliberate edits in a JSON file passed with `--allow
 | `unowned` | An agent doc links or names a Markdown file no module owns, such as one in `docs/` | Move that file into the module that owns its subject |
 | `positional` | `above` or `below` that may point at moved text | Link or name the target instead |
 | `stale-name` | Text names a `.md` file that exists nowhere | Link the doc that now holds it, or add a generic project name to `known_names` |
+| `avoided-word` | An agent doc uses a phrase the glossary lists under `_Avoid_`, as a whole phrase in any case, plural or line wrap | Write the term the error names; quote a phrase you must name in backticks or a fenced block. A phrase that is also a glossary term (`effort`) is not matched alone: the glossary lists the longer phrase to avoid (`effort branch`) |
 | `dated`, `backslash`, `person` | Time-bound wording, Windows path, first/second-person description | Reword |
 | `description-budget` | Skill descriptions over the local budget in config | Shorten descriptions |
 
