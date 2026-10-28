@@ -33,7 +33,7 @@ class RunAll(unittest.TestCase):
             pass
         runner.wait()
 
-    def suite(self, scripts, env=None):
+    def suite(self, scripts, env=None, args=()):
         directory = tempfile.TemporaryDirectory(prefix='run all ')
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
@@ -45,13 +45,36 @@ class RunAll(unittest.TestCase):
         # A Git hook exports GIT_DIR; the runner must not pass it to the scripts.
         env = self.outermost(dict(PYTHON=sys.executable, GIT_DIR=str(root / '.git'), **(env or {})))
         self.root = root
-        return subprocess.run([sys.executable, str(root / 'tests/run_all.py')], env=env,
+        return subprocess.run([sys.executable, str(root / 'tests/run_all.py'), *args], env=env, cwd=root,
                               capture_output=True, text=True, timeout=60)
 
     def test_every_script_passing_exits_zero_and_counts_them(self):
         result = self.suite({'test_one.py': 'pass\n', 'test_two.py': 'pass\n', 'helper.py': 'raise SystemExit(1)\n'})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(f'2 regression scripts passed ({sys.executable})', result.stdout)
+
+    def test_named_scripts_run_alone_and_are_the_ones_counted(self):
+        # Rule: a focused run names its scripts; the others, a failing one among them, do not run.
+        result = self.suite({'test_one.py': 'pass\n', 'test_two.py': 'pass\n', 'test_bad.py': 'raise SystemExit(1)\n'},
+                            args=['tests/test_one.py', str(Path('tests/test_two.py'))])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, f'2 regression scripts passed ({sys.executable})\n')
+
+    def test_a_path_that_is_no_test_script_here_is_refused_and_nothing_runs(self):
+        # Rule: a mistyped or foreign path must not pass as a green run of fewer scripts.
+        ran = Path(tempfile.mkdtemp(prefix='run all ran '))
+        self.addCleanup(shutil.rmtree, ran)
+        script = f'open({str(ran / "one")!r}, "w").close()\n'
+        outside = Path(tempfile.mkdtemp(prefix='run all outside '))
+        self.addCleanup(shutil.rmtree, outside)
+        (outside / 'test_far.py').write_text('pass\n')
+        for path in ('tests/test_onw.py', 'tests/helper.py', 'tests', str(outside / 'test_far.py')):
+            with self.subTest(path=path):
+                result = self.suite({'test_one.py': script, 'helper.py': 'pass\n'}, args=['tests/test_one.py', path])
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertEqual(result.stdout, '')
+                self.assertEqual(result.stderr, f'run_all: not a tests/test_*.py script of this checkout: {path}\n')
+                self.assertEqual(list(ran.iterdir()), [])
 
     def test_a_failure_exits_one_and_prints_its_name_and_output_tail(self):
         result = self.suite({'test_good.py': 'pass\n',

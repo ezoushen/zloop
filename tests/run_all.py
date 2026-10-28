@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Run every tests/test_*.py regression script in parallel, split into units, at most one unit per CPU at a time across all runs.
 
-usage: tests/run_all.py
+usage: tests/run_all.py [tests/test_<name>.py ...]
+
+Named scripts run alone, a focused run while editing; with none, every script runs, the full gate.
 
 Uses the plugin environment's .venv (the main checkout's, from a worktree) unless
 PYTHON names another interpreter. Concurrent runs on the machine share one budget of
@@ -87,7 +89,23 @@ def units(stem, ids):
     return sorted(result, key=lambda unit: -unit[2])
 
 
-def main():
+def chosen(paths):
+    """The scripts `paths` name, or None after saying which path is no test script of this checkout."""
+    tests = (ROOT / 'tests').resolve()
+    scripts = set()
+    for path in paths:
+        script = Path(path).resolve()
+        if not (script.is_file() and script.parent == tests and script.match('test_*.py')):
+            print(f'run_all: not a tests/test_*.py script of this checkout: {path}', file=sys.stderr)
+            return None
+        scripts.add(script)
+    return scripts
+
+
+def main(paths=()):
+    named = chosen(paths)
+    if named is None:
+        return 2
     # Exit through the context manager on a hook's teardown, so the log directory is removed.
     for number in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(number, lambda number, frame: sys.exit(128 + number))
@@ -121,7 +139,7 @@ def main():
             held.append((slot, process))
             return process
 
-        scripts = sorted((ROOT / 'tests').glob('test_*.py'))
+        scripts = sorted(named or (ROOT / 'tests').glob('test_*.py'))
         # One unit per slot: starting all of them at once starves those that assert a deadline.
         collectors = []
         for test in scripts:
@@ -160,4 +178,4 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

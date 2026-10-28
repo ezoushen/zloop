@@ -34,7 +34,9 @@ only accepted ADRs bind, and a change that conflicts with one is raised, not wor
 
 `python3 tests/run_all.py` runs every `tests/test_*.py` file as per-class units with the plugin environment's `.venv`
 and exits 1 on any failure; concurrent runs share one budget of CPU slots (`ZLOOP_TEST_SLOTS`,
-`ZLOOP_TEST_SLOT_DIR`), so a run takes the cores it is given. Tests are
+`ZLOOP_TEST_SLOT_DIR`), so a run takes the cores it is given. Named scripts
+(`python3 tests/run_all.py tests/test_a.py tests/test_b.py`) run alone the same way, for the tests a change touches;
+a path that is no `tests/test_*.py` script is refused. Tests are
 `unittest` cases, so one file, class or test runs on its own. The default suite needs
 an installed `claude` for `test_claude_effort.py`, which runs it against a local fake
 API. `tests/support.py` locates and loads the scripts and builds an environment whose
