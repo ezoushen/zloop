@@ -22,7 +22,7 @@ class TicketModes(unittest.TestCase):
                      'Default to inline for sequential, well-understood tickets whose context the session already holds',
                      'Delegate tickets that can run in parallel, need a clean context, carry high risk or would crowd',
                      "The user's instruction on how a ticket runs wins",
-                     'Record the mode and its reason in the run report'):
+                     'Record the mode and its reason in the dispatch report'):
             self.assertIn(rule, text)
         self.assertIn('[how a ticket runs](modes.md)', prose(DISPATCH / 'iteration.md'))
 
@@ -55,7 +55,7 @@ class TicketModes(unittest.TestCase):
         text = prose(MODES)
         for rule in ('Every workstream gets a dedicated branch by default',
                      'Only an explicit user instruction to work directly on main makes `main` the workstream branch',
-                     'record that instruction and the starting commit in the run report',
+                     'record that instruction and the starting commit in the dispatch report',
                      'delegated tickets merge into `main` under that instruction', 'Never push'):
             self.assertIn(rule, text)
         self.assertIn('[directly on main](modes.md#directly-on-main)', prose(DISPATCH / 'iteration.md'))
