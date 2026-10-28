@@ -12,5 +12,6 @@
     "tdd",
     "tickets",
     "scrum"
-  ]
+  ],
+  "types": "./types/index.d.ts"
 }

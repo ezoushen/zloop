@@ -2,6 +2,8 @@
  * zloop's panel in Claude Code: this session's effort, drawn in a pane of its own.
  * The rows come from the plugin's fact source, so Pi and Claude Code show the same words for the same state.
  */
+import { atom, read, update } from "claude-code";
+
 const REFRESH_MS = 2000;
 const PANE = "zloop-panel";
 const QUIET = "No zloop effort is live in this session.";
@@ -48,18 +50,18 @@ const TONES = {
   more: { color: "subtle" },
 };
 
-/** The snapshot last read, or null when the fact source could not answer. */
-let snapshot = null;
 /** Whether this module instance already started the refresh clock. */
 let ticking = false;
 /** Whether a refresh is in flight. */
 let refreshing = false;
-/** Whether the pane was open at the last look, so a pane gone since was closed by the person. */
-let wasOpen = false;
-/** Whether the panel opened the pane unasked, which it then closes once the effort goes quiet. */
-let isUnasked = false;
-/** The effort live when the pane was closed by hand, which stays closed until another effort goes live. */
-let closedFor = null;
+/**
+ * What the panel remembers of the pane (types/index.d.ts), kept in the session's state so a hot reload does not
+ * forget a person's close. Change the tag when its fields change: it declines what an earlier version stored.
+ */
+const memory = atom({ plugin: "zloop", key: "pane" }, { wasOpen: false, isUnasked: false, closedFor: null },
+  { shape: "pane-1" });
+/** The snapshot last read, or null when the fact source could not answer; kept so a reload draws it until the next. */
+const snapshot = atom({ plugin: "zloop", key: "snapshot" }, null, { shape: "snapshot-1" });
 
 /** Ask the fact source for this session's rows; failures and unparseable output leave nothing to draw. */
 async function readSnapshot($, cwd) {
@@ -75,46 +77,47 @@ async function readSnapshot($, cwd) {
   }
 }
 
-/** The live effort's name, or null while nothing of this session is live. */
-const liveEffort = () => (snapshot && snapshot.active ? String(snapshot.effort ?? "") : null);
+/** The live effort's name in `facts`, or null while nothing of this session is live. */
+const liveEffort = (facts) => (facts && facts.active ? String(facts.effort ?? "") : null);
 
 /**
  * Open the pane while this session's effort is live, and close the one opened for it once it goes quiet. While the
  * pane waits undrawn (opened unasked on a narrow terminal), the snapshot's strip holds the status line instead.
  */
-async function follow($) {
-  const live = liveEffort();
+async function follow($, facts) {
+  const live = liveEffort(facts);
   const find = async () => (await $.ui.panes()).find((one) => one.id === PANE);
   let pane = await find();
+  // Each field is written as soon as it is decided, before the next wait, so a /zloop-panel run meanwhile writes last.
+  const remember = (fields) => update($, memory, (now) => ({ ...now, ...fields }));
+  let { wasOpen, isUnasked, closedFor } = await read($, memory);
   if (!pane && wasOpen) {
     closedFor = live;
-    isUnasked = false;
+    await remember({ closedFor, isUnasked: false });
   }
   if (pane && live === null && isUnasked) {
-    isUnasked = false;
+    await remember({ isUnasked: false });
     await $.ui.close({ id: PANE });
     pane = await find();
   } else if (!pane && live !== null && live !== closedFor) {
-    isUnasked = true;
+    await remember({ isUnasked: true });
     await $.ui.open({ id: PANE, title: "zloop" });
     pane = await find();
   }
-  wasOpen = Boolean(pane);
-  $.ui.status(pane && !pane.isPlaced && live !== null && snapshot.strip ? String(snapshot.strip) : undefined);
+  await remember({ wasOpen: Boolean(pane) });
+  $.ui.status(pane && !pane.isPlaced && live !== null && facts.strip ? String(facts.strip) : undefined);
 }
 
 /** `/zloop-panel`: close the pane when it is drawn, holding it closed for this effort; else open it until closed. */
 async function toggle($) {
   // A pane waiting undrawn counts as closed: the person's own open is what seats it.
   const isOpen = (await $.ui.panes()).some((one) => one.id === PANE && one.isPlaced);
-  isUnasked = false;
-  wasOpen = !isOpen;
+  const closedFor = isOpen ? liveEffort(await read($, snapshot)) : null;
+  await update($, memory, () => ({ wasOpen: !isOpen, isUnasked: false, closedFor }));
   if (isOpen) {
-    closedFor = liveEffort();
     await $.ui.close({ id: PANE });
     return "zloop panel closed.";
   }
-  closedFor = null;
   await $.ui.open({ id: PANE, title: "zloop" });
   return "zloop panel opened.";
 }
@@ -124,9 +127,10 @@ async function refresh($, cwd) {
   if (refreshing) return;
   refreshing = true;
   try {
-    snapshot = await readSnapshot($, cwd);
-    await follow($);
-    $.ui.invalidate("ui.render");
+    const facts = await readSnapshot($, cwd);
+    // The write draws the pane again.
+    await update($, snapshot, () => facts);
+    await follow($, facts);
   } finally {
     refreshing = false;
   }
@@ -148,8 +152,9 @@ export function register(on) {
   on("command.run", { command: "zloop-panel" }, async ($) => ({ text: await toggle($) }));
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
-    const rows = snapshot && snapshot.active && Array.isArray(snapshot.rows)
-      ? snapshot.rows.filter((row) => row && typeof row.text === "string" && row.text)
+    const facts = await read($, snapshot);
+    const rows = facts && facts.active && Array.isArray(facts.rows)
+      ? facts.rows.filter((row) => row && typeof row.text === "string" && row.text)
       : [];
     const C = $.ui.resolve(e);
     const width = e?.props?.bodyColumns ?? 80;

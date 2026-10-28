@@ -21,13 +21,15 @@ const QUIET = { active: false, effort: null, phase: null, draft: false, rows: []
 
 // What the engine answers beneath the session: a clock, the fact source's output (changed by `world.facts`), the
 // panes it keeps open and the status line pinned.
-const beneath = (on: any, facts?: Record<string, unknown> | string) => {
+const beneath = (on: any, facts?: Record<string, unknown> | string, stored: Record<string, unknown> = {}) => {
   const world = {
     facts,
     panes: [] as { id: string; title: string; isPlaced: boolean }[],
     opened: [] as string[],
     pinned: [] as (string | undefined)[],
     isPlaced: true,
+    // Set, the first look at the panes after an open waits here until the test releases it.
+    hold: undefined as undefined | { reached: () => void; released: Promise<void> },
   };
   on("session.start", () => ({ cwd: "/work" }));
   on("session.id", () => ({ value: "session-1" }));
@@ -48,12 +50,27 @@ const beneath = (on: any, facts?: Record<string, unknown> | string) => {
     world.panes = world.panes.filter((pane) => pane.id !== e.id);
     return { value: undefined };
   });
-  on("ui.panes", () => ({
-    value: world.panes.map((pane) => ({ ...pane, isShown: pane.isPlaced, isFocused: false })),
-  }));
+  on("ui.panes", async () => {
+    const value = world.panes.map((pane) => ({ ...pane, isShown: pane.isPlaced, isFocused: false }));
+    const hold = world.hold;
+    if (hold && world.opened.length) {
+      world.hold = undefined;
+      hold.reached();
+      await hold.released;
+    }
+    return { value };
+  });
   on("ui.status", (_$: any, e: any) => {
     world.pinned.push(e.text);
     return { value: undefined };
+  });
+  // What an earlier load of the plugin left in the session's state, read until the plugin writes that key again; the
+  // kit's own store answers the rest.
+  on("state.get", (_$: any, e: any, next: any) =>
+    e.plugin === "zloop" && e.key in stored ? { value: { value: stored[e.key], version: 0 } } : next(e));
+  on("state.set", (_$: any, e: any, next: any) => {
+    if (e.plugin === "zloop") delete stored[e.key];
+    return next(e);
   });
   // The engine's own drawings, beneath this plugin's hooks.
   on("ui.render", { component: "AbovePrompt" }, () => ({ type: "Text", props: {}, children: ["engine band"] }));
@@ -135,6 +152,29 @@ describe("zloop panel", () => {
     expect(world.panes.map((one) => [one.id, one.isPlaced])).toEqual([[PANE, true]]);
   });
 
+  test("a pane /zloop-panel seats while the panel is opening it stays open once the effort goes quiet", async ($, on) => {
+    const { world, clock } = beneath(on, QUIET);
+    world.isPlaced = false;
+    await started($);
+    world.facts = snapshot();
+    // The refresh opens the pane unasked, then waits on its next look while the person runs /zloop-panel.
+    let reached!: () => void;
+    let release!: () => void;
+    const isReached = new Promise<void>((resolve) => { reached = resolve; });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    world.hold = { reached, released };
+    const ticked = clock.advance(2000);
+    await isReached;
+    world.isPlaced = true;
+    const ran = await $.command.run({ command: "zloop-panel" });
+    expect(ran.text).toBe("zloop panel opened.");
+    release();
+    await ticked;
+    world.facts = QUIET;
+    await clock.advance(2000);
+    expect(world.panes.map((one) => one.id)).toEqual([PANE]);
+  });
+
   test("/zloop-panel opens the pane while nothing is live, and it stays open while quiet", async ($, on) => {
     const { world, clock } = beneath(on, QUIET);
     await started($);
@@ -198,6 +238,35 @@ describe("zloop panel", () => {
     world.facts = "not json";
     await clock.advance(2000);
     expect(await texts(await pane($))).toEqual(["No zloop effort is live in this session."]);
+  });
+
+  // A hot reload of the plugin starts its module over and runs session.start again; the session's state stays.
+  test("a pane the person closed stays closed for that effort after a reload", async ($, on) => {
+    const { world } = beneath(on, snapshot(), {
+      pane: { shape: "pane-1", value: { wasOpen: false, isUnasked: false, closedFor: "demo" } },
+    });
+    await started($);
+    expect(world.opened).toEqual([]);
+  });
+
+  test("a pane the panel opened itself still closes once the effort goes quiet after a reload", async ($, on) => {
+    const { world } = beneath(on, QUIET, {
+      pane: { shape: "pane-1", value: { wasOpen: true, isUnasked: true, closedFor: null } },
+    });
+    // The engine keeps the pane open across the reload.
+    world.panes = [{ id: PANE, title: "zloop", isPlaced: true }];
+    await started($);
+    expect(world.panes).toEqual([]);
+  });
+
+  test("after a reload the pane draws the rows last read until the next read lands", async ($, on) => {
+    beneath(on, undefined, { snapshot: { shape: "snapshot-1", value: snapshot() } });
+    // Drawn before the reloaded module's session.start has read the fact source again.
+    expect(await texts(await pane($))).toEqual([
+      "demo · dispatch",
+      "▶ builder · zloop-panel/02 · sonnet · quiet 1m",
+      "1 done · 0 blocked · 2 ready · 1 live",
+    ]);
   });
 
   test("leaves the band above the prompt to the engine", async ($, on) => {

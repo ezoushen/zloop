@@ -52,7 +52,9 @@ identical and styling cannot widen a line — and a run row keeps the default st
   It refreshes every two seconds, opens the pane when this session's effort goes live and closes it when the effort
   goes quiet. A pane the person closes stays closed until another effort goes live; `/zloop-panel` opens or closes it
   by hand, and one opened that way stays open, saying when nothing is live. An unasked pane on a narrow terminal waits
-  undrawn, and the snapshot's `strip` holds the status line until it draws or `/zloop-panel` seats it.
+  undrawn, and the snapshot's `strip` holds the status line until it draws or `/zloop-panel` seats it. What it
+  remembers of the pane and the snapshot last read live in the session's state (`types/index.d.ts`), so a reload of
+  the plugin keeps a person's close and draws the last rows until its first read.
 
 Either host draws no rows when the snapshot is missing, fails or prints something unparseable: a stale or invented
 card is worse than none.
