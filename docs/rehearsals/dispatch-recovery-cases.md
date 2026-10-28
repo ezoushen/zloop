@@ -13,7 +13,7 @@
    exits zero. The underlying wait timed out; the assigned worker is still working
    and its report contains only the starting base. State the disposition and next
    action without inventing a finished report.
-4. The run log lists A as implementing and B as blocked. The board marks A done,
+4. The dispatch log lists A as implementing and B as blocked. The board marks A done,
    its full report and commit verify, and that commit is integrated into the workstream
    branch. No worker remains active. B depends only on A and is within the accepted
    scope. State what to reconcile and what happens next. Then repeat with B also
