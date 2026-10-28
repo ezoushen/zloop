@@ -299,6 +299,54 @@ class PanelState(unittest.TestCase):
         (self.scratch / 'alpha' / 'reports' / 'coordinator.json').write_text('[]')
         self.assertEqual('alpha', self.snapshot('S')['effort'])
 
+    def test_a_worker_this_session_registered_ties_its_effort(self):
+        # A run with no card, binding or journal, such as remediate's audit workers: the lifecycle records every host
+        # session the registrar exported, here S started inside another host's shell, so `session` is the outer one.
+        attempts(self.scratch / 'remediate-tests' / 'reports' / 'workers.sqlite',
+                 [dict(live('1/audit-1', assignment='remediate-tests/audit-1', agent='reviewer'), session='outer',
+                       sessions=['outer', 'S'])])
+        found = self.snapshot('S')
+        self.assertTrue(found['active'])
+        self.assertEqual('remediate-tests', found['effort'])
+        self.assertEqual(['remediate-tests', '▶ reviewer · remediate-tests/audit-1 · sonnet · quiet 30s'],
+                         self.row_texts(found))
+
+    def test_of_the_efforts_tied_to_this_session_a_live_one_wins_then_the_binding_order(self):
+        # The session dispatched alpha, which has delivered, and now runs remediate workers: they are what is live.
+        card(self.scratch / 'alpha' / 'autopilot.md', session='unknown', phase='ended', terminal='delivered')
+        coordinator(self.scratch / 'alpha', ['S'])
+        state = attempts(self.scratch / 'remediate-x' / 'reports' / 'workers.sqlite',
+                         [dict(live('1/audit-1'), session='S', sessions=['S'])])
+        self.assertEqual(('remediate-x', True), (self.snapshot('S')['effort'], self.snapshot('S')['active']))
+        # Both live: the binding comes before registered workers, however recent the workers.
+        card(self.scratch / 'alpha' / 'autopilot.md', session='unknown')
+        later = time.time() + 120
+        os.utime(state, (later, later))
+        self.assertEqual(('alpha', True), (self.snapshot('S')['effort'], self.snapshot('S')['active']))
+
+    def test_another_sessions_worker_ties_nothing_to_this_session(self):
+        attempts(self.scratch / 'theirs' / 'reports' / 'workers.sqlite',
+                 [dict(live('1/ticket-1'), session='T', sessions=['T'])])
+        self.assertEqual({'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'strip': None},
+                         self.snapshot('S'))
+        self.assertEqual('theirs', self.snapshot('T')['effort'])
+
+    def test_a_hand_written_attempt_that_is_not_a_session_record_ties_nothing(self):
+        # A `sessions` string that contains this session's id, and a row that is not an object, are skipped as data.
+        attempts(self.scratch / 'odd' / 'reports' / 'workers.sqlite', [dict(live('1/ticket-1'), sessions='xSx')])
+        db = sqlite3.connect(attempts(self.scratch / 'odder' / 'reports' / 'workers.sqlite', []))
+        db.execute('INSERT INTO attempts VALUES (?, ?)', ('1/ticket-2', json.dumps(['S'])))
+        db.commit()
+        db.close()
+        self.assertEqual({'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'strip': None},
+                         self.snapshot('S'))
+
+    def test_an_attempt_registered_before_session_lists_ties_by_its_one_session(self):
+        # Registrations from before 2026-10-27 record `session` alone.
+        attempts(self.scratch / 'older' / 'reports' / 'workers.sqlite', [dict(live('1/ticket-1'), session='S')])
+        self.assertEqual('older', self.snapshot('S')['effort'])
+        self.assertTrue(self.snapshot('S')['active'])
+
     def test_two_sessions_each_see_their_own_effort(self):
         for slug, session in (('alpha', 'S'), ('beta', 'T')):
             card(self.scratch / slug / 'autopilot.md', session='unknown')

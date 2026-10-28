@@ -206,23 +206,50 @@ def bound_sessions(effort):
     return [str(session) for session in sessions] if isinstance(sessions, list) else []
 
 
-def chosen(repo, session_id):
-    """The effort a record binds to this session, or None when none does.
+def registered_by(effort, session_id):
+    """Whether a worker attempt in the effort's state was registered by this host session."""
+    state = effort / 'reports' / 'workers.sqlite'
+    if not state.is_file():
+        return False
+    try:
+        db = sqlite3.connect(f'file:{state}?mode=ro', uri=True)
+        try:
+            rows = [json.loads(row[0]) for row in db.execute('SELECT data FROM attempts')]
+        finally:
+            db.close()
+    except (sqlite3.DatabaseError, OSError, ValueError):
+        return False
+    return any(session_id in recorded_sessions(data) for data in rows)
 
-    A binding wins over derivation: `next_tickets.py --coordinate` records the sessions running an effort, so two
-    sessions in one checkout each read their own. Failing that, the card naming this session, then its journal. An
-    effort no record ties to this session is another session's, however recent, so a session just opened shows none.
+
+def recorded_sessions(data):
+    """The host sessions an attempt's registrar exported: its session list, else its one session, as the yield gate
+    reads them; none for a row that is not such a record."""
+    if not isinstance(data, dict):
+        return []
+    listed = data.get('sessions') if isinstance(data.get('sessions'), list) else []
+    return [value for value in listed if isinstance(value, str)] or (
+        [data['session']] if isinstance(data.get('session'), str) else [])
+
+
+def tied(repo, session_id):
+    """The efforts a record ties to this session, each once, in binding order.
+
+    A binding comes first: `next_tickets.py --coordinate` records the sessions running an effort, so two sessions in
+    one checkout each read their own. Then the card naming this session, its journal, and last the efforts whose
+    workers it registered, whose states are read only when the caller asks past the others. An effort no record ties
+    to this session is another session's, however recent, so a session just opened shows none.
     """
     found = efforts(repo)
-    coordinated = [effort for effort in found if session_id in (bound_sessions(effort) or [])]
-    if coordinated:
-        return max(coordinated, key=activity)
-    named = next((effort for effort in found if claims(effort) == session_id), None)
-    if named:
-        return named
-    return next((effort for effort in found
-                 if any(effort.glob(f'decisions-{session_id}*.jsonl'))
-                 or any((effort / 'reports').glob(f'decisions-{session_id}*.jsonl'))), None)
+    recorded = dict.fromkeys([
+        *sorted((effort for effort in found if session_id in (bound_sessions(effort) or [])), key=activity,
+                reverse=True),
+        *(effort for effort in found if claims(effort) == session_id),
+        *(effort for effort in found if any(effort.glob(f'decisions-{session_id}*.jsonl'))
+          or any((effort / 'reports').glob(f'decisions-{session_id}*.jsonl')))])
+    yield from recorded
+    yield from sorted((effort for effort in found if effort not in recorded and registered_by(effort, session_id)),
+                      key=activity, reverse=True)
 
 
 def main_checkout(repo):
@@ -242,17 +269,25 @@ def main_checkout(repo):
 
 
 def snapshot(repo, session_id, now):
-    """What this session's effort is doing, as the rows a host draws."""
-    effort = chosen(main_checkout(repo), session_id)
-    if effort is None:
+    """What this session's effort is doing, as the rows a host draws: the first live effort tied to it, else the first
+    tied one, quiet."""
+    chosen = None
+    for effort in tied(main_checkout(repo), session_id):
+        state = card_state(effort / CARD)
+        found_tickets = tickets(effort)
+        draft = is_draft(state) if state else False
+        blocker = blocker_row(effort, state, found_tickets)
+        attempts = live_attempts(effort, now)
+        live = live_effort(state, attempts, blocker, draft, found_tickets)
+        if chosen is None or live:
+            chosen = effort, state, found_tickets, draft, blocker, attempts, live
+        if live:
+            break
+    if chosen is None:
         return {'active': False, 'effort': None, 'phase': None, 'draft': False, 'rows': [], 'strip': None}
-    state = card_state(effort / CARD)
+    effort, state, found_tickets, draft, blocker, attempts, live = chosen
     phase = state.get('phase') or None
-    found_tickets = tickets(effort)
-    draft = is_draft(state) if state else False
-    blocker = blocker_row(effort, state, found_tickets)
-    attempts = live_attempts(effort, now)
-    if not live_effort(state, attempts, blocker, draft, found_tickets):
+    if not live:
         return {'active': False, 'effort': effort.name, 'phase': phase, 'draft': draft, 'rows': [], 'strip': None}
     headline = f'{effort.name} · {phase}' if phase else effort.name
     rows = [{'kind': 'headline', 'text': headline + (' · draft' if draft else '')}]

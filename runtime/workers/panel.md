@@ -20,10 +20,11 @@ It reads, read-only: the effort's run card (`.scratch/<slug>/autopilot.md`), its
 (`.scratch/<slug>/issues/`). A session working in a worktree still reads its main checkout's state. An unreadable
 state file drops only the rows it would have supplied.
 
-Which effort is this session's: the one whose `reports/coordinator.json` names this session — the binding
-`next_tickets.py --coordinate` writes — else the run card naming it, else the effort holding its decision journal.
-An effort no record ties to this session is another session's, however recent, so a session just opened shows none.
-An effort need not have a card: its binding or journal is enough, and the headline then has no phase.
+Which effort is this session's: one a record ties to it, in this order — its `reports/coordinator.json` naming this
+session (the binding `next_tickets.py --coordinate` writes), the run card naming it, its decision journal, or a
+worker attempt this session registered (the `session` the lifecycle records). Of those, the first live one wins,
+else the first. An effort no record ties to this session is another session's, however recent, so a session just
+opened shows none. An effort need not have a card: any of these records is enough, and the headline then has no phase.
 
 Live means the card is unconfirmed, or an attempt is live, or a blocker is recorded, or the card is still open or
 stopped on `waiting-on-user`, `paused-allowance`, `paused-by-user` or `blocked`. A run that reached `delivered`,
