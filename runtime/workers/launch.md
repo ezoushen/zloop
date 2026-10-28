@@ -22,7 +22,7 @@ Definitions are configuration data: resolution never loads user-supplied code or
 ## Host selection
 
 Claude and Codex startup hooks and Pi's bootstrap extension name the current host.
-Without that hint, select the harness explicitly under the runtime bootstrap; OpenCode
+Without that hint, select the host explicitly under the runtime bootstrap; OpenCode
 always needs it.
 
 Top-level `agents` defines shared pools for `builder`, `reviewer` and `verifier`, or
@@ -46,7 +46,7 @@ for several worker runtimes without duplicating models, pools or routes. The sep
 Before every worker launch, the orchestrator runs:
 
 ```sh
-"<python>" "<plugin_root>/scripts/agent_models.py" --repo "<canonical-main-checkout>" --harness <host> --job <job> --route
+"<python>" "<plugin_root>/scripts/agent_models.py" --repo "<canonical-main-checkout>" --host <host> --job <job> --route
 ```
 
 The job selects its agent; a route without `--job` is refused, and `--agent <agent>` is

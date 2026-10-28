@@ -204,7 +204,7 @@ class Profiles(RouterCase):
         import sys
         result = subprocess.run([sys.executable, '-B', str(models.ROOT / 'scripts/agent_models.py'),
                                  '--repo', str(self.root), '--user-executors', str(self.user),
-                                 '--harness', 'claude', '--job', 'ticket', '--route', '--profile'],
+                                 '--host', 'claude', '--job', 'ticket', '--route', '--profile'],
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)
         self.assertIn('Select a candidate', result.stderr)

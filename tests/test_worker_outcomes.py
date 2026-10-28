@@ -34,7 +34,7 @@ class Outcomes(WorkerLifecycleCase):
         # the lifecycle's to verify and never cost the decision its execution record.
         decision_id = self.routed(runtime='codex')
         execution = json.loads(self.execution.read_text())
-        execution.update(harness='codex', launch={'writes': 'worktree',
+        execution.update(host='codex', native_dispatch=True, launch={'writes': 'worktree',
                                                   'verify': {'sandbox': 'workspace-write', 'approval': 'never'}})
         self.execution.write_text(json.dumps(execution))
         self.register(runtime='codex')
@@ -80,7 +80,7 @@ class Outcomes(WorkerLifecycleCase):
 
     def collected(self, attempt, number, model='sonnet', agent='builder', job='ticket', **fields):
         """A collected attempt on the claude/<model> route, registered with fields."""
-        self.execution.write_text(json.dumps({'harness': 'claude', 'agent': agent, 'job': job,
+        self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': agent, 'job': job,
                                              'settings': {'model': model, 'effort': 'high'}}))
         self.register(attempt, attempt.split('/')[0], f'native-{number}', f'pane-{number}', **fields)
         self.record('startup', attempt, observed={'runtime': 'claude', 'model': model, 'effort': 'high'},
@@ -252,7 +252,7 @@ class Outcomes(WorkerLifecycleCase):
         self.assertIn('declined', self.record('accepted', 'ticket-3/1', commit='m', evidence=['log'], code=2))
 
     def test_other_jobs_close_without_an_acceptance_decision(self):
-        self.execution.write_text(json.dumps({'harness': 'claude', 'agent': 'reviewer', 'job': 'diff-review',
+        self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'reviewer', 'job': 'diff-review',
                                              'settings': {'model': 'sonnet', 'effort': 'high'}}))
         self.register()
         self.ready()

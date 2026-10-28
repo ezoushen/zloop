@@ -23,7 +23,7 @@ from decisions import systemone_request
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HARNESSES = ('claude', 'codex', 'pi', 'opencode')
+HOSTS = ('claude', 'codex', 'pi', 'opencode')
 # Herdr is zloop's built-in worker provider: in a Herdr session every runtime is reachable through it, and a host whose
 # own delegation would come from a third-party extension (Pi) prefers it. Its procedure is hosts/herdr.md.
 BUILT_IN_ROUTES = {'herdr': {'type': 'herdr'}}
@@ -506,7 +506,7 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
     if profile is not None and job_pool is not None:
         overrides = metadata['profile_overrides'] = profile_entry(profiles[profile][0], agent, job, job_pool)
     definitions = {}
-    if target_runtime is not None and target_runtime not in HARNESSES:
+    if target_runtime is not None and target_runtime not in HOSTS:
         raise ValueError(f'Unknown target runtime {target_runtime!r}')
     if target_runtime is not None and not (instance is not None and (
             'model' in instance or (pooled and isinstance(instance['candidates'], list)))):
@@ -624,7 +624,7 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
                                                  else instance['candidates'])
                                if name not in eligible_thinking or eligible_thinking[name]]
     if list_candidates:
-        return dict(metadata, host_harness=host, agent=agent, job=job, route_source=source,
+        return dict(metadata, host=host, agent=agent, job=job, route_source=source,
                     candidates=instance['candidates'] if pooled else {},
                     instance=None if pooled else instance)
     if pooled:
@@ -706,7 +706,7 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
                 # Only a backend outage/abstention/invalid answer falls back; configuration or journal errors do not.
                 if fallback is None or 'decision_model' not in metadata:
                     return dict(metadata, status='selection_required', selection_error=str(error),
-                                host_harness=host, agent=agent, job=job, route_source=source,
+                                host=host, agent=agent, job=job, route_source=source,
                                 eligible_candidates=eligible, candidates=pool['candidates'],
                                 selection_router=DEFAULT_ROUTER)
                 # Deterministic recovery: apply the configured profile before asking the host.
@@ -724,7 +724,7 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
             default_runtime=rule_runtime if metadata.get('rule_route') else None)
         metadata.update(info)
         if info.get('status') == 'selection_required':
-            return dict(metadata, host_harness=host, agent=agent, job=job, route_source=source,
+            return dict(metadata, host=host, agent=agent, job=job, route_source=source,
                         candidates=pool['candidates'],
                         selection_router=DEFAULT_ROUTER if router['type'] == 'profile'
                         or 'selection_error' in info or 'selection_error' in metadata else router)
@@ -757,7 +757,7 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
         if adaptive_thinking is not None:
             raise ValueError('adaptive thinking requires an agent with allow_thinking_override: true')
         result = resolve(repo, user_config, host, agent, task)
-        result.update(host_harness=host, job=job, executor='native', executor_type='subagent',
+        result.update(host=host, job=job, executor='native', executor_type='subagent',
                       executor_config={}, native_dispatch=True, model_mode='existing',
                       route_source=source, allow_thinking_override=False, **metadata,
                       executor_guide=str(ROOT / 'hosts/executors/subagent.md'))
@@ -810,9 +810,9 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
     # A native child takes no flags; a worker started as its own runtime process gets them explicitly.
     runtime = metadata.get('target_runtime')
     launch = (launch_controls(runtime, agent, settings, repo.resolve(), worktree, reports)
-              if not native and runtime in HARNESSES else None)
+              if not native and runtime in HOSTS else None)
     # Named delegates and skills can forward to another runtime; the host is not the destination.
-    return {'harness': host if native else None, 'host_harness': host, 'agent': agent, 'job': job,
+    return {'host': host, 'agent': agent, 'job': job,
             'settings': settings, 'sources': sources, 'files': [],
             'executor': 'native' if native else kind, 'executor_type': kind,
             'executor_config': config, 'native_dispatch': native, 'model_mode': mode,
@@ -907,24 +907,24 @@ def read_config(path):
     if not path.exists():
         return {}
     data = json.loads(path.read_text())
-    if not isinstance(data, dict) or set(data) - set(HARNESSES):
-        raise ValueError(f'{path}: expected harness keys {HARNESSES}')
-    for harness, entries in data.items():
+    if not isinstance(data, dict) or set(data) - set(HOSTS):
+        raise ValueError(f'{path}: expected host keys {HOSTS}')
+    for host, entries in data.items():
         if not isinstance(entries, dict) or set(entries) - set(AGENTS + ('defaults',)):
-            raise ValueError(f'{path}:{harness}: unknown agent or invalid object')
+            raise ValueError(f'{path}:{host}: unknown agent or invalid object')
         for agent, settings in entries.items():
-            validate_settings(settings, f'{path}:{harness}.{agent}')
+            validate_settings(settings, f'{path}:{host}.{agent}')
     return data
 
 
-def resolve(repo, user_config, harness, agent, task):
+def resolve(repo, user_config, host, agent, task):
     settings, sources = {}, {}
     files = (user_config, repo / '.zloop/models.json')
     layers = []
     for path in files:
-        data = read_config(path).get(harness, {})
+        data = read_config(path).get(host, {})
         for key in ('defaults', agent):
-            layers.append((data.get(key, {}), f'{path}:{harness}.{key}'))
+            layers.append((data.get(key, {}), f'{path}:{host}.{key}'))
     validate_settings(task, 'task', runtime_labels=True)
     layers.append((task, 'task'))
     for values, source in layers:
@@ -934,17 +934,17 @@ def resolve(repo, user_config, harness, agent, task):
             else:
                 settings[key] = value
             sources[key] = source
-    return {'harness': harness, 'agent': agent, 'settings': settings,
+    return {'host': host, 'agent': agent, 'settings': settings,
             'sources': sources, 'files': [str(path) for path in files]}
 
 
 def native_profile(result):
-    harness, agent, settings = result['harness'], result['agent'], result['settings']
-    if harness not in ('claude', 'opencode'):
+    host, agent, settings = result['host'], result['agent'], result['settings']
+    if host not in ('claude', 'opencode'):
         raise ValueError('--profile is only for Claude and OpenCode')
     if not settings:
         return None
-    if harness == 'claude':
+    if host == 'claude':
         _, header, body = (ROOT / 'agents' / f'{agent}.md').read_text().split('---', 2)
         fields = dict(line.split(': ', 1) for line in header.strip().splitlines())
         for key in ('name', 'writes', 'core_skills'):
@@ -1000,7 +1000,7 @@ def main():
                         help='canonical project checkout, not the worker worktree')
     parser.add_argument('--user-config', type=Path,
                         default=Path.home() / '.config/zloop/models.json')
-    parser.add_argument('--harness', required=True, choices=HARNESSES)
+    parser.add_argument('--host', required=True, choices=HOSTS)
     who = parser.add_mutually_exclusive_group(required=True)
     who.add_argument('--agent', choices=AGENTS, help='inspect or edit settings for an agent')
     who.add_argument('--job', choices=sorted(JOBS), help='the job to launch; selects its agent')
@@ -1010,7 +1010,7 @@ def main():
     parser.add_argument('--adaptive-thinking', help='agent-chosen thinking label; requires --route and opt-in')
     parser.add_argument('--profile', action='store_true', help='also render a native profile; no writes')
     parser.add_argument('--config-profile', help='select a named configuration profile; requires --route')
-    parser.add_argument('--target-runtime', choices=HARNESSES,
+    parser.add_argument('--target-runtime', choices=HOSTS,
                         help='worker runtime for catalog selection/profile lookup; requires --route')
     parser.add_argument('--route', action='store_true', help='resolve the worker executor and model policy')
     parser.add_argument('--user-executors', type=Path,
@@ -1085,7 +1085,7 @@ def main():
             choice = json_argument(args.route_choice, '--route-choice', dict,
                                    '\'{"executor":{"type":"subagent"}}\'')
             result = resolve_execution(repo, user_config, args.user_executors.expanduser().resolve(),
-                                       args.harness, agent, task, choice, args.config_profile,
+                                       args.host, agent, task, choice, args.config_profile,
                                        args.adaptive_thinking, job=args.job, session_id=args.session, candidate=args.candidate,
                                        selection=args.selection,
                                        eligible_candidates=json_argument(args.eligible_candidates, '--eligible-candidates', list,
@@ -1102,7 +1102,7 @@ def main():
                                        excluded_candidates=json_argument(args.excluded_candidates, '--excluded-candidates',
                                                                          dict, '\'{"luna":"quota exhausted"}\''))
         else:
-            result = resolve(repo, user_config, args.harness, agent, task)
+            result = resolve(repo, user_config, args.host, agent, task)
         if result.get('launch', {}).get('missing'):
             raise ValueError(f'This {result["target_runtime"]} route starts its own process, and its launch controls '
                              f'need {", ".join(result["launch"]["missing"])}: pass the absolute paths')

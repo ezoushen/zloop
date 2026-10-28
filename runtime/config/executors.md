@@ -159,7 +159,7 @@ stdlib-only. Ordinary dispatch never installs dependencies automatically.
 After saving the requested configuration, inspect one agent without starting work:
 
 ```sh
-"<plugin_root>/.venv/bin/python" "<plugin_root>/scripts/agent_models.py" --repo "<project>" --harness claude --agent reviewer --route --list-candidates
+"<plugin_root>/.venv/bin/python" "<plugin_root>/scripts/agent_models.py" --repo "<project>" --host claude --agent reviewer --route --list-candidates
 ```
 
 Replace `claude` with the current host (`claude`, `codex`, `pi`, or `opencode`).

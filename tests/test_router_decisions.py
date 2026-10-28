@@ -336,7 +336,7 @@ class DecisionRouting(RouterCase):
         self.profile({'claude': {'candidate': 'opus', 'thinking': 'high'}})
         result = subprocess.run([sys.executable, str(Path(models.__file__)), '--route', '--profile',
                                  '--repo', str(self.root), '--user-executors', str(self.user),
-                                 '--harness', 'claude', '--job', 'ticket', '--target-runtime', 'claude',
+                                 '--host', 'claude', '--job', 'ticket', '--target-runtime', 'claude',
                                  '--eligible-thinking', '{"opus":["medium"]}'], capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)
         self.assertIn('runtime preflight', result.stderr)
@@ -440,7 +440,7 @@ class DecisionRouting(RouterCase):
         assignment = self.root / 'assignment.txt'
         assignment.write_text('Implement the exact supplied fix and run its regression test.')
         command = [sys.executable, '-B', str(models.ROOT / 'scripts/agent_models.py'),
-                   '--repo', str(self.root), '--harness', 'codex', '--job', 'ticket',
+                   '--repo', str(self.root), '--host', 'codex', '--job', 'ticket',
                    '--route', '--user-executors', str(self.user), '--assignment', str(assignment),
                    '--eligible-candidates', '["sol"]']
         result = subprocess.run(command, capture_output=True, text=True)

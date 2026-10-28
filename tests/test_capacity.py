@@ -40,7 +40,7 @@ class Capacity(unittest.TestCase):
         """Register a worker on the local `lane` backend."""
         self.number += 1
         execution = self.root / f'execution-{self.number}.json'
-        execution.write_text(json.dumps({'harness': 'pi', 'agent': 'verifier', 'job': 'e2e-gate', 'candidate': 'ornith',
+        execution.write_text(json.dumps({'host': 'pi', 'native_dispatch': True, 'agent': 'verifier', 'job': 'e2e-gate', 'candidate': 'ornith',
                                          'settings': {'model': 'ornith'}, 'backend': 'lane',
                                          'capacity': dict({'slots': 2}, **capacity)}))
         return self.record(state or self.root / 'workers.sqlite', 'register', attempt, code=code,

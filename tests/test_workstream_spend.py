@@ -48,7 +48,7 @@ class WorkstreamSpend(unittest.TestCase):
     def attempt(self, attempt, assignment, session, runtime='claude', job='ticket',
                 status='completed', accepted=True):
         execution = self.root / f'{session}.execution.json'
-        execution.write_text(json.dumps({'harness': runtime, 'agent': 'builder', 'job': job,
+        execution.write_text(json.dumps({'host': runtime, 'native_dispatch': True, 'agent': 'builder', 'job': job,
                                          'settings': {'model': 'm', 'effort': 'high'}}))
         self.record('register', attempt, assignment=assignment, repo=str(self.root), worktree=str(self.root),
                     head='head-1', execution=str(execution), runtime=runtime, worker=f'pane-{session}',

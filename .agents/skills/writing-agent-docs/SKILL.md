@@ -29,7 +29,7 @@ scripts. Three hooks run it, so the architecture rules hold all the time: in Cla
 Code, [edit_check.py](edit_check.py) runs after every Edit or Write
 (`.claude/settings.json`) and reports the architecture errors the tree now has; the
 pre-commit hook runs it with `--changed HEAD`; the pre-push hook runs the
-whole-repository check on each pushed commit, as does `tests/test_cross_harness.py`.
+whole-repository check on each pushed commit, as does `tests/test_cross_host.py`.
 Other hosts rely on the Git hooks: enable them once per clone with
 `git config core.hooksPath .githooks`.
 
@@ -95,7 +95,7 @@ each other, so the order grows without loosening a rule. Run the checker and
 `tests/run_all.py` after each addition.
 
 - **Add a host:** create `hosts/<host>/` holding exactly `session.md` (read at session
-  start) and `workers.md` (read when launching); add the name to `HARNESSES` in
+  start) and `workers.md` (read when launching); add the name to `HOSTS` in
   `scripts/agent_models.py`, register its session hint in the bootstrap or hook, and
   never link the host files from shared docs (the `hosts` module is `unlinked`).
 - **Add an executor:** write `hosts/executors/<type>.md` and list it in that folder's

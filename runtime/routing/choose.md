@@ -56,7 +56,7 @@ the selected executor applies settings and confirms what actually ran.
    dropping rejected fields or bypassing resolution.
 
 Use the plugin's Python environment, not a guessed system interpreter. Examples
-extend `<plugin_root>/.venv/bin/python -B <plugin_root>/scripts/agent_models.py --repo <repo> --harness <host> --job <job> --route`;
+extend `<plugin_root>/.venv/bin/python -B <plugin_root>/scripts/agent_models.py --repo <repo> --host <host> --job <job> --route`;
 a launch also passes `--assignment <file>`, and `--list-candidates` takes `--agent <agent>` in place of `--job`:
 
 ```text

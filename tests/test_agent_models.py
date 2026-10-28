@@ -33,8 +33,8 @@ class Preferences(unittest.TestCase):
         self.user = self.root / 'user/models.json'
         self.project = self.root / '.zloop/models.json'
 
-    def resolve(self, harness='codex', agent='reviewer', **task):
-        return models.resolve(self.root, self.user, harness, agent, task)
+    def resolve(self, host='codex', agent='reviewer', **task):
+        return models.resolve(self.root, self.user, host, agent, task)
 
     def write_layers(self):
         self.user.parent.mkdir()
@@ -47,13 +47,13 @@ class Preferences(unittest.TestCase):
             'reviewer': {'model': 'project-model'}}}))
 
     def test_reads_without_configuration_return_nothing_and_write_nothing(self):
-        for harness in models.HARNESSES:
+        for host in models.HOSTS:
             for agent in models.AGENTS:
-                result = self.resolve(harness, agent)
+                result = self.resolve(host, agent)
                 assert result['settings'] == result['sources'] == {}
-                if harness in ('claude', 'opencode'):
+                if host in ('claude', 'opencode'):
                     assert models.native_profile(result) is None
-            assert models.resolve_execution(self.root, self.user, self.root / 'executors.json', harness,
+            assert models.resolve_execution(self.root, self.user, self.root / 'executors.json', host,
                                             'reviewer', {})['executor'] == 'native'
         assert list(self.root.iterdir()) == []  # Reads do not opt the user in.
 
@@ -121,7 +121,7 @@ class Preferences(unittest.TestCase):
         self.write_layers()
         self.project.write_text('{}')
         args = [sys.executable, '-B', str(SCRIPT), '--repo', str(self.root), '--user-config', str(self.user),
-                '--harness', 'codex', '--agent', 'reviewer']
+                '--host', 'codex', '--agent', 'reviewer']
         cli = subprocess.run(args + ['--model', 'native'], capture_output=True, text=True, check=True)
         assert json.loads(cli.stdout)['settings'] == {'effort': 'high'}
         assert subprocess.run(args + ['--profile'], capture_output=True).returncode != 0
@@ -145,7 +145,7 @@ class Preferences(unittest.TestCase):
 
     def test_a_launch_route_needs_a_job_which_selects_its_agent(self):
         base = [sys.executable, '-B', str(SCRIPT), '--repo', str(self.root), '--user-config', str(self.user),
-                '--harness', 'codex', '--route', '--user-executors', str(self.root / 'missing.json')]
+                '--host', 'codex', '--route', '--user-executors', str(self.root / 'missing.json')]
         failed = subprocess.run(base + ['--agent', 'reviewer'], capture_output=True, text=True)
         assert failed.returncode == 2 and 'a launch route requires --job' in failed.stderr, failed.stderr
         listed = subprocess.run(base + ['--agent', 'reviewer', '--list-candidates'], capture_output=True, text=True)
@@ -194,18 +194,18 @@ class NativeProfiles(unittest.TestCase):
                                    ('XDG_STATE_HOME', 'state')]:
                 env[key] = str(root / directory)
                 Path(env[key]).mkdir()
-            for harness in ('claude', 'opencode'):
+            for host in ('claude', 'opencode'):
                 for agent in models.AGENTS:
-                    settings = {'model': 'opus' if harness == 'claude' else 'openai/gpt-5', 'effort': 'high'}
-                    profile = models.native_profile({'harness': harness, 'agent': agent, 'settings': settings})
+                    settings = {'model': 'opus' if host == 'claude' else 'openai/gpt-5', 'effort': 'high'}
+                    profile = models.native_profile({'host': host, 'agent': agent, 'settings': settings})
                     path = root / profile['path']
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text(profile['content'])
-                    if harness == 'claude':
+                    if host == 'claude':
                         for partial in ({'model': 'opus'}, {'effort': 'high'}):
-                            profile = models.native_profile({'harness': harness, 'agent': agent, 'settings': partial})
+                            profile = models.native_profile({'host': host, 'agent': agent, 'settings': partial})
                             (root / profile['path']).write_text(profile['content'])
-                    if harness == 'opencode':
+                    if host == 'opencode':
                         check_opencode_profile(root, env, profile['name'])
             result = subprocess.run(['claude', 'plugin', 'validate', '--strict', str(root / '.claude/agents')],
                                     cwd=root, env=env, capture_output=True, text=True, timeout=30)

@@ -744,7 +744,7 @@ def record(db, data, refuse_changes=False):
             needs = assigned_needs(packet.read_text(errors='replace')) if 'needs' in job['inputs'] else None
             ticket = (agent_defs.input_value(job, packet.read_text(errors='replace'), 'ticket')
                       if 'ticket' in job['inputs'] else None)
-            runtime = execution.get('target_runtime') or execution.get('harness')
+            runtime = execution.get('target_runtime') or (execution.get('host') if execution.get('native_dispatch') else None)
             require(runtime is None or runtime == data['runtime'], 'Runtime conflicts with resolved execution')
             closed = closed_sessions(db)
             require((data['runtime'], data['native_session']) not in closed,

@@ -48,7 +48,7 @@ For structured legacy commands without **--route**, **--config-profile**, sessio
 scope or pool options, show/set/reset models.json.
 Accept thinking as an input alias but store legacy `effort`; `defaults` applies only
 here. Preserve its per-field precedence and null masks. Validate with `read_config`
-and resolve the affected harness/agent. No harness argument defaults to the current
+and resolve the affected host/agent. No `runtime=` argument defaults to the current
 host. Do not edit legacy settings expecting them to affect a configured instance.
 A one-run request stays in the assignment, not a saved file.
 

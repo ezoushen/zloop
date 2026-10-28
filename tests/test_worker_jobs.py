@@ -14,7 +14,7 @@ import support
 
 class Jobs(WorkerLifecycleCase):
     def use(self, agent, job):
-        self.execution.write_text(json.dumps({'harness': 'claude', 'agent': agent, 'job': job,
+        self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': agent, 'job': job,
                                              'settings': {'model': 'sonnet', 'effort': 'high'}}))
 
     def checkout(self, files=None):
@@ -126,7 +126,7 @@ sys.exit(process.returncode)
         return str(request)
 
     def test_registration_needs_a_known_job_done_by_its_agent(self):
-        self.execution.write_text(json.dumps({'harness': 'claude', 'agent': 'builder',
+        self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'builder',
                                              'settings': {'model': 'sonnet', 'effort': 'high'}}))
         self.assertIn('known job', self.register(code=2))
         self.use('reviewer', 'ticket')

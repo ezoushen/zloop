@@ -72,8 +72,8 @@ executor's schema/adapter. Preserve structured legacy commands without
 --route, --config-profile, --scope session or pool options, and explicit models.json
 requests, using
 [legacy preferences](../../runtime/workers/legacy-preferences.md).
-The optional harness argument means the host for per-agent setup and the target
-preference harness for legacy settings. If omitted, use the current host; never
+The optional `runtime=` argument means the host for per-agent setup and the target
+preference host for legacy settings. If omitted, use the current host; never
 infer it from a model name. It does not change the main session or supply tools.
 Use [host selection](../../runtime/workers/launch.md#host-selection) to distinguish the
 caller from the worker runtime. A named-profile request uses

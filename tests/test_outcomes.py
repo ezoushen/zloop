@@ -43,7 +43,7 @@ class OutcomeLedger(unittest.TestCase):
         """Register, run and collect one attempt; close it with the given fields when any are given."""
         execution = self.root / f'{attempt.replace("/", "-")}.execution.json'
         agent = {'ticket': 'builder', 'diff-review': 'reviewer'}[job]
-        execution.write_text(json.dumps({'harness': 'claude', 'agent': agent, 'job': job, 'candidate': candidate,
+        execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': agent, 'job': job, 'candidate': candidate,
                                          'settings': {'model': candidate, 'effort': 'high'},
                                          **({'selection_source': 'decision-model', 'decision_model': decision}
                                             if decision else {})}))

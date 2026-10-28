@@ -17,7 +17,7 @@ Migrate them to agent instances only on explicit request.
 To inspect model preferences directly, independently of routing, run:
 
 ```sh
-python3 "<plugin_root>/scripts/agent_models.py" --repo "<repo>" --harness <harness> --agent <agent>
+python3 "<plugin_root>/scripts/agent_models.py" --repo "<repo>" --host <host> --agent <agent>
 ```
 
 `repo` is the canonical project checkout supplied by the orchestrator. Carry it
@@ -49,7 +49,7 @@ Example shape, **not an installed preset**:
 }
 ```
 
-Harness keys: `claude`, `codex`, `pi`, `opencode`. Agent keys: `builder`,
+Host keys: `claude`, `codex`, `pi`, `opencode`. Agent keys: `builder`,
 `reviewer`, `verifier`, plus `defaults`.
 Values are `model` and/or `effort` strings, or `null`. Model IDs/aliases come from
 that runtime's catalog; Pi/OpenCode use qualified `provider/model` identifiers.

@@ -72,14 +72,14 @@ class Submission(WorkerLifecycleCase):
         # scope could never be verified; a native child route is exempt.
         for runtime in ('claude', 'codex', 'opencode', 'pi'):
             with self.subTest(runtime=runtime):
-                self.execution.write_text(json.dumps({'harness': None, 'target_runtime': runtime, 'native_dispatch': False,
+                self.execution.write_text(json.dumps({'host': 'claude', 'target_runtime': runtime, 'native_dispatch': False,
                                                       'agent': 'builder', 'job': 'ticket', 'settings': {}}))
                 error = self.register(f'ticket-1/{runtime}', session=f'native-{runtime}', worker=f'pane-{runtime}',
                                       runtime=runtime, code=2)
                 self.assertIn(f'A route to a {runtime} worker started as its own process requires its launch '
                               'controls (launch.verify)', error)
         self.assertEqual(self.cli('status')['attempts'], [])
-        self.execution.write_text(json.dumps({'harness': 'codex', 'target_runtime': 'codex', 'native_dispatch': True,
+        self.execution.write_text(json.dumps({'host': 'codex', 'target_runtime': 'codex', 'native_dispatch': True,
                                               'agent': 'builder', 'job': 'ticket', 'settings': {}}))
         self.register(runtime='codex')
         self.assertEqual(len(self.cli('status')['attempts']), 1)
@@ -87,15 +87,22 @@ class Submission(WorkerLifecycleCase):
     def test_registration_refuses_an_untargeted_top_level_route_by_its_registered_runtime(self):
         # Rule (review reproducer): a route that names no target runtime, such as a --route-choice Herdr route, is
         # judged by the runtime it registers as; without launch controls a danger-full-access worker would verify.
-        self.execution.write_text(json.dumps({'harness': None, 'target_runtime': None, 'native_dispatch': False,
+        self.execution.write_text(json.dumps({'host': 'claude', 'target_runtime': None, 'native_dispatch': False,
             'executor': 'skill', 'agent': 'reviewer', 'job': 'diff-review',
             'settings': {'model': 'gpt-6.1-sol', 'effort': 'high'}}))
         error = self.register(runtime='codex', code=2)
         self.assertIn('A route to a codex worker started as its own process requires its launch controls', error)
         self.assertEqual(self.cli('status')['attempts'], [])
 
+    def test_registration_refuses_a_native_route_under_another_runtime_than_its_host(self):
+        # Rule: a native child runs in its host's runtime, so a worker registered under another runtime is refused.
+        self.execution.write_text(json.dumps({'host': 'codex', 'native_dispatch': True,
+                                              'agent': 'builder', 'job': 'ticket', 'settings': {}}))
+        self.assertIn('Runtime conflicts with resolved execution', self.register(runtime='claude', code=2))
+        self.assertEqual(self.cli('status')['attempts'], [])
+
     def test_submit_reads_codex_session_and_latest_turn_controls(self):
-        self.execution.write_text(json.dumps({'harness': 'codex', 'agent': 'builder', 'job': 'ticket',
+        self.execution.write_text(json.dumps({'host': 'codex', 'native_dispatch': True, 'agent': 'builder', 'job': 'ticket',
                                              'settings': {'model': 'gpt-6.1-sol', 'effort': 'high'}}))
         self.register(runtime='codex')
         native = self.root / 'native.jsonl'
@@ -304,7 +311,7 @@ class Submission(WorkerLifecycleCase):
         self.assertEqual(self.cli('status')['attempts'][0]['observed']['tools'], ['bash', 'find', 'grep', 'ls', 'read'])
 
     def test_submit_reads_pi_controls_from_active_branch(self):
-        self.execution.write_text(json.dumps({'harness': 'pi', 'agent': 'builder', 'job': 'ticket',
+        self.execution.write_text(json.dumps({'host': 'pi', 'native_dispatch': True, 'agent': 'builder', 'job': 'ticket',
                                              'settings': {'model': 'dgx/glm-5.3-flash', 'effort': 'high'}}))
         self.register(runtime='pi')
         native = self.root / 'native.jsonl'
@@ -324,7 +331,7 @@ class Submission(WorkerLifecycleCase):
                          {'runtime': 'pi', 'model': 'dgx/glm-5.3-flash', 'effort': 'high'})
 
     def test_submit_refuses_pi_provider_error_until_a_successful_probe(self):
-        self.execution.write_text(json.dumps({'harness': 'pi', 'agent': 'builder', 'job': 'ticket',
+        self.execution.write_text(json.dumps({'host': 'pi', 'native_dispatch': True, 'agent': 'builder', 'job': 'ticket',
             'settings': {'model': 'dgx/glm-5.3-flash', 'effort': 'high'}}))
         self.register(runtime='pi')
         native = self.root / 'native.jsonl'
@@ -350,7 +357,7 @@ class Submission(WorkerLifecycleCase):
         self.assertTrue((self.root / 'productive-work').exists())
 
     def test_submit_reads_opencode_assistant_controls_instead_of_requested_defaults(self):
-        self.execution.write_text(json.dumps({'harness': 'opencode', 'agent': 'builder', 'job': 'ticket',
+        self.execution.write_text(json.dumps({'host': 'opencode', 'native_dispatch': True, 'agent': 'builder', 'job': 'ticket',
                                              'settings': {'model': 'opencode/muse-spark-1.3-contributor-free',
                                                           'effort': 'high'}}))
         self.register(runtime='opencode')
@@ -369,7 +376,7 @@ class Submission(WorkerLifecycleCase):
                           'effort': 'high'})
 
     def test_submit_refuses_opencode_tool_error_until_a_clean_new_probe(self):
-        self.execution.write_text(json.dumps({'harness': 'opencode', 'agent': 'builder', 'job': 'ticket',
+        self.execution.write_text(json.dumps({'host': 'opencode', 'native_dispatch': True, 'agent': 'builder', 'job': 'ticket',
             'settings': {'model': 'opencode/muse-spark-1.3-contributor-free'}}))
         self.register(runtime='opencode')
         native = self.root / 'native-export.json'
@@ -394,7 +401,7 @@ class Submission(WorkerLifecycleCase):
         self.assertTrue((self.root / 'productive-work').exists())
 
     def test_submit_reads_opencode_2_export_controls(self):
-        self.execution.write_text(json.dumps({'harness': 'opencode', 'agent': 'builder', 'job': 'ticket',
+        self.execution.write_text(json.dumps({'host': 'opencode', 'native_dispatch': True, 'agent': 'builder', 'job': 'ticket',
             'settings': {'model': 'opencode/deepseek-v4.1-flash-free', 'effort': 'high'}}))
         self.register(runtime='opencode')
         self.submit_opencode_v2(self.opencode_v2_export([{'type': 'text', 'text': 'ready'}]))
@@ -403,7 +410,7 @@ class Submission(WorkerLifecycleCase):
         self.assertTrue((self.root / 'productive-work').exists())
 
     def test_submit_refuses_opencode_2_tool_error_and_foreign_session(self):
-        self.execution.write_text(json.dumps({'harness': 'opencode', 'agent': 'builder', 'job': 'ticket',
+        self.execution.write_text(json.dumps({'host': 'opencode', 'native_dispatch': True, 'agent': 'builder', 'job': 'ticket',
             'settings': {'model': 'opencode/deepseek-v4.1-flash-free'}}))
         self.register(runtime='opencode')
         failed = {'type': 'tool', 'name': 'read', 'state': {'status': 'error', 'error': {'message': 'denied'}}}
@@ -536,7 +543,7 @@ class Submission(WorkerLifecycleCase):
         self.assertEqual(self.cli('status')['attempts'][0]['result']['status'], 'completed')
 
     def test_submit_refuses_opencode_provider_error_even_when_settings_match(self):
-        self.execution.write_text(json.dumps({'harness': 'opencode', 'agent': 'builder', 'job': 'ticket',
+        self.execution.write_text(json.dumps({'host': 'opencode', 'native_dispatch': True, 'agent': 'builder', 'job': 'ticket',
                                              'settings': {'model': 'opencode/muse-spark-1.3-contributor-free'}}))
         self.register(runtime='opencode')
         native = self.root / 'native.json'
@@ -596,7 +603,7 @@ class Submission(WorkerLifecycleCase):
         self.assertTrue(self.cli('status')['attempts'][0]['verified'])
 
     def test_submit_leaves_unrequested_native_controls_inherited(self):
-        self.execution.write_text(json.dumps({'harness': 'claude', 'agent': 'builder', 'job': 'ticket', 'settings': {}}))
+        self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'builder', 'job': 'ticket', 'settings': {}}))
         self.register()
         native = self.root / 'native.jsonl'
         native.write_text(json.dumps({'type': 'assistant', 'sessionId': 'native-1', 'cwd': str(self.root),
@@ -662,7 +669,7 @@ class Submission(WorkerLifecycleCase):
         self.assertFalse(self.record('startup', observed=observed, evidence=['native.jsonl:1'])['verified'])
         self.assertTrue(self.record('startup', observed=observed, evidence=['native.jsonl:1'],
                                    model_alias_evidence=['installed catalog binds sonnet to claude-sonnet-native'])['verified'])
-        self.execution.write_text(json.dumps({'harness': 'claude', 'agent': 'builder', 'job': 'ticket', 'settings': {}}))
+        self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'builder', 'job': 'ticket', 'settings': {}}))
         self.register('ticket-2/1', 'ticket-2', 'native-2', 'pane-2')
         self.record('startup', 'ticket-2/1', observed={'runtime': 'claude'}, evidence=['native.jsonl:2'])
         self.assertEqual(self.cli('status')['attempts'][1]['requested'], {'runtime': 'claude'})
@@ -675,9 +682,9 @@ class Submission(WorkerLifecycleCase):
         self.acknowledge()
         self.record('retain', reason='Pending repair', next_use='same-ticket repair recheck', evidence=['phase report'])
         self.register('ticket-2/1', 'ticket-2', 'native-1', 'pane-2', code=2)
-        self.execution.write_text(json.dumps({'harness': 'claude', 'agent': 'reviewer', 'job': 'diff-review', 'settings': {}}))
+        self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'reviewer', 'job': 'diff-review', 'settings': {}}))
         self.register('ticket-1/review', 'ticket-1', 'native-1', 'pane-2', code=2)
-        self.execution.write_text(json.dumps({'harness': 'claude', 'agent': 'builder', 'job': 'ticket',
+        self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'builder', 'job': 'ticket',
                                              'settings': {'model': 'sonnet', 'effort': 'high'}}))
         self.register('ticket-1/2')
         self.assertFalse(self.cli('status')['attempts'][1]['verified'])
@@ -713,7 +720,7 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
 
     def native_child(self, runtime, agent='builder', job='ticket', worktree=None):
         """Register a native child of `runtime` for the worktree, as its coordinator's resolved route says."""
-        self.execution.write_text(json.dumps({'harness': runtime, 'target_runtime': runtime, 'native_dispatch': True,
+        self.execution.write_text(json.dumps({'host': runtime, 'target_runtime': runtime, 'native_dispatch': True,
                                               'agent': agent, 'job': job,
                                               'settings': {'model': 'm', 'effort': 'high'}}))
         attempt = f'{runtime}-1/1'
@@ -779,7 +786,7 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
     def test_a_pi_child_is_registered_by_its_session_record_which_names_its_session(self):
         # Live E2E 2026-10-26: a pi-subagents run id is not the child's session id, and a Pi orchestrator kept
         # registering the wrong one. Given the record (pi-subagents' status sessionFile), registration reads the id.
-        self.execution.write_text(json.dumps({'harness': 'pi', 'target_runtime': 'pi', 'native_dispatch': True,
+        self.execution.write_text(json.dumps({'host': 'pi', 'target_runtime': 'pi', 'native_dispatch': True,
                                               'agent': 'builder', 'job': 'ticket',
                                               'settings': {'model': 'm', 'effort': 'high'}}))
         native = self.root / 'child.jsonl'

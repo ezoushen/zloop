@@ -53,7 +53,7 @@ class Executors(unittest.TestCase):
             user.write_text(json.dumps(data))
             cli = [sys.executable, '-B', str(models.ROOT / 'scripts/agent_models.py'), '--repo', str(root),
                    '--user-executors', str(user), '--user-config', str(root/'absent-models.json'),
-                   '--harness', 'claude', '--job', 'diff-review', '--config-profile', 'balanced']
+                   '--host', 'claude', '--job', 'diff-review', '--config-profile', 'balanced']
             with patch.dict(os.environ, {'ZLOOP_PROFILE': '', 'ZLOOP_SESSION': '', 'HERDR_ENV': ''}):
                 result = subprocess.run(cli + ['--route'], capture_output=True, text=True, check=True)
                 resolved = json.loads(result.stdout)
@@ -66,6 +66,20 @@ class Executors(unittest.TestCase):
             for invalid in ({'profiles': {'': {}}}, {'profiles': {'balanced': {'unknown': {}}}},
                             {'profiles': {'balanced': {'agents': {}}}}):
                 fails(lambda invalid=invalid: models.validate_execution_config(invalid, 'test'))
+
+    def test_the_resolver_takes_the_host_and_refuses_the_old_flag(self):
+        with tempfile.TemporaryDirectory(prefix='zloop host flag ') as tmp:
+            root = Path(tmp)
+            cli = [sys.executable, '-B', str(models.ROOT / 'scripts/agent_models.py'), '--repo', str(root),
+                   '--user-executors', str(root / 'absent.json'), '--user-config', str(root / 'absent-models.json'),
+                   '--agent', 'reviewer']
+            with patch.dict(os.environ, {'ZLOOP_PROFILE': '', 'ZLOOP_SESSION': '', 'HERDR_ENV': ''}):
+                accepted = subprocess.run(cli + ['--host', 'codex'], capture_output=True, text=True)
+                assert accepted.returncode == 0, accepted.stderr
+                resolved = json.loads(accepted.stdout)
+                assert resolved['host'] == 'codex' and support.RETIRED_HOST_WORD not in resolved
+                refused = subprocess.run(cli + ['--host', 'codex', f'--{support.RETIRED_HOST_WORD}', 'codex'], capture_output=True, text=True)
+                assert refused.returncode == 2 and f'unrecognized arguments: --{support.RETIRED_HOST_WORD}' in refused.stderr, refused.stderr
 
     def test_schemas_precedence_model_policy_and_bash_handoff(self):
         for path in (models.ROOT / 'schemas').rglob('*.schema.json'):
@@ -81,7 +95,7 @@ class Executors(unittest.TestCase):
                 return models.resolve_execution(root, preferences, user, host, agent, task, choice,
                                                 adaptive_thinking=adaptive_thinking)
 
-            for host in models.HARNESSES:
+            for host in models.HOSTS:
                 for agent in models.AGENTS:
                     result = resolve(host, agent)
                     assert result['executor'] == 'native' and result['native_dispatch']
@@ -91,7 +105,7 @@ class Executors(unittest.TestCase):
             project.parent.mkdir()
             preferences.write_text(json.dumps({'claude': {'reviewer': {'model': 'legacy-model'}}}))
             native = instance()
-            for host in models.HARNESSES:
+            for host in models.HOSTS:
                 omitted = resolve(host, choice={'executor': {'type': 'subagent'}})
                 assert omitted == resolve(host, choice=native)
             skill = instance('skill', {'skill': 'herdr', 'instruction': 'Run the assigned review with Codex.'})
@@ -102,8 +116,8 @@ class Executors(unittest.TestCase):
                 assert result['settings'] == {} and result['model_mode'] == 'inherit'
                 assert Path(result['executor_guide']).is_file()
                 assert result['native_dispatch'] == (value == native)
-                assert result['harness'] == ('claude' if value == native else None)
-            for host in models.HARNESSES:
+                assert result['host'] == 'claude' and support.RETIRED_HOST_WORD not in result and f'host_{support.RETIRED_HOST_WORD}' not in result
+            for host in models.HOSTS:
                 for agent in models.AGENTS:
                     for policy, expected in (
                         ({'mode': 'inherit'}, {}),
@@ -147,7 +161,7 @@ class Executors(unittest.TestCase):
             fails(lambda: resolve(choice=skill, adaptive_thinking='high'))
             for executor in (native, named, skill, program):
                 adaptive = dict(executor, models=dict(override['models'], allow_thinking_override=True))
-                for host in models.HARNESSES:
+                for host in models.HOSTS:
                     result = resolve(host, choice=adaptive, adaptive_thinking='xhigh')
                     assert result['settings'] == {'model': 'chosen-model', 'effort': 'xhigh'}
                     assert result['thinking_baseline'] == 'high'
@@ -207,7 +221,7 @@ class Executors(unittest.TestCase):
 
             cli = [sys.executable, '-B', str(models.ROOT / 'scripts/agent_models.py'),
                    '--repo', str(root), '--user-config', str(preferences), '--user-executors', str(user),
-                   '--harness', 'claude', '--job', 'diff-review', '--route']
+                   '--host', 'claude', '--job', 'diff-review', '--route']
             result = subprocess.run(cli + ['--route-choice', json.dumps(override), '--thinking', 'low'],
                                     capture_output=True, text=True, check=True)
             assert json.loads(result.stdout)['settings']['effort'] == 'low'

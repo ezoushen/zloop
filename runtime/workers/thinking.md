@@ -38,7 +38,7 @@ or approximate label. Settings are requested, not confirmed, until native metada
 establishes them. Do not infer the destination from model names or skill prose alone:
 inspect the installed invocation contract. Catalog `target_runtime` is the requested
 destination; verify the bridge actually uses it. Named bridges, skills and programs
-retain `harness: null` rather than claiming native execution. Complete instances can
+retain `native_dispatch: false` rather than claiming native execution. Complete instances can
 still delegate without a catalog binding when their installed contract owns routing.
 
 `native_dispatch: true` uses the existing host worker and permits native profile

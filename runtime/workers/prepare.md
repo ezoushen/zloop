@@ -44,7 +44,7 @@ them use the native wait/collection path.
 After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](../resources/retire.md).
 
 1. Resolve settings from the **calling** host and save the resolver JSON. A Pi
-   coordinator remains `--harness pi` when its selected destination is Codex.
+   coordinator remains `--host pi` when its selected destination is Codex.
    Map the resolved controls to the installed executor's actual model and effort
    controls. A model name or “think hard” in the prompt cannot set them.
 2. Create a fresh worker/conversation for a new ticket or agent. Obtain its native

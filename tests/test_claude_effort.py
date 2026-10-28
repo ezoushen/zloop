@@ -23,7 +23,7 @@ class ClaudeNativeEffort(unittest.TestCase):
             settings = {'model': 'claude-opus-5-5'}
             if override:
                 settings['effort'] = override
-            profile = models.native_profile({'harness': 'claude', 'agent': 'builder', 'job': 'ticket', 'settings': settings})
+            profile = models.native_profile({'host': 'claude', 'agent': 'builder', 'job': 'ticket', 'settings': settings})
 
             class Handler(BaseHTTPRequestHandler):
                 def log_message(self, *args):

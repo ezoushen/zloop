@@ -59,7 +59,9 @@ class Pools(unittest.TestCase):
         result = self.resolve(candidate='local')
         self.assertEqual(result['executor_config'], {'agent': 'local-pi'})
         self.assertEqual(result['settings'], {})
-        self.assertIsNone(result['harness'])
+        self.assertEqual(result['host'], 'codex')
+        self.assertFalse(result['native_dispatch'])
+        self.assertNotIn(support.RETIRED_HOST_WORD, result)
 
     def test_invalid_recommendations_respect_eligibility(self):
         for selection in ({'candidate': 'outside', 'reason': 'Guess'},
@@ -223,7 +225,7 @@ print(json.dumps({'assignment_id': request['assignment']['assignment_id'],
 
     def test_cli_inspection_and_session_write(self):
         args = [sys.executable, '-B', str(models.ROOT / 'scripts/agent_models.py'),
-                '--repo', str(self.root), '--harness', 'codex', '--job', 'ticket',
+                '--repo', str(self.root), '--host', 'codex', '--job', 'ticket',
                 '--user-executors', str(self.user), '--route']
         def cli(*extra, ok=True):
             result = subprocess.run(args + list(extra), capture_output=True, text=True)

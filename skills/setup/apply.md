@@ -114,6 +114,6 @@ this permission; resetting only thinking preserves it.
 An explicit configuration change includes preparing the isolated validator
 environment when necessary: reuse the plugin .venv or an existing compatible
 Python, and install requirements.txt there if missing. Follow the executor guide;
-do not change global Python or account-wide harness configuration. Read-only show
+do not change global Python or account-wide host configuration. Read-only show
 reports a missing dependency instead of installing it. Configuration changes do
 not authorize live worker probes, third-party plugin installation or new credentials.

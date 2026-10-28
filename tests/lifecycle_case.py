@@ -29,7 +29,7 @@ class WorkerLifecycleCase(unittest.TestCase):
         self.enterContext(patch.dict(os.environ, {'XDG_STATE_HOME': str(self.root / 'state')}))
         self.state = self.root / 'workers.sqlite'
         self.execution = self.root / 'execution.json'
-        self.execution.write_text(json.dumps({'harness': 'claude', 'agent': 'builder', 'job': 'ticket',
+        self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'builder', 'job': 'ticket',
                                              'settings': {'model': 'sonnet', 'effort': 'high'}}))
 
     def cli(self, action, *args, code=0):

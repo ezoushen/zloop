@@ -521,7 +521,7 @@ class CheckpointCLI(unittest.TestCase):
         session = self.root / 'session.json'
         session.write_text(json.dumps(self.config))
         self.cli('agent_models.py', '--repo', self.repo, '--user-executors', self.user,
-                 '--harness', 'codex', '--agent', 'reviewer', '--route', '--session', 'root-1',
+                 '--host', 'codex', '--agent', 'reviewer', '--route', '--session', 'root-1',
                  '--save-session', session)
         result = self.phase('review-triage', 'review/head-a', '--session', 'root-1', '--request', self.request)
         self.assertEqual(result['status'], 'recommended')

@@ -8,6 +8,8 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / 'scripts'
 HOOKS = ROOT / 'hooks'
+# The word the glossary retires for the host: the only place outside the glossary that spells it, so tests can refuse it.
+RETIRED_HOST_WORD = 'harness'
 # Scripts import their siblings by module name, as they do when run from scripts/.
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
@@ -69,7 +71,7 @@ def code_samples(text):
 
 
 def collected_attempt(repo, slug, attempt, report, job='ticket', head='head-1', status='completed'):
-    """A worker attempt of an effort's lifecycle that returned report and was collected, driven through the
+    """A worker attempt of a workstream's lifecycle that returned report and was collected, driven through the
     lifecycle CLI: registered, started with the settings it was given, prompted, then its result recorded."""
     import json
     import subprocess
@@ -80,7 +82,7 @@ def collected_attempt(repo, slug, attempt, report, job='ticket', head='head-1', 
     work = state.parent / 'fixture' / attempt.replace('/', '-')
     work.mkdir(parents=True, exist_ok=True)
     execution = work / 'execution.json'
-    execution.write_text(json.dumps({'harness': 'claude', 'agent': agent_defs.load()['jobs'][job]['agent'], 'job': job,
+    execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': agent_defs.load()['jobs'][job]['agent'], 'job': job,
                                      'settings': {'model': 'sonnet', 'effort': 'high'}}))
     env = isolated_env(work)
 

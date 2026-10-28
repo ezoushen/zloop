@@ -269,7 +269,7 @@ class Catalog(unittest.TestCase):
     def test_catalog_cli_is_read_only_and_explains_exclusions(self):
         before = self.user.read_bytes()
         args = [sys.executable, '-B', str(models.ROOT / 'scripts/agent_models.py'),
-                '--repo', str(self.root), '--harness', 'codex', '--job', 'ticket',
+                '--repo', str(self.root), '--host', 'codex', '--job', 'ticket',
                 '--user-executors', str(self.user), '--route']
         result = subprocess.run(args, capture_output=True, text=True, check=True)
         self.assertEqual(json.loads(result.stdout)['executor_context'], 'codex')

@@ -39,7 +39,7 @@ class LaunchControls(unittest.TestCase):
         the resolver refuses)."""
         self.data['agents'] = {'builder': {'model': model}, 'reviewer': {'model': model}}
         self.user.write_text(json.dumps(self.data))
-        process = subprocess.run([sys.executable, '-B', str(SCRIPT), '--repo', str(self.root), '--harness', host,
+        process = subprocess.run([sys.executable, '-B', str(SCRIPT), '--repo', str(self.root), '--host', host,
                                   '--job', job, '--route', '--user-executors', str(self.user),
                                   '--user-config', str(self.root / 'absent.json'), *options],
                                  capture_output=True, text=True,
