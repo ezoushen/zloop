@@ -1,6 +1,6 @@
 # zloop
 
-One workflow for Claude Code, Codex and Pi: **align → refine → dispatch → review → PR**.
+One workflow for Claude Code, Codex, Pi and OpenCode: **align → refine → dispatch → review → PR**.
 The plugin holds the procedures, agents, jobs and scripts; each effort's state lives in
 the target repository under `.scratch/<slug>/`.
 
@@ -77,7 +77,7 @@ Codex and Pi list it.
 | `standards/` | What good looks like: engineering judgment, test-first development, module design, PR descriptions, code comments, documentation and the remediation kinds |
 | `hosts/claude/`, `hosts/codex/`, `hosts/pi/`, `hosts/opencode/` | Each host's session part and worker part; OpenCode covers model settings and the yield gate's plugin |
 | `hosts/herdr.md`, `hosts/executors/` | Herdr guidance; Bash, sub-agent and skill executors |
-| `runtime/interview/`, `board/`, `workers/`, `checks/`, `routing/`, `resources/`, `decisions/`, `config/`, `ask/` | Shared docs commands and agents read, each small enough for one read: the interview (authority, question filter, ledger record) and board procedures no command owns, then worker, check, routing, resource and decision rules; `config/` holds the configuration format; `ask/` how to ask the user and re-pitch what lost them |
+| `runtime/interview/`, `board/`, `workers/`, `checks/`, `routing/`, `resources/`, `decisions/`, `config/`, `ask/`, `domain/` | Shared docs commands and agents read, each small enough for one read: the interview (authority, question filter, ledger record) and board procedures no command owns, then worker, check, routing, resource and decision rules; `config/` holds the configuration format; `ask/` how to ask the user and re-pitch what lost them; `domain/` the glossary and ADR rules |
 | `scripts/`, `hooks/`, `schemas/` | Scheduler, resolution, checks and hooks; configuration and decision contracts |
 | `benchmarks/` | Synthetic decision calibration examples |
 
@@ -101,6 +101,6 @@ executor, agent, job, kind, standard, runtime module or command, follow
 
 ## Install and develop
 
-- [Installation](docs/installation.md): requirements and the Claude, Codex and Pi setups.
+- [Installation](docs/installation.md): requirements and the Claude, Codex, Pi and OpenCode setups.
 - [Configuring workers](docs/configuration.md): executors, models, pools, routers and decisions.
 - [Development](docs/development.md): the suite, Git hooks, native checks, rehearsals and usage tools.

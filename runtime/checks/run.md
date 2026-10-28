@@ -36,14 +36,10 @@ When the check has an authoritative execution marker, add repeatable
 text from the actual check. Missing output turns a zero exit into 1 and is listed
 in `missing_output`. Existing command failures retain their exit code. These markers
 are execution preconditions, not a substitute for the scenario's acceptance evidence.
-`command_exit_code` preserves the child's result; `exit_source`, `timed_out` and
-`interrupted_signal` distinguish command failure, output failure and wrapper deadlines.
-Signals use 128 + signal. A deadline returns
-124 after TERM and a one-second grace before KILL of the owned process group.
-SIGINT/SIGTERM interruption also stops that group before returning. Existing logs
-are never overwritten; setup or cleanup errors return 125 (invalid arguments: 2).
-On normal command exit, any surviving process-group members are stopped before
-returning. `cleanup_required: true` records that the command left descendants;
+`exit_code` is authoritative: nonzero, including 124 (deadline), 125 (setup or cleanup error)
+and 128 plus a signal, means the gate did not pass; `command_exit_code`, `exit_source`,
+`timed_out` and `interrupted_signal` say why.
+`cleanup_required: true` records that the command left descendants;
 an otherwise zero exit becomes 125 with `exit_source: cleanup`. An original nonzero
 exit is preserved. Fix the command's joins/teardown before claiming the gate passed.
 Commands needing stdin must read an explicit file or redirect input inside the

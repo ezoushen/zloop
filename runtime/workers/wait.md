@@ -65,41 +65,9 @@ Before yielding, run `gate --state ... --stage yield` (no `--attempt`). It exits
 names each live worker without an armed wait that can wake you, each lost wait and each
 undelivered receipt; fix those first. Claude Code and Codex (Stop hooks), Pi
 (extension) and OpenCode (plugin, after a turn succeeds) also run it when you stop, over
-runs active in the last day, and send you back once. `ZLOOP_YIELD_HOOK=off` disables the hooks. The stop check holds:
-
-- for the gate's findings, only the session that registered the worker (by host session,
-  else Herdr pane), or for a worker that recorded neither, the session bound to its effort
-  or every session when none is, never one inside a worker's own worktree. Another
-  session's workers never hold this one; run state the check cannot judge is named, not passed;
-- every session, however old the run, for each Herdr launch it logged
-  ([launch log](prepare.md)) into `.worktrees/` or a cwd Herdr did not report, and,
-  unless its launch marked it a worker (`ZLOOP_WORKER`, as [prepare](prepare.md) says) and
-  it is inside Herdr, for each other live agent of its workspace whose cwd is in
-  `.worktrees/` and whose launch no other session logged (none when the checkout has no
-  `.worktrees/`). The hold lasts while no
-  attempt names that pane or agent (alone or in a `<session>/<pane>/<name>` handle) and
-  none of the session's dismissals accounts for it. For a launch, the naming attempt is
-  never one another host session registered when it and the launch's coordinator both
-  know one; otherwise it is one registered from the launch's pane, or after the launch
-  when the launch was made outside Herdr. A live agent nobody launched here is cleared by
-  any registration;
-- the session dispatch bound to coordinate an effort (`next_tickets.py --coordinate`),
-  for each collected attempt neither retained nor retired whose recorded tab Herdr still
-  lists (with no binding, the Herdr pane that registered it is held), and for an effort
-  whose review report records `autofix: true` (before it does, the binding's `--autofix`)
-  and no `blocker`, with every ticket done and `--delivery` failing, until it is finished:
-  its branch deleted, its reviewed head in main (local or the remote's) and a passing
-  `e2e_status` recorded at a head in main; and for a confirmed autopilot run card of the
-  session with no terminal state or no evidence. Neither hold applies while a live worker of
-  the effort holds a running wait that will wake the host.
-
-A launch, like the dispatch binding (`--coordinate`), belongs to the host session that
-ran it when both sides know one, whatever pane either reports (a Codex session's
-`HERDR_PANE_ID` can come from another pane through its shared app-server, and a restarted
-Herdr reuses pane IDs); only without a host session does the pane decide. A closed
-workspace or stopped Herdr session means the tab is gone. A check that cannot run (Herdr
-or git fails or times out) and an unreadable or malformed launch log line are named gaps,
-never a pass.
+runs active in the last day, and send you back once. `ZLOOP_YIELD_HOOK=off` disables the hooks. The stop hooks name what holds the session
+(a worker, a Herdr launch no attempt accounts for, an uncollected tab, an unfinished
+autofix delivery or autopilot card) and the remedy; a check that cannot run is named, never passed.
 
 Read every completed wait's retained log and inspect the native worker and report. When
 the opt-in [wake-triage pilot](../decisions/shadow-pilots.md#wake-triage-shadow-pilot) is

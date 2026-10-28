@@ -29,5 +29,4 @@ run a skill marked `disable-model-invocation`, so the prompt is plain text that 
 autopilot skill file, by absolute path, and asks for its `--take-over --timed` procedure. The job fires only while the
 session is idle. Claude restores it when the same session is resumed with `claude --resume` or `claude --continue` before its time;
 it stops firing when the session exits, and a time that passed while it was closed is not caught up.
-Cancel a leftover with `CronDelete`. The run card is the explicit request for scheduled work that
-[workers.md](workers.md) asks for.
+Cancel a leftover with `CronDelete`.

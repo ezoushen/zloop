@@ -28,7 +28,7 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    work, arm a notified wait for each worker, pass the [yield gate](../../runtime/workers/wait.md#wake-and-yield),
    then yield. With ready but unstartable work, identify the wait (area, capacity, dependency, integration);
    only when none can be resolved within scope, record the attempted resolution and block those tickets.
-4. **Launch.** From `repo`, ensure the effort branch and its worktree exist: `feat/<slug>` in its spec
+4. **Launch.** From `repo`, ensure the effort branch and its worktree exist: `feat/<slug>` in its effort
    worktree, or `main` when the user said to work [directly on main](modes.md#directly-on-main). A new effort
    branches from `main` after fetching and comparing it with its remote; a stale or diverged base is reported and the
    verified remote tip used (on `main`, ask the user). Apart from working directly on main, never commit to the user's local `main`.
@@ -77,11 +77,11 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    evidence. A failed return goes to recovery ([worker return](../../runtime/workers/return.md)), not to the
    user. Missing assigned implementation evidence → blocked, with the failure.
    Accepted → keep the [check evidence](../../runtime/checks/evidence.md) outside the worktree, merge the branch in the
-   spec worktree, record `accepted` with the commit and the tracker transition. Not accepted → `declined` with the reason.
+   effort worktree, record `accepted` with the commit and the tracker transition. Not accepted → `declined` with the reason.
    Retire a worker only after an [acceptance decision](../../runtime/workers/collect.md#accept-and-record-outcomes); keep
    ticket worktrees through review, repair and E2E.
    Once an integrated build allows checks only the user can observe (`Verify (user)`), send the user one request covering all of them, [with context](../../runtime/ask/ask.md).
-   On a merge conflict, assign a builder the `merge-conflict` job in the spec worktree (not on
+   On a merge conflict, assign a builder the `merge-conflict` job in the effort worktree (not on
    [main](modes.md#directly-on-main)); no other worker uses it until the orchestrator completes the merge.
 6. **Unblock.** A blocked ticket is the orchestrator's work: [research](../research/SKILL.md) missing facts,
    diagnose defects under [diagnosis](../diagnose/SKILL.md), decide engineering choices within the constraints, or

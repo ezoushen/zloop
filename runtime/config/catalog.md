@@ -85,12 +85,7 @@ These fields describe the requested route, not observed runtime identity.
 
 Existing complete executor instances and maps of complete candidates remain
 supported, including inherit mode. Use these for destination defaults or a fixed
-assignment-specific executor/model policy. For catalog migration, move the previous
-`model` value to `models.<name>.runtimes.<target>.id`, thinking policy alongside it,
-and launch routes to `runtimes.<target>.executors`. Confirm the destination from its
-installed contract or existing known setup; never infer it from model names or prose
-alone. Reconcile conflicting shared routes before saving. The old catalog layout
-fails with a migration diagnostic; it is not silently treated as native defaults.
+assignment-specific executor/model policy. For catalog migration, see [migration](troubleshooting.md#migration).
 
 Use `thinking: {"default":"medium","allowed":["medium","high"]}` on a runtime
 binding, or `models.thinking` on a complete instance. The default must belong to the
@@ -149,3 +144,18 @@ key proves that the skill and its tools work in the current host.
 To reuse the same skill usage across routes, define a
 [named executor type](executors.md#named-skill-executor-types) and reference it with
 `{"type":"<name>"}`. Different callers can select different definitions.
+
+## Allowance and local capacity
+
+Claude readings come from the status line: add
+`printf '%s' "$JSON" | python3 <plugin_root>/scripts/allowance.py record-claude`
+to the status-line script, where `$JSON` is its input.
+
+A model may name the local `backend` it runs on, and top-level `capacity` gives each
+backend's `slots` with an optional `health` URL and `min_free_memory_percent`:
+
+```json
+{"models": {"glm": {"description": "...", "cost": "local", "data": "local", "backend": "dgx",
+                    "runtimes": {"pi": {"id": "dgx/glm"}}}},
+ "capacity": {"dgx": {"slots": 4, "health": "http://dgx.local:8000/health"}}}
+```

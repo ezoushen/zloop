@@ -40,9 +40,7 @@ the selected executor applies settings and confirms what actually ran.
    and every fallback), choose by [model routing](model-routing.md) in the
    orchestrator and submit `--selection`. For a skill router, load that skill in the
    orchestrator, choose a model and thinking setting, and submit `--selection`.
-   For a decision-model router, supply `--assignment <compact-text-file>` with
-   the filtered pool, `--journal <absolute-journal>` and
-   `--assignment-id <assignment/attempt>`, following [its protocol](decision-model.md).
+   For a decision-model router, follow [its protocol](decision-model.md).
    This is normal internal continuation, not a human approval checkpoint.
 3. For `router.type: profile`, establish the target runtime from the proposed
    candidate or `--target-runtime`. Apply the specified fields only. A single
@@ -132,22 +130,15 @@ older reading is marked `stale` and counts only what was already used, since use
 never falls before a reset. `elevated` starts at 80% used or projected
 and `critical` at 90%; they end only below 65% and 80% and after five minutes at the
 level. Codex readings come from the newest rollout under `$CODEX_HOME/sessions`.
-Claude readings come from the status line: add
-`printf '%s' "$JSON" | python3 <plugin_root>/scripts/allowance.py record-claude`
-to the status-line script, where `$JSON` is its input. A provider without a current
+Claude readings come from the status line, which
+[the catalog](../config/catalog.md#allowance-and-local-capacity) shows how to wire. A provider without a current
 reading is `unknown` and keeps the base weight. Routing reads the levels without
 changing them.
 
 ## Local capacity
 
-A model may name the local `backend` it runs on, and top-level `capacity` gives each
-backend's `slots` with an optional `health` URL and `min_free_memory_percent`:
-
-```json
-{"models": {"glm": {"description": "...", "cost": "local", "data": "local", "backend": "dgx",
-                    "runtimes": {"pi": {"id": "dgx/glm"}}}},
- "capacity": {"dgx": {"slots": 4, "health": "http://dgx.local:8000/health"}}}
-```
+The `backend` and `capacity` settings are in
+[the catalog](../config/catalog.md#allowance-and-local-capacity).
 
 Slots are shared by every effort on the machine: the worker lifecycle takes a lease
 when it registers an attempt on that backend, after the health and free-memory

@@ -31,9 +31,7 @@ investigation with the selected issues and dispatch report before claiming compl
 
 ## Publish authorized comments
 
-For confirm mode, present the complete proposed batch before asking once for
-approval. User edits or selected IDs define the authorized batch. For post mode,
-proceed after validation without asking again. Draft mode ends with local artifacts.
+User edits or selected IDs define the authorized batch.
 A branch without a verified PR keeps local drafts; comment permission does not
 authorize creating a PR. Local autofix commits must not be anchored to an unchanged
 remote head or posted as defects already repaired on the remote PR.

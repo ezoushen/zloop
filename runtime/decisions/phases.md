@@ -15,9 +15,7 @@ planning/review loop. No backend or decision family is enabled by default.
 
 Read effective configuration once per root session, refreshing after changes.
 Only enabled families consult the [decision workflow](decision.md).
-The following defines each extension point. Worker selection and recovery were the
-first families offered for opt-in; like every family, each consults the helper only
-after explicit enablement. When no family is enabled, keep the ordinary host flow without creating
+The following defines each extension point. When no family is enabled, keep the ordinary host flow without creating
 a journal or adding phase checks. With configured decisions, account for reached
 boundaries of enabled families through consultations or recorded skips. Disabled
 families need no checkpoint or check call: configuration is their record.

@@ -49,7 +49,7 @@ not applicable, with the review and E2E evidence, and stop.
    the final diff to explain resulting behavior, and list the ADRs the effort adds. Reuse the current review report;
    preparing the description does not start another review or testing loop.
 3. **Write the description** following [PR writing standard](../../standards/pr.md) into
-   `.scratch/<slug>/pr.md`, run its self-check, and present it as a brief. Carry forward existing
+   `.scratch/<slug>/pr.md`, run its self-check, and show it to the user. Carry forward existing
    description/publication approval; obtain only a still-required decision.
    An unrelated reply or silence is not approval.
 4. **Push and open.** Record the [approval path](../../runtime/board/approval-path.md). When publication is authorized, run

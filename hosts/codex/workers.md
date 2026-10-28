@@ -102,8 +102,7 @@ an explicit user request; an automation does not replace waiting for live childr
 
 Codex runs a plugin's hooks, the yield gate and launch log included, only after the user
 trusts them, and records trust per hooks-file path and per hook: a moved hooks file or a new
-hook runs only once the user trusts it again. Codex skips a hook whose trust entry still
-names an old path, such as `harnesses/codex/hooks.json`.
+hook runs only once the user trusts it again.
 
 ## Top-level workers
 

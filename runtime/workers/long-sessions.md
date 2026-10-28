@@ -14,6 +14,6 @@ Correct procedure must survive compaction:
   before the next worker launch or phase checkpoint. Reconcile the run report
   before answering status questions.
 - **The host model's context window has to fit the work.** Orchestrate with a
-  model of at least about 200k tokens of context; a 131k host overflowed mid-dispatch.
+  model of at least about 200k tokens of context.
   Compact before the limit. If a host-model error drops a user request, tell the user which request
   did not run; don't let it vanish.

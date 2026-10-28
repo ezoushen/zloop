@@ -3,27 +3,10 @@
 `decision-model` describes the router's job; `systemone` names the supported API
 protocol. Jev/OpenJev is the model serving it. The router is separate from worker
 models, runtimes and executors. Shared backend configuration supports the
-[decision loop](../decisions/phases.md) and [calibration](../decisions/calibration.md):
-
-```json
-{
-  "router": {"type": "decision-model"},
-  "decisions": {
-    "backend": {
-      "protocol": "systemone",
-      "endpoint": "http://127.0.0.1:1241/v1/systemone",
-      "model": "local/OpenJev-27B-Splash"
-    },
-    "enabled": ["worker-selection", "recovery"]
-  }
-}
-```
-
-Use the service's registered model ID and full POST endpoint. This example is a
-local Splash lane; it is not a bundled server or a required port. Optional
-`timeout_seconds` defaults to 20 (greater than zero, at most 60); `instruction`
-in `decisions.backend` adds user-specific decision preferences. An older inline
-router remains supported for worker selection when shared `decisions` is absent.
+[decision loop](../decisions/phases.md) and [calibration](../decisions/calibration.md);
+[decision backend](../config/decision-backend.md) holds the configuration example,
+`timeout_seconds` and `instruction`. Use the service's registered model ID and full
+POST endpoint; a local lane is not a bundled server or a required port.
 This client supports unauthenticated
 HTTP(S) System One endpoints. Other protocols or authentication can stay behind
 an installed routing skill. No chat-completions compatibility is assumed.

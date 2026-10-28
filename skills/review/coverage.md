@@ -31,12 +31,9 @@ Pass the actual brief/spec when one exists; do not invent a spec or require tick
 for someone else's PR. Apply the [implementation review method](method.md) once for
 the eligible implementation batch; preserve both axes while zloop owns coverage,
 evidence and disposition.
-The diff-review job's documentation gate is mandatory: code comments and API docs
-are source contracts, including unchanged docs invalidated by the diff. Record
-their coverage and `documentation_status` for the pinned head. Confirmed in-scope
-documentation defects block approval/delivery for every review; priority determines
-repair order, not whether they can be ignored. Unresolved intent/evidence keeps
-the gate incomplete. Keep unrelated documentation work in follow-ups.
+The diff-review job's [documentation gate](jobs/diff-review.md) is mandatory for every
+review: record its coverage and `documentation_status` for the pinned head; a confirmed
+in-scope documentation defect blocks approval/delivery whatever its priority.
 Another reviewer's approval does not waive these gates or change the user's priority
 standard. Choosing not to post a finding does not change its evidence or gate status.
 

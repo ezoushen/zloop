@@ -7,8 +7,7 @@ required to have this conversation.
 
 Use the [configuration procedure](SKILL.md) for inspection and any requested changes.
 Read only the relevant referenced branches. The tour and a direct change are two ways
-through the same command; do not require the user to type a second command. This adds
-a guided path, not a new configuration format or a second resolver.
+through the same command; do not require the user to type a second command.
 
 ## Explain the actual setup
 
@@ -17,7 +16,7 @@ and applicable configuration sources. Inspect with the existing resolver and
 offline decision status. Show configured values and where they came from; label
 missing runtime evidence rather than starting workers or probing decision services.
 Use existing project instructions for tracker and verification conventions. Those
-remain project conventions, not new fields in executors.json. Installation and
+remain project conventions, not fields in executors.json. Installation and
 provider/account settings remain with their own tools; explain any gap without
 installing or reconfiguring them merely to complete this tour.
 

@@ -14,7 +14,7 @@ ticket branch does not merge cleanly; this assignment is its authorization.
 
 ## Inputs
 
-The assignment names the spec `worktree`, its `branch` and starting `head`, the
+The assignment names the effort `worktree`, its `branch` and starting `head`, the
 integration scope, the conflicting files and their `conflict` details, and the
 `report`. No other worker uses that worktree while this job runs.
 

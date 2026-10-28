@@ -8,14 +8,13 @@ Contents:
 
 ## Phase checkpoints
 
-Before the first phase checkpoint, inspect effective `decisions.enabled` using
-offline status for this repo/session and retain it until configuration changes.
-When any family is enabled, run the [configured checkpoint command](checkpoint-command.md)
+Inspect effective `decisions.enabled` using offline status for this repo/session
+and retain it until configuration changes. Which families to check, and the flow when
+none is enabled, follow [phase checkpoints](phases.md#phase-checkpoints). When any
+family is enabled, run the [configured checkpoint command](checkpoint-command.md)
 at each reached phase's named boundary and check its expected phase record before
-handoff. Include an evidence-backed skip when no consultation is needed. With no
-enabled families, retain the ordinary host flow without a journal or phase checks.
-Worker selection already calls the shared helper; it does not cover alignment,
-review triage or recovery. Recovery chooses an action before any worker reselection.
+handoff. Include an evidence-backed skip when no consultation is needed. Worker
+selection does not cover alignment, review triage or recovery. Recovery chooses an action before any worker reselection.
 Surface new calibration warnings
 with their cause and recalibration action, deduplicating unchanged warnings.
 

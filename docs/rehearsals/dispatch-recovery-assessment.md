@@ -63,8 +63,8 @@
   An explicit pin holds; sandbox denial cannot be bypassed; uncertain live work
   must be reconciled before replacement.
 - Case 12 selects native Codex for Sol in Codex, Herdr Codex in Claude inside
-  Herdr, and Herdr Pi for GLM from managed Codex/Claude. Pi uses native Pi children
-  inside or outside Herdr. Neither model has a route in unmanaged Claude; a profile
+  Herdr, and Herdr Pi for GLM from managed Codex/Claude. A Pi caller inside Herdr launches through
+  Herdr, and outside it uses native Pi children. Neither model has a route in unmanaged Claude; a profile
   name does not establish Herdr availability. With the OpenCode binding, that host
   uses its own configured ID and thinking policy. Configured routes are not proof
   of provider execution or a working native OpenCode lifecycle.

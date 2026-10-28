@@ -19,7 +19,7 @@ absolute paths, not assumed shell variables.
 Before each direct worker assignment, the orchestrator resolves
 [optional executors](launch.md). Unconfigured native dispatch retains its existing
 preferences. Configured execution applies the resolved settings once to one worker.
-Pools use a routing skill, a System One decision model or a sparse profile under [selection](../routing/choose.md).
+Pools and routers are set in [launch](launch.md); selection follows [selection](../routing/choose.md).
 `selection_required` is an internal request for a decision, not executable settings.
 Use the named `selection_router` and submit the result before dispatch.
 Announce the [routing decision and attribution](../routing/report.md).
@@ -36,8 +36,7 @@ execution evidence instead of treating a hard-coded model as a routed choice.
 
 ## Profiles, Herdr and thinking
 
-Explicit `--config-profile` or `ZLOOP_PROFILE` selects a routing profile;
-otherwise use the configured router, defaulting to host judgment.
+The routing profile is selected as [launch](launch.md) says.
 Profile lookup is by agent and worker runtime, not caller. Consume selection options
 before forwarding phase arguments to the scheduler or review target helper.
 When `HERDR_ENV=1`, also read Herdr environment guidance before

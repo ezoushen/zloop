@@ -26,7 +26,7 @@ Runtime lifecycle belongs in the host adapter or explicitly selected executor.
   symptom and rediscovering siblings in later rounds.
 - **The report is the record of delivery.** Judge each criterion's evidence and
   verified commits, not checkbox counts alone.
-- **Two specs written `verifying` in one turn deadlock** on each other's devices.
+- **Two efforts written `verifying` in one turn deadlock** on each other's devices.
   Check the selected board's device reservation before starting E2E.
 - **Resume with surviving state.** Identify retained edits, reports, jobs and
   missing evidence so a worker can continue the actual assignment.

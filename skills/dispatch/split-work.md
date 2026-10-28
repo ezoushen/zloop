@@ -15,7 +15,7 @@ does not settle is a ledger row with a hinge. Run the configured
 [`refinement` checkpoint](../../runtime/decisions/checkpoint-command.md) on the cut.
 A child is ready when a builder with an empty context can build it from these, the
 parent's brief and the project instructions. On a local Markdown board each child
-carries the front matter the scheduler reads — `ticket`, `status`, `blocked_by`
+carries the front matter a refined ticket carries — `ticket`, `status`, `blocked_by`
 (always present, `[]` when nothing gates it), `touches`, `devices`, `model` and
 `worker` — and the split ends with
 `python3 "<plugin_root>/scripts/next_tickets.py" --repo "<repo>" <slug> --check`.

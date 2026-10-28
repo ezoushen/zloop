@@ -43,11 +43,8 @@ status. With `--autofix`, the shared procedure includes repair integration and
 applicable E2E before returning; do not run a duplicate verification phase in
 dispatch. Read and execute [Verify autofix through E2E](../review/e2e.md)
 before returning from an autofix handoff, including when all code findings are closed.
-The report records `autofix` and `blocker` as fields ([report](../review/report.md));
-until it records `autofix`, the binding's `--autofix` from dispatch start counts.
-When the bound coordinator stops with `autofix: true`, no blocker, every ticket done
-and `--delivery` failing, the stop hooks hold it once, naming the failing fields:
-continue until `--delivery` passes, or record the concrete `blocker`.
+Under autofix ([report fields](../review/report.md)), continue until `--delivery` passes,
+or record the concrete `blocker`.
 `pr` still requires current review/E2E evidence as well as done tickets.
 Once the remaining gates are complete or explicitly excluded, retire an unused
 ticket worktree through [housekeeping's retirement checks](../../runtime/resources/retire-worktree.md).

@@ -4,14 +4,12 @@ Choose in the host's existing context. This procedure returns a decision; the ex
 executor handles dispatch. Use [selection](choose.md)
 for resolver arguments, profile overrides and recovery.
 When the configured router is `decision-model`, use its compact assignment input
-as described in [System One routing](decision-model.md).
-Supply `--assignment`, `--journal` and `--assignment-id` together for a live backend
-choice, plus `--after-failure "<evidence>"` when retrying after a failed attempt. A missing-input or invalid-JSON error is a call/configuration problem to
+as described in [System One routing](decision-model.md), which owns the call
+arguments and the host path after a service failure. A missing-input or invalid-JSON error is a call/configuration problem to
 correct, not evidence that the backend is unavailable. Host `--selection` is not
 a shortcut around the configured router; preserve the actual fallback or override
 reason and any existing backend decision when using it.
-If the host router is the returned fallback after that service failed or abstained,
-choose here directly and submit `--selection`; do not call the service again.
+After a service failure, choose here as that doc directs.
 Shared `decisions` configuration supplies the backend and calibration policy.
 Surface its new warnings through the [decision workflow](../decisions/decision.md).
 At recovery checkpoints, choose the recovery action before worker reselection;

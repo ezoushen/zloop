@@ -68,7 +68,7 @@ passing work and end `paused-allowance`, and have the report ask the user whethe
 Ending `paused-allowance`, schedule the resume instead of leaving it to the user: set one timer through the host's
 native scheduler, named in its session part's Resume timer section, for just after the reset of the window that drove the level (the latest `resets_at` of the windows at 80%
 used or projected, or five minutes from now when none is, since `critical` also holds for five minutes) that runs `autopilot --take-over --timed`, and record the time and the timer's handle on the card. The
-user's request for it is the authorization, and the timer stays on the card, not in the host's settings. A host whose
+confirmed run card is the authorization, and the timer stays on the card, not in the host's settings. A host whose
 timer needs the user's approval keeps that prompt pending, and a host with no scheduler gets the resume command in
 the report. If the allowance is still `critical` when the timer fires, set the next timer only when the new reset is
 later than the one just waited for; otherwise end with the resume command. A take-over or a pause, by the timer or by the

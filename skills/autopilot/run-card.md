@@ -21,7 +21,7 @@ ready), `merged` (only with `--auto-merge`), `waiting-on-user`, `paused-allowanc
 
 ## Granted actions
 refine; dispatch with autofix (review, repairs, applicable E2E); push the effort branch;
-open the PR and watch its checks; merging through the normal path only when `auto-merge: yes`.
+open the PR and watch its checks; resume itself on `paused-allowance` with one timer; merging through the normal path only when `auto-merge: yes`.
 
 ## Pause list
 Login or permission prompts, credentials, spending money, deleting data, production

@@ -54,7 +54,7 @@ phase owners and gates remain in place; there is no second planning/review loop.
 
 Dispatch reuses [existing project execution facts](../../runtime/board/project-loop.md):
 commands, areas/resources, verification and environment constraints. Missing
-facts go in the effort's alignment/report; no new maintained setup file is required.
+facts go in the effort's alignment/report; no maintained setup file is required.
 Run history stays in reports/journals. Workers call shared plugin scripts directly.
 
 ## The outer loop
@@ -135,8 +135,8 @@ from a [prototype](../prototype/SKILL.md). The review command supplies
 scope, priority and allowed mutation context and its own
 [Standards/Spec method](../review/method.md). Simplicity is part of that review.
 For PR descriptions, the [PR guide](../../standards/pr.md) owns structure,
-evidence, refresh and self-check. The PR phase (`/zloop:pr`) owns delivery
-evidence and publication.
+evidence, refresh and self-check. The PR phase (`/zloop:pr`) owns the description
+and publication.
 
 ## Left to the human
 
@@ -162,7 +162,7 @@ in dispatch or PR. Standalone read-only review remains a review/comment workflow
 Autofix continues until review, documentation and applicable verification gates
 pass, or records concrete blockers. It does not require a separate full-delivery
 request to run tests. For a zloop effort the shared procedure also checks the
-board's delivery gate. PR remains a consumer of that completed evidence and owns
+board's delivery gate. PR consumes that completed evidence and owns
 its description/publication; invoking PR does not start testing or grant repairs.
 Implementation-only and read-only requests can therefore leave delivery gates
 unsatisfied, which their final reports must state.

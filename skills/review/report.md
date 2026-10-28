@@ -78,8 +78,7 @@ Complete findings from the Spec axis, or the missing-spec limitation.
 Verdict: CONFIRMED, FALSE-POSITIVE (disproved), or UNVERIFIED.
 Disposition: comment, question, fixed, follow-up, or blocked; no evidence by vote.
 An accepted exception names its deciding source and retains a CONFIRMED verdict.
-Identify mandatory blockers separately from repair priority; low priority cannot
-waive a confirmed in-scope documentation defect.
+Identify mandatory blockers separately from repair priority.
 For blockers: exact violated contract/standard and source. For proposed changes:
 effect on the intended successful scenario and affected callers, evidence or gap.
 Keep in-scope design dependencies here and in Coverage until resolved.

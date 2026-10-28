@@ -45,18 +45,15 @@ only where the skill permits model invocation. Retain the actual source/result.
 Session-local settings isolation must keep the plugins the assignment invokes,
 such as zloop for its slash commands, and Herdr's native identity hook;
 verify both before accepting the launch.
-Launch an OpenCode 2 worker as the full TUI (`opencode`); Herdr's integration
-reports only its activity and session, not `mini`'s. It attaches to a private server
-whose session carries its settings and write scope, as the
-[OpenCode adapter](opencode/workers.md#top-level-workers) describes. Its isolated
+Launch an OpenCode 2 worker as the full TUI, on a private server, as the
+[OpenCode adapter](opencode/workers.md#top-level-workers) describes; Herdr's
+integration reports the TUI's activity and session, not `mini`'s. Its isolated
 configuration keeps the installed Herdr server plugin and, for the full TUI, its native TUI
 session reporter, and nothing else of the user's: MCP tools from the user's configuration
 stay callable under the session's deny rules. Reproduce the installer's current TUI
 configuration in the isolated config directory, including its referenced module; a
 server-plugin entry alone does not load the TUI reporter. Use the supported configuration filename (for
-example, `tui.jsonc`) rather than assuming another file is read. The private
-server takes a free port of its own (`opencode serve --port <free port>`), never the
-user's background service.
+example, `tui.jsonc`) rather than assuming another file is read.
 Check `integration status` and the actual `agent_session` before productive work;
 a current server alone does not establish that its integration is loaded.
 If startup returns before the native input UI finishes loading, wait for its
@@ -64,9 +61,8 @@ actual input marker before the first prompt. After a stalled prompt, inspect the
 same conversation and its native output before deciding whether to retry.
 Accept startup only after all required source reads and the final assistant turn
 have completed; an early READY sentence or transient settled status is insufficient.
-Parse the complete retained native export before collection. If the installed
-OpenCode CLI truncates exports captured through a pipe, redirect stdout directly
-to a file and validate that artifact; exit zero alone does not establish integrity.
+Parse the complete retained native export before collection, redirected to a file as
+the adapter says; exit zero alone does not establish integrity.
 
 ## Start each worker in a tab of its own
 

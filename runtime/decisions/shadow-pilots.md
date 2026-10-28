@@ -112,8 +112,7 @@ when the shell is back at its prompt; omit it for agent panes, whose foreground 
 always the agent (Herdr: `herdr pane process-info`). Bind it with
 `=`, because login shells report a leading dash such as `-zsh`. The worker controls
 its command line, so it is sent labelled untrusted, as one line of at most 200
-characters. Under Herdr, read agent panes with
-`--source visible`; `recent` reads fail while an agent's alternate screen is up.
+characters.
 
 The helper sends the last 8,000 bytes of the capture, framed as untrusted output,
 plus the optional seconds since the last observed output. It chooses among

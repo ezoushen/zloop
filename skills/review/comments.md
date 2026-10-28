@@ -21,8 +21,7 @@ of the same target until the user changes it. A fresh review request defaults to
 draft unless its request carries publication authorization. If directions actually
 conflict, keep the drafts local and clarify before publishing.
 
-When delegating an entire review, pass the initiating request and effective comment
-policy to its orchestrator. Analytical workers return evidence and never publish.
+Analytical workers return evidence and never publish.
 Dispatch's internal review defaults to draft; do not infer posting from delivery work.
 
 ## Delegated review

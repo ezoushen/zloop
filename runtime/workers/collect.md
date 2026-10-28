@@ -90,15 +90,10 @@ orchestrator's judgement, not the worker's `completed` claim; the
 [effort spend report](effort-spend.md) counts accepted tickets from it.
 
 Closing or retiring a completed `acceptance: true` attempt that is neither accepted nor
-declined settles it: the `closed` record, the `retire` input and the `collect`
-retire `disposition` each carry `"acceptance": {"decision": "accepted", "commit":
-"...", "evidence": ["..."]}` (nonempty evidence) once integrated, `{"decision":
-"declined", "reason": "..."}` when its criteria are unmet, or `{"decision":
-"deferred", "reason": "..."}` when acceptance checks are still to run, which is
-usual when retiring at collection. A missing decision is refused before the pane
-closes. A deferred attempt asks for `record acceptance or decline` in `status` until
-`accepted` or `declined` (with `reason` and evidence) is recorded; both are allowed
-after the session closed, and each excludes the other.
+declined settles it with an `acceptance` decision, whose shapes are in
+[retire](../resources/retire.md). A deferred attempt asks for `record acceptance or decline`
+in `status` until `accepted` or `declined` (with `reason` and evidence) is recorded; both
+are allowed after the session closed, and each excludes the other.
 
 Each collected attempt's outcome (result, acceptance or decline, reverts) also goes
 to a machine-wide ledger, `$XDG_STATE_HOME/zloop/outcomes.sqlite`, with its

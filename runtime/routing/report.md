@@ -13,20 +13,10 @@ unavailable host model ID as unknown. Distinguish requested from runtime-confirm
 settings, and preserve the policy source/session and resolved JSON. Record the
 situational skills with their sources.
 
-For a recorded backend decision, the worker lifecycle
-records it when the registered execution applied the recommendation: the
-`action` at registration, the `execution` at verified startup and the `outcome`
-at collection. Later review defects, repair rounds, reverts and owner-found
-defects reach that outcome through `attribute`. Read its `journal` output for a
-capture gap. Without the lifecycle, or for an override, append the host `action`
-before executing it, `execution` at worker startup and the task `outcome` at the
-acceptance checkpoint with the [direct annotation commands](../decisions/annotate.md);
-each prints its launch, startup or completion [handoff check](../decisions/annotate.md#check-a-handoff),
-so no separate check call is needed. An override explained only in prose is missing the actual
-host action. Reconcile that capture gap from retained evidence, preserving unknowns.
-Complete this bounded result's record before reusing its worker, even if the overall
-workflow is ongoing. Pass the checked revision to completion; a prior segment's
-outcome cannot accept a resumed head. Retain verified alias evidence and report
+For a recorded backend decision, record the `action`, `execution` and `outcome`
+as [annotate.md](../decisions/annotate.md) describes. An override explained only in
+prose is missing the actual host action. Reconcile a capture gap from retained
+evidence, preserving unknowns. Retain verified alias evidence and report
 errors/host recovery separately from eventual delivery success under the journal contract.
 A launch failure or settings mismatch belongs to host/execution evidence, not a
 label that the decision model chose badly. Report a new calibration warning with

@@ -68,7 +68,7 @@ Update affected comments/documentation alongside behavior using code-comments.
 Documentation correctness remains a hard review gate. Use the glossary's terms
 in documentation, test names and commit messages, and add or update a domain term in
 the same commit that introduces or changes it.
-Commit scoped changes to the assigned branch. Review remains at the spec gate.
+Commit scoped changes to the assigned branch. Review remains at the integrated review.
 
 Done when the scoped deliverable and assigned checks are accounted for, or a
 failure/blocker needs host recovery under the shared checkpoint rules. Retain

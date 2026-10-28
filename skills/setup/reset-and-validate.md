@@ -32,7 +32,7 @@ agent, executor/selection, model policy, model/thinking (or inherited), and any
 pending runtime checks. Show the focused diff without claiming a worker was tested.
 New assignments read changes automatically; identify a reload only when native
 profile discovery or plugin installation actually requires one.
-The former per-model executor catalog needs the migration described in [models and runtime routes](../../runtime/config/catalog.md);
+A per-model executor catalog needs the migration described in [models and runtime routes](../../runtime/config/catalog.md);
 confirm destination runtimes from known configuration/contracts, preserve IDs and
 thinking, and reconcile shared route conflicts. Back up the existing file before
 migration. Legacy package/routes files use the executor

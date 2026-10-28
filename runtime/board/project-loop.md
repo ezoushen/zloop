@@ -63,28 +63,12 @@ clean, so declare its outputs in `.gitignore`.
 `next_tickets.py --accept` runs every command itself, through the
 [bounded runner](../checks/run.md#run-a-bounded-check), at the ticket head, in the worktree that
 has the ticket branch checked out. Each log is kept under
-`.scratch/<slug>/reports/evidence/<NN>/accept-<N>/<head>/`. It refuses:
-- a worktree with tracked changes or untracked files that are not ignored (it names them),
-  before the commands and again after each one;
-- a ticket whose diff touches an entry's `paths`. A delegated ticket is compared with the
-  merge-base with the effort branch (`feat/<slug>`, or the one `spec-review.md` records; `main`
-  when it does not exist). An inline ticket, on the effort branch itself, is compared from its
-  `start:`, the effort head that `--set <ticket> status=implementing` records when the ticket
-  enters implementing from a status that is not live (`--set <ticket> start=<sha>` records a
-  missing one; a recorded one never changes); it is refused without one, with one its branch
-  does not contain, or when its report lists no commit past it. A stacked ticket's file counts only when it also differs from the head of
-  each same-effort `blocked_by` ticket its head contains and its merge-base does not (that
-  ticket's branch is the one its report names, else `feat/<slug>-<NN>`); that ticket's own
-  change is judged at its own `--accept`;
-- a missing value: no such line, more than one, not a finite number, or a command that exits
-  non-zero or times out. The runner also stops processes left in the command's process group and
-  returns 125, which is refused; a child that starts its own session is not caught;
-- a value worse than its baseline.
+`.scratch/<slug>/reports/evidence/<NN>/accept-<N>/<head>/`. It names what it refuses: a ticket whose
+diff touches an entry's `paths`, a metric with no value or a value worse than its baseline.
 
 A ticket may excuse metrics with front matter `allows:` holding one or more comma-separated
 pairs, each `<metric> <bound>` (the worst value it tolerates) or `<metric> tool` (it may change
-that entry's `paths`) and excusing only its own metric, such as `allows: recall 80, latency tool`;
-a metric named twice or an empty or malformed pair is refused. One
+that entry's `paths`) and excusing only its own metric, such as `allows: recall 80, latency tool`. One
 `allows_source: <row id>`, such as `U3`, cites a row of `.scratch/<slug>/ledger.md`. The row must
 record the user's decision, and the orchestrator judging acceptance checks that it does. When a
 ticket with an allowed drop is integrated, the orchestrator sets that entry's baseline to the

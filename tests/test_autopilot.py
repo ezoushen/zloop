@@ -153,7 +153,9 @@ class AllowanceResume(unittest.TestCase):
         self.assertIn('the latest `resets_at` of the windows at 80% used or projected, or five minutes from now when none is', run)
         self.assertIn('that runs `autopilot --take-over --timed`', run)
         self.assertIn("record the time and the timer's handle on the card", run)
-        self.assertIn("The user's request for it is the authorization", run)
+        # The confirmed card is what authorizes the timer, so the card's grants name it (ADR 0012).
+        self.assertIn('The confirmed run card is the authorization', run)
+        self.assertIn('resume itself on `paused-allowance` with one timer', CARD.read_text().split('## Granted actions', 1)[1].split('\n## ', 1)[0])
         self.assertIn("A host whose timer needs the user's approval keeps that prompt pending", run)
         self.assertIn('a host with no scheduler gets the resume command in the report', run)
 
