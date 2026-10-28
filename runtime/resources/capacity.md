@@ -1,7 +1,7 @@
 # Shared capacity
 
 Before a batch and each worker launch, reconcile active assignments through native
-executor status and the project's existing shared run logs or coordinator. Include
+executor status and the project's existing shared dispatch logs or coordinator. Include
 other sessions and projects using a verified common service/account, plus helper
 workers. A loop's `--max-live` is only its local admission
 limit; it does not grant that many additional account slots. Apply any established

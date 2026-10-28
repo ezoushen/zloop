@@ -10,7 +10,7 @@ assignment before starting; do not substitute a generic worker on failure. Repor
 availability failures to the coordinator for [pool recovery](../../runtime/workers/recovery.md).
 
 Supply the shared assignment, resolved model policy and settings. A named agent
-may forward to another host. Inspect its installed entry point to establish
+may forward to another runtime. Inspect its installed entry point to establish
 the actual worker runtime and model controls; `host` does not establish
 the destination. Read the destination settings guidance when applicable. For
 `inherit`, preserve destination settings and send no overrides. For `override`,

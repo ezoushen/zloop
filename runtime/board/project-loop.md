@@ -113,7 +113,7 @@ fields or value-presence flags from configuration; keep credentials out of outpu
 
 ## Run evidence
 
-Keep timings, findings and execution snapshots in existing run reports or journals.
+Keep timings, findings and execution snapshots in existing dispatch reports or journals.
 Use the [retention contract](../checks/evidence.md) for files those
 reports cite; a report in the main checkout does not preserve worktree-local logs.
 Maintained project instructions contain only current commands, constraints and

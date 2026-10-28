@@ -148,12 +148,12 @@
       "id": "refinement-independent-delivery",
       "request": {
         "family": "refinement",
-        "state": "An accepted effort contains a mobile serializer fix and an unrelated server migration. They have different owners, deployment windows, environments and rollback requirements. Each has independent acceptance evidence, and neither depends on the other.",
+        "state": "An accepted workstream contains a mobile serializer fix and an unrelated server migration. They have different owners, deployment windows, environments and rollback requirements. Each has independent acceptance evidence, and neither depends on the other.",
         "instruction": "Choose the grouping that respects the evidenced delivery and risk boundaries.",
         "options": {"separate": "Keep independent scoped tickets, owners and acceptance for each deliverable.", "group": "Combine both into one worker assignment and one joint delivery condition."}
       },
       "expected": ["separate"],
-      "evidence": "Synthetic specification: distinct ownership, deployment and rollback boundaries justify independent tickets despite belonging to one effort."
+      "evidence": "Synthetic specification: distinct ownership, deployment and rollback boundaries justify independent tickets despite belonging to one workstream."
     },
     {
       "id": "triage-shared-reproduction",

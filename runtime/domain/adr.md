@@ -77,7 +77,7 @@ silently followed.
 
 A workstream's ledger stays in ignored `.scratch/`, so its lasting decisions reach other
 members only as ADRs. When the workstream's implementation is complete, list each ledger
-row that qualifies as a candidate ADR in the run report, with the row it
+row that qualifies as a candidate ADR in the dispatch report, with the row it
 comes from, and ask the user once for the whole list. Do not wait for the answer:
 write only the candidates the user approves into the workstream branch, those answered
 before its review head is pinned, so the review covers them; candidates still

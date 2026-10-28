@@ -24,7 +24,7 @@
     "router": { "$ref": "#/$defs/router" },
     "decisions": { "$ref": "#/$defs/decisions" },
     "capacity": {
-      "description": "Concurrent worker slots per local backend, shared by every effort on this machine.",
+      "description": "Concurrent worker slots per local backend, shared by every workstream on this machine.",
       "type": "object",
       "propertyNames": { "$ref": "#/$defs/identifier" },
       "additionalProperties": {

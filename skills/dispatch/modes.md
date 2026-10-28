@@ -12,7 +12,7 @@ Default to inline for sequential, well-understood tickets whose context the sess
 holds: delegating them only adds re-briefing, setup and a merge. Delegate tickets that can
 run in parallel, need a clean context, carry high risk or would crowd the orchestrator's
 own context. Model and thinking for a builder still come from routing. The user's
-instruction on how a ticket runs wins. Record the mode and its reason in the run report.
+instruction on how a ticket runs wins. Record the mode and its reason in the dispatch report.
 
 ## Inline
 
@@ -34,7 +34,7 @@ two-attempt rules; delegating it is one of the recovery choices.
 
 Every workstream gets a dedicated branch by default. Only an explicit user instruction to
 work directly on main makes `main` the workstream branch and the main checkout its worktree;
-record that instruction and the starting commit in the run report. A stale or diverged
+record that instruction and the starting commit in the dispatch report. A stale or diverged
 local `main` is reported and the user asked before the first commit. Inline tickets commit
 there, and delegated tickets merge into `main` under that instruction, which is the merge
 authorization. On `main` the orchestrator resolves an integration conflict itself: a

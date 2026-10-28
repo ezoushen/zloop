@@ -11,7 +11,7 @@ Correct procedure must survive compaction:
   memory. A compaction summary is not a
   durable store.
 - **After a compaction or resume,** re-read the bootstrap and the host session part
-  before the next worker launch or phase checkpoint. Reconcile the run report
+  before the next worker launch or phase checkpoint. Reconcile the dispatch report
   before answering status questions.
 - **The host model's context window has to fit the work.** Orchestrate with a
   model of at least about 200k tokens of context.

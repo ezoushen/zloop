@@ -37,7 +37,7 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    `feat/<slug>-<key>` in `.worktrees/<slug>-<key>`, where the key is the local `NN` or a stable safe remote
    issue key from board operations); reuse existing ones after checking their identity, and merge the workstream
    branch into a resumed one, keeping its local edits. When the user allows stacking, a dependent ticket may
-   branch from an accepted but unintegrated ticket branch: record the stack in the run report and merge the
+   branch from an accepted but unintegrated ticket branch: record the stack in the dispatch report and merge the
    base's later fixes into it before accepting it. Prepare fresh and recreated worktrees with the project's
    gitignored build inputs and verify the required paths, never printing credential-bearing files.
    Plan checks with [plan and accept checks](../../runtime/checks/accept.md); verify the runner's current
@@ -63,7 +63,7 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    comments: <previous failing command/output, if any>
    ```
 
-   Register every worker, probe, checker or E2E run in the run report, with its assignment, reservation and
+   Register every worker, probe, checker or E2E run in the dispatch report, with its assignment, reservation and
    result, including ad-hoc ones the user asks for; status answers read that record. Record the agent ID
    through board operations and complete the [launch decision record](../../runtime/routing/report.md). If
    spawning fails, check whether a child started before retrying.

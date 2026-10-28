@@ -86,7 +86,7 @@ checkout's `.scratch/<slug>/reports/`; worktrees do not contain that ignored sta
 
 Implementation completion for the current batch: every selected ticket is done,
 or blocked with the orchestrator's actual unblock attempt and failure recorded
-in the issue or run report; execution counts show `0 ready` and `0 live`. Name blocked tickets and
+in the issue or dispatch report; execution counts show `0 ready` and `0 live`. Name blocked tickets and
 their reasons; do not call that full delivery. The adapter owns waiting and any
 explicitly authorized goal. Quoting `/goal` is never a lifecycle operation.
 This is the handoff point, not the end of dispatch: complete the [review handoff](handoff.md)

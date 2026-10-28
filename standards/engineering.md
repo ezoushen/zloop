@@ -45,7 +45,7 @@ decisions but never override or relax a principle.
 - **Keep the full objective.** Never redefine success as the part that passes; an
   unmet criterion stays open until evidence closes it — shown by: a completion check
   maps every criterion to passing evidence.
-- **Budget work and context.** Size the work and time to the task, within the
+- **Budget effort and context.** Size the effort and time to the task, within the
   configured routing, commit passing work before a budget runs out, and pass references
   rather than payloads — shown by: each delegation states its size and budget.
 - **Turn a repeated mistake into a check.** A correction that recurs becomes a test,

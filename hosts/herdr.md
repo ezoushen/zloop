@@ -152,5 +152,5 @@ target can do it:
 
 If any of these is missing, report it rather than sending the work anyway. Write
 the scenario to a file and send a short slash command. A synced copy of the board is
-a second orchestrator. Add a `Handed off to <machine/pane> at <time>` line to the local run report before
+a second orchestrator. Add a `Handed off to <machine/pane> at <time>` line to the local dispatch report before
 the remote starts. If the handoff fails, add `Returned at <time>`.

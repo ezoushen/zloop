@@ -16,7 +16,7 @@ retry/fallback condition, without exposing credentials. Never create parallel
 retry bursts or unbounded backoff that strands the assignment.
 
 Availability failures trigger automatic recovery within the allowed pool: exhausted
-credits/quota, unavailable model/provider/host, missing executor capability or
+credits/quota, unavailable model/provider/runtime, missing executor capability or
 an unsupported requested model/effort pair. Preserve the failure evidence, exclude
 the failed candidate, and re-resolve with the remaining `--eligible-candidates`.
 Exclude other candidates sharing a proven failed service/account or capability;

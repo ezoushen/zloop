@@ -79,7 +79,7 @@ instruction over a newer alignment or leave contradictory readiness labels.
 
 Record native issue ID/URL, agent ID, branch/worktree, starting/accepted commit,
 execution phase, attempts, report path and active area/device reservations in
-`.scratch/<slug>/reports/dispatch.md` (or the project's existing run log).
+`.scratch/<slug>/reports/dispatch.md` (or the project's existing dispatch log).
 Update this record at launch, acceptance, integration and failure, before waiting
 or yielding. Reconcile conflicting log, board, worker and Git evidence before the
 next selection; a stale live row must not strand integrated work or cause a duplicate
@@ -99,7 +99,7 @@ milestones plus the current scoped queue, so an implemented issue awaiting revie
 is neither redispatched nor falsely reported as remotely closed.
 
 Before E2E, reconcile active workers and device reservations across this checkout's
-run logs; reserve the required devices there, release after actual teardown, and
+dispatch logs; reserve the required devices there, release after actual teardown, and
 retain interrupted reservations until reconciled. Never change a remote issue's
 status just to reserve a device. One orchestrator owns this checkout; use any
 existing project resource reservation mechanism as well.
@@ -111,7 +111,7 @@ work or reservation, and that the
 [ADR number check](../domain/adr.md#deliver-a-workstreams-decisions) passes on the workstream branch. Require `review_status: clean`, `documentation_status: passed`,
 `e2e_status: passed`, and
 `review_head`/`e2e_head` equal to the current workstream branch commit, and
-`review_by`/`e2e_by` naming the worker runs that produced them. With `workstream_branch: main`
+`review_by`/`e2e_by` naming the worker attempts that produced them. With `workstream_branch: main`
 the reviewed head must instead be an ancestor of the current `main`, which keeps moving;
 later commits on `main` are not covered by that evidence. Verify
 `review_base` resolves and its unique merge base with that head equals
