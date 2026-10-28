@@ -1,5 +1,9 @@
 interface:
   short_description: "Implement tickets and review; autofix is optional"
-  default_prompt: "Use $zloop:dispatch <effort|project|milestone|issue-ID|issue-URL> to implement the selected tickets and complete a read-only review. Omit the scope to use the project's configured queue; with a plan agreed in chat, tickets are cut and checked first."
+  default_prompt: >-
+    Use $zloop:dispatch <workstream|project|milestone|issue-ID|issue-URL>
+    to implement the selected tickets and complete a read-only review. Omit
+    the scope to use the project's configured queue; with a plan agreed in
+    chat, tickets are cut and checked first.
 policy:
   allow_implicit_invocation: false

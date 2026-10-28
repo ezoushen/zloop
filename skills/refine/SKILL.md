@@ -2,7 +2,7 @@
 name: refine
 description: "Split an accepted alignment brief, or a plan agreed in chat, into scoped tickets in the project's tracker, or local Markdown."
 disable-model-invocation: true
-argument-hint: "<effort-slug> | <the plan agreed in this conversation>"
+argument-hint: "<workstream-slug> | <the plan agreed in this conversation>"
 ---
 
 # Shared refinement procedure

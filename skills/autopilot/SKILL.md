@@ -57,7 +57,7 @@ the card with the user's words.
 
 1. [refine](../refine/SKILL.md) the brief into tickets;
 2. [dispatch](../dispatch/SKILL.md) them with `--autofix` (review, repairs, applicable E2E);
-3. [pr](../pr/SKILL.md): write the description, push the effort branch and open the PR, then watch the required checks.
+3. [pr](../pr/SKILL.md): write the description, push the workstream branch and open the PR, then watch the required checks.
    In a repository with no PR host, publish nothing: pass the PR procedure's delivery gate, write the delivery report and end `delivered-local`.
 
 At each phase boundary and before each worker launch, run `python3 "<plugin_root>/scripts/allowance.py" status`.
@@ -93,7 +93,7 @@ leave the native prompt pending and record on the card what is needed and the re
 ## While paused
 
 After `--pause`, start no worker. Workers already running finish, and their results wait unaccepted in the
-effort's reports: stopping them loses their work, and accepting them would race the user's own changes.
+workstream's reports: stopping them loses their work, and accepting them would race the user's own changes.
 Integrate, push and publish nothing, and ask the user what the next decision needs. The card grants nothing
 until `--take-over`.
 
@@ -103,7 +103,7 @@ Record exactly one terminal state, with its evidence, in the card's State:
 
 - `delivered`: PR open, required checks pass, review and E2E evidence current for its head.
   Never record `delivered` while any acceptance criterion lacks passing evidence.
-- `delivered-local`: the same without a PR host, or for an effort the user
+- `delivered-local`: the same without a PR host, or for a workstream the user
   ran directly on `main`, where a PR is not applicable: branch and delivery report ready.
 - `merged`: only with `--auto-merge`. It merges only through the repository's normal path, once required checks
   and the [approval path](../../runtime/board/approval-path.md) are satisfied, never by admin override or self-approval.

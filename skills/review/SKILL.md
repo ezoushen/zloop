@@ -17,7 +17,7 @@ This procedure is shared by review, dispatch and an authorized walkthrough hando
 The public command stays user-invoked: dispatch and the walkthrough read this file
 directly instead of calling the command through Skill, and reading it is not an
 alternative entry point after a tool refusal. The entry point loads the runtime bootstrap and selected adapter first.
-Review forwards the user's target and flags; dispatch supplies the verified effort
+Review forwards the user's target and flags; dispatch supplies the verified workstream
 branch, selected ticket scope and accepted alignment. Walkthrough supplies the
 discussion, agreed review criteria and authorization to begin review.
 Record the initiating request, entry point and comment policy in the report. Only
@@ -74,9 +74,9 @@ Stages after this one, in order: [coverage and findings](coverage.md),
 3. Read the PR/issue discussion and existing review comments, changed code, relevant
    callers, project standards and existing alignment, including canonical issues
    in the project's configured tracker under the bootstrap's conventions. For a verified zloop
-   effort use `.scratch/<slug>/reports/spec-review.md`; otherwise use a local
+   workstream use `.scratch/<slug>/reports/spec-review.md`; otherwise use a local
    `.scratch/reviews/<review-id>/review.md` with a stable, filesystem-safe ID and the
-   target identity recorded inside it. Never infer an effort from a similar name.
+   target identity recorded inside it. Never infer a workstream from a similar name.
    Create the report from [report.md](report.md). Resume only a matching repository,
    target and scope. When its revision changes, preserve human decisions and the
    follow-up list, but revalidate findings and reopen affected coverage before

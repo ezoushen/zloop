@@ -45,7 +45,7 @@ existing string/boolean settings unless their policy is being changed. A bounded
 form replaces the legacy boolean; a single allowed value locks thinking.
 
 Session edits use the stable root session ID from the assignment/environment or
-existing effort record. If unavailable, generate and retain one before the first
+existing workstream record. If unavailable, generate and retain one before the first
 override. Use the resolver's `--session` for all affected inspections and descendants.
 Copy the effective agent entry before a partial override, preserve unrelated session
 entries, validate, and save the complete configuration through `--save-session`.

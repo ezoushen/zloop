@@ -1,8 +1,8 @@
 ---
 name: pr
-description: "Create a PR for an effort with current review and verification evidence."
+description: "Create a PR for a workstream with current review and verification evidence."
 disable-model-invocation: true
-argument-hint: "<effort-slug> — review and applicable verification must already pass"
+argument-hint: "<workstream-slug> — review and applicable verification must already pass"
 ---
 
 # pr
@@ -10,7 +10,7 @@ argument-hint: "<effort-slug> — review and applicable verification must alread
 First read: the runtime bootstrap (`../../bootstrap.md`), the host session part.
 
 The optional last phase of the pipeline. Everything the description needs already
-exists in the effort's artifacts and configured board: the mandate and design in
+exists in the workstream's artifacts and configured board: the mandate and design in
 `alignment.md`, decisions in `ledger.md`, stories in canonical tracker issues or
 local Markdown tickets, and evidence in `reports/`. The PR description is assembled from them,
 never written from memory. Every claim traces to the artefact that proves it: cite
@@ -23,11 +23,11 @@ Follow the [approval path](../../runtime/board/approval-path.md).
 ## Steps
 
 Before checking delivery evidence, apply [housekeeping](../housekeeping/SKILL.md)
-to the effort worktree if it has not covered the current task state. If it changes
+to the workstream worktree if it has not covered the current task state. If it changes
 tracked content, return that delta to review and refresh required delivery evidence
 before proceeding. Preserve artifacts used by the PR's claims.
 
-An effort the user ran directly on `main` has no branch to publish: report the PR as
+A workstream the user ran directly on `main` has no branch to publish: report the PR as
 not applicable, with the review and E2E evidence, and stop.
 
 1. **Confirm delivery evidence**, from the main checkout, using the selected
@@ -36,7 +36,7 @@ not applicable, with the review and E2E evidence, and stop.
    For local Markdown only, run
    `python3 "<plugin_root>/scripts/next_tickets.py" --repo "<repo>" <slug> --delivery`.
    Require implemented/integrated work and a clean review plus passed E2E for the
-   current effort head and pinned base. Read coverage, decisions and artifacts too;
+   current workstream head and pinned base. Read coverage, decisions and artifacts too;
    structural markers alone are not proof. Follow-ups are separate future work, not PR
    blockers or implied permission to implement them. Missing/stale evidence means
    return to the corresponding phase, never call an implemented branch delivered.
@@ -46,7 +46,7 @@ not applicable, with the review and E2E evidence, and stop.
    Required gates and publication permission are facts the backend cannot waive.
 2. **Read the whole range**, not the last commit: `git log --oneline main..feat/<slug>`
    and `git diff main...feat/<slug>`. Use the accepted brief to explain intent and
-   the final diff to explain resulting behavior, and list the ADRs the effort adds. Reuse the current review report;
+   the final diff to explain resulting behavior, and list the ADRs the workstream adds. Reuse the current review report;
    preparing the description does not start another review or testing loop.
 3. **Write the description** following [PR writing standard](../../standards/pr.md) into
    `.scratch/<slug>/pr.md`, run its self-check, and show it to the user. Carry forward existing

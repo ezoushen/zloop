@@ -15,7 +15,7 @@ review's autofix loop or a delivery gate.
 ## Inputs
 
 Your assignment names `worktree`, branch and reviewed head, `report`, the applicable
-project checks, source instructions and reusable evidence. A zloop effort
+project checks, source instructions and reusable evidence. A zloop workstream
 also supplies its selected tickets' `touches` union. Verify the assigned head.
 For a pre-delivery snapshot check, verify the supplied immutable input identity;
 retain that identity rather than attributing dirty execution to HEAD alone.

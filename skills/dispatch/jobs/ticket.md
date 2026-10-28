@@ -10,8 +10,8 @@ acceptance: true
 # ticket
 
 Build exactly one ticket, test-first. Dispatch assigns it to a builder in its own
-worktree. For an inline ticket the orchestrator follows this job itself in the effort
-worktree, where `worktree` and `branch` name the effort's
+worktree. For an inline ticket the orchestrator follows this job itself in the workstream
+worktree, where `worktree` and `branch` name the workstream's
 ([how a ticket runs](../modes.md)).
 
 ## Inputs

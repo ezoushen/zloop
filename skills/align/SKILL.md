@@ -2,7 +2,7 @@
 name: align
 description: "Settle the goal and constraints, then establish a scoped WHAT / WHY / HOW plan, reusing accepted decisions and asking only material unresolved questions."
 disable-model-invocation: true
-argument-hint: "<idea, plan, decision or effort-slug> [--interactive]"
+argument-hint: "<idea, plan, decision or workstream-slug> [--interactive]"
 ---
 
 # align
@@ -93,7 +93,7 @@ unchanged decisions. A vague reply or silence does not choose an unresolved alte
 
 ## Save the current alignment
 
-For an effort entering refinement, write `.scratch/<slug>/alignment.md` and keep it
+For a workstream entering refinement, write `.scratch/<slug>/alignment.md` and keep it
 current; decision history stays in the ledger, not in obsolete plans. It contains:
 
 ```markdown
@@ -115,8 +115,7 @@ Approach, responsibilities, seams and only the diagrams/flows needed to explain 
 Consequential ledger IDs; open decisions and the work each blocks, if any.
 ```
 
-When new evidence contradicts a decision, reopen it as soon as you see the evidence,
-not at the next phase, and tell the user when it was their decision. Then reopen its
+When new evidence contradicts a decision, reopen it at once, not at the next phase, and tell the user when it was their decision. Then reopen its
 dependent design, tickets and review coverage, preserving unaffected conclusions.
 Dispatch returns here when implementation disproves a design assumption; refinement
 re-cuts only affected work. Independent work may continue when its contracts, worktree

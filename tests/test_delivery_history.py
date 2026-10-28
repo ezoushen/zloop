@@ -33,14 +33,15 @@ class DeliveryHistory(unittest.TestCase):
         self.assertNotIn('supersede link goes to the user', text)
 
     def test_each_delivery_step_applies_it(self):
-        link = '../../runtime/domain/adr.md#deliver-an-efforts-decisions'
+        # The ADR doc's delivery section is renamed with the domain sweep, so the handoff points at the doc, not an anchor.
+        link = '../../runtime/domain/adr.md'
         handoff = prose('skills/dispatch/handoff.md')
         self.assertIn(f'candidate ADRs]({link})', handoff)
         self.assertLess(handoff.index('candidate ADRs]'), handoff.index('before pinning the review head'))
         before_pin = handoff[:handoff.index('before pinning the review head')]
         self.assertIn('commit the approved ones', before_pin)
         self.assertLess(before_pin.index('commit the approved ones'), before_pin.index('run the ADR number check'))
-        self.assertIn('the ADRs the effort adds', prose('skills/pr/SKILL.md'))
+        self.assertIn('the ADRs the workstream adds', prose('skills/pr/SKILL.md'))
         board = prose('runtime/board/board.md')
         self.assertIn('[ADR number check](../domain/adr.md#deliver-an-efforts-decisions) passes on the effort branch',
                       board)

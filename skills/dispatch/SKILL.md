@@ -2,7 +2,7 @@
 name: dispatch
 description: "Implement scoped tickets and review the integrated changes; --autofix adds repairs and applicable E2E verification."
 disable-model-invocation: true
-argument-hint: "[<effort|project|milestone|issue-ID|issue-URL|the plan agreed in this conversation>] [--autofix]"
+argument-hint: "[<workstream|project|milestone|issue-ID|issue-URL|the plan agreed in this conversation>] [--autofix]"
 ---
 
 # dispatch
@@ -17,7 +17,7 @@ Contents:
 First read: the runtime bootstrap (`../../bootstrap.md`), the host session part.
 
 One orchestrator owns scheduling, worktree integration and board updates.
-Workers receive an agent file, a job file and only that job's inputs. An effort
+Workers receive an agent file, a job file and only that job's inputs. A workstream
 has a local slug for its branch, alignment and reports; tickets live in the
 configured tracker or, only for local Markdown, `.scratch/<slug>/issues/`.
 Read [board operations](../../runtime/board/board.md) and use the selected board throughout this skill.
@@ -59,16 +59,16 @@ review. Publication requires its own request.
    `python3 "<plugin_root>/scripts/next_tickets.py" --repo "<repo>" [slug] --coordinate`,
    adding `--autofix` when repairs are authorized. Run it through the host's shell: it
    records the Herdr pane and the host session ID there, and the stop hooks hold that
-   session alone ([handoff](handoff.md)). With no slug it binds only efforts with active
-   work: a live effort branch, or a ticket not done. Name the slug to bind any other, such
-   as an effort whose branch was deleted before review. It refuses, binding nothing, where
+   session alone ([handoff](handoff.md)). With no slug it binds only workstreams with active
+   work: a live workstream branch, or a ticket not done. Name the slug to bind any other, such
+   as a workstream whose branch was deleted before review. It refuses, binding nothing, where
    it finds no pane or session.
 
 A supplied scope is never widened, even to unblock it. Use the board's
 [overall scope](../../runtime/board/scope.md) rules to preserve
 backlog-wide requests across narrower batches, including selected parent/child work.
 Selected work too large for one worker follows [split oversized work](split-work.md).
-Consider other efforts' live work for capacity, area and device conflicts without modifying them through
+Consider other workstreams' live work for capacity, area and device conflicts without modifying them through
 a scoped call. One orchestrator per main checkout; two independent
 sessions must not schedule/mutate the same board concurrently.
 

@@ -6,7 +6,7 @@ Runtime lifecycle belongs in the host adapter or explicitly selected executor.
 
 ## Why the rules are what they are
 
-- **Review the integrated effort.** One scoped review covers interactions between
+- **Review the integrated workstream.** One scoped review covers interactions between
   completed tickets without repeating a full review after every implementation.
 - **Reports live in the main checkout.** Durable evidence must survive removal of
   disposable worktrees and their gitignored `.scratch/` directories.
@@ -26,7 +26,7 @@ Runtime lifecycle belongs in the host adapter or explicitly selected executor.
   symptom and rediscovering siblings in later rounds.
 - **The report is the record of delivery.** Judge each criterion's evidence and
   verified commits, not checkbox counts alone.
-- **Two efforts written `verifying` in one turn deadlock** on each other's devices.
+- **Two workstreams written `verifying` in one turn deadlock** on each other's devices.
   Check the selected board's device reservation before starting E2E.
 - **Resume with surviving state.** Identify retained edits, reports, jobs and
   missing evidence so a worker can continue the actual assignment.

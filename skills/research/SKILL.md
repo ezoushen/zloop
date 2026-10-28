@@ -33,18 +33,18 @@ the caller decides what to do with it.
 Run it as a background worker so the caller keeps working while it reads: a helper
 agent of the host, not a job of the builder, reviewer or verifier, on the cheapest
 model adequate for reading. Count it in [shared capacity](../../runtime/resources/capacity.md)
-and record it in the effort's run report when one exists, like any other worker. It reads and runs read-only
+and record it in the workstream's run report when one exists, like any other worker. It reads and runs read-only
 commands; it changes no code, configuration or tracker state.
 
 Save the findings where the project already keeps such notes, following its
-convention; with none, use the effort's `.scratch/<slug>/` folder and say where.
+convention; with none, use the workstream's `.scratch/<slug>/` folder and say where.
 Return the file's path, the answer in a few lines, and the open points with what
 each would take to settle.
 
 ## Invoked directly
 
 When the user asks for research, the user's question is the question and this session
-is the caller. With no effort under way and no notes convention, save the findings in
+is the caller. With no workstream under way and no notes convention, save the findings in
 `.scratch/<topic>/`, named for the question. With no run report, name the helper in the answer.
 Then answer in the conversation: the answer with its citations, the file's path, and
 the open points.

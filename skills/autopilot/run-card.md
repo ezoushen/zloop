@@ -20,7 +20,7 @@ has passing evidence), `delivered-local` (no PR host: branch and delivery report
 ready), `merged` (only with `--auto-merge`), `waiting-on-user`, `paused-allowance`, `paused-by-user` (the user's `--pause`), `blocked`.
 
 ## Granted actions
-refine; dispatch with autofix (review, repairs, applicable E2E); push the effort branch;
+refine; dispatch with autofix (review, repairs, applicable E2E); push the workstream branch;
 open the PR and watch its checks; resume itself on `paused-allowance` with one timer; merging through the normal path only when `auto-merge: yes`.
 
 ## Pause list

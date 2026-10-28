@@ -121,7 +121,7 @@ When the user asks for an explanation, the user's question sets the scope and th
 session is the caller. Read the code, documents or state the question concerns first,
 read-only, so each fact comes from its source; changing anything is outside an
 explanation. Then explain by this procedure, and mark a claim you have not checked as
-unchecked. Progress on an effort, branch or PR is a briefing, not an explanation: point
+unchecked. Progress on a workstream, branch or PR is a briefing, not an explanation: point
 the user to the brief skill, typed the host's way (`/zloop:brief` in Claude Code,
 `$zloop:brief` in Codex, `/skill:brief` in Pi), which reads the live worker and
 check evidence.
