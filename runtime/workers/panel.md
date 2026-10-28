@@ -45,8 +45,8 @@ identical and styling cannot widen a line — and a run row keeps the default st
 ## Two surfaces
 
 - **Pi:** its extension reads the snapshot every two seconds and draws the rows under the editor as a widget, sized
-  to the terminal width. Its band cannot be hidden, so the card carries every fact and the status line
-  stays with the engine. `ZLOOP_PANEL=off` leaves the panel unwired.
+  to the terminal width. The card carries every fact, so the status line stays with the engine. It starts open
+  unless `ZLOOP_PANEL=off`; `/zloop-panel` opens or closes it for the session, and a closed panel reads nothing.
 - **Claude Code:** `hooks/panel.mjs`, loaded from the plugin's `hooks/hooks.json` `modules` beside its classic hooks,
   draws a pane (`ui.render { component: "Pane" }`), docked beside the transcript in fullscreen, else inline at the prompt.
   It refreshes every two seconds, opens the pane when this session's effort goes live and closes it when the effort

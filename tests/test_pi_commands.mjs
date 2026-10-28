@@ -16,11 +16,12 @@ const pi = {
 };
 (await import(bootstrap)).default(pi);
 
-// Every user-typed skill, and not housekeeping, which only the agent loads.
+// Every user-typed skill, and not housekeeping, which only the agent loads; and /zloop-panel, as in Claude Code.
 assert.deepEqual([...commands.keys()].sort(), [
   "align", "autopilot", "brief", "diagnose", "dispatch", "explain", "huh", "pr", "prototype", "refine", "remediate",
   "research", "review", "setup", "tdd",
-].map((skill) => `zloop:${skill}`).sort());
+].map((skill) => `zloop:${skill}`).concat("zloop-panel").sort());
+assert.equal(commands.get("zloop-panel").description, "Open or close the zloop panel");
 
 // Running one types its skill command, which Pi expands as the skill; one typed while Pi works waits its turn.
 await commands.get("zloop:autopilot").handler("--take-over --auto-merge", {});

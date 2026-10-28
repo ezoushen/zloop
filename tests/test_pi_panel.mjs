@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { dirname, resolve } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // The Pi panel draws the fact source's rows below the editor while the effort is live, and clears both surfaces when
@@ -161,4 +163,90 @@ const rendered = (call, width) => call.content({}, THEME).render(width).map(plai
   assert.ok(cells(words) <= 20, `expected at most 20 cells, got ${cells(words)}`);
 }
 
-console.log("pi panel: 9 cases passed");
+// The extension under a stub Pi, its panel timer captured rather than left running: each tick reads the real fact
+// source over a fixture effort this session runs, whose card the source reports as the headline "demo · dispatch".
+const fixture = mkdtempSync(join(tmpdir(), "pi-panel-"));
+process.on("exit", () => rmSync(fixture, { recursive: true, force: true }));
+mkdirSync(join(fixture, ".scratch/demo"), { recursive: true });
+writeFileSync(join(fixture, ".scratch/demo/autopilot.md"), ["# demo — autopilot run card", "", "## State",
+  'confirmed: yes 2026-10-27 "go"', "session: S", "phase: dispatch", "terminal: ", ""].join("\n"));
+
+function started() {
+  const starts = [];
+  const commands = new Map();
+  panel.default({
+    on: (name, handler) => name === "session_start" && starts.push(handler),
+    registerCommand: (name, options) => commands.set(name, options),
+    registerTool() {},
+    sendUserMessage() {},
+  });
+  const { calls, ctx } = recording();
+  Object.assign(ctx, { cwd: fixture, sessionManager: { getSessionId: () => "S" } });
+  ctx.ui.notify = (message) => calls.push({ call: "notify", message });
+  const ticks = [];
+  const realInterval = globalThis.setInterval;
+  globalThis.setInterval = (tick) => ticks.push(tick) && { unref() {} };
+  try {
+    for (const start of starts) start({}, ctx);
+  } finally {
+    globalThis.setInterval = realInterval;
+  }
+  return {
+    calls,
+    tick: async () => { for (const tick of ticks) await tick(); },
+    command: () => commands.get("zloop-panel").handler("", ctx),
+  };
+}
+// The rows the card shows now: the last widget drawn, or none once it was cleared.
+const shown = (calls) => {
+  const last = widgets(calls).at(-1);
+  return last?.content ? rendered(last, 80) : [];
+};
+const notices = (calls) => calls.filter((entry) => entry.call === "notify").map((entry) => entry.message);
+
+// The panel starts open: a live effort's rows draw with no command. /zloop-panel closes it at once and says so, and
+// later ticks draw nothing. Run again, it opens the panel, says so, and the next tick draws the rows.
+{
+  const session = started();
+  await session.tick();
+  assert.deepEqual(shown(session.calls), ["demo · dispatch"]);
+  await session.command();
+  assert.deepEqual(shown(session.calls), []);
+  assert.deepEqual(notices(session.calls), ["zloop panel closed."]);
+  await session.tick();
+  assert.deepEqual(shown(session.calls), []);
+  await session.command();
+  assert.deepEqual(notices(session.calls), ["zloop panel closed.", "zloop panel opened."]);
+  await session.tick();
+  assert.deepEqual(shown(session.calls), ["demo · dispatch"]);
+}
+
+// A read already under way when the panel closes draws nothing once it lands.
+{
+  const session = started();
+  const reading = session.tick();
+  await session.command();
+  await reading;
+  assert.deepEqual(shown(session.calls), []);
+}
+
+// ZLOOP_PANEL=off starts the panel closed; /zloop-panel opens it.
+{
+  const before = process.env.ZLOOP_PANEL;
+  process.env.ZLOOP_PANEL = "off";
+  let session;
+  try {
+    session = started();
+  } finally {
+    if (before === undefined) delete process.env.ZLOOP_PANEL;
+    else process.env.ZLOOP_PANEL = before;
+  }
+  await session.tick();
+  assert.deepEqual(shown(session.calls), []);
+  await session.command();
+  assert.deepEqual(notices(session.calls), ["zloop panel opened."]);
+  await session.tick();
+  assert.deepEqual(shown(session.calls), ["demo · dispatch"]);
+}
+
+console.log("pi panel: 12 cases passed");

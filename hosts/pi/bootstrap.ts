@@ -418,15 +418,24 @@ export default function (pi) {
     return undefined;
   });
 
-  // The panel: the effort's rows under the editor while it is live, refreshed from the fact source.
+  // The panel: the effort's rows under the editor while it is live, refreshed from the fact source. It starts open
+  // unless ZLOOP_PANEL=off, and /zloop-panel opens or closes it for this session; a closed panel reads nothing.
   let panelTimer;
+  let panelOpen = process.env.ZLOOP_PANEL !== "off";
+  pi.registerCommand("zloop-panel", {
+    description: "Open or close the zloop panel",
+    handler: async (_args, ctx) => {
+      panelOpen = !panelOpen;
+      if (!panelOpen) await panelTick(ctx, null);
+      ctx.ui.notify(panelOpen ? "zloop panel opened." : "zloop panel closed.", "info");
+    },
+  });
   pi.on("session_start", (_event, ctx) => {
-    if (!ctx.hasUI || panelTimer || process.env.ZLOOP_PANEL === "off") return undefined;
+    if (!ctx.hasUI || panelTimer) return undefined;
     const session = ctx.sessionManager.getSessionId();
     const repo = ctx.cwd;
-    panelTimer = setInterval(() => {
-      readPanelSnapshot(root, repo, session).catch(() => null).then((found) => panelTick(ctx, found));
-    }, PANEL_INTERVAL_MS);
+    panelTimer = setInterval(() => panelOpen && readPanelSnapshot(root, repo, session).catch(() => null)
+      .then((found) => panelOpen && panelTick(ctx, found)), PANEL_INTERVAL_MS);
     panelTimer.unref?.();
     return undefined;
   });
