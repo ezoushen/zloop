@@ -142,6 +142,50 @@ def counts_row(found_tickets):
                                      f"{tally['ready']} ready · {tally['implementing']} live"}
 
 
+def attempt_rows(effort):
+    """The attempt records the effort's worker state holds; none when it has no state or the state is unreadable."""
+    state = effort / 'reports' / 'workers.sqlite'
+    if not state.is_file():
+        return []
+    try:
+        db = sqlite3.connect(f'file:{state}?mode=ro', uri=True)
+        try:
+            return [json.loads(row[0]) for row in db.execute('SELECT data FROM attempts')]
+        finally:
+            db.close()
+    except (sqlite3.DatabaseError, OSError, ValueError):
+        return []
+
+
+def planned_counts(path):
+    """The assignments an orchestrator plans per job, from `{"<job>": <count>}`; a missing or malformed file, and any
+    entry that is not a whole count, plan nothing."""
+    try:
+        saved = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(saved, dict):
+        return {}
+    return {job: count for job, count in saved.items()
+            if isinstance(count, int) and not isinstance(count, bool) and count >= 0}
+
+
+def done_row(effort):
+    """The assignments each job of the effort's workers completed, jobs in name order; None when it has no workers."""
+    done = {}
+    for data in attempt_rows(effort):
+        if not isinstance(data, dict) or not isinstance(data.get('job'), str):
+            continue
+        finished = done.setdefault(data['job'], set())
+        if isinstance(data.get('result'), dict) and data['result'].get('status') == 'completed':
+            finished.add(data.get('assignment'))
+    if not done:
+        return None
+    planned = planned_counts(effort / 'reports' / 'planned.json')
+    return {'kind': 'counts', 'text': 'done: ' + ' · '.join(
+        f'{job} {len(done[job])}' + (f'/{planned[job]}' if job in planned else '') for job in sorted(done))}
+
+
 def fmt_age(seconds):
     """A quiet span as `45s`, `12m`, `3h` or `2d`."""
     seconds = max(0, int(seconds))
@@ -208,18 +252,7 @@ def bound_sessions(effort):
 
 def registered_by(effort, session_id):
     """Whether a worker attempt in the effort's state was registered by this host session."""
-    state = effort / 'reports' / 'workers.sqlite'
-    if not state.is_file():
-        return False
-    try:
-        db = sqlite3.connect(f'file:{state}?mode=ro', uri=True)
-        try:
-            rows = [json.loads(row[0]) for row in db.execute('SELECT data FROM attempts')]
-        finally:
-            db.close()
-    except (sqlite3.DatabaseError, OSError, ValueError):
-        return False
-    return any(session_id in recorded_sessions(data) for data in rows)
+    return any(session_id in recorded_sessions(data) for data in attempt_rows(effort))
 
 
 def recorded_sessions(data):
@@ -307,7 +340,7 @@ def snapshot(repo, session_id, now):
     step = next_row(state, found_tickets, draft)
     if step:
         rows.append(step)
-    counts = counts_row(found_tickets)
+    counts = counts_row(found_tickets) if found_tickets else done_row(effort)
     if counts:
         rows.append(counts)
     closer = (blocker or step or {}).get('text', '')

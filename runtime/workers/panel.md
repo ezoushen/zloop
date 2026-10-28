@@ -32,7 +32,9 @@ stopped on `waiting-on-user`, `paused-allowance`, `paused-by-user` or `blocked`.
 
 Rows are ordered by what the person needs first: the headline, then running workers (three, then `+N more`), a
 worker whose result is ready to collect, one blocker by precedence (the run's own stop first, then a blocked
-ticket), the next step, and the counts. Each host tones a row by its kind — after truncation, so the words stay
+ticket), the next step, and the counts: the tickets' tally, or for an effort without tickets `done:` and, per job of
+its workers, the assignments whose result completed, over the count its `reports/planned.json` records for that job
+(`{"audit": 77}`) when it records one. Each host tones a row by its kind — after truncation, so the words stay
 identical and styling cannot widen a line — and a run row keeps the default style:
 
 | Row kind | Pi theme token | Claude Code `Text` |

@@ -66,6 +66,8 @@ For a paths or whole-project scan, first count the items the kind checks one by 
 every test for tautological-tests, every comment block or docstring for
 misleading-comments, the units its signal names for a free-form goal. Use the
 project's own listing where it has one, and size the audit partitions by that count.
+Record their number as `{"audit": <partitions>}` in the run's `reports/planned.json`, and
+update it when the partitions change, so the panel shows audits done against it.
 If those per-item checks (the Proof checklist for each test, the reading of each
 comment block against its code) cannot be completed for every counted item with the
 available workers and allowance, [ask the user](../../runtime/ask/ask.md) before

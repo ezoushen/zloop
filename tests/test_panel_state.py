@@ -308,7 +308,8 @@ class PanelState(unittest.TestCase):
         found = self.snapshot('S')
         self.assertTrue(found['active'])
         self.assertEqual('remediate-tests', found['effort'])
-        self.assertEqual(['remediate-tests', '▶ reviewer · remediate-tests/audit-1 · sonnet · quiet 30s'],
+        self.assertEqual(['remediate-tests', '▶ reviewer · remediate-tests/audit-1 · sonnet · quiet 30s',
+                          'done: ticket 0'],
                          self.row_texts(found))
 
     def test_of_the_efforts_tied_to_this_session_a_live_one_wins_then_the_binding_order(self):
@@ -358,13 +359,49 @@ class PanelState(unittest.TestCase):
         db.execute('INSERT INTO attempts VALUES (?, ?)', ('1/ticket-2', json.dumps(['S'])))
         db.commit()
         db.close()
-        self.assertEqual(['mixed', '▶ builder · zloop-panel/01 · sonnet · quiet 30s'], self.row_texts(self.snapshot('S')))
+        self.assertEqual(['mixed', '▶ builder · zloop-panel/01 · sonnet · quiet 30s', 'done: ticket 0'],
+                         self.row_texts(self.snapshot('S')))
 
     def test_an_attempt_registered_before_session_lists_ties_by_its_one_session(self):
         # Registrations from before 2026-10-27 record `session` alone.
         attempts(self.scratch / 'older' / 'reports' / 'workers.sqlite', [dict(live('1/ticket-1'), session='S')])
         self.assertEqual('older', self.snapshot('S')['effort'])
         self.assertTrue(self.snapshot('S')['active'])
+
+    def worker_run(self, slug='remediate-x'):
+        """A worker-run effort with no tickets, its attempts registered by S: audits, reproductions and repairs."""
+        def attempt(attempt, assignment, job, status=None):
+            row = dict(live(attempt, assignment=f'{slug}/{assignment}', agent='reviewer'), job=job, session='S',
+                       sessions=['S'])
+            return dict(row, result={'status': status}) if status else row
+        return attempts(self.scratch / slug / 'reports' / 'workers.sqlite', [
+            attempt('p1/audit-1', 'p1', 'audit', 'completed'), attempt('p1/audit-2', 'p1', 'audit', 'completed'),
+            attempt('p2/audit-1', 'p2', 'audit', 'completed'), attempt('p3/audit-1', 'p3', 'audit', 'failed'),
+            attempt('p4/audit-1', 'p4', 'audit'), attempt('r1/1', 'repro-p1', 'reproduce', 'completed'),
+            attempt('x1/1', 'repair-p1', 'repair', 'cancelled')])
+
+    def test_a_worker_run_without_tickets_counts_the_assignments_each_job_completed(self):
+        # p1 completed twice (a re-audit) and counts once; p3 failed, p4 still runs, and the repair was cancelled.
+        self.worker_run()
+        self.assertEqual(['done: audit 2 · repair 0 · reproduce 1'], self.row_texts(self.snapshot('S'), 'counts'))
+
+    def test_an_effort_with_tickets_keeps_its_tickets_tally(self):
+        self.worker_run()
+        ticket(self.scratch / 'remediate-x' / 'issues' / '01-a.md', 'remediate-x/01', status='ready')
+        self.assertEqual(['0 done · 0 blocked · 1 ready · 0 live'], self.row_texts(self.snapshot('S'), 'counts'))
+
+    def test_a_recorded_plan_gives_its_job_a_total(self):
+        state = self.worker_run()
+        (state.parent / 'planned.json').write_text(json.dumps({'audit': 77}))
+        self.assertEqual(['done: audit 2/77 · repair 0 · reproduce 1'], self.row_texts(self.snapshot('S'), 'counts'))
+
+    def test_a_plan_that_is_not_a_count_per_job_is_ignored(self):
+        plan = self.worker_run().parent / 'planned.json'
+        for text in ('{"audit": ', '[77]', '{"audit": "77"}', '{"audit": true}', '{"audit": -1}', '{"audit": 7.5}'):
+            with self.subTest(plan=text):
+                plan.write_text(text)
+                self.assertEqual(['done: audit 2 · repair 0 · reproduce 1'],
+                                 self.row_texts(self.snapshot('S'), 'counts'))
 
     def test_two_sessions_each_see_their_own_effort(self):
         for slug, session in (('alpha', 'S'), ('beta', 'T')):
