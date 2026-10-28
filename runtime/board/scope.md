@@ -1,7 +1,7 @@
 # Overall scope and batches
 
 Record the initiating request, selection boundary, exclusions and completion
-condition in the existing dispatch report. Distinguish a fixed issue/effort selection
+condition in the existing dispatch report. Distinguish a fixed issue/workstream selection
 from a request to exhaust a repository, project or milestone backlog. For the latter,
 retain the selection rule and refresh its membership; do not freeze the first query's
 IDs or replace the goal with the easiest batch. Ordinary dispatch or `--autofix`

@@ -96,7 +96,7 @@ waits, state reconciliation and automatic review continuation, and the
 - The read-only [usage helper](../runtime/resources/claude-usage.md) ranks local Claude session families,
   includes native workers and attributes related worktree sessions over an explicit
   time window. It reports recorded tokens without estimating account credits.
-- The read-only [effort spend report](../runtime/workers/effort-spend.md) divides an effort's worker and
+- The read-only [effort spend report](../runtime/workers/workstream-spend.md) divides an effort's worker and
   coordinator tokens by its accepted tickets and shows what the coordinator's tokens
   went to. It reads Claude, Codex and Pi transcripts.
 - `scripts/allowance.py status` reports the Claude Code and Codex allowance windows and

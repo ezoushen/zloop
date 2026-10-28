@@ -2,14 +2,14 @@
 
 The repository's shared decision history: each ADR records that a decision was made
 and why, for members and agents who were not there. Grilling offers them, delivery
-carries an effort's lasting decisions into them, and later work follows them.
+carries a workstream's lasting decisions into them, and later work follows them.
 
 Contents:
 - [Where they live](#where-they-live)
 - [Format](#format)
 - [When to offer one](#when-to-offer-one)
 - [Change and follow them](#change-and-follow-them)
-- [Deliver an effort's decisions](#deliver-an-efforts-decisions)
+- [Deliver a workstream's decisions](#deliver-a-workstreams-decisions)
 
 ## Where they live
 
@@ -73,32 +73,32 @@ without a replacement becomes `deprecated`. Accepted ADRs bind later work: read 
 stops for a design decision; one that looks outdated is flagged to the user, not
 silently followed.
 
-## Deliver an effort's decisions
+## Deliver a workstream's decisions
 
-An effort's ledger stays in ignored `.scratch/`, so its lasting decisions reach other
-members only as ADRs. When the effort's implementation is complete, list each ledger
+A workstream's ledger stays in ignored `.scratch/`, so its lasting decisions reach other
+members only as ADRs. When the workstream's implementation is complete, list each ledger
 row that qualifies as a candidate ADR in the run report, with the row it
 comes from, and ask the user once for the whole list. Do not wait for the answer:
-write only the candidates the user approves into the effort branch, those answered
+write only the candidates the user approves into the workstream branch, those answered
 before its review head is pinned, so the review covers them; candidates still
 unanswered wait among the actions only the user can take, and an approved candidate
 written later returns that change to review and E2E.
 
 Numbers are claimed on `main`. Commit the approved ADRs before the check. Fetch first,
-then, before pinning the review head, merge the verified `main` tip into the effort
-branch and run the ADR number check; on a duplicate, renumber the effort's ADR to the
+then, before pinning the review head, merge the verified `main` tip into the workstream
+branch and run the ADR number check; on a duplicate, renumber the workstream's ADR to the
 next free number and update every reference to it in the same commit. The delivery
-gate repeats the check without merging, against each `main` the effort lands on: the
-local one and, once fetched, the remote's when the effort is published:
+gate repeats the check without merging, against each `main` the workstream lands on: the
+local one and, once fetched, the remote's when the workstream is published:
 
 ```sh
-python3 <plugin_root>/scripts/adr_numbers.py --repo <repo> --ref <effort branch> --against <main tip> --index [--dir <ADR folder>]
+python3 <plugin_root>/scripts/adr_numbers.py --repo <repo> --ref <workstream branch> --against <main tip> --index [--dir <ADR folder>]
 ```
 
 It prints the duplicated numbers, the next free one and any index problems, and exits
-1 on either. Fix an index problem the effort caused in the same commit as its ADR: list
+1 on either. Fix an index problem the workstream caused in the same commit as its ADR: list
 the ADR under its status, or correct the status or supersede link. A problem that comes
-from `main` is fixed in the effort branch with the merge, whatever it needs: an index
+from `main` is fixed in the workstream branch with the merge, whatever it needs: an index
 line, a status line or a supersede link. Run it once for each ADR folder: the
 root one and each context's. `--index` applies this convention's index; a project with
 its own decision-record convention drops it, and one that also numbers differently

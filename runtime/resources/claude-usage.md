@@ -3,7 +3,7 @@
 Use this read-only helper for a usage retrospective or an assignment's closure
 evidence. It reads local Claude transcripts, needs only Python's standard library,
 and emits JSON on stdout. It does not call a model or change jobs, hooks or account
-configuration. Save output in the existing effort report directory when needed.
+configuration. Save output in the existing workstream report directory when needed.
 
 ```sh
 python3 /path/to/zloop/scripts/claude_usage.py \

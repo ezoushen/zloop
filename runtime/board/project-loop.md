@@ -12,7 +12,7 @@ Contents:
 Resolve these facts from existing project instructions, build configuration, CI,
 and accepted alignment. An existing `docs/agents/implementation-loop.md` is one
 possible source, not required setup. Pass applicable sources and verified gaps
-in assignments; record effort-specific facts in the existing alignment/report.
+in assignments; record workstream-specific facts in the existing alignment/report.
 Update maintained project documentation only for a reusable missing convention.
 The workflow protocol stays in the plugin.
 
@@ -46,7 +46,7 @@ buys nothing.
 A metric a ticket could narrow without a test noticing (a recall rate, a size, a latency)
 is recorded in `.scratch/<slug>/measurements.json`, next to the alignment, as a JSON array.
 Refine or the orchestrator writes it, never a builder, and measures each baseline by running
-the command at the effort's branch base.
+the command at the workstream's branch base.
 
 ```json
 [{"name": "recall tool", "command": "node tools/measure-recall.mjs", "metric": "recall_t4",
@@ -65,7 +65,7 @@ clean, so declare its outputs in `.gitignore`.
 has the ticket branch checked out. Each log is kept under
 `.scratch/<slug>/reports/evidence/<NN>/accept-<N>/<head>/`. It names what it refuses: a ticket whose
 diff touches an entry's `paths`, a metric with no value or a value worse than its baseline.
-An inline ticket, on the effort branch itself, is compared from its `start:`, the effort head
+An inline ticket, on the workstream branch itself, is compared from its `start:`, the workstream head
 that `--set <ticket> status=implementing` records when the ticket enters implementing from a status
 that is not live (`--set <ticket> start=<sha>` records a missing one; a recorded one never changes).
 
@@ -75,7 +75,7 @@ that entry's `paths`) and excusing only its own metric, such as `allows: recall 
 `allows_source: <row id>`, such as `U3`, cites a row of `.scratch/<slug>/ledger.md`. The row must
 record the user's decision, and the orchestrator judging acceptance checks that it does. When a
 ticket with an allowed drop is integrated, the orchestrator sets that entry's baseline to the
-new value and cites the same row. An effort without the file is accepted without measuring.
+new value and cites the same row. A workstream without the file is accepted without measuring.
 
 ## E2E steps
 

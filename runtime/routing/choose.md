@@ -140,7 +140,7 @@ changing them.
 The `backend` and `capacity` settings are in
 [the catalog](../config/catalog.md#allowance-and-local-capacity).
 
-Slots are shared by every effort on the machine: the worker lifecycle takes a lease
+Slots are shared by every workstream on the machine: the worker lifecycle takes a lease
 when it registers an attempt on that backend, after the health and free-memory
 checks, and refuses registration when the backend is full or unhealthy; the lease
 ends when the attempt's result is collected or it closes. Routes list the candidates

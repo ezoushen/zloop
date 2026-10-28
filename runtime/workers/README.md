@@ -16,11 +16,11 @@ Rules for the orchestrator and its workers, in the order a worker runs.
 | [prepare.md](prepare.md) | to register an attempt and verify its settings before productive work |
 | [wait.md](wait.md) | to arm a wait, handle each wake and pass the yield gate |
 | [collect.md](collect.md) | to collect a result, accept or decline it and record its outcome |
-| [effort-spend.md](effort-spend.md) | to report an effort's tokens per accepted ticket |
+| [workstream-spend.md](workstream-spend.md) | to report a workstream's tokens per accepted ticket |
 | [recovery.md](recovery.md) | after an availability failure, a blocker or a failed check |
 | [escalation.md](escalation.md) | before retrying a blocked or failed worker |
 | [retire.md](../resources/retire.md) | to close a worker after its final use |
 | [long-sessions.md](long-sessions.md) | after a compaction or resume, and when a session runs long |
 | [design-hold.md](design-hold.md) | when a worker may need to break or reinterpret the agreement |
 | [legacy-preferences.md](legacy-preferences.md) | when an unconfigured native worker has older models.json preferences |
-| [panel.md](panel.md) | the card a host draws from an effort's card, attempts and tickets |
+| [panel.md](panel.md) | the card a host draws from a workstream's card, attempts and tickets |

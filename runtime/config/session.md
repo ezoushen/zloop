@@ -2,7 +2,7 @@
 
 `--session <root-session-id>` or `ZLOOP_SESSION` enables the session layer.
 Use the real root session ID when available; otherwise create one stable ID when
-the first session override is requested and retain it in existing effort state.
+the first session override is requested and retain it in existing workstream state.
 Pass that ID and canonical repository to descendants and resume messages. Workers
 use their actual host adapter; carrying the session ID does not pin the parent's host.
 Only the coordinator changes the shared override record.

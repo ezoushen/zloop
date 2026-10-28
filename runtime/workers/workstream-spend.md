@@ -1,7 +1,7 @@
-# Effort spend per accepted ticket
+# Workstream spend per accepted ticket
 
-Use this read-only helper to compare efforts by what they cost per accepted ticket
-and to see where the coordinator's tokens went. It reads an effort's lifecycle state
+Use this read-only helper to compare workstreams by what they cost per accepted ticket
+and to see where the coordinator's tokens went. It reads a workstream's lifecycle state
 and the native transcripts that state names, needs only Python's standard library,
 and emits JSON on stdout. It makes no model calls and changes nothing.
 
@@ -17,8 +17,8 @@ Workers come from the state: each registered attempt's `runtime` and
 worker's own Agent-tool children and every page of a Codex rollout count toward
 that worker. The host does not register, so name its transcript with `--host`
 (repeatable; the format is detected). `--host` requires `--since` and `--until`,
-because a coordinator session often spans more than one effort. Start the window
-at the effort's planning, not its first registration, to include preparation.
+because a coordinator session often spans more than one workstream. Start the window
+at the workstream's planning, not its first registration, to include preparation.
 `--claude-root`, `--codex-root` and `--pi-root` override the default transcript
 directories.
 
@@ -48,9 +48,9 @@ Every figure counts `responses`, fresh `input`, `cache_write`, `cache_read` and
 ## Interpretation
 
 - Tokens are not a bill or a subscription allowance; the token kinds are priced
-  differently. Compare efforts kind by kind, with the same review standard, and
+  differently. Compare workstreams kind by kind, with the same review standard, and
   alongside the quality guards: escaped defects, review defects, repair rounds,
-  reverts, stalls and full gates. A cheaper effort that accepts less or escapes more
+  reverts, stalls and full gates. A cheaper workstream that accepts less or escapes more
   defects did less, not better.
 - A response's activity says what it decided to do next, not everything it read.
   Its input is mostly the context it carried, so many small `read` or `herdr`

@@ -1,6 +1,6 @@
 # Record and continue
 
-For work needing a plan, keep consequential decisions in the existing effort
+For work needing a plan, keep consequential decisions in the existing workstream
 ledger, normally `.scratch/<slug>/ledger.md`. Reuse its IDs across align/refine:
 
 | # | Decision | Hinge (evidence and what would change it) | Rejected alternatives, if material |

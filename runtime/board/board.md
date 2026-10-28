@@ -8,7 +8,7 @@ Contents:
 - [Slicing tickets](slicing.md)
 
 Choose the project's configured tracker under the runtime bootstrap's conventions.
-Use one board for an effort. A remote board never requires `.scratch/*/issues`,
+Use one board for a workstream. A remote board never requires `.scratch/*/issues`,
 local ticket front matter, or `next_tickets.py`. Local reports, alignment and
 worker recovery notes are evidence, not a ticket mirror.
 
@@ -17,8 +17,8 @@ worker recovery notes are evidence, not a ticket mirror.
 Only for projects using local tickets: run
 `python3 "<plugin_root>/scripts/next_tickets.py" --repo "<repo>" [slug]`
 with `--max-live <runtime ceiling>` on scheduling calls. This board uses
-`.scratch/<slug>/issues/NN-<title>.md`. An omitted slug selects all local efforts;
-a supplied slug never widens. `TICKET_PRIORITY=a,b` orders efforts when requested.
+`.scratch/<slug>/issues/NN-<title>.md`. An omitted slug selects all local workstreams;
+a supplied slug never widens. `TICKET_PRIORITY=a,b` orders workstreams when requested.
 Also apply [shared capacity](../resources/capacity.md) across
 known account users; `--max-live` sees this board's workers, not every service client.
 
@@ -30,12 +30,12 @@ known account users; `--max-live` sees this board's workers, not every service c
 | `--set <ticket> status=<state>` or `worker=<id>` | runtime state; `status=blocked` also takes a new `blocker=<reason>`, which the ticket's front matter keeps until it leaves `blocked` |
 | `--accept <ticket>` | structural evidence checks and standing measurements |
 | `--delivery` | the structural delivery gate, which names each failing field |
-| `--coordinate` | bind the calling session as the effort's coordinator |
+| `--coordinate` | bind the calling session as the workstream's coordinator |
 
 Read and judge the evidence after those checks.
 Ordinary issue history without machine ticket metadata is not enrolled in this
 board. Malformed machine tickets remain errors; `--board` exposes invalid statuses
-and `--set` repairs them. Scheduling still validates all enrolled efforts so a slug
+and `--set` repairs them. Scheduling still validates all enrolled workstreams so a slug
 cannot bypass dependencies, area locks, device reservations or live capacity.
 For E2E, check `--can-verify <ticket>` before temporarily setting a done sentinel
 to `verifying`; restore `done` after completion/failure and actual device release.
@@ -64,7 +64,7 @@ external: verify its delivery/integration evidence or keep the dependent blocked
 A closed/cancelled issue alone is not proof its prerequisite code was delivered.
 
 Select ready, unassigned work in the accepted priority order after dependencies,
-cross-effort integration, capacity and area conflicts are checked. Read ongoing
+cross-workstream integration, capacity and area conflicts are checked. Read ongoing
 work outside the selected scope only to detect relevant conflicts; do not schedule
 or modify it. Unknown ownership/resource use blocks the affected candidate.
 Re-read before claiming an issue; use the project's assignment/claim convention
@@ -73,7 +73,7 @@ reconcile rather than overwrite. Only the orchestrator updates the board, within
 existing authorization. Report a failed update and reconcile before retrying.
 Before every state-changing update, refresh the issue's current accepted scope,
 owner and status. Dependency cleanup owns its dependency evidence; it does not own
-a dependent effort's readiness. Use that effort's current owner and convention,
+a dependent workstream's readiness. Use that workstream's current owner and convention,
 and verify mutually exclusive states after updating. Never replay an old readiness
 instruction over a newer alignment or leave contradictory readiness labels.
 
@@ -91,8 +91,8 @@ Use the project branch convention; otherwise a stable filesystem-safe issue key
 
 Acceptance requires the worker report's original base, each criterion's evidence,
 required checks, and reported commits verified on the branch the report records:
-the effort branch for a ticket the orchestrator ran inline, otherwise the assigned one. Confirm
-integration into the effort branch before recording implementation complete.
+the workstream branch for a ticket the orchestrator ran inline, otherwise the assigned one. Confirm
+integration into the workstream branch before recording implementation complete.
 Apply remote status changes at the project's milestones: implementation complete
 can remain In Review until merge. Compute execution counts from those verified
 milestones plus the current scoped queue, so an implemented issue awaiting review
@@ -108,9 +108,9 @@ existing project resource reservation mechanism as well.
 
 Verify all selected work is implemented and integrated, with no unresolved required
 work or reservation, and that the
-[ADR number check](../domain/adr.md#deliver-an-efforts-decisions) passes on the effort branch. Require `review_status: clean`, `documentation_status: passed`,
+[ADR number check](../domain/adr.md#deliver-a-workstreams-decisions) passes on the workstream branch. Require `review_status: clean`, `documentation_status: passed`,
 `e2e_status: passed`, and
-`review_head`/`e2e_head` equal to the current effort branch commit, and
+`review_head`/`e2e_head` equal to the current workstream branch commit, and
 `review_by`/`e2e_by` naming the worker runs that produced them. With `workstream_branch: main`
 the reviewed head must instead be an ancestor of the current `main`, which keeps moving;
 later commits on `main` are not covered by that evidence. Verify

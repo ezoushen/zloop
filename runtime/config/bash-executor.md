@@ -8,7 +8,7 @@ shell template expansion is performed. To run a Bash script, configure
 `argv: ["bash", "/absolute/path/to/script.sh"]`. Arguments are literal; relative
 paths in argv are relative to the assigned worker worktree.
 
-Save the resolver JSON and assignment JSON in the existing effort state, then use
+Save the resolver JSON and assignment JSON in the existing workstream state, then use
 the Python environment described in [executor configuration](executors.md#manual-setup-and-inspection):
 
 ```sh

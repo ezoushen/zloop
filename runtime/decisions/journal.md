@@ -9,7 +9,7 @@ This file covers capture; [annotations](annotate.md) record actions and outcomes
 
 ## Capture once
 
-Choose one journal in the root session's existing effort/review artifact directory,
+Choose one journal in the root session's existing workstream/review artifact directory,
 such as `decisions-<root-session-id>.jsonl`, following the project's storage convention.
 Pass `--journal <absolute-path>`
 and `--assignment-id <ticket/attempt-or-phase-checkpoint>` to `decisions.py checkpoint`
@@ -43,7 +43,7 @@ or configuration needs a new phase identity. The private `.checkpoint.lock` besi
 the journal coordinates duplicate submissions and follows its retention convention.
 
 Only the bounded decision context is retained. Keep credentials and unrelated
-transcripts out of requests. Retain journals with the effort's evidence; archive
+transcripts out of requests. Retain journals with the workstream's evidence; archive
 under its journals convention before housekeeping removes temporary artifacts.
 Recording adds no inference. A due calibration replay remains a separate cost and
 is not mixed into these assignment records. A `journal_unavailable` warning means

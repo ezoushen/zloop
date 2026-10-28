@@ -21,18 +21,18 @@ callers, runs as expand → migrate in batches → contract: add the new form be
 old, move callers over in batches, then remove the old form once nothing uses it.
 Expand, each migrate batch and contract are tickets: each batch is blocked by expand
 and contract is blocked by every batch, with batches sized by blast radius. Batches
-that cannot stay green alone share the effort branch and end in the spec E2E: write
+that cannot stay green alone share the workstream branch and end in the spec E2E: write
 them as ordinary tickets in a chain, with no separate integration branch or
 integrate-and-verify ticket.
 
 ## Edges
 
 Each ticket lists what blocks it. Draw an edge only where one ticket needs another's
-result; independent slices stay parallel. Ticket cycles and cycles between efforts
+result; independent slices stay parallel. Ticket cycles and cycles between workstreams
 are invalid.
 
-A cross-effort edge waits for the prerequisite effort to finish and merge into main.
-Work that must integrate before then belongs in the same effort.
+A cross-workstream edge waits for the prerequisite workstream to finish and merge into main.
+Work that must integrate before then belongs in the same workstream.
 
 ## Grouping
 

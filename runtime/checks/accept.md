@@ -6,7 +6,7 @@ check a tier in the assignment:
 - **focused:** the tests for the behavior being changed, run while editing;
 - **affected:** the suites covering the changed code, run before the worker
   returns and again after each repair;
-- **full gate:** the project's complete required gate, run once on the effort's
+- **full gate:** the project's complete required gate, run once on the workstream's
   integrated head before review and E2E (not per ticket merge) and once after the
   last repair, by the orchestrator or by an E2E run that already includes it.
 
