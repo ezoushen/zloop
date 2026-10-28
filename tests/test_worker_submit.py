@@ -696,7 +696,7 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
     """A native child (Claude subagent, Codex or Pi native child) skips `submit`; its own native record says where it
     works. Claude and Codex children carry their coordinator's directory, so a directory outside the registered
     worktree is a warning, and for an agent that writes nothing that checkout is watched as well (E4: a Codex reviewer
-    registered to the review worktree wrote in the effort worktree)."""
+    registered to the review worktree wrote in the workstream worktree)."""
 
     SESSIONS = {'claude': 'a1b2c3', 'codex': '/root/review', 'pi': 'pi-child-1'}
 
@@ -812,7 +812,7 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
                               check=True, capture_output=True, text=True).stdout.strip()
 
     def two_checkouts(self):
-        """A repository with an effort worktree (feat/e4) and a detached review worktree at its base: E4's shape."""
+        """A repository with a workstream worktree (feat/e4) and a detached review worktree at its base: E4's shape."""
         repo = (self.root / 'repo').resolve()
         repo.mkdir()
         self.git(repo, 'init', '-q', '-b', 'main')
@@ -836,7 +836,7 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
 
     def test_a_read_only_pi_child_working_in_another_checkout_is_held_to_both(self):
         # Rule: a Pi child's session header is its own directory (`cwd:` at launch). A reviewer registered to the
-        # review worktree whose header names the effort worktree has that checkout snapshotted at startup too;
+        # review worktree whose header names the workstream worktree has that checkout snapshotted at startup too;
         # collection refuses a change in either one, and collects once both are as they were.
         head, effort, review = self.two_checkouts()
         attempt = self.native_child('pi', 'reviewer', 'diff-review', worktree=review)
@@ -857,7 +857,7 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
 
     def test_a_claude_or_codex_read_only_child_is_held_to_its_registered_worktree_alone(self):
         # Rule (review probe R1): a Claude or Codex child's record names its coordinator's directory, not its own, so
-        # changes there (the coordinator integrating a ticket into the effort worktree, as dispatch has it do while a
+        # changes there (the coordinator integrating a ticket into the workstream worktree, as dispatch has it do while a
         # review runs) are not the child's; collection checks the registered worktree only, and status still warns.
         head, effort, review = self.two_checkouts()
         for runtime in ('claude', 'codex'):

@@ -8,7 +8,8 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / 'scripts'
 HOOKS = ROOT / 'hooks'
-# The word the glossary retires for the host: the only place outside the glossary that spells it, so tests can refuse it.
+# The word the glossary retires for the host. Besides the glossary, only this file and tests/test_glossary.py spell it,
+# so the repository-wide check can refuse it everywhere else.
 RETIRED_HOST_WORD = 'harness'
 # Scripts import their siblings by module name, as they do when run from scripts/.
 if str(SCRIPTS) not in sys.path:
