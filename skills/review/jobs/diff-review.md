@@ -1,7 +1,7 @@
 ---
 name: diff-review
 agent: reviewer
-inputs: ["worktree", "report", "base", "diff_base", "head", "changed files", "scope sources", "priority sources", "effort level"]
+inputs: ["worktree", "report", "base", "diff_base", "head", "changed files", "scope sources", "priority sources", "effort level", "angle"]
 returns: ["## Coverage", "## Review round"]
 independent_of: []
 acceptance: false
@@ -22,9 +22,10 @@ Contents:
 The assignment names the `worktree` and `report`; the pinned `base`, `diff_base` and
 `head`; the full `changed files` list; the `scope sources` and `priority sources`;
 settled direction and blast radius; eligible implementation coverage; the
-brief/spec if any; and the review's `effort level` ([levels](../levels.md)). At
-`xhigh` and `max` it also names the `angle`, and at `max` the `module`. Read
-`## Scope and priorities` in the report before acting.
+brief/spec if any; and the review's `effort level` ([levels](../levels.md)) and your
+`angle`. The `angle` is `all` at `low`, `medium` and `high`; at `xhigh` one of the six
+[angles](../levels.md) or `sweep`; at `max` an angle in its module; a `sweep` assignment
+also carries the verified findings. Read `## Scope and priorities` in the report before acting.
 
 ## Finish line
 
@@ -39,11 +40,15 @@ improvements the repository could use. Preserve complete axis reports even when
 the return summary is short. Missing spec → explicit limitation, never invented
 requirements. A PR description is evidence of intent, not an approved standard.
 
-The [level](../levels.md) narrows this job. At `low`, report only your surest
-findings, at most 4, each with an executed reproduction or a traced failure path, and
-drop the rest with the dropped count. At `medium`, report every finding marked
-UNVERIFIED and reproduce none. At `xhigh` and `max` you are assigned one angle, and at
-`max` one angle in its module, and you execute that part of the method. Every level
+The [level](../levels.md) narrows this job. At `low`, report only findings you proved
+yourself, with an executed reproduction or a traced failure path, at most 4, surest
+first, and state how many candidates you left out. At `medium`, report every finding
+with your own verdict, CONFIRMED with its evidence else UNVERIFIED. At `low` and
+`medium`, request no reproduce job, not even for a disputed flag. At `xhigh` and `max`
+you review one `angle`. As an angle reviewer, apply the [method](../method.md) through
+your angle, within your module at `max`; the levels name the gates the Standards angle
+owns. As the `sweep`, look for what the angles missed, given the verified findings, and
+re-check the documentation gate and the test and comment checks with them. Every level
 returns a verdict per finding.
 
 Complete the assigned axes directly. Request any independent partition from the

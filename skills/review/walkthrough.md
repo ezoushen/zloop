@@ -2,8 +2,8 @@
 
 Run when the review command is invoked with `walkthrough` before its target, or when
 dispatch's handoff was asked for a walkthrough before review. Only `--base` shapes the
-walkthrough; `--autofix` or `--comments` given with it are authorization for the review
-it continues into, within their stated scope, not a reason to start that review.
+walkthrough; `--autofix`, `--comments` or `--effort` given with it are authorization or settings for
+the review it continues into, within their stated scope, not a reason to start that review.
 Help the user understand the change and form a judgment. The outcome is shared
 understanding and review criteria; an exhaustive review is an optional next step.
 Keep the walkthrough read-only, with explanations in the conversation. It does not

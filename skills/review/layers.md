@@ -14,7 +14,8 @@ project standards; PR prose describes intent, not human approval. For our own
 implementation, reuse accepted alignment and inspect for drift. Reopen a settled
 decision only for new conflicting evidence or user direction.
 Security, testability, integrity and maintainability are cross-cutting lenses on
-each relevant layer, not additional whole-PR passes. Record inapplicability briefly
+each relevant layer, not additional whole-PR passes, except that at `xhigh` and `max`
+each lens is an angle with its own reviewer. Record inapplicability briefly
 when needed to make coverage clear. A smaller design is an alternative with
 tradeoffs, not a blocker without a violated requirement or applicable standard.
 
@@ -23,8 +24,8 @@ tradeoffs, not a blocker without a violated requirement or applicable standard.
 Collect all currently discoverable findings within a layer's assigned coverage
 before handing off or repairing. Reconcile overlapping claims by evidence and
 root cause; keep axis provenance. No top-N cutoff and no extra unchanged full
-pass merely to search for one more issue. Two [levels](levels.md) relax these, and
-only those: `low` reports its surest findings only, at most 4; `xhigh` and `max` add
+pass merely to search for one more issue. Three [levels](levels.md) relax these, and
+only those: `low` reports only findings it proved itself, at most 4; `xhigh` and `max` add
 the per-angle passes. A progress update is not a final batch.
 Include adjacent state transitions, ownership/lifetime cases and affected public
 contracts in the same scoped batch. Batch independent checks within the assigned

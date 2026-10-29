@@ -31,7 +31,7 @@ reviewers, findings and verification this procedure plans; every level keeps the
 [engineering floor](levels.md#the-floor-every-level-keeps). `--autofix` permits scoped local repairs and
 includes applicable E2E verification.
 No separate request to continue testing is needed. Reject conflicting or
-unknown flags; never infer autofix from a request to
+unknown flags and an unknown level value; never infer autofix from a request to
 review. Dispatch supplies `--autofix` only when the user authorized review repairs.
 Neither review nor autofix authorizes publication. Comment publication is
 controlled separately by the [comment policy](comments.md); pushing, merging into the base branch and opening

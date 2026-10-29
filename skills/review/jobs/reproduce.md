@@ -10,14 +10,14 @@ acceptance: false
 # reproduce
 
 Decide difficult or disputed findings independently of the reviewer who raised
-them. Review and remediation assign it.
+them. Review and remediation assign it; a review at `xhigh` or `max` assigns every finding.
 
 ## Inputs
 
 The assignment names the `worktree`, pinned `head` and `report`; the `findings`:
-one finding, or a batch that shares one kind and proof procedure; their scope and
-priority evidence; the `proof steps` to apply; any counter-evidence; and whether it
-verifies every finding, which a review at `xhigh` or `max` does. Read the
+one finding, or a batch that shares one kind and proof procedure; a review at `xhigh` or
+`max` ([levels](../levels.md)) assigns every finding, one per job; their scope and
+priority evidence; the `proof steps` to apply; and any counter-evidence. Read the
 report's scope and do not expand it. The worker that raised a finding never decides
 it.
 
@@ -40,8 +40,5 @@ investigate further or create issues.
 Append, per finding, CONFIRMED with the repro or trace, FALSE-POSITIVE with the
 disproof, or UNVERIFIED with the exact missing capability and attempted commands.
 Return each finding ID, its verdict and deciding evidence. The orchestrator owns
-priority and disposition. When the assignment verifies every finding — a review at
-`xhigh` or `max` ([levels](../levels.md)) — return CONFIRMED, PLAUSIBLE or REFUTED
-instead: CONFIRMED with its reproduction, PLAUSIBLE with evidence that supports the
-finding without reproducing it, REFUTED with the disproof. The review keeps CONFIRMED
-and PLAUSIBLE and drops REFUTED, recording its verdict.
+priority and disposition. A review at `xhigh` or `max` keeps CONFIRMED and UNVERIFIED
+findings and drops a FALSE-POSITIVE one, recording its verdict.

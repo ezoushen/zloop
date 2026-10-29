@@ -11,8 +11,9 @@ The orchestrator owns direction/scope; one reviewer owns the implementation batc
 and its Standards and Spec axes. Share the layer decisions and permitted coverage before launch.
 The [effort level](levels.md) decides how many: `low`, `medium` and `high` keep that
 one [diff-review](jobs/diff-review.md) worker; `xhigh` gives one worker per
-[angle](levels.md), and `max` one per angle and module. At `xhigh` and `max`, then assign one reproduce job per finding
-and one sweep reviewer the verified list with the full coverage.
+[angle](levels.md), and `max` one per angle and module. `low` and `medium` assign no reproduce job. At `xhigh` and `max`,
+assign one reproduce job per finding, then a diff-review with the angle `sweep`, the verified list and
+the full coverage, and reproduce its new findings too.
 At each completed layer, run the configured
 [`review-triage` checkpoint](../../runtime/decisions/checkpoint-command.md)
 before choosing an investigation or finding grouping. Identify the layer and head
@@ -21,7 +22,8 @@ applies without autofix; a clean, fully covered layer records an evidenced skip.
 
 Assign a reviewer the [diff-review](jobs/diff-review.md) job with absolute adapter,
 agent, job, plugin, repo, worktree, report and scope-source paths; pinned base, diff_base,
-head, the full changed-file list, allowed behavior boundary and priority sources.
+head, the full changed-file list, allowed behavior boundary, priority sources, the review's
+`effort level` and the `angle`.
 Keep static reads pinned to Git objects or a stable checkout for the whole review.
 Do not share a mutable checkout with E2E that switches base/candidate or changes
 experimental inputs; a single startup HEAD check cannot protect subsequent reads.
