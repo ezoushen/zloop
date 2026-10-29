@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The OpenCode plugin holds a coordinator that stops with a yield-gate gap and logs its Herdr launches."""
+"""The OpenCode plugin holds an orchestrator that stops with a yield-gate gap and logs its Herdr launches."""
 import shutil
 import subprocess
 import unittest

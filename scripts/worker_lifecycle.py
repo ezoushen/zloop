@@ -27,7 +27,7 @@ import native_settings  # noqa: E402
 import outcomes  # noqa: E402
 
 DEFINITIONS = agent_defs.load()
-TAB_RECIPE = ('start the worker in a tab of its own: `herdr tab create --workspace <coordinator workspace> '
+TAB_RECIPE = ('start the worker in a tab of its own: `herdr tab create --workspace <orchestrator workspace> '
               '--cwd <worktree> --label "<slug>/<assignment> <role>" --env ZLOOP_WORKER=<slug>/<assignment> '
               '--no-focus`, then `herdr agent start <name> --kind <kind> --pane <returned root pane> -- <launch args>`, '
               'then register it')
@@ -35,7 +35,7 @@ LOOKUP_SECONDS = 5  # Registration's wait on each Herdr call.
 # Native write-scope controls: a launch requests them (its `verify`) and startup observes them.
 SCOPE = ('permission_mode', 'sandbox', 'approval', 'filesystem', 'tools', 'permissions')
 TOP_LEVEL = ('claude', 'codex', 'opencode', 'pi')  # Runtimes whose own process the resolver gives launch controls.
-# What Claude Code, Codex and Pi export to the coordinator's shell as its host session ID.
+# What Claude Code, Codex and Pi export to the orchestrator's shell as its host session ID.
 SESSION_VARIABLES = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID')
 
 
@@ -658,7 +658,7 @@ def unmet_needs(saved, evidence):
 
     The needs are those the assignment names together with those a local ticket's front matter declares.
 
-    The worker's own probe is a JSON file named in the result evidence; the coordinator's environment says
+    The worker's own probe is a JSON file named in the result evidence; the orchestrator's environment says
     nothing about a sandboxed worker's."""
     packet = Path(saved.get('packet') or '')
     job = DEFINITIONS['jobs'][saved['job']]
@@ -691,7 +691,7 @@ def record(db, data, refuse_changes=False):
         # A native record, and a read-only agent's other checkout, are read before the write lock is taken too.
         target = get(db, attempt)
         located = native_settings.working_directory(data['native'], target['runtime'], target['native_session'])
-        # Only a Pi record names the child's own directory; Claude and Codex ones name their coordinator's.
+        # Only a Pi record names the child's own directory; Claude and Codex ones name their orchestrator's.
         checkout = (located and target['runtime'] == 'pi' and 'worktree_baseline' in target
                     and checkout_root(located))
         if checkout and checkout != checkout_root(target['worktree']) \
@@ -790,7 +790,7 @@ def record(db, data, refuse_changes=False):
                 saved['decision'] = decision
             if os.environ.get('HERDR_PANE_ID'):
                 # The registering host's pane; the yield hooks hold only that host for this worker.
-                saved['coordinator'] = os.environ['HERDR_PANE_ID']
+                saved['orchestrator'] = os.environ['HERDR_PANE_ID']
             sessions = host_sessions()
             if sessions:
                 # The registering host session, which decides before the pane; a host started inside another's shell
@@ -838,7 +838,7 @@ def record(db, data, refuse_changes=False):
                         'Alias evidence requires requested and observed model IDs')
                 saved['observed'], saved['startup_evidence'] = observed, data
                 if located:
-                    # A Claude or Codex native child records its coordinator's directory, so this only warns.
+                    # A Claude or Codex native child records its orchestrator's directory, so this only warns.
                     saved['observed_cwd'] = str(Path(located).resolve())
                 if elsewhere:
                     # A read-only Pi child working in another checkout is held to that one too.
@@ -1277,7 +1277,7 @@ def herdr_prompt_flags(argv):
 def submit(db, state, attempt, request):
     """Verify native settings and arm a durable wait before invoking productive submission once."""
     flags = herdr_prompt_flags(request.get('argv'))
-    # Plain --wait returns when the worker's turn settles, which would hold the coordinator for the whole job.
+    # Plain --wait returns when the worker's turn settles, which would hold the orchestrator for the whole job.
     require(flags is None or '--wait' in flags and ('--until=working' in flags or any(
         pair == ('--until', 'working') for pair in zip(flags, flags[1:]))),
             'A Herdr submit returns once the worker is working: use `herdr agent prompt <worker> <assignment> '
@@ -1339,11 +1339,11 @@ def herdr_placement(data):
     require(code == 0, f'Herdr cannot confirm tab {placed["tab_id"]}: {response.get("error", {}).get("code")}')
     panes = response['result']['tab']['pane_count']
     require(panes <= 1, f'One worker per tab: {placed["tab_id"]} holds {panes} panes; {TAB_RECIPE}')
-    # HERDR_TAB_ID can be stale; Herdr places the coordinator's pane now, and a coordinator outside this session
+    # HERDR_TAB_ID can be stale; Herdr places the orchestrator's pane now, and an orchestrator outside this session
     # has no tab here to share.
     caller = caller_pane(session, 'registration', LOOKUP_SECONDS) or {}
     require(caller.get('tab_id') != placed['tab_id'],
-            f"One worker per tab: {placed['tab_id']} is the coordinator's own tab; {TAB_RECIPE}")
+            f"One worker per tab: {placed['tab_id']} is the orchestrator's own tab; {TAB_RECIPE}")
     return placed
 
 

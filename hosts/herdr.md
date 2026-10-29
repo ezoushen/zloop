@@ -69,9 +69,9 @@ the adapter says; exit zero alone does not establish integrity.
 Start every worker in a tab of its own in your workspace, never as a split of your
 pane, whatever placement the installed skill defaults to:
 
-1. `herdr tab create --workspace <coordinator workspace> --cwd <worktree> --label "<slug>/<assignment> <role>" --env ZLOOP_WORKER=<slug>/<assignment> --no-focus`,
+1. `herdr tab create --workspace <orchestrator workspace> --cwd <worktree> --label "<slug>/<assignment> <role>" --env ZLOOP_WORKER=<slug>/<assignment> --no-focus`,
    with your `HERDR_WORKSPACE_ID` as the workspace. `ZLOOP_WORKER` is how
-   zloop's stop check tells a worker from its coordinator.
+   zloop's stop check tells a worker from its orchestrator.
 2. `herdr agent start <name> --kind <kind> --pane <returned root pane> -- <launch args>`,
    with the `.result.root_pane.pane_id` that step 1 returned. The launch args are the
    route's `launch.argv`; a Claude coordinator's Claude-runtime worker is a native subagent with no

@@ -10,7 +10,7 @@ import time
 
 SCRATCH = '.scratch'
 CARD = 'autopilot.md'
-COORDINATOR = 'coordinator.json'
+ORCHESTRATOR = 'orchestrator.json'
 RUN_CAP = 3
 # Terminal states that leave a resume step in the card's `resume:` line.
 PAUSED = ('waiting-on-user', 'paused-allowance', 'paused-by-user', 'blocked')
@@ -240,9 +240,9 @@ def model_of(data):
 
 
 def bound_sessions(workstream):
-    """The host sessions the workstream's coordinator binding names, or None when it keeps no binding."""
+    """The host sessions the workstream's orchestrator binding names, or None when it keeps no binding."""
     try:
-        saved = json.loads((workstream / 'reports' / COORDINATOR).read_text())
+        saved = json.loads((workstream / 'reports' / ORCHESTRATOR).read_text())
     except (OSError, ValueError):
         return None
     if not isinstance(saved, dict):
@@ -269,7 +269,7 @@ def recorded_sessions(data):
 def tied(repo, session_id):
     """The workstreams a record ties to this session, each once, in binding order.
 
-    A binding comes first: `next_tickets.py --coordinate` records the sessions running a workstream, so two sessions in
+    A binding comes first: `next_tickets.py --orchestrate` records the sessions running a workstream, so two sessions in
     one checkout each read their own. Then the card naming this session, its journal, and last the workstreams whose
     workers it registered, in name order, since every worker event rewrites a state and two live runs would otherwise
     swap; their states are read only when the caller asks past the others. A workstream no record ties to this session

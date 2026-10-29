@@ -347,7 +347,7 @@ export default function (pi) {
   });
 
   // Keep working while a lifecycle worker could finish without waking this host, a worker this session launched is
-  // unregistered, or a workstream it coordinates is undelivered under autofix: at most once per run, so a gap the host
+  // unregistered, or a workstream it orchestrates is undelivered under autofix: at most once per run, so a gap the host
   // cannot fix never loops.
   let continued = false;
   pi.on("agent_settled", () => {
@@ -356,7 +356,7 @@ export default function (pi) {
   pi.on("agent_before_settle", (event, ctx) => {
     if (continued || event.outcome !== "completed" || process.env.ZLOOP_YIELD_HOOK === "off") return undefined;
     // pi-subagents hosts background children, which load this extension, in a runner it marks PI_SUBAGENT_CHILD=1;
-    // a child must not stop for its coordinator's gaps. (A /fork sets the header's parentSession too: no signal.)
+    // a child must not stop for its orchestrator's gaps. (A /fork sets the header's parentSession too: no signal.)
     if (process.env.PI_SUBAGENT_CHILD === "1") return undefined;
     let missing, session, content;
     try {

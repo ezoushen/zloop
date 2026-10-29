@@ -5,7 +5,7 @@
 
 No action: JSON candidates. No slug: all workstreams. Other workstreams still hold locks.
 Actions: --board, --counts, --check, --accept TICKET,
-         --can-verify TICKET, --delivery, --set TICKET status=VALUE (or worker=ID, start=SHA), --coordinate.
+         --can-verify TICKET, --delivery, --set TICKET status=VALUE (or worker=ID, start=SHA), --orchestrate.
 --set TICKET status=blocked also needs blocker=REASON, which the ticket's front matter keeps. Entering implementing
 records start: (the workstream branch head) when the ticket has none; start never changes once recorded. A passing
 --accept records accepted: (the head it accepted); status=done needs it, merged into the workstream branch.
@@ -13,8 +13,8 @@ Only --set may be combined with --counts. --accept of a delegated ticket (its br
 needs the report a collected worker attempt of the workstream returned completed, unchanged since. It also runs the
 standing measurements (.scratch/<slug>/measurements.json) at the ticket head, in a clean checkout, and refuses a
 missing or worse value.
---delivery names each failing field. --coordinate [--autofix] records the calling session (its Herdr pane and host
-session IDs) and the repair authorization in .scratch/<slug>/reports/coordinator.json for the stop hooks; with no slug
+--delivery names each failing field. --orchestrate [--autofix] records the calling session (its Herdr pane and host
+session IDs) and the repair authorization in .scratch/<slug>/reports/orchestrator.json for the stop hooks; with no slug
 only workstreams with active work (a live workstream branch, or a ticket not done), and it refuses a session it cannot
 identify.
 
@@ -838,16 +838,16 @@ def write_fields(fm, fields):
     path.write_text(head + sep + body)
 
 
-def coordinate(slug, autofix):
-    """Record the session running this command as the workstream's coordinator, which the stop hooks hold: its Herdr
+def orchestrate(slug, autofix):
+    """Record the session running this command as the workstream's orchestrator, which the stop hooks hold: its Herdr
     pane, the session IDs its hosts export (a host started inside another's shell inherits the outer one's), and
     whether repairs are authorized until the review report records its own `autofix`."""
     binding = {"pane": os.environ.get("HERDR_PANE_ID"),
                "sessions": [os.environ[name] for name in SESSION_VARIABLES if os.environ.get(name)], "autofix": autofix}
-    path = ISSUES / slug / "reports" / "coordinator.json"
+    path = ISSUES / slug / "reports" / "orchestrator.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(binding) + "\n")
-    print(f"{slug}: coordinated by Herdr pane {binding['pane']}, host sessions {binding['sessions']}, "
+    print(f"{slug}: orchestrated by Herdr pane {binding['pane']}, host sessions {binding['sessions']}, "
           f"autofix {str(autofix).lower()}")
 
 
@@ -871,11 +871,11 @@ def main(argv):
     actions.add_argument("--can-verify", metavar="TICKET")
     actions.add_argument("--delivery", action="store_true", help="require done tickets and current review/E2E evidence")
     actions.add_argument("--set", nargs="+", metavar=("TICKET", "ASSIGNMENT"))
-    actions.add_argument("--coordinate", action="store_true", help="bind this session as the workstreams' coordinator")
+    actions.add_argument("--orchestrate", action="store_true", help="bind this session as the workstreams' orchestrator")
     parser.add_argument("--counts", action="store_true")
-    parser.add_argument("--autofix", action="store_true", help="with --coordinate: repairs are authorized")
+    parser.add_argument("--autofix", action="store_true", help="with --orchestrate: repairs are authorized")
     args = parser.parse_args(argv)
-    if args.counts and any((args.check, args.board, args.accept, args.can_verify, args.delivery, args.coordinate)):
+    if args.counts and any((args.check, args.board, args.accept, args.can_verify, args.delivery, args.orchestrate)):
         parser.error("--counts may only be combined with --set")
     if args.max_live < 1:
         parser.error("--max-live must be positive")
@@ -899,7 +899,7 @@ def main(argv):
             deps = ",".join(fm.get("blocked_by", [])) or "-"
             print(f"{fm.get('status', '<missing>'):<12} {name:<52} touches={','.join(fm.get('touches', []))} blocked_by={deps}")
         return
-    if args.coordinate:
+    if args.orchestrate:
         if not os.environ.get("HERDR_PANE_ID") and not any(os.environ.get(name) for name in SESSION_VARIABLES):
             sys.exit(f"no Herdr pane (HERDR_PANE_ID) or host session ID ({', '.join(SESSION_VARIABLES)}) here: "
                      "the stop hold cannot bind this session")
@@ -908,9 +908,9 @@ def main(argv):
             slugs = [slug for slug in slugs if branch_ref(workstream_branch(slug))
                      or any(fm['status'] != 'done' for t, fm in selected.items() if spec_of(t) == slug)]
             if not slugs:
-                sys.exit('no selected workstream has work left to coordinate')
+                sys.exit('no selected workstream has work left to orchestrate')
         for slug in slugs:
-            coordinate(slug, args.autofix)
+            orchestrate(slug, args.autofix)
         return
     if args.set:
         if len(args.set) < 2:

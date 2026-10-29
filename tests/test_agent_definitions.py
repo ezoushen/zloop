@@ -217,7 +217,7 @@ class Definitions(unittest.TestCase):
         self.assertIn('the worktree must match its state at registration, untracked files included', text)
 
     def test_every_agent_addresses_its_assigned_worktree_by_absolute_path(self):
-        # E4: a native worker starts in its coordinator's directory and its shell may reset between commands, so a
+        # E4: a native worker starts in its orchestrator's directory and its shell may reset between commands, so a
         # `cd` does not hold: each agent names the worktree in every command and confirms it once.
         for agent in ('builder', 'reviewer', 'verifier'):
             text = ' '.join((support.ROOT / f'agents/{agent}.md').read_text().split())

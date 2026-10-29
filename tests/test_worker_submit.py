@@ -694,7 +694,7 @@ class Submission(WorkerLifecycleCase):
 
 class NativeWorkingDirectory(WorkerLifecycleCase):
     """A native child (Claude subagent, Codex or Pi native child) skips `submit`; its own native record says where it
-    works. Claude and Codex children carry their coordinator's directory, so a directory outside the registered
+    works. Claude and Codex children carry their orchestrator's directory, so a directory outside the registered
     worktree is a warning, and for an agent that writes nothing that checkout is watched as well (E4: a Codex reviewer
     registered to the review worktree wrote in the workstream worktree)."""
 
@@ -719,7 +719,7 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
                 'pi': [{'type': 'session', 'id': session, 'cwd': str(cwd)}]}[runtime]
 
     def native_child(self, runtime, agent='builder', job='ticket', worktree=None):
-        """Register a native child of `runtime` for the worktree, as its coordinator's resolved route says."""
+        """Register a native child of `runtime` for the worktree, as its orchestrator's resolved route says."""
         self.execution.write_text(json.dumps({'host': runtime, 'target_runtime': runtime, 'native_dispatch': True,
                                               'agent': agent, 'job': job,
                                               'settings': {'model': 'm', 'effort': 'high'}}))
@@ -746,14 +746,14 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
         # Rule: the working directory comes from the native record (Claude: the subagent transcript's cwd; Codex:
         # turn_context.cwd; Pi: the session header's cwd). Outside the registered worktree it is recorded as
         # observed_cwd and `status` warns, naming both paths; it does not block. Inside the worktree, no warning.
-        coordinator = self.root.resolve()
+        orchestrator = self.root.resolve()
         for runtime, session in self.SESSIONS.items():
             with self.subTest(runtime=runtime):
                 attempt = self.native_child(runtime)
-                self.assertTrue(self.startup(attempt, runtime, self.native_rows(runtime, coordinator, session))['verified'])
+                self.assertTrue(self.startup(attempt, runtime, self.native_rows(runtime, orchestrator, session))['verified'])
                 saved = self.attempt(attempt)
-                self.assertEqual((saved['observed_cwd'], saved.get('warnings')), (str(coordinator), [
-                    f'the native record puts the worker in {coordinator}, outside its registered worktree '
+                self.assertEqual((saved['observed_cwd'], saved.get('warnings')), (str(orchestrator), [
+                    f'the native record puts the worker in {orchestrator}, outside its registered worktree '
                     f'{self.worktree}']))
                 self.startup(attempt, runtime, self.native_rows(runtime, self.worktree, session))
                 saved = self.attempt(attempt)
@@ -856,8 +856,8 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
         self.cli('collect', '--attempt', attempt, '--input', request)
 
     def test_a_claude_or_codex_read_only_child_is_held_to_its_registered_worktree_alone(self):
-        # Rule (review probe R1): a Claude or Codex child's record names its coordinator's directory, not its own, so
-        # changes there (the coordinator integrating a ticket into the workstream worktree, as dispatch has it do while a
+        # Rule (review probe R1): a Claude or Codex child's record names its orchestrator's directory, not its own, so
+        # changes there (the orchestrator integrating a ticket into the workstream worktree, as dispatch has it do while a
         # review runs) are not the child's; collection checks the registered worktree only, and status still warns.
         head, effort, review = self.two_checkouts()
         for runtime in ('claude', 'codex'):

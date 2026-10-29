@@ -5,11 +5,11 @@ It finds launches behind assignments, wrappers (`timeout`, `env` and their optio
 inside heredocs or backticks.
 
 Appends one JSON line per launch to the main checkout's .scratch/herdr-launches.jsonl: the time, agent name and
-pane, the coordinator (its HERDR_PANE_ID and host session ID) and the pane's cwd when Herdr reports it. Claude and
+pane, the orchestrator (its HERDR_PANE_ID and host session ID) and the pane's cwd when Herdr reports it. Claude and
 Codex run it before Bash; Pi's extension passes its bash and bg_run calls. It never blocks the command.
 
 `herdr_launch.py dismiss --pane <pane> | --name <agent> [--session <host session>] --reason <text>`, run in the
-checkout, appends a dismissal by this coordinator (HERDR_PANE_ID and the session given) that accounts for its own
+checkout, appends a dismissal by this orchestrator (HERDR_PANE_ID and the session given) that accounts for its own
 launches of that pane or agent name logged before it, such as one that failed or a probe.
 """
 import argparse
@@ -112,13 +112,13 @@ def main():
         root = yield_gate.main_checkout(event.get('cwd') or os.getcwd())
         if root is None:
             return
-        coordinator = {'pane': os.environ.get('HERDR_PANE_ID'), 'session': event.get('session_id')}
+        orchestrator = {'pane': os.environ.get('HERDR_PANE_ID'), 'session': event.get('session_id')}
         log = root / yield_gate.LAUNCHES
         log.parent.mkdir(parents=True, exist_ok=True)
         deadline = time.monotonic() + LOOKUP_SECONDS
         for session, agent, pane in launches:
             record = {'time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'agent': agent, 'pane': pane,
-                      'coordinator': coordinator}
+                      'orchestrator': orchestrator}
             cwd = pane and pane_cwd(session, pane, deadline)
             with log.open('a') as stream:
                 stream.write(json.dumps(dict(record, **({'cwd': cwd} if cwd else {}))) + '\n')
@@ -132,7 +132,7 @@ def dismiss(argv):
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument('--pane')
     target.add_argument('--name')
-    parser.add_argument('--session', help="this coordinator's host session ID, as the stop message names it")
+    parser.add_argument('--session', help="this orchestrator's host session ID, as the stop message names it")
     parser.add_argument('--reason', required=True)
     args = parser.parse_args(argv)
     if not args.reason.strip():

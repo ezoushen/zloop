@@ -30,7 +30,7 @@ known account users; `--max-live` sees this board's workers, not every service c
 | `--set <ticket> status=<state>` or `worker=<id>` | runtime state; `status=blocked` also takes a new `blocker=<reason>`, which the ticket's front matter keeps until it leaves `blocked` |
 | `--accept <ticket>` | structural evidence checks and standing measurements |
 | `--delivery` | the structural delivery gate, which names each failing field |
-| `--coordinate` | bind the calling session as the workstream's coordinator |
+| `--orchestrate` | bind the calling session as the workstream's orchestrator |
 
 Read and judge the evidence after those checks.
 Ordinary issue history without machine ticket metadata is not enrolled in this

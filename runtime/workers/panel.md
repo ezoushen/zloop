@@ -21,8 +21,8 @@ It reads, read-only: the workstream's run card (`.scratch/<slug>/autopilot.md`),
 (`.scratch/<slug>/issues/`). A session working in a worktree still reads its main checkout's state. An unreadable
 state file drops only the rows it would have supplied.
 
-Which workstream is this session's: one a record ties to it, in this order — its `reports/coordinator.json` naming this
-session (the binding `next_tickets.py --coordinate` writes), the run card naming it, its decision journal, or a
+Which workstream is this session's: one a record ties to it, in this order — its `reports/orchestrator.json` naming this
+session (the binding `next_tickets.py --orchestrate` writes), the run card naming it, its decision journal, or a
 worker attempt this session registered (the `session` the lifecycle records). Of those, the first live one wins,
 else the first. A workstream no record ties to this session is another session's, however recent, so a session just
 opened shows none. A workstream need not have a card: any of these records is enough, and the headline then has no phase.

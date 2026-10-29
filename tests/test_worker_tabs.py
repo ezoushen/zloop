@@ -192,7 +192,7 @@ class HerdrTabs(WorkerLifecycleCase):
         self.herdr_fixture(tab_panes=2)
         error = self.register(worker='builder-1', herdr={'session': 'fixture-session'}, code=2)
         self.assertIn('One worker per tab: tab-1 holds 2 panes', error)
-        self.assertIn('herdr tab create --workspace <coordinator workspace> --cwd <worktree> --label '
+        self.assertIn('herdr tab create --workspace <orchestrator workspace> --cwd <worktree> --label '
                       '"<slug>/<assignment> <role>" --env ZLOOP_WORKER=<slug>/<assignment> --no-focus', error)
         self.assertEqual(self.cli('status')['attempts'], [])
 
@@ -204,28 +204,28 @@ class HerdrTabs(WorkerLifecycleCase):
         self.assertIn('Herdr cannot confirm tab tab-1: server_unavailable', error)
         self.assertEqual(self.cli('status')['attempts'], [])
 
-    def coordinator_tab_refusal(self, caller):
-        """Register builder-1, alone in tab-1, while Herdr places the coordinator's pane `caller` in tab-1."""
+    def orchestrator_tab_refusal(self, caller):
+        """Register builder-1, alone in tab-1, while Herdr places the orchestrator's pane `caller` in tab-1."""
         self.herdr_route()
         self.herdr_fixture(caller=caller, caller_tab='tab-1')
         error = self.register(worker='builder-1', herdr={'session': 'fixture-session'}, code=2)
-        self.assertIn("One worker per tab: tab-1 is the coordinator's own tab", error)
-        self.assertIn('herdr tab create --workspace <coordinator workspace> --cwd <worktree>', error)
+        self.assertIn("One worker per tab: tab-1 is the orchestrator's own tab", error)
+        self.assertIn('herdr tab create --workspace <orchestrator workspace> --cwd <worktree>', error)
         self.assertEqual(self.cli('status')['attempts'], [])
 
-    def test_registration_refuses_a_worker_in_the_coordinators_own_tab(self):
-        # Rule: one worker per tab, and never the coordinator's: the tab Herdr reports now for the coordinator's
+    def test_registration_refuses_a_worker_in_the_orchestrators_own_tab(self):
+        # Rule: one worker per tab, and never the orchestrator's: the tab Herdr reports now for the orchestrator's
         # pane (`pane current --current` in the worker's session). The refusal names the rule and the recipe.
-        self.coordinator_tab_refusal('caller-pane')
+        self.orchestrator_tab_refusal('caller-pane')
 
-    def test_registration_refuses_a_worker_that_is_the_coordinators_own_pane(self):
-        # Rule: the same check refuses a worker whose pane is the coordinator's own, alone in its tab, so the
+    def test_registration_refuses_a_worker_that_is_the_orchestrators_own_pane(self):
+        # Rule: the same check refuses a worker whose pane is the orchestrator's own, alone in its tab, so the
         # one-pane rule cannot catch it.
-        self.coordinator_tab_refusal('pane-1')
+        self.orchestrator_tab_refusal('pane-1')
 
-    def test_a_stale_herdr_tab_id_or_a_coordinator_in_another_session_refuses_nothing(self):
-        # Rule: HERDR_TAB_ID can be stale, so it does not name the coordinator's tab; a coordinator Herdr does not
-        # find in the worker's session (pane_not_found) skips the coordinator check instead of refusing.
+    def test_a_stale_herdr_tab_id_or_a_orchestrator_in_another_session_refuses_nothing(self):
+        # Rule: HERDR_TAB_ID can be stale, so it does not name the orchestrator's tab; an orchestrator Herdr does not
+        # find in the worker's session (pane_not_found) skips the orchestrator check instead of refusing.
         self.herdr_route()
         self.herdr_fixture()
         self.native_env['HERDR_TAB_ID'] = 'tab-1'
@@ -298,14 +298,14 @@ class TabRecipe(unittest.TestCase):
         guide = ' '.join((support.ROOT / 'hosts/herdr.md').read_text().split())
         position = 0
         for step in ('never as a split of your pane',
-                     'herdr tab create --workspace <coordinator workspace> --cwd <worktree> '
+                     'herdr tab create --workspace <orchestrator workspace> --cwd <worktree> '
                      '--label "<slug>/<assignment> <role>" --env ZLOOP_WORKER=<slug>/<assignment> --no-focus',
                      'herdr agent start <name> --kind <kind> --pane <returned root pane> -- <launch args>',
                      'register it', 'Retirement closes the pane, which closes the tab'):
             position = guide.find(step, position)
             self.assertNotEqual(position, -1, f'{step!r} in order in hosts/herdr.md')
         self.assertIn('herdr session list', guide)
-        self.assertIn("how zloop's stop check tells a worker from its coordinator", guide)
+        self.assertIn("how zloop's stop check tells a worker from its orchestrator", guide)
         shared = ' '.join((support.ROOT / 'runtime/workers/prepare.md').read_text().split())
         self.assertIn('"herdr": {"session"', shared)
         self.assertIn('herdr session list', shared)

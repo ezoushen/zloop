@@ -450,7 +450,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--state', type=Path, required=True, help="the workstream's workers.sqlite")
     parser.add_argument('--host', type=Path, action='append', default=[],
-                        help='a coordinator transcript (Claude, Codex or Pi); repeatable, needs --since/--until')
+                        help='an orchestrator transcript (Claude, Codex or Pi); repeatable, needs --since/--until')
     parser.add_argument('--since', help='inclusive ISO timestamp with timezone for host responses')
     parser.add_argument('--until', help='exclusive ISO timestamp with timezone for host responses')
     parser.add_argument('--claude-root', type=Path, default=Path.home() / '.claude/projects')

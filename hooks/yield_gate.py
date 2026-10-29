@@ -4,14 +4,14 @@
 Reads every run's workers.sqlite under the main checkout's .scratch/*/reports/ that
 changed in the last day, without writing to it, and applies the lifecycle's yield
 gate to the workers this session registered (by host session, else pane), or, for one that
-recorded neither, to the session bound to coordinate its workstream (with none bound, to every
+recorded neither, to the session bound to orchestrate its workstream (with none bound, to every
 session). Sessions share the checkout: another session's workers and launches never hold this
 one, and a row or state that cannot be read is named to the sessions it could hide a gap
 from. Every session is also held for each Herdr launch it logged (hooks/herdr_launch.py)
 into a ticket worktree that no attempt accounts for and it did not dismiss; one without
 ZLOOP_WORKER, the marker every worker is launched with, also for each other such live
-agent of its Herdr workspace that no other session logged. The session bound to coordinate a workstream
-(next_tickets.py --coordinate; without one, the pane that registered the attempt) is held for each collected
+agent of its Herdr workspace that no other session logged. The session bound to orchestrate a workstream
+(next_tickets.py --orchestrate; without one, the pane that registered the attempt) is held for each collected
 attempt, neither retained nor retired, whose Herdr tab is still open, and for a workstream whose
 review report (before it records one, the binding) records autofix: true and no blocker, with
 every ticket done and delivery failing, until it is finished (branch deleted, reviewed head in
@@ -43,8 +43,8 @@ COLLECT = ROOT / 'runtime/workers/collect.md'
 HANDOFF = ROOT / 'skills/dispatch/handoff.md'
 # hooks/herdr_launch.py appends each `herdr agent start` here, one JSON object per line.
 LAUNCHES = '.scratch/herdr-launches.jsonl'
-# scripts/next_tickets.py --coordinate records here, in a workstream's reports/, the session that coordinates it.
-BINDING = 'coordinator.json'
+# scripts/next_tickets.py --orchestrate records here, in a workstream's reports/, the session that orchestrates it.
+BINDING = 'orchestrator.json'
 # The states skills/autopilot/run-card.md lets a run end in.
 TERMINAL_STATES = ('delivered', 'delivered-local', 'merged', 'waiting-on-user', 'paused-allowance', 'paused-by-user',
                    'blocked')
@@ -73,7 +73,7 @@ def main_checkout(cwd):
 
 
 def gaps(cwd, session=None):
-    """(worker gaps, the coordinator's own gaps: stale tabs and undelivered workstreams, each saying how to clear
+    """(worker gaps, the orchestrator's own gaps: stale tabs and undelivered workstreams, each saying how to clear
     it)."""
     root = main_checkout(cwd)
     if root is None:
@@ -82,7 +82,7 @@ def gaps(cwd, session=None):
     module, missing = None, []
     for state in sorted(root.glob('.scratch/*/reports/workers.sqlite')):
         # Sessions share the folder: a worker holds only the session that registered it, by host session before pane;
-        # one registered with neither recorded holds the session bound to coordinate its workstream, or, with none
+        # one registered with neither recorded holds the session bound to orchestrate its workstream, or, with none
         # bound, every session that is not a worker, since nothing tells its owner apart.
         binding, bound = read_binding(state.with_name(BINDING), pane, session)
         unbound = binding is None and not state.with_name(BINDING).exists()
@@ -98,19 +98,19 @@ def gaps(cwd, session=None):
         if not recent:
             continue
         module = module or lifecycle()
-        # A session inside a worker's own worktree is that worker, not its coordinator.
+        # A session inside a worker's own worktree is that worker, not its orchestrator.
         worker = any(Path(saved['worktree']) != root and cwd.is_relative_to(saved['worktree'])
                      for saved in saved_attempts if 'worktree' in saved)
 
-        def coordinated(saved):
+        def orchestrated(saved):
             # A session launched as a worker (ZLOOP_WORKER) answers for no worker it did not register.
             fallback = bound or unbound and not os.environ.get('ZLOOP_WORKER')
             return owns(saved, pane, session) if attributed(saved) else fallback and not worker
         db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
         try:
-            missing += [f'{state}: {gap}' for gap in module.yield_gaps(db, coordinated, saved_attempts)]
-        except Exception as error:  # Named to whoever it could hide a gap from: its coordinator and its workers' own.
-            if any(coordinated(saved) for saved in saved_attempts) or unreadable_holds(state, pane, session, bound,
+            missing += [f'{state}: {gap}' for gap in module.yield_gaps(db, orchestrated, saved_attempts)]
+        except Exception as error:  # Named to whoever it could hide a gap from: its orchestrator and its workers' own.
+            if any(orchestrated(saved) for saved in saved_attempts) or unreadable_holds(state, pane, session, bound,
                                                                                        recent):
                 missing.append(f'{state}: cannot be read ({error}); fix or remove it')
         finally:
@@ -168,7 +168,7 @@ def well_formed(saved):
         return False
     if 'worktree' in saved and not (text(saved['worktree']) and Path(saved['worktree']).is_absolute()):
         return False
-    if any(key in saved and saved[key] is not None and not text(saved[key]) for key in ('coordinator', 'session')):
+    if any(key in saved and saved[key] is not None and not text(saved[key]) for key in ('orchestrator', 'session')):
         return False
     if any(key in saved and not (isinstance(saved[key], list) and all(map(text, saved[key])))
            for key in ('sessions', 'launch_sessions')):
@@ -185,13 +185,13 @@ def well_formed(saved):
 
 def attributed(saved):
     """Whether an attempt recorded the session or pane that registered it."""
-    return bool(saved.get('session') or saved.get('coordinator'))
+    return bool(saved.get('session') or saved.get('orchestrator'))
 
 
 def owns(saved, pane, session):
     """Whether this session registered the attempt: by host session before pane. A host started inside another's shell
     exports the outer host's session too, so each exported session counts."""
-    return any(same_coordinator({'pane': saved.get('coordinator'), 'session': known}, pane, session)
+    return any(same_orchestrator({'pane': saved.get('orchestrator'), 'session': known}, pane, session)
                for known in recorded_sessions(saved) or [None])
 
 
@@ -235,7 +235,7 @@ def unfinished_runs(root, session):
 
 def stale_tabs(root, pane, session):
     """Name each collected attempt, neither retained nor retired, whose recorded Herdr tab its session still lists, for
-    the session bound to coordinate its workstream or, with none bound, the pane that registered it, however old the
+    the session bound to orchestrate its workstream or, with none bound, the pane that registered it, however old the
     run."""
     listed, missing = {}, []
     for state in sorted(root.glob('.scratch/*/reports/workers.sqlite')):
@@ -244,7 +244,7 @@ def stale_tabs(root, pane, session):
         bound = mine if binding else None
         try:
             saved_attempts = read_state(state)[0]
-        except Exception:  # gaps() names a state that cannot be read to its workstream's coordinator.
+        except Exception:  # gaps() names a state that cannot be read to its workstream's orchestrator.
             continue
         for saved in saved_attempts:
             herdr = saved.get('herdr') or {}
@@ -287,7 +287,7 @@ def herdr_error(result):
 
 
 def undelivered(root, pane, session):
-    """Name each workstream this session was bound to coordinate (next_tickets.py --coordinate) whose delivery fails."""
+    """Name each workstream this session was bound to orchestrate (next_tickets.py --orchestrate) whose delivery fails."""
     board, tickets, missing = None, None, []
     for path in sorted(root.glob(f'.scratch/*/reports/{BINDING}')):
         slug = path.parent.parent.name
@@ -295,8 +295,8 @@ def undelivered(root, pane, session):
         if not mine:
             continue
         if binding is None:
-            missing.append(f'{path}: the coordinator binding cannot be read; rebind with '
-                           f'`python3 {ROOT}/scripts/next_tickets.py --repo {root} {slug} --coordinate`')
+            missing.append(f'{path}: the orchestrator binding cannot be read; rebind with '
+                           f'`python3 {ROOT}/scripts/next_tickets.py --repo {root} {slug} --orchestrate`')
             continue
         try:
             if board is None:
@@ -346,7 +346,7 @@ def awaited(state):
 def read_binding(path, pane, session):
     """(binding, mine) for a dispatch binding file: the binding, or None when it is missing or cannot be read, and
     whether it names this session. An unreadable one names it only when its raw text holds this pane or host session,
-    since only such a session could be its coordinator."""
+    since only such a session could be its orchestrator."""
     try:
         text = path.read_text(errors='replace')
     except OSError:  # Missing, or not a file.
@@ -358,16 +358,16 @@ def read_binding(path, pane, session):
     if (isinstance(binding, dict) and (binding.get('pane') is None or isinstance(binding['pane'], str))
             and isinstance(binding.get('sessions'), list)
             and all(isinstance(known, str) for known in binding['sessions'])):
-        return binding, coordinates(binding, pane, session)
+        return binding, orchestrates(binding, pane, session)
     # A whole ID only, bounded by characters no pane or session ID holds, so w1:p1 is not found in w1:p12.
     return None, any(value and re.search(rf'(?<![\w:.-]){re.escape(value)}(?![\w:.-])', text)
                      for value in (pane, session))
 
 
-def coordinates(binding, pane, session):
+def orchestrates(binding, pane, session):
     """Whether a dispatch binding ({pane, sessions}) names this session: as for a launch, by host session alone when
     both sides know one."""
-    return any(same_coordinator({'pane': binding['pane'], 'session': known}, pane, session)
+    return any(same_orchestrator({'pane': binding['pane'], 'session': known}, pane, session)
                for known in binding['sessions'] or [None])
 
 
@@ -379,8 +379,8 @@ def herdr_agents():
     return json.loads(result.stdout)['result']['agents']
 
 
-def same_coordinator(theirs, pane, session):
-    """Whether a recorded coordinator ({pane, session}) is this session: by host session alone when both sides know
+def same_orchestrator(theirs, pane, session):
+    """Whether a recorded orchestrator ({pane, session}) is this session: by host session alone when both sides know
     one, since a Codex session's HERDR_PANE_ID can come from another pane (its shared app-server's) and a restarted
     Herdr may reuse a pane ID; else the pane decides."""
     if theirs['session'] and session:
@@ -397,15 +397,15 @@ def handles(worker):
 def clears(saved, launch):
     """Whether an attempt accounts for a logged launch: it names the launch's pane or agent, and a host session
     recorded at registration, or one whose launches it was recorded to clear, is the one that launched it when both
-    know one; else the coordinator recorded at
+    know one; else the orchestrator recorded at
     registration is the pane that launched it, and only a launch made outside Herdr can instead be cleared by an
-    attempt with no recorded coordinator, registered no earlier."""
+    attempt with no recorded orchestrator, registered no earlier."""
     if not handles(saved['worker']) & {launch['agent'], launch['pane']}:
         return False
-    if recorded_sessions(saved) and launch['coordinator']['session']:
-        return launch['coordinator']['session'] in recorded_sessions(saved) + saved.get('launch_sessions', [])
-    if saved.get('coordinator') or launch['coordinator']['pane']:
-        return saved.get('coordinator') == launch['coordinator']['pane']
+    if recorded_sessions(saved) and launch['orchestrator']['session']:
+        return launch['orchestrator']['session'] in recorded_sessions(saved) + saved.get('launch_sessions', [])
+    if saved.get('orchestrator') or launch['orchestrator']['pane']:
+        return saved.get('orchestrator') == launch['orchestrator']['pane']
     return (saved['registered_at'] or 0) >= calendar.timegm(time.strptime(launch['time'], '%Y-%m-%dT%H:%M:%SZ'))
 
 
@@ -427,11 +427,11 @@ def readable(record):
     except (TypeError, ValueError):
         return False
     return ({'agent', 'pane'} <= set(record) and text(record['agent']) and text(record['pane'])
-            and identity(record.get('coordinator')) and text(record.get('cwd')))
+            and identity(record.get('orchestrator')) and text(record.get('cwd')))
 
 
 def unregistered(root, pane, session, siblings=True):
-    """Name each Herdr worker that no attempt in any run and no dismissal of this coordinator accounts for: each
+    """Name each Herdr worker that no attempt in any run and no dismissal of this orchestrator accounts for: each
     launch it logged into a ticket worktree or an unknown cwd (an attempt of another host session never accounts for
     it when both know one), with `siblings` each other live agent in a ticket worktree of its Herdr workspace; and
     each unreadable log line."""
@@ -439,7 +439,7 @@ def unregistered(root, pane, session, siblings=True):
     for state in root.glob('.scratch/*/reports/workers.sqlite'):
         try:
             saved_attempts, _, registered = read_state(state)
-        except Exception:  # gaps() names a state that cannot be read to its workstream's coordinator.
+        except Exception:  # gaps() names a state that cannot be read to its workstream's orchestrator.
             continue
         attempts += [dict(saved, registered_at=registered.get(saved['attempt'])) for saved in saved_attempts]
     workers = {handle for saved in attempts for handle in handles(saved['worker'])}
@@ -451,32 +451,32 @@ def unregistered(root, pane, session, siblings=True):
         except ValueError:
             record = None
         if readable(record) and 'dismissed' not in record and record['agent'] is None and record['pane'] is None:
-            # An older hook's line for a start that ran no agent: nothing can clear it, so only its coordinator is
+            # An older hook's line for a start that ran no agent: nothing can clear it, so only its orchestrator is
             # told to remove it.
             unreadable += [f'{log}: launch log line {number} names no agent or pane, so no attempt or dismissal can '
-                           'clear it; remove it'] if same_coordinator(record['coordinator'], pane, session) else []
+                           'clear it; remove it'] if same_orchestrator(record['orchestrator'], pane, session) else []
         elif readable(record):
             records.append(record)
         else:  # Named, and ignored for matching, so one bad line hides no other gap.
             unreadable.append(f'{log}: launch log line {number} is unreadable; fix or remove it')
     launches = []
     for record in records:
-        if 'dismissed' in record:  # Accounts for its coordinator's launches of that pane or name logged before it.
+        if 'dismissed' in record:  # Accounts for its orchestrator's launches of that pane or name logged before it.
             launches = [launch for launch in launches
                         if any(launch.get(key) != value for key, value in record['dismissed'].items())
-                        or not same_coordinator(launch['coordinator'], record['by']['pane'], record['by']['session'])]
+                        or not same_orchestrator(launch['orchestrator'], record['by']['pane'], record['by']['session'])]
         else:
             launches.append(record)
-    # Another coordinator's logged launch, dismissed or not, is that session's worker, never a live sibling of this one.
+    # Another orchestrator's logged launch, dismissed or not, is that session's worker, never a live sibling of this one.
     # By pane: a running Herdr server does not reuse a pane ID, while an agent name is reused freely.
     workers |= {record['pane'] for record in records if 'dismissed' not in record
-                and not same_coordinator(record['coordinator'], pane, session)}
-    launches = [launch for launch in launches if same_coordinator(launch['coordinator'], pane, session)
+                and not same_orchestrator(record['orchestrator'], pane, session)}
+    launches = [launch for launch in launches if same_orchestrator(launch['orchestrator'], pane, session)
                 and not any(clears(saved, launch) for saved in attempts)
                 and ('cwd' not in launch or Path(launch['cwd']).resolve().is_relative_to(worktrees))]
     workers |= {handle for launch in launches for handle in (launch['agent'], launch['pane'])}  # Named once.
-    workers |= {value for record in records if 'dismissed' in record  # This coordinator's dismissals cover live agents.
-                and same_coordinator(record['by'], pane, session) for value in record['dismissed'].values()}
+    workers |= {value for record in records if 'dismissed' in record  # This orchestrator's dismissals cover live agents.
+                and same_orchestrator(record['by'], pane, session) for value in record['dismissed'].values()}
     workspace, failed = os.environ.get('HERDR_WORKSPACE_ID'), []
     try:
         agents = herdr_agents() if siblings and workspace and worktrees.is_dir() else []  # No worktrees, no workers.

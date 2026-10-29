@@ -41,7 +41,7 @@ function checkout(gaps, end = "ses_end") {
   execFileSync("git", ["init", "-q", repo]);
   mkdirSync(join(repo, ".scratch"));
   writeFileSync(join(repo, ".scratch/herdr-launches.jsonl"), [...gaps, end].map((session) => JSON.stringify({
-    time: "2026-10-27T00:00:00Z", agent: `w-${session}`, pane: `p-${session}`, coordinator: { pane: null, session },
+    time: "2026-10-27T00:00:00Z", agent: `w-${session}`, pane: `p-${session}`, orchestrator: { pane: null, session },
   }) + "\n").join(""));
   return repo;
 }
@@ -376,8 +376,8 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   await host.hooks["execute.before"](call("herdr agent start w9 --kind opencode --pane w1:p9"));
   await host.hooks["execute.before"](call("herdr agent \\\n  start w11 --kind opencode --pane w1:p11"));
   assert.deepEqual(logged().slice(before).map((record) => ({ ...record, time: undefined })), [
-    { time: undefined, agent: "w9", pane: "w1:p9", coordinator: { pane: null, session: "ses_log" } },
-    { time: undefined, agent: "w11", pane: "w1:p11", coordinator: { pane: null, session: "ses_log" } },
+    { time: undefined, agent: "w9", pane: "w1:p9", orchestrator: { pane: null, session: "ses_log" } },
+    { time: undefined, agent: "w11", pane: "w1:p11", orchestrator: { pane: null, session: "ses_log" } },
   ]);
 
   // Another tool's input that mentions such a command launches nothing and is not logged.
@@ -401,7 +401,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   await call("ses_grandkid", "w21");
   const logged = readFileSync(join(host.repo, ".scratch/herdr-launches.jsonl"), "utf8").trim().split("\n")
     .map((line) => JSON.parse(line)).filter((record) => record.agent?.startsWith("w2"))
-    .map((record) => ({ agent: record.agent, session: record.coordinator.session }));
+    .map((record) => ({ agent: record.agent, session: record.orchestrator.session }));
   assert.deepEqual(logged, [{ agent: "w20", session: "ses_top" }, { agent: "w21", session: "ses_top" }]);
   await host.cleanup();
 }

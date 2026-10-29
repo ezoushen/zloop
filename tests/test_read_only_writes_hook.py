@@ -45,11 +45,11 @@ class Checkouts(unittest.TestCase):
 
 
 class ReadOnlyWrites(Checkouts):
-    """A Claude subagent; the coordinator's cwd is the worktree, as a subagent's payload shows."""
+    """A Claude subagent; the orchestrator's cwd is the worktree, as a subagent's payload shows."""
 
     def setUp(self):
         super().setUp()
-        # The coordinator's transcript; a subagent's own lies beside it, in <session>/subagents/agent-<agentId>.jsonl.
+        # The orchestrator's transcript; a subagent's own lies beside it, in <session>/subagents/agent-<agentId>.jsonl.
         self.transcript = self.tmp / 'session.jsonl'
 
     def assign(self, agent_id, text):

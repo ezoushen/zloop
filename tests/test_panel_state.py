@@ -25,9 +25,9 @@ def card(path, phase='dispatch', session='S', terminal='', confirmed='yes 2026-1
     return path
 
 
-def coordinator(workstream, sessions):
-    """The binding `next_tickets.py --coordinate` writes: the session running the workstream."""
-    path = workstream / 'reports' / 'coordinator.json'
+def orchestrator(workstream, sessions):
+    """The binding `next_tickets.py --orchestrate` writes: the session running the workstream."""
+    path = workstream / 'reports' / 'orchestrator.json'
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({'pane': 'w1J:p36', 'sessions': sessions, 'autofix': True}))
     return path
@@ -298,9 +298,9 @@ class PanelState(unittest.TestCase):
         path.write_text(path.read_text().replace('timer:', 'timer: 2026-10-27T06:00Z via zloop_wake'))
         self.assertIn('06:00', self.row_texts(self.snapshot(), 'blocker')[0])
 
-    def test_the_coordinated_workstream_wins_over_a_newer_unclaimed_one(self):
+    def test_the_orchestrated_workstream_wins_over_a_newer_unclaimed_one(self):
         card(self.scratch / 'alpha' / 'autopilot.md', session='unknown')
-        coordinator(self.scratch / 'alpha', ['S'])
+        orchestrator(self.scratch / 'alpha', ['S'])
         newer = self.scratch / 'beta' / 'issues' / '01-a.md'
         ticket(newer, 'beta/01', status='ready')
         later = time.time() + 120
@@ -311,7 +311,7 @@ class PanelState(unittest.TestCase):
         # The malformed binding is skipped, so the card naming this session still picks its workstream.
         card(self.scratch / 'alpha' / 'autopilot.md', session='S')
         (self.scratch / 'alpha' / 'reports').mkdir(parents=True)
-        (self.scratch / 'alpha' / 'reports' / 'coordinator.json').write_text('[]')
+        (self.scratch / 'alpha' / 'reports' / 'orchestrator.json').write_text('[]')
         self.assertEqual('alpha', self.snapshot('S')['workstream'])
 
     def test_a_worker_this_session_registered_ties_its_workstream(self):
@@ -330,7 +330,7 @@ class PanelState(unittest.TestCase):
     def test_of_the_workstreams_tied_to_this_session_a_live_one_wins_then_the_binding_order(self):
         # The session dispatched alpha, which has delivered, and now runs remediate workers: they are what is live.
         card(self.scratch / 'alpha' / 'autopilot.md', session='unknown', phase='ended', terminal='delivered')
-        coordinator(self.scratch / 'alpha', ['S'])
+        orchestrator(self.scratch / 'alpha', ['S'])
         state = attempts(self.scratch / 'remediate-x' / 'reports' / 'workers.sqlite',
                          [dict(live('1/audit-1'), session='S', sessions=['S'])])
         self.assertEqual(('remediate-x', True), (self.snapshot('S')['workstream'], self.snapshot('S')['active']))
@@ -436,7 +436,7 @@ class PanelState(unittest.TestCase):
     def test_two_sessions_each_see_their_own_workstream(self):
         for slug, session in (('alpha', 'S'), ('beta', 'T')):
             card(self.scratch / slug / 'autopilot.md', session='unknown')
-            coordinator(self.scratch / slug, [session])
+            orchestrator(self.scratch / slug, [session])
         self.assertEqual('alpha', self.snapshot('S')['workstream'])
         self.assertEqual('beta', self.snapshot('T')['workstream'])
 

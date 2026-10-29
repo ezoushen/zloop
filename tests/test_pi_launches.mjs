@@ -33,7 +33,7 @@ const call = async (command, toolName = "bash") => {
 const logged = () => {
   try {
     return readFileSync(join(repo, ".scratch/herdr-launches.jsonl"), "utf8").trim().split("\n")
-      .map((line) => JSON.parse(line)).map(({ agent, coordinator }) => ({ agent, session: coordinator.session }));
+      .map((line) => JSON.parse(line)).map(({ agent, orchestrator }) => ({ agent, session: orchestrator.session }));
   } catch {
     return [];
   }

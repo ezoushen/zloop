@@ -13,7 +13,7 @@ directory is always denied, so the agent cannot widen its own assignment. Anythi
 the scratchpad, an isolated copy) is allowed, and so is it all for a session outside any checkout. It
 also denies a Bash command that clearly writes such a file: a `>`, `>>`, `>|`, `&>` or `&>>` redirect, or `tee`, to
 a literal path, relative ones following the command's own `cd`, `pushd` or `builtin cd`, real paths resolved. Collection's read-only worktree
-check cannot see a write outside the worktree, since a subagent's transcript carries its coordinator's directory.
+check cannot see a write outside the worktree, since a subagent's transcript carries its orchestrator's directory.
 The reports and paths outside the family are decided before anything else is read; a check that cannot run for a
 path inside the family denies the call.
 
