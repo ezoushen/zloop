@@ -26,9 +26,10 @@ Testability, Integrity, Maintainability) applies both axes through that lens. Th
 documentation gate and the tautological-test and comment checks belong to the Standards
 angle, and the sweep re-checks them with the verified list. The sweep looks for what the
 angles missed. At `xhigh` and `max` every angle reviewer and the sweep set `review_status` and
-`documentation_status` for their own assignment: Standards runs the documentation gate over the
-whole range, a lens angle checks documentation through its angle and returns `passed` when that
-check finds no defect, and the sweep re-checks the gate with the verified list. `review_by` names
+`documentation_status` for their own assignment: Standards runs the documentation gate over its
+assignment, the whole range at `xhigh` and its module at `max`, a lens angle checks documentation
+through its angle and returns `passed` when that check finds no defect, and the sweep re-checks
+the gate over the whole range with the verified list. `review_by` names
 every angle and sweep attempt that reviewed the final head. `max` splits each angle by module. A module is one of the project's areas the changed
 files fall in: its area or `touches` convention, else top-level directories.
 

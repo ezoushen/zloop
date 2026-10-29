@@ -142,12 +142,12 @@ class DispatchLevels(unittest.TestCase):
         self.assertIn('Record the invocation\'s effort levels in the dispatch report before the first launch: both '
                       'levels, and what the verification level left out, which with no `--autofix` includes every '
                       'E2E.', body)
-        self.assertIn('Resuming this invocation, after compaction or in another session that takes over this '
-                      'dispatch without level flags, keeps the levels its setup recorded, which equal the card\'s; '
-                      'a new invocation never inherits them.', body)
-        # Rule: explicit flags win; a take-over with level flags re-enters dispatch as a new invocation.
-        self.assertIn('A take-over with level flags is a new invocation: the card changes, dispatch starts again '
-                      'with the card\'s levels and its report records them anew.', body)
+        self.assertIn('Resuming this invocation, after compaction or in another session that takes it over, keeps '
+                      'the levels its setup recorded; a new invocation never inherits them.', body)
+        # Rule: explicit flags win; an invocation given level flags is a new one, and dispatch names no autopilot card.
+        self.assertIn('An invocation given level flags is a new one: dispatch starts again with those levels and '
+                      'its report records them anew.', body)
+        self.assertNotIn('card', body.split('6. Record the invocation', 1)[1].split('A supplied scope is never widened', 1)[0])
         run = prose(ROOT / 'skills/autopilot/SKILL.md').split('## Run', 1)[1]
         self.assertIn("with `--autofix` and the card's current levels, `--dispatch-effort <level>` and "
                       '`--review-effort <level>`', run)

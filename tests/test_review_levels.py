@@ -154,9 +154,10 @@ class ReviewLevels(unittest.TestCase):
         # Rule: at xhigh and max each angle reviewer and the sweep return both statuses for their own assignment, so
         # the delivery gate can accept a lens angle; review_by names every angle and sweep attempt on the final head.
         rule = ('At `xhigh` and `max` every angle reviewer and the sweep set `review_status` and '
-                '`documentation_status` for their own assignment: Standards runs the documentation gate over the '
-                'whole range, a lens angle checks documentation through its angle and returns `passed` when that '
-                'check finds no defect, and the sweep re-checks the gate with the verified list.')
+                '`documentation_status` for their own assignment: Standards runs the documentation gate over its '
+                'assignment, the whole range at `xhigh` and its module at `max`, a lens angle checks documentation '
+                'through its angle and returns `passed` when that check finds no defect, and the sweep re-checks '
+                'the gate over the whole range with the verified list.')
         self.assertIn(rule, ' '.join(section(LEVELS, 'Angles').split()))
         finish = ' '.join(section(REVIEW / 'jobs/diff-review.md', 'Finish line').split())
         self.assertIn('At `xhigh` and `max` set `review_status` and `documentation_status` for your own assignment '
