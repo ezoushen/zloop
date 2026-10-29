@@ -19,7 +19,8 @@ main or on the remote's main, E2E passed at a head in main). A session is also h
 confirmed autopilot run card (.scratch/<slug>/autopilot.md) naming it lacks one terminal state or its
 evidence. A review binding beside a standalone or workstream report holds its session until the report names a
 completed collected diff-review attempt at review_head, names local review with a recorded no-route result, or
-records a blocker with a failed, blocked or cancelled diff-review attempt in its state or a recorded no-route result.
+records a blocker with a launched diff-review attempt in its state at review_head settled failed, blocked or cancelled,
+or a recorded no-route result. Launch evidence is a Herdr placement, verified startup or recorded submission.
 The review, delivery and card holds do not apply while a live worker of that state holds a running
 wait that will wake the host. A
 check that cannot run, and a launch log line that is unreadable or malformed, are named gaps,
@@ -146,6 +147,9 @@ def unreviewed(root, pane, session):
                 continue
             attempts = read_state(state)[0] if state.is_file() and (blocker or fields.get('review_by') != 'local') else []
             if blocker and any(saved.get('job') == 'diff-review' and
+                               saved.get('head') == (saved.get('result') or {}).get('head') == fields.get('review_head') and
+                               (saved.get('herdr') or saved.get('verified') and saved.get('startup_evidence')
+                                or saved.get('submitted')) and
                                (saved.get('result') or {}).get('status') in ('failed', 'blocked', 'cancelled')
                                for saved in attempts):
                 continue

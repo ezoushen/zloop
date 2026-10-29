@@ -257,6 +257,35 @@ class ReviewHold(GateRepo):
         self.assertEqual(self.check(session='host-1'), [])
         self.assertIsNone(self.stop(session='host-1'))
 
+    def test_a_blocker_cannot_use_a_registered_then_cancelled_reviewer_that_never_launched(self):
+        self.review(blocker='reviewer capacity could not be reconciled')
+        self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'reviewer',
+                                              'job': 'diff-review', 'settings': {'model': 'sonnet'}}))
+        self.lifecycle('register', attempt='review/1', assignment='review', repo=str(self.repo),
+                       worktree=str(self.repo), head='a' * 40, execution=str(self.execution), runtime='claude',
+                       worker='ghost', native_session='ghost-1', owned=True,
+                       packet=str(support.assignment_file(self.execution.parent, 'diff-review')))
+        self.lifecycle('result', attempt='review/1', status='cancelled', head='a' * 40,
+                       report=str(self.report), evidence=['no launch'])
+        gaps = self.check(session='host-1')
+        self.assertEqual(len(gaps), 1)
+        self.assertIn('review_by: none names no collected worker attempt', gaps[0])
+        self.assertIn(self.command, gaps[0])
+
+    def test_a_blocker_cannot_use_a_reviewer_from_an_older_head(self):
+        self.review(blocker='reviewer capacity could not be reconciled')
+        for registered, returned in (('b', 'b'), ('b', 'a'), ('a', 'b')):
+            with self.subTest(registered=registered, returned=returned):
+                self.collected(status='failed', head=registered * 40)
+                with sqlite3.connect(self.state) as db:
+                    saved = json.loads(db.execute('SELECT data FROM attempts').fetchone()[0])
+                    saved['result']['head'] = returned * 40
+                    db.execute('UPDATE attempts SET data = ?', (json.dumps(saved),))
+                gaps = self.check(session='host-1')
+                self.assertEqual(len(gaps), 1)
+                self.assertIn('review_by: none names no collected worker attempt', gaps[0])
+                self.assertIn(self.command, gaps[0])
+
     def test_a_blocker_with_an_unsettled_or_unrelated_attempt_still_names_the_launch_command(self):
         self.review(blocker='reviewer unavailable', review_by='local')
         for job, settled in (('diff-review', False), ('e2e-gate', True)):
