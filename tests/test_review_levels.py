@@ -81,7 +81,7 @@ class ReviewLevels(unittest.TestCase):
                 self.assertEqual(tuple(cells[column] for column in COLUMNS[1:]), expected)
 
     def test_the_default_is_high_and_max_runs_only_when_the_user_asks(self):
-        # Rule: with no level the review runs at high, today's review; a level is never remembered, and max runs
+        # Rule: with no level the review runs at high; a level is never remembered, and max runs
         # only on the user's request.
         text = LEVELS.read_text()
         self.assertIn('a missing level is `high`', ' '.join(text.split()))
@@ -149,6 +149,23 @@ class ReviewLevels(unittest.TestCase):
                          'Standards angle, and the sweep re-checks them with the verified list.',
                          'The sweep looks for what the angles missed.'):
             self.assertIn(sentence, angles)
+
+    def test_every_angle_and_the_sweep_set_both_statuses_and_review_by_names_them_all(self):
+        # Rule: at xhigh and max each angle reviewer and the sweep return both statuses for their own assignment, so
+        # the delivery gate can accept a lens angle; review_by names every angle and sweep attempt on the final head.
+        rule = ('At `xhigh` and `max` every angle reviewer and the sweep set `review_status` and '
+                '`documentation_status` for their own assignment: Standards runs the documentation gate over the '
+                'whole range, a lens angle checks documentation through its angle and returns `passed` when that '
+                'check finds no defect, and the sweep re-checks the gate with the verified list.')
+        self.assertIn(rule, ' '.join(section(LEVELS, 'Angles').split()))
+        finish = ' '.join(section(REVIEW / 'jobs/diff-review.md', 'Finish line').split())
+        self.assertIn('At `xhigh` and `max` set `review_status` and `documentation_status` for your own assignment '
+                      'as the levels say', finish)
+        report = ' '.join((REVIEW / 'report.md').read_text().split())
+        self.assertIn('At `xhigh` and `max`, `review_by` names every angle and sweep attempt that reviewed the final head',
+                      report)
+        self.assertIn('`review_by` names every angle and sweep attempt that reviewed the final head.',
+                      ' '.join(section(LEVELS, 'Angles').split()))
 
     def test_a_module_is_defined_once_as_an_area_the_changed_files_fall_in(self):
         # Rule: max's reviewer count is knowable: a module is one of the project's areas the changed files fall in,

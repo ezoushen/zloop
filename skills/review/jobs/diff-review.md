@@ -47,7 +47,8 @@ with your own verdict, CONFIRMED with its evidence else UNVERIFIED. At `low` and
 `medium`, request no reproduce job, not even for a disputed flag. At `xhigh` and `max`
 you review one `angle`. As an angle reviewer, apply the [method](../method.md) through
 your angle, within your module at `max`; the levels name the gates the Standards angle
-owns. As the `sweep`, look for what the angles missed, given the verified findings, and
+owns. At `xhigh` and `max` set `review_status` and `documentation_status` for your own assignment
+as the levels say. As the `sweep`, look for what the angles missed, given the verified findings, and
 re-check the documentation gate and the test and comment checks with them. Every level
 returns a verdict per finding.
 
