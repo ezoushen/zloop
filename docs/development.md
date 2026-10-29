@@ -29,6 +29,10 @@ only accepted ADRs bind, and a change that conflicts with one is raised, not wor
   ([ADR 0011](adr/0011-the-engineering-standard-is-extended-never-overridden.md)).
 - An autopilot resume timer is the user's own take-over, authorized on the run card and run as `--take-over --timed`
   ([ADR 0012](adr/0012-an-autopilot-resume-timer-is-the-users-own-take-over.md)).
+- Before a stable release a name, field, flag or saved-state format changes in one switch, with no alias, fallback,
+  reader of the old form or migration ([ADR 0013](adr/0013-no-backward-compatibility-before-a-stable-release.md)).
+- The doc checker reports an _Avoid_ phrase the glossary lists when an agent doc uses it, naming the term to write
+  ([ADR 0014](adr/0014-the-doc-checker-enforces-the-glossary.md)).
 
 ## Suite and hooks
 
