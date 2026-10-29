@@ -74,6 +74,23 @@ class TakeOver(unittest.TestCase):
         self.assertIn('dispatch-effort: low\n', text)
         self.assertIn('review-effort: xhigh\n', text)
 
+    def test_a_card_level_line_that_is_not_a_level_is_refused(self):
+        # Rule: both card level lines must hold one of the five levels, blank or misspelled alike.
+        lines = {'dispatch-effort': ('dispatch-effort: low', 'dispatch-effort:'),
+                 'review-effort': ('review-effort: xhigh', 'review-effort: hgih')}
+        for key, (current, broken) in lines.items():
+            with self.subTest(line=broken):
+                card = CARD.replace(current, broken)
+                tmp = tempfile.TemporaryDirectory()
+                self.addCleanup(tmp.cleanup)
+                path = Path(tmp.name) / 'autopilot.md'
+                path.write_text(card)
+                result = subprocess.run([sys.executable, '-B', str(COMMAND), 'take-over', str(path)],
+                                        capture_output=True, text=True, timeout=20)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(key, result.stderr)
+                self.assertEqual(path.read_text(), card)
+
     def test_a_level_outside_the_five_is_refused_and_changes_nothing(self):
         # Rule: only low, medium, high, xhigh and max are levels; anything else fails without touching the card.
         tmp = tempfile.TemporaryDirectory()

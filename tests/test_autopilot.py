@@ -38,8 +38,17 @@ class RunCard(unittest.TestCase):
 
     def test_the_goal_form_runs_aligns_interview_before_the_card(self):
         start = ' '.join(SKILL.read_text().split('## Start', 1)[1].split('\n## ', 1)[0].split())
-        self.assertIn('**`autopilot <goal> [--effort <level>] [--dispatch-effort <level>] [--review-effort <level>]`:**'
-                      ' run [align](../align/SKILL.md) on the goal, with its interview', start)
+        self.assertIn('**`autopilot <goal>`:** run [align](../align/SKILL.md) on the goal, with its interview', start)
+
+    def test_the_start_settles_verify_lines_that_tell_success_from_failure_before_the_card(self):
+        # Rule: align's interview settles acceptance criteria whose Verify lines tell success from failure.
+        start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
+        self.assertIn('acceptance criteria with Verify lines that tell success from failure', start)
+
+    def test_an_existing_card_continues_from_its_state_on_a_take_over(self):
+        # Rule: a take-over of an existing card continues from the State it recorded.
+        start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
+        self.assertIn('With an existing card, continue from its State.', start)
 
     def test_the_user_confirms_the_card_once_and_is_asked_nothing_after(self):
         text = prose(SKILL)
@@ -159,6 +168,13 @@ class AllowanceResume(unittest.TestCase):
         self.assertIn('resume itself on `paused-allowance` with one timer', CARD.read_text().split('## Granted actions', 1)[1].split('\n## ', 1)[0])
         self.assertIn("A host whose timer needs the user's approval keeps that prompt pending", run)
         self.assertIn('a host with no scheduler gets the resume command in the report', run)
+
+    def test_a_critical_provider_that_still_leaves_a_candidate_does_not_pause_the_run(self):
+        # Rule: routing already omits a critical provider unless a layer includes it, so a run with an eligible
+        # candidate for every needed job does not pause.
+        run = prose(SKILL).split('## Run', 1)[1].split('## Decide without asking', 1)[0]
+        self.assertIn('Routing already leaves out the candidates of a `critical` provider', run)
+        self.assertIn('still leaves every needed job an eligible candidate does not pause the run', run)
 
     def test_a_timer_that_fires_while_still_limited_sets_the_next_only_for_a_later_reset(self):
         run = ' '.join(SKILL.read_text().split('## Run', 1)[1].split('\n## ', 1)[0].split())
@@ -281,13 +297,14 @@ class EffortLevels(unittest.TestCase):
         for flag in ('--dispatch-effort', '--review-effort'):
             self.assertEqual(hint.count(flag), 2, hint)
         start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
-        for phrase in ('records both effort levels', "keeps the card's levels unless a level flag is given",
-                       '`--effort` sets both, a split flag overrides it for its step'):
+        for phrase in ('records both effort levels', "keeps the card's levels unless a level flag is given"):
             self.assertIn(phrase, start)
         card = prose(CARD)
-        for phrase in ('with no level they run at these defaults', 'never at a level remembered from an earlier run',
-                       '`max` runs only when the user asks', 'An unknown flag or level value is refused',
-                       'a take-over of a card without the two lines'):
+        for phrase in ('`--effort` sets both steps, and a split flag overrides it for its step',
+                       'A start with no level writes these defaults', 'never a level typed earlier',
+                       "a take-over keeps the card's levels unless a flag is given", '`max` runs only when the user asks',
+                       'an unknown flag or level value is refused',
+                       'a take-over of a card without the two lines or with a line that is not a level'):
             self.assertIn(phrase, card)
 
     def test_the_run_passes_both_levels_to_dispatch_beside_autofix(self):
@@ -302,7 +319,6 @@ class EffortLevels(unittest.TestCase):
         self.assertIn('take-over <card> [--auto-merge] [--effort <level>] [--dispatch-effort <level>] '
                       '[--review-effort <level>]', start)
         self.assertIn("keeps the card's levels unless a level flag is given", start)
-        self.assertIn("`--effort` sets both, a split flag overrides it for its step", start)
         timed = SKILL.read_text().split('- **`autopilot --take-over --timed`:**', 1)[1].split('\n- **`--auto-merge`', 1)[0]
         self.assertIn("keeps the card's levels unchanged", ' '.join(timed.split()))
 
