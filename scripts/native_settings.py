@@ -6,6 +6,11 @@ import re
 from pathlib import Path
 
 
+def codex_task_name(attempt):
+    """A fixed 32-character Codex task name binding the full UTF-8 attempt ID to a 96-bit SHA-256 prefix."""
+    return 'attempt_' + hashlib.sha256(attempt.encode('utf-8')).hexdigest()[:24]
+
+
 def has_attempt(text, attempt):
     """Whether packet text contains the exact attempt header, alone or after its assignment."""
     return bool(re.search(r'(?m)^(?:assignment:[^\r\n]*?[ \t]+)?attempt:[ \t]+'

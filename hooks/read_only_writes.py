@@ -53,6 +53,7 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'scripts'))
 import agent_defs  # noqa: E402
+import native_settings  # noqa: E402
 import pr_body  # noqa: E402
 import yield_gate  # noqa: E402
 
@@ -436,16 +437,17 @@ def codex(event):
 
 
 def assign(args):
-    """`codex-assign --task <task_name> --agent-file <abs> [--worktree <abs>]`: the Codex parent records a native
-    child's assignment before `spawn_agent`, since the child's task message is stored encrypted, and indexes the
+    """`codex-assign --attempt <id> --agent-file <abs> [--worktree <abs>]`: record and print the child's task name.
+    The parent records the assignment before `spawn_agent`, since the task message is encrypted, and indexes the
     checkout under the session in the zloop state directory. Run from inside the checkout the child works in.
     An existing record is never overwritten, though `rm` can remove it. The refusal of a child's shell, where
     CODEX_THREAD_ID is not the root session's id, is advisory: a child's command can set that variable."""
     parser = argparse.ArgumentParser(prog='read_only_writes.py codex-assign')
-    parser.add_argument('--task', required=True)
+    parser.add_argument('--attempt', required=True)
     parser.add_argument('--agent-file', required=True)
     parser.add_argument('--worktree')
     options = parser.parse_args(args)
+    task = native_settings.codex_task_name(options.attempt)
     session, thread = os.environ.get('CODEX_SESSION_ID'), os.environ.get('CODEX_THREAD_ID')
     agent = Path(options.agent_file).stem
     main = yield_gate.main_checkout(os.getcwd())
@@ -453,7 +455,7 @@ def assign(args):
     problem = (
         'run it from the Codex parent session\'s own shell' if not session or thread not in (None, session) else
         f'session id {session!r} is not a Codex session id' if not SESSION.fullmatch(session) else
-        f'task name {options.task!r} is not one Codex accepts ([a-z0-9_])' if not TASK.fullmatch(options.task) else
+        'attempt id must not be empty' if not options.attempt.strip() else
         f'{options.agent_file} is not a zloop agent file'
         if not (Path(options.agent_file).is_file() and agent in agent_defs.load(ROOT)['agents']) else
         'run it from inside the repository' if main is None else
@@ -461,7 +463,7 @@ def assign(args):
     if problem:
         print(f'codex-assign: {problem}; nothing recorded.', file=sys.stderr)
         return 2
-    path = main / RECORDS / session / f'{options.task}.json'
+    path = main / RECORDS / session / f'{task}.json'
     path.parent.mkdir(parents=True, exist_ok=True)
     index = state_index(session)
     index.mkdir(parents=True, exist_ok=True)
@@ -470,10 +472,10 @@ def assign(args):
         with open(path, 'x') as record:  # Never overwritten: a spawned child cannot rewrite its own record.
             record.write(json.dumps({'agent': agent, **({'worktree': str(worktree)} if worktree else {})}) + '\n')
     except FileExistsError:
-        print(f'codex-assign: task {options.task} is already recorded at {path}; spawn it under a new task name.',
+        print(f'codex-assign: attempt {options.attempt} is already recorded at {path}; use a fresh attempt id.',
               file=sys.stderr)
         return 2
-    print(path)
+    print(task)
     return 0
 
 

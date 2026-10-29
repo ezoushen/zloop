@@ -12,6 +12,7 @@ import time
 import unittest
 
 import support
+from native_settings import codex_task_name as task_name
 
 HOOK = support.HOOKS / 'read_only_writes.py'
 # What the hook may spend deciding a call in a session without records, whatever the call's size.
@@ -278,33 +279,48 @@ class CodexChildren(Checkouts):
         env = dict(self.env)
         env.update({key: value for key, value in (('CODEX_SESSION_ID', session), ('CODEX_THREAD_ID', thread))
                     if value})
-        command = [sys.executable, str(HOOK), 'codex-assign', '--task', task, '--agent-file', str(agent_file)]
+        command = [sys.executable, str(HOOK), 'codex-assign', '--attempt', task, '--agent-file', str(agent_file)]
         return subprocess.run(command + (['--worktree', str(worktree)] if worktree else []), env=env,
                               cwd=str(cwd or self.worktree), stdin=subprocess.DEVNULL, capture_output=True, text=True,
                               timeout=20)
+
+    def test_codex_assign_prints_its_short_derived_name_and_uses_it_for_the_record(self):
+        result = self.record('a/1', self.agents / 'builder.md', self.worktree)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, 'attempt_773232abe9343f0e102f8248\n')
+        path = self.records / 'attempt_773232abe9343f0e102f8248.json'
+        self.assertTrue(path.is_file(), 'The printed task name must identify the assignment record')
+        self.assertEqual(json.loads(path.read_text()), {'agent': 'builder', 'worktree': str(self.worktree)})
+
+    def test_codex_assign_accepts_a_long_attempt_without_a_long_filename(self):
+        result = self.record('review/' + 'worker-' * 300, self.agents / 'reviewer.md', self.worktree)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(result.stdout, r'^attempt_[0-9a-f]{24}\n$')
+        self.assertEqual(len(result.stdout.strip()), 32)
+        self.assertEqual([path.name for path in self.records.iterdir()], [result.stdout.strip() + '.json'])
 
     def test_the_parent_records_a_childs_agent_and_worktree_before_spawning_it(self):
         # Rule (T15 R1'): the Codex parent records the assignment at
         # <main>/.scratch/codex-children/<its session id>/<task_name>.json: the agent its agent_file names and the
         # worktree, real path. A child (CODEX_THREAD_ID is not the session), a shell outside Codex, an unknown agent,
-        # a task name Codex would refuse, or a worktree outside the checkout's family records nothing.
+        # an empty attempt id, or a worktree outside the checkout's family records nothing.
         result = self.record('review_1', self.agents / 'reviewer.md', self.worktree)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads((self.records / 'review_1.json').read_text()),
+        self.assertEqual(json.loads((self.records / f'{task_name("review_1")}.json').read_text()),
                          {'agent': 'reviewer', 'worktree': str(self.worktree)})
         refused = {
             'child': self.record('review_2', self.agents / 'reviewer.md', self.worktree, thread='c1'),
             'outside Codex': self.record('review_3', self.agents / 'reviewer.md', self.worktree, session=None,
                                          thread=None),
             'unknown agent': self.record('review_4', self.tmp / 'agents' / 'janitor.md', self.worktree),
-            'task name': self.record('Review-5', self.agents / 'reviewer.md', self.worktree),
+            'empty attempt': self.record('', self.agents / 'reviewer.md', self.worktree),
             'worktree': self.record('review_6', self.agents / 'reviewer.md', self.tmp),
         }
         for case, result in refused.items():
             with self.subTest(case=case):
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertTrue(result.stderr.strip(), case)
-        self.assertEqual(sorted(path.name for path in self.records.iterdir()), ['review_1.json'])
+        self.assertEqual(sorted(path.name for path in self.records.iterdir()), [f'{task_name("review_1")}.json'])
 
 
     def run_codex(self, tool, tool_input, agent_id='c1', task='review_1', session='s1', cwd=None, meta_id=None):
@@ -313,7 +329,7 @@ class CodexChildren(Checkouts):
         meta_id: the rollout's own id, when it is not the payload's."""
         rollout = self.tmp / 'codex' / f'rollout-{agent_id or session}.jsonl'
         rollout.parent.mkdir(exist_ok=True)
-        meta = {'id': meta_id or agent_id or session, 'agent_path': f'/root/{task}' if agent_id else None}
+        meta = {'id': meta_id or agent_id or session, 'agent_path': f'/root/{task_name(task)}' if agent_id else None}
         rollout.write_text(json.dumps({'type': 'session_meta', 'payload': meta}) + '\n')
         payload = {'session_id': session, 'turn_id': 't1', 'transcript_path': str(rollout),
                    'cwd': str(cwd or self.worktree), 'hook_event_name': 'PreToolUse', 'model': 'm',
@@ -333,7 +349,7 @@ class CodexChildren(Checkouts):
         for path in (other / 'a.py', self.main / 'src/app.py'):
             with self.subTest(path=path):
                 decision = self.run_codex('Bash', {'command': f'echo x > {quote(str(path))}'})
-                self.assert_denied(decision, path, 'Codex child review_1')
+                self.assert_denied(decision, path, f'Codex child {task_name("review_1")}')
                 self.assertIn(f'its assigned worktree {self.worktree}', decision['permissionDecisionReason'])
         for path in (self.worktree / 'a.py', self.reports / '03.md', self.tmp / 'copy/a.py'):
             with self.subTest(path=path):
@@ -345,7 +361,7 @@ class CodexChildren(Checkouts):
         self.assertEqual(self.record('review_1', self.agents / 'reviewer.md', self.worktree).returncode, 0)
         mine = self.worktree / 'a.py'
         decision = self.run_codex('Bash', {'command': f'echo x > {quote(str(mine))}'}, task='review_9')
-        self.assert_denied(decision, mine, 'Codex child review_9')
+        self.assert_denied(decision, mine, f'Codex child {task_name("review_9")}')
         self.assertIn(f'no assignment record in {self.records}', decision['permissionDecisionReason'])
         self.assertIsNone(self.run_codex('Bash', {'command': f'echo x > {quote(str(self.reports / "03.md"))}'},
                                          task='review_9'))
@@ -369,7 +385,7 @@ class CodexChildren(Checkouts):
         self.assertEqual(self.record('review_1', self.agents / 'reviewer.md', self.worktree).returncode, 0)
         self.assertIsNone(self.run_codex('Bash', {'command': f'echo x > {quote(str(self.main / "src/app.py"))}'},
                                          task='build_1'))
-        forged = self.records / 'build_1.json'
+        forged = self.records / f'{task_name("build_1")}.json'
         # The records directory has the shape of <main>/.scratch/<slug>/reports/ too; it is never a report.
         lookalike = self.main / '.scratch/codex-children/reports/x.json'
         # The index naming the session's recording checkouts (codex-assign keeps it in the state directory).
@@ -383,7 +399,7 @@ class CodexChildren(Checkouts):
         rewrite = self.record('review_1', self.agents / 'builder.md', self.worktree, thread=None)
         self.assertNotEqual(rewrite.returncode, 0, rewrite.stdout)
         self.assertIn('already recorded', rewrite.stderr)
-        self.assertEqual(json.loads((self.records / 'review_1.json').read_text()),
+        self.assertEqual(json.loads((self.records / f'{task_name("review_1")}.json').read_text()),
                          {'agent': 'reviewer', 'worktree': str(self.worktree)})
         doc = self.worktree / 'hosts/codex/workers.md'
         mention = self.patch(f'*** Update File: {doc}', '@@', '-old', '+run codex-assign first')
@@ -403,13 +419,13 @@ class CodexChildren(Checkouts):
                 decision = self.run_codex('Bash', {'command': command})
                 self.assertEqual((decision or {}).get('permissionDecision'), 'deny', command)
                 reason = decision['permissionDecisionReason']
-                for words in ('Codex child review_1', 'relative', 'workdir', 'absolute path'):
+                for words in (f'Codex child {task_name("review_1")}', 'relative', 'workdir', 'absolute path'):
                     self.assertIn(words, reason)
                 self.assertIsNone(self.run_codex('Bash', {'command': command}, task='build_1'))
         mine, theirs = quote(str(self.worktree)), quote(str(self.main))
         self.assertIsNone(self.run_codex('Bash', {'command': f'cd {mine} && echo x > a.py'}))
         self.assert_denied(self.run_codex('Bash', {'command': f'cd {theirs} && echo x > a.py'}), self.main / 'a.py',
-                           'Codex child review_1')
+                           f'Codex child {task_name("review_1")}')
 
 
     @staticmethod
@@ -435,14 +451,14 @@ class CodexChildren(Checkouts):
         }
         for patch, path in denied.items():
             with self.subTest(patch=patch):
-                self.assert_denied(self.run_codex('apply_patch', {'command': patch}), path, 'Codex child review_1')
+                self.assert_denied(self.run_codex('apply_patch', {'command': patch}), path, f'Codex child {task_name("review_1")}')
         for patch in (self.patch(*update), self.patch(f'*** Add File: {self.reports}/03.md', '+x'),
                       self.patch(f'*** Add File: {self.tmp}/copy/a.py', '+x')):
             with self.subTest(patch=patch):
                 self.assertIsNone(self.run_codex('apply_patch', {'command': patch}))
         # Without a record the child's own worktree is denied too; a writer and the parent are not checked.
         self.assert_denied(self.run_codex('apply_patch', {'command': self.patch(*update)}, task='review_9'),
-                           self.worktree / 'src/app.py', 'Codex child review_9')
+                           self.worktree / 'src/app.py', f'Codex child {task_name("review_9")}')
         tracked = self.patch(f'*** Update File: {self.main}/src/app.py', '@@', '-a', '+b')
         self.assertIsNone(self.run_codex('apply_patch', {'command': tracked}, task='build_1'))
         self.assertIsNone(self.run_codex('apply_patch', {'command': tracked}, agent_id=None))
@@ -457,7 +473,7 @@ class CodexChildren(Checkouts):
         tracked = self.main / 'src/app.py'
         body = self.patch(f'*** Update File: {tracked}', '@@', '-a', '+b')
         self.assert_denied(self.run_codex('Bash', {'command': f"apply_patch <<'EOF'\n{body}\nEOF\n"}), tracked,
-                           'Codex child review_1')
+                           f'Codex child {task_name("review_1")}')
         relative = self.patch('*** Update File: src/app.py', '@@', '-a', '+b')
         decision = self.run_codex('Bash', {'command': f"cd src && apply_patch <<'EOF'\n{relative}\nEOF\n"})
         self.assertIn('src/src/app.py is relative', decision['permissionDecisionReason'])
@@ -478,7 +494,7 @@ class CodexChildren(Checkouts):
         self.assertEqual(self.record('review_1', self.agents / 'reviewer.md', self.worktree).returncode, 0)
         rollout = self.tmp / 'codex/rollout-c1.jsonl'
         rollout.parent.mkdir(exist_ok=True)
-        meta = {'id': 'c1', 'agent_path': '/root/review_1'}
+        meta = {'id': 'c1', 'agent_path': f'/root/{task_name("review_1")}'}
         rollout.write_text(json.dumps({'type': 'session_meta', 'payload': meta}))
         payload = {'session_id': 's1', 'agent_id': 'c1', 'transcript_path': str(rollout), 'cwd': str(self.worktree),
                    'hook_event_name': 'PreToolUse', 'tool_name': 'apply_patch',
@@ -509,7 +525,7 @@ class CodexChildren(Checkouts):
         # reviewer could claim a sibling builder's task.
         self.assertEqual(self.record('build_1', self.agents / 'builder.md', self.worktree).returncode, 0)
         self.assertEqual(self.record('review_1', self.agents / 'reviewer.md', self.worktree).returncode, 0)
-        meta = json.dumps({'type': 'session_meta', 'payload': {'id': 'c1', 'agent_path': '/root/build_1'}})
+        meta = json.dumps({'type': 'session_meta', 'payload': {'id': 'c1', 'agent_path': f'/root/{task_name("build_1")}'}})
         for task in ('review_1', 'build_1'):
             rollout = self.tmp / 'codex/rollout-c1.jsonl'
             for tool, tool_input in (('Bash', {'command': f'echo {quote(meta)} > {quote(str(rollout))}'}),
@@ -531,9 +547,9 @@ class CodexChildren(Checkouts):
         outside.mkdir()
         tracked = self.main / 'src/app.py'
         self.assert_denied(self.run_codex('Bash', {'command': f'echo x > {quote(str(tracked))}'}, cwd=outside),
-                           tracked, 'Codex child review_1')
+                           tracked, f'Codex child {task_name("review_1")}')
         self.assert_denied(self.run_codex('apply_patch', {'command': self.patch(f'*** Add File: {other}/x.py', '+x')},
-                                          cwd=outside), other / 'x.py', 'Codex child review_1')
+                                          cwd=outside), other / 'x.py', f'Codex child {task_name("review_1")}')
         self.assertIsNone(self.run_codex('Bash', {'command': f'echo x > {quote(str(self.worktree / "a.py"))}'},
                                          cwd=outside))
 
@@ -543,9 +559,9 @@ class CodexChildren(Checkouts):
         # own id is not the payload's agent_id, gives no assignment: the child may write only the reports.
         for task, agent in (('build_1', 'builder'), ('build_2', 'builder'), ('review_1', 'reviewer')):
             self.assertEqual(self.record(task, self.agents / f'{agent}.md', self.worktree).returncode, 0)
-        (self.records / 'build_1.json').write_text('{not json\n')
-        (self.records / 'build_2.json').chmod(0)
-        self.addCleanup((self.records / 'build_2.json').chmod, 0o644)
+        (self.records / f'{task_name("build_1")}.json').write_text('{not json\n')
+        (self.records / f'{task_name("build_2")}.json').chmod(0)
+        self.addCleanup((self.records / f'{task_name("build_2")}.json').chmod, 0o644)
         tracked, mine = self.main / 'src/app.py', self.worktree / 'a.py'
         for task, meta_id, path in (('build_1', None, tracked), ('build_2', None, tracked),
                                     ('review_1', 'c8', mine)):
@@ -595,10 +611,10 @@ class CodexChildren(Checkouts):
         subprocess.run(self.git + ['worktree', 'add', '-q', '--detach', str(other)], check=True)
         self.assertEqual(self.record('review_1', self.agents / 'reviewer.md', self.worktree).returncode, 0)
         self.assertEqual(self.record('review_2', self.agents / 'reviewer.md', self.worktree).returncode, 0)
-        (self.records / 'review_2.json').write_text(json.dumps({'agent': 'reviewer', 'worktree': 5}))
+        (self.records / f'{task_name("review_2")}.json').write_text(json.dumps({'agent': 'reviewer', 'worktree': 5}))
         long = '/tmp/' + 'a' * 300
         decision = self.run_codex('Bash', {'command': f'echo x > {quote(str(other / "a.py"))}; echo y > {long}'})
-        self.assert_denied(decision, other / 'a.py', 'Codex child review_1')
+        self.assert_denied(decision, other / 'a.py', f'Codex child {task_name("review_1")}')
         mine = {'command': f'echo x > {quote(str(self.worktree / "a.py"))}'}
         self.assertEqual(self.run_codex('Bash', mine, task='review_2')['permissionDecision'], 'deny')
         (self.tmp / 'state/zloop/codex-children/s3/broken').mkdir(parents=True)
@@ -621,7 +637,7 @@ class CodexChildren(Checkouts):
         started = time.monotonic()
         decision = self.run_codex('Bash', {'command': f"echo x > {quote(str(other / 'a.py'))}; git commit -m '{body}'"})
         self.assertLess(time.monotonic() - started, 8)
-        self.assert_denied(decision, other / 'a.py', 'Codex child review_1')
+        self.assert_denied(decision, other / 'a.py', f'Codex child {task_name("review_1")}')
 
 
     def test_a_command_too_large_to_judge_in_time_is_denied_before_the_hook_timeout(self):
@@ -632,7 +648,7 @@ class CodexChildren(Checkouts):
         command = {'command': "git commit -m '" + ('x' * 79 + '\n') * 13108 + "'"}
         claude = ReadOnlyWrites(methodName='run_hook')
         claude.tmp, claude.worktree, claude.transcript = self.tmp, self.worktree, self.tmp / 'session.jsonl'
-        for name, run in (('Codex child review_1', lambda: self.run_codex('Bash', command)),
+        for name, run in ((f'Codex child {task_name("review_1")}', lambda: self.run_codex('Bash', command)),
                           ('zloop:reviewer', lambda: claude.run_hook('Bash', command))):
             with self.subTest(name=name):
                 started = time.monotonic()
@@ -677,7 +693,7 @@ class CodexChildren(Checkouts):
         self.env['XDG_STATE_HOME'] = str(self.tmp / 'elsewhere')
         tracked = self.main / 'src/app.py'
         self.assert_denied(self.run_codex('Bash', {'command': f'echo x > {quote(str(tracked))}'}), tracked,
-                           'Codex child review_1')
+                           f'Codex child {task_name("review_1")}')
 
 
     def test_one_bad_source_does_not_hide_the_records_the_other_names(self):
@@ -692,7 +708,7 @@ class CodexChildren(Checkouts):
         index = self.tmp / 'state/zloop/codex-children/s1'
         (index / 'x').mkdir()
         (index / 'y').write_bytes(b'\xff\xfe')
-        self.assert_denied(self.run_codex('Bash', forbidden), other / 'a.py', 'Codex child review_1')
+        self.assert_denied(self.run_codex('Bash', forbidden), other / 'a.py', f'Codex child {task_name("review_1")}')
         (self.worktree / 'sub').mkdir()
         (self.worktree / 'sub/.git').write_text('\n')
         dot = self.worktree / '.git'
@@ -704,7 +720,7 @@ class CodexChildren(Checkouts):
             for cwd in (self.worktree, self.worktree / 'sub'):
                 with self.subTest(state=state, cwd=cwd):
                     decision = self.run_codex('Bash', forbidden, cwd=cwd)
-                    self.assert_denied(decision, other / 'a.py', 'Codex child review_1')
+                    self.assert_denied(decision, other / 'a.py', f'Codex child {task_name("review_1")}')
 
 
     def test_a_recorded_read_only_child_never_writes_a_git_path_in_its_worktree(self):
@@ -714,7 +730,7 @@ class CodexChildren(Checkouts):
         for path in (self.worktree / '.git', self.worktree / 'sub/.git'):
             with self.subTest(path=path):
                 self.assert_denied(self.run_codex('Bash', {'command': f'echo junk > {quote(str(path))}'}), path,
-                                   'Codex child review_1')
+                                   f'Codex child {task_name("review_1")}')
         self.assertIsNone(self.run_codex('Bash', {'command': f'echo x > {quote(str(self.worktree / "a.py"))}'}))
 
 

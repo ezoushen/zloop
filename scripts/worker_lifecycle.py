@@ -765,7 +765,7 @@ def record(db, data, refuse_changes=False, submitting=False):
             require(type(data.get('owned')) is bool, 'Registration requires explicit owned boolean')
             require(execution, 'Registration requires execution, the resolved execution file')
             if data['runtime'] == 'codex' and execution.get('native_dispatch'):
-                task = 'attempt_' + attempt.encode('utf-8').hex()
+                task = native_settings.codex_task_name(attempt)
                 require(data['native_session'].startswith('/root/')
                         and data['native_session'].rsplit('/', 1)[-1] == task,
                         f'Codex native attempts need a fresh child; spawn with task_name: {task} '

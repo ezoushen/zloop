@@ -37,7 +37,7 @@ class Outcomes(WorkerLifecycleCase):
         execution.update(host='codex', native_dispatch=True, launch={'writes': 'worktree',
                                                   'verify': {'sandbox': 'workspace-write', 'approval': 'never'}})
         self.execution.write_text(json.dumps(execution))
-        self.register(runtime='codex', session='/root/attempt_7469636b65742d312f31')
+        self.register(runtime='codex', session='/root/attempt_ec1e560b61ac6c8777892c7c')
         result = self.record('startup', native=str(self.native()))
         self.assertEqual((result['verified'], result['journal']), (True, {'execution': 'recorded'}))
         recorded = self.annotations(decision_id)[-1]

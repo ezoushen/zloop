@@ -4,24 +4,46 @@
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import unittest
 
 from lifecycle_case import WorkerLifecycleCase
 from native_records import assistant_turn, codex_child_session, session_record, user_message
+import support
 
 
 class NativeProof(WorkerLifecycleCase):
+    def test_codex_assigns_printed_name_registers_for_short_and_long_attempts(self):
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+        self.execution.write_text(json.dumps({'host': 'codex', 'native_dispatch': True,
+            'agent': 'builder', 'job': 'ticket', 'settings': {}}))
+        env = dict(os.environ, CODEX_SESSION_ID='codex-host', CODEX_THREAD_ID='codex-host')
+        for attempt in ('a/1', 'review/' + 'worker-' * 300):
+            with self.subTest(attempt=attempt):
+                command = [sys.executable, str(support.HOOKS / 'read_only_writes.py'), 'codex-assign',
+                           '--attempt', attempt, '--agent-file', str(support.ROOT / 'agents/builder.md')]
+                result = subprocess.run(command, cwd=self.root, env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                name = result.stdout.strip()
+                self.assertRegex(name, r'^attempt_[0-9a-f]{24}$')
+                if attempt == 'a/1':
+                    self.assertEqual(name, 'attempt_773232abe9343f0e102f8248')
+                self.assertTrue((self.root / '.scratch/codex-children/codex-host' / (name + '.json')).is_file())
+                self.register(attempt, assignment=attempt, runtime='codex', worker=name, session='/root/' + name)
+
     def test_codex_child_registration_refuses_a_sibling_named_for_another_attempt(self):
         self.execution.write_text(json.dumps({'host': 'codex', 'native_dispatch': True,
             'agent': 'builder', 'job': 'ticket', 'settings': {}}))
-        session_record(self.root / 'sibling.jsonl', 'codex', '/root/attempt_622f31', self.root, child=True)
-        for session in ('/root/attempt_622f31', 'attempt_612f31', '/root/attempt_612f31_extra'):
+        session_record(self.root / 'sibling.jsonl', 'codex', '/root/attempt_c2c4324fdbeececdf6011f84', self.root, child=True)
+        for session in ('/root/attempt_c2c4324fdbeececdf6011f84', 'attempt_773232abe9343f0e102f8248',
+                        '/root/attempt_773232abe9343f0e102f8248_extra'):
             with self.subTest(session=session):
                 error = self.register('a/1', assignment='a', runtime='codex', session=session, code=2)
                 self.assertIn('fresh child', error)
-                self.assertIn('task_name: attempt_612f31', error)
+                self.assertIn('task_name: attempt_773232abe9343f0e102f8248', error)
                 self.assertEqual(self.cli('status')['attempts'], [])
-        self.register('a/1', assignment='a', runtime='codex', session='/root/parent/attempt_612f31')
+        self.register('a/1', assignment='a', runtime='codex', session='/root/parent/attempt_773232abe9343f0e102f8248')
 
     def test_codex_child_from_an_older_state_cannot_register_for_a_new_attempt(self):
         self.native_env = dict(os.environ, CODEX_SESSION_ID='codex-host')
@@ -33,8 +55,8 @@ class NativeProof(WorkerLifecycleCase):
         original = path.read_bytes()
         self.state = self.root / 'new-state.sqlite'
         error = self.register('codex/2', assignment='codex', runtime='codex',
-                              session='/root/attempt_636f6465782f31', code=2)
-        self.assertIn('task_name: attempt_636f6465782f32', error)
+                              session='/root/attempt_74eed034a8e656e9d0815633', code=2)
+        self.assertIn('task_name: attempt_7394a2f4135cc16f77c448fe', error)
         self.assertIn('fresh child', error)
         self.assertEqual(self.cli('status')['attempts'], [])
         self.assertEqual(path.read_bytes(), original)
@@ -48,14 +70,14 @@ class NativeProof(WorkerLifecycleCase):
         self.cli('collect', '--attempt', attempt, '--input', self.result_request(attempt, path))
         original = path.read_bytes()
         error = self.register('codex/2', assignment='codex', runtime='codex', worker='codex',
-                              session='/root/attempt_636f6465782f31', code=2)
-        self.assertIn('task_name: attempt_636f6465782f32', error)
+                              session='/root/attempt_74eed034a8e656e9d0815633', code=2)
+        self.assertIn('task_name: attempt_7394a2f4135cc16f77c448fe', error)
         self.assertIn('fresh child', error)
         self.assertEqual([row['attempt'] for row in self.cli('status')['attempts']], ['codex/1'])
         self.assertEqual(path.read_bytes(), original)
         self.register('codex/2', assignment='codex', runtime='codex', worker='fresh-child',
-                      session='/root/attempt_636f6465782f32')
-        fresh = session_record(self.root / 'fresh.jsonl', 'codex', '/root/attempt_636f6465782f32', self.root,
+                      session='/root/attempt_7394a2f4135cc16f77c448fe')
+        fresh = session_record(self.root / 'fresh.jsonl', 'codex', '/root/attempt_7394a2f4135cc16f77c448fe', self.root,
                                model=model, child=True)
         self.record('startup', 'codex/2', native=str(fresh))
         self.cli('collect', '--attempt', 'codex/2', '--input', self.result_request('codex/2', fresh))
