@@ -8,8 +8,8 @@ ended never carries into the next. The ended run's `terminal:` state moves, with
 recorded: a run that ends keeps the phase it stopped in.
 
 `dispatch-effort:` and `review-effort:` keep the levels the card confirmed unless a level flag is given: `--effort`
-sets both, and a split flag overrides it for its own step. A card without either line is refused, and so is a level
-outside `low|medium|high|xhigh|max`.
+sets both, and a split flag overrides it for its own step. A card without either line, or with a level outside
+`low|medium|high|xhigh|max`, is refused.
 """
 import argparse
 import datetime
@@ -32,11 +32,19 @@ def set_field(text, key, value):
     return re.sub(rf'^{re.escape(key)}:.*$', lambda _: f'{key}: {value}'.rstrip(), text, count=1, flags=re.M)
 
 
+def level(text, key):
+    """The card's `key:` level; exits when the line is blank, a placeholder or outside LEVELS."""
+    value = field(text, key)
+    if value not in LEVELS:
+        sys.exit(f'the card\'s `{key}:` line is not one of {", ".join(LEVELS)}: {value!r}')
+    return value
+
+
 def take_over(text, auto_merge, dispatch_effort, review_effort, today):
     """The card's text after a take-over."""
     ended, history = field(text, 'terminal'), field(text, 'history')
     field(text, 'auto-merge')
-    dispatch, review = field(text, 'dispatch-effort'), field(text, 'review-effort')
+    dispatch, review = level(text, 'dispatch-effort'), level(text, 'review-effort')
     dispatch, review = dispatch_effort or dispatch, review_effort or review
     if ended:
         text = set_field(set_field(text, 'terminal', ''), 'history', '; '.join(filter(None, [history, f'{ended} {today}'])))
