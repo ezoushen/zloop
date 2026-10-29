@@ -252,8 +252,10 @@ function completeHint(hint, slots, typed) {
   const next = followers.some((follower) => !follower.optional) ? followers
     : [...followers, ...slots.filter((candidate) => !candidate.after)];
   const before = typed.slice(0, typed.length - partial.length);
-  const items = next.filter(allowed).flatMap((candidate) => candidate.literals)
-    .filter((literal) => literal.startsWith(partial))
+  // Alternative branches may write the same flag; it is offered once, where it first appears.
+  const offered = new Set(next.filter(allowed).flatMap((candidate) => candidate.literals)
+    .filter((literal) => literal.startsWith(partial)));
+  const items = [...offered]
     .map((literal) => ({ value: `${before}${literal}${literal.endsWith("=") ? "" : " "}`, label: literal, description: hint }));
   return items.length ? items : null;
 }
