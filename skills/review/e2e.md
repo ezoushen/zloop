@@ -12,7 +12,10 @@ a read-only reviewer's permissions do not transfer verification to the user.
 Determine applicable gates from the accepted scope, project verification commands
 and, when present, the project loop file and selected tickets' `touches` union.
 Include required compile/suite checks and E2E, not every step listed for unrelated
-areas. When the repository has CI workflows, the required gates include every job CI
+areas. When the dispatch's [verification level](../../runtime/checks/accept.md#verification-levels)
+is `xhigh` or `max`, the applicable gates widen to every acceptance criterion with an
+observable path, even where CI covers it, and `max` runs each E2E check and each
+flaky-prone suite three times. When the repository has CI workflows, the required gates include every job CI
 requires on the PR. Read them from `.github/workflows/` (or the CI configuration in
 use). Either run each locally, or record which CI jobs remain to be watched after
 the push. Consumer-repository branches made for the workstream are review targets as

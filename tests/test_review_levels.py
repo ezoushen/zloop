@@ -263,6 +263,18 @@ class ReviewLevels(unittest.TestCase):
                        'priority sources, the review\'s `effort level` and the `angle`'):
             self.assertIn(phrase, body)
 
+    def test_the_readme_command_table_renders_each_row_as_two_cells(self):
+        # Rule: an unescaped pipe splits a table cell, so a row's levels are written `--effort <level>`, never
+        # `--effort low|medium|...`; every command row keeps exactly its command and its description.
+        rows = [line for line in (ROOT / 'README.md').read_text().splitlines()
+                if re.match(r'\| `[a-z]+` \|', line)]
+        self.assertGreater(len(rows), 10)
+        for row in rows:
+            with self.subTest(row=row[:40]):
+                self.assertEqual(len(re.split(r'(?<!\\)\|', row.strip().strip('|'))), 2, row)
+        review = next(row for row in rows if row.startswith('| `review`'))
+        self.assertIn('`--effort <level>` sets how thorough it is', review)
+
 
 if __name__ == '__main__':
     unittest.main()

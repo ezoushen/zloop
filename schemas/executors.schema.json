@@ -101,7 +101,7 @@
       "required": ["backend", "enabled"], "additionalProperties": false
     },
     "agentName": { "enum": ["builder", "reviewer", "verifier"] },
-    "jobName": { "enum": ["audit", "diff-review", "e2e-gate", "merge-conflict", "prototype", "repair", "reproduce", "ticket"] },
+    "jobName": { "enum": ["acceptance-rerun", "audit", "diff-review", "e2e-gate", "merge-conflict", "prototype", "repair", "reproduce", "ticket"] },
     "agentOrJob": { "anyOf": [{ "$ref": "#/$defs/agentName" }, { "$ref": "#/$defs/jobName" }] },
     "router": {
       "oneOf": [

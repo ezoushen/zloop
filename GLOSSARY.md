@@ -294,11 +294,11 @@ The focused, affected or full-gate scope of a check, with an assigned owner and 
 _Avoid_: none
 
 **Full gate**:
-The project's complete required verification on the final integrated candidate, owned by the assigned integrator or verifier.
+The project's complete required verification on the final integrated candidate, owned by the assigned integrator or verifier; at `high` and above it also runs after each ticket is integrated.
 _Avoid_: none
 
 **E2E**:
-End-to-end verification of observable behavior through applicable real entry points beyond what the full gate covers.
+End-to-end verification of observable behavior through applicable real entry points beyond what the full gate covers; at `xhigh` and above it also covers criteria that CI covers.
 _Avoid_: none
 
 **Review**:

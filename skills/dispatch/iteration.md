@@ -44,9 +44,9 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    contract and the worker's checkpoint capability, and carry its supported wait/status/log/cancel operations
    ([check execution](../../runtime/checks/run.md#run-a-bounded-check)). The dispatch's
    [verification level](../../runtime/checks/accept.md) decides which tiers the `checks:` line carries:
-   `low` names each ticket's focused tests only, `medium` adds the affected suites, `high` and higher
-   also name the full gate after the merge, `xhigh` and higher the E2E of every criterion with an
-   observable path, and `max` the repeated flaky-prone runs. Create the reports directory, claim
+   `low` names each ticket's focused tests only, `medium` adds the affected suites, `high` and higher also name the
+   full gate after each ticket is integrated, `xhigh` and higher the E2E of every criterion with an observable path,
+   and `max` the three-run repeats. Create the reports directory, claim
    the ticket and record implementation started, then start a `builder` with:
 
    ```text
@@ -75,10 +75,12 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    [standing measurements](../../runtime/board/project-loop.md#standing-measurements), which refuse a missing or worse
    value unless a ledger-cited `allows` excuses it). Judge every criterion in `## Implemented`; later-phase gates
    stay with their owners and block delivery, not integration. Apply the dispatch's verification level
-   as acceptance runs: `high` and higher run the full gate after every ticket merge and register a
-   verifier that re-runs each ticket's acceptance on the integrated head; `xhigh` and higher add E2E for
-   every criterion with an observable path; `max` repeats E2E and flaky-prone suites when the user asked
-   for it. Every level still runs the required full gate once on the integrated head before review.
+   as acceptance runs: `high` and higher run the full gate after every ticket is integrated, merged or committed
+   inline, and register one verifier attempt per ticket with the [acceptance-rerun](jobs/acceptance-rerun.md) job, which
+   re-runs that ticket's `Verify (code)` commands on the integrated head; `xhigh` and higher add E2E for every
+   criterion with an observable path, and `max` runs each E2E check and flaky-prone suite three times, both in the
+   review's [autofix E2E stage](../review/e2e.md), so with no `--autofix` they do not run. Every level still runs the
+   required full gate once on the integrated head before review.
    Accept the worker's recorded checks at their commit; do not rerun them, apart from those measurements.
    Collecting through the worker lifecycle records the decision outcome; otherwise record it against the
    acceptance evidence or mark it unknown, then run the [completion record check](../../runtime/decisions/annotate.md#check-a-handoff);

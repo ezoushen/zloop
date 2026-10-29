@@ -21,7 +21,7 @@ one target at a time. Pass the selected ticket scope, accepted alignment/ledger,
 priority sources, project instructions, report path and the review effort level
 — `--review-effort`, else `--effort`, else the review's default `high`; the procedure
 records it in `review_level:`. Include `--autofix` only
-when repairs are authorized. If the user explicitly requested a walkthrough before
+when repairs are authorized. With `--autofix`, also pass the dispatch's verification level: it widens the E2E stage. If the user explicitly requested a walkthrough before
 review, follow [walkthrough](../review/walkthrough.md) first and honor its transition
 policy. With no integrated changes, report that there is no review target.
 

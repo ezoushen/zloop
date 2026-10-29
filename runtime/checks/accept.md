@@ -5,11 +5,11 @@ owner, preconditions, expected duration and execution/teardown deadline. Give ea
 check a tier in the assignment:
 - **focused:** the tests for the behavior being changed, run while editing;
 - **affected:** the suites covering the changed code, run before the worker
-  returns and again after each repair;
+  returns and again after each repair; `low` skips them;
 - **full gate:** the project's complete required gate, run once on the workstream's
-  integrated head before review and E2E (not per ticket merge) and once after the
+  integrated head before review and E2E (not per ticket) and once after the
   last repair, by the orchestrator or by an E2E run that already includes it;
-  `high` and higher run it after every ticket merge too.
+  `high` and higher run it after every ticket is integrated, merged or committed inline, too.
 
 Workers run the full gate only when the project requires it per change; name that
 requirement and its source in the assignment. E2E adds only what CI and the full
@@ -17,7 +17,7 @@ gate do not cover; `xhigh` and higher add E2E for every criterion with an observ
 path. Acceptance reuses a worker's recorded checks at the same commit
 rather than running them again. Repetitions, traces and negative controls follow
 the accepted measurement contract or a concrete validity gap, rather than adding
-another batch for confidence alone; `max` repeats E2E and flaky-prone suites when
+another batch for confidence alone; `max` runs each E2E check and flaky-prone suite three times when
 the user asked for it. Each tier rule above names the effort levels that relax it,
 and only those ([verification levels](#verification-levels)).
 
@@ -74,10 +74,13 @@ the level scales only the checks beyond the ones the project requires, never tho
 | --- | --- |
 | low | each ticket's focused tests only |
 | medium (default) | + each ticket's affected suites before it returns |
-| high | + the full gate after every ticket merge, and a verifier re-runs each ticket's acceptance on the integrated head |
+| high | + the full gate after every ticket is integrated, merged or committed inline, and one verifier per ticket re-runs that ticket's acceptance on the integrated head |
 | xhigh | + E2E for every acceptance criterion with an observable path, even where CI covers it |
-| max (only when the user asks) | + repeated E2E and flaky-prone suite runs |
+| max (only when the user asks) | + each E2E check and flaky-prone suite run three times |
 
-No level relaxes the engineering standard's floor: every criterion maps to
-evidence the accepting verifier observed, and the dispatch report says what the
-level left out. A lower level buys fewer extra checks, not less proof.
+E2E, required or added by a level, runs in the review's autofix E2E stage, so with no
+`--autofix` no level runs E2E and the dispatch report says so.
+
+No level relaxes the engineering standard's floor: every criterion maps to passing
+evidence the acceptance cites (command, exit status, identity), and the dispatch report
+says what the level left out. A lower level buys fewer extra checks, not less proof.

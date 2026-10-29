@@ -107,7 +107,7 @@ folder; commands read the shared interview and board procedures and the other ru
 
 - [Align](../align/SKILL.md): the mandate, then the WHAT / WHY / HOW brief, and the prototype job.
 - [Refine](../refine/SKILL.md): ticket slicing and the ticket template.
-- [Dispatch](../dispatch/SKILL.md): scheduling, the iteration, the review handoff and the ticket and merge-conflict jobs.
+- [Dispatch](../dispatch/SKILL.md): scheduling, the iteration, the review handoff and the ticket, merge-conflict and acceptance-rerun jobs.
 - [Review](../review/SKILL.md): the shared review procedure, its walkthrough and its jobs.
 - [PR](../pr/SKILL.md): the description and publication.
 - [Remediate](../remediate/SKILL.md): the audit procedure and job.

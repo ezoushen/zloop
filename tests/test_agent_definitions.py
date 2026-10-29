@@ -241,8 +241,8 @@ class Definitions(unittest.TestCase):
         for name, agent in loaded['agents'].items():
             for item in agent['core_skills']:
                 self.assertTrue(':' in item or item.startswith(('standards/', 'runtime/')), (name, item))
-        self.assertEqual(set(loaded['jobs']), {'ticket', 'merge-conflict', 'diff-review', 'repair', 'reproduce',
-                                               'e2e-gate', 'audit', 'prototype'})
+        self.assertEqual(set(loaded['jobs']), {'ticket', 'merge-conflict', 'acceptance-rerun', 'diff-review',
+                                               'repair', 'reproduce', 'e2e-gate', 'audit', 'prototype'})
         # Configuration is validated against this enum, so an agent missing there cannot be configured.
         schema = json.loads((support.ROOT / 'schemas/executors.schema.json').read_text())
         self.assertEqual(schema['$defs']['agentName']['enum'], sorted(loaded['agents']))

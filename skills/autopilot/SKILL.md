@@ -59,7 +59,7 @@ user's decision with their words, and ask nothing. One that changes the goal, a 
 the card with the user's words.
 
 1. [refine](../refine/SKILL.md) the brief into tickets;
-2. [dispatch](../dispatch/SKILL.md) them with `--autofix` and the card's levels, `--dispatch-effort <level>`
+2. [dispatch](../dispatch/SKILL.md) them with `--autofix` and the card's current levels, `--dispatch-effort <level>`
    and `--review-effort <level>` (review, repairs, applicable E2E);
 3. [pr](../pr/SKILL.md): write the description, push the workstream branch and open the PR, then watch the required checks.
    In a repository with no PR host, publish nothing: pass the PR procedure's delivery gate, write the delivery report and end `delivered-local`.
