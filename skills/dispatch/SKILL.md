@@ -74,7 +74,9 @@ Reject an unknown flag or level value.
 6. Record the invocation's effort levels in the dispatch report before the first launch:
    both levels, and what the verification level left out, which with no `--autofix` includes every
    E2E. Resuming this invocation, after compaction or in another session that takes over this
-   dispatch, keeps the levels its setup recorded; a new invocation never inherits them.
+   dispatch without level flags, keeps the levels its setup recorded, which equal the card's;
+   a new invocation never inherits them. A take-over with level flags is a new invocation: the
+   card changes, dispatch starts again with the card's levels and its report records them anew.
 
 A supplied scope is never widened, even to unblock it. Use the board's
 [overall scope](../../runtime/board/scope.md) rules to preserve

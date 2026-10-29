@@ -7,7 +7,9 @@ both effort levels on their own lines, `dispatch-effort:` and `review-effort:`,
 defaults included (medium and high), as the start or a take-over set them, so the user
 confirms them with the card. `--effort` sets both steps, and a split flag overrides it for
 its step. A start with no level writes these defaults, never a level typed earlier; a
-take-over keeps the card's levels unless a flag is given. `max` runs only when the user
+take-over keeps the card's levels unless a flag is given; a take-over with level flags changes the
+card and the dispatch it re-enters records those levels anew; without them it resumes the dispatch
+with the levels its setup recorded, which equal the card's. `max` runs only when the user
 asks, an unknown flag or level value is refused, and so is a take-over of a card without
 the two lines or with a line that is not a level.
 

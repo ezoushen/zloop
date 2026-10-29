@@ -306,6 +306,10 @@ class EffortLevels(unittest.TestCase):
                        'an unknown flag or level value is refused',
                        'a take-over of a card without the two lines or with a line that is not a level'):
             self.assertIn(phrase, card)
+        # Rule: explicit flags win over a dispatch's recorded levels; without flags the dispatch resumes unchanged.
+        self.assertIn('a take-over with level flags changes the card and the dispatch it re-enters records those '
+                      "levels anew; without them it resumes the dispatch with the levels its setup recorded, which "
+                      "equal the card's", card)
 
     def test_the_run_passes_both_levels_to_dispatch_beside_autofix(self):
         # Rule: dispatch receives the card's levels, and its handoff runs the review at the review level.
