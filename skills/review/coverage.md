@@ -9,9 +9,9 @@ then implementation. Complete each layer's findings batch; pause dependent lower
 coverage when an upstream decision blocks it. Carry accepted alignment forward.
 The orchestrator owns direction/scope; one reviewer owns the implementation batch
 and its Standards and Spec axes. Share the layer decisions and permitted coverage before launch.
-The [effort level](levels.md) decides how many: `low` and `medium` keep that one
-[diff-review](jobs/diff-review.md) worker, `xhigh` one worker per [angle](levels.md), and
-`max` one per angle and module. At `xhigh` and `max`, then assign one reproduce job per finding
+The [effort level](levels.md) decides how many: `low`, `medium` and `high` keep that
+one [diff-review](jobs/diff-review.md) worker; `xhigh` gives one worker per
+[angle](levels.md), and `max` one per angle and module. At `xhigh` and `max`, then assign one reproduce job per finding
 and one sweep reviewer the verified list with the full coverage.
 At each completed layer, run the configured
 [`review-triage` checkpoint](../../runtime/decisions/checkpoint-command.md)

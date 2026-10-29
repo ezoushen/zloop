@@ -1,7 +1,7 @@
 ---
 name: reproduce
 agent: reviewer
-inputs: ["worktree", "head", "report", "findings", "proof steps", "effort level"]
+inputs: ["worktree", "head", "report", "findings", "proof steps"]
 returns: []
 independent_of: ["diff-review", "audit"]
 acceptance: false
@@ -16,8 +16,8 @@ them. Review and remediation assign it.
 
 The assignment names the `worktree`, pinned `head` and `report`; the `findings`:
 one finding, or a batch that shares one kind and proof procedure; their scope and
-priority evidence; the `proof steps` to apply; any counter-evidence; and the review's
-`effort level` ([levels](../levels.md)). Read the
+priority evidence; the `proof steps` to apply; any counter-evidence; and whether it
+verifies every finding, which a review at `xhigh` or `max` does. Read the
 report's scope and do not expand it. The worker that raised a finding never decides
 it.
 

@@ -152,10 +152,12 @@ class ReviewLevels(unittest.TestCase):
             self.assertIn(phrase, body)
         self.assertIn('](../levels.md)', body)
 
-    def test_the_reproduce_job_returns_confirmed_plausible_or_refuted_when_it_verifies_every_finding(self):
-        # Rule: when the level reproduces every finding, the reproduce job returns CONFIRMED, PLAUSIBLE or
-        # REFUTED; the review keeps the first two and drops the last with its verdict recorded.
-        self.assertIn('effort level', inputs(REVIEW / 'jobs/reproduce.md'))
+    def test_the_reproduce_job_verifies_every_finding_only_when_the_assignment_says_so(self):
+        # Rule: reproduce takes no effort level, because remediation also assigns it and has none; the assignment
+        # says when it verifies every finding, and then the review keeps CONFIRMED and PLAUSIBLE and drops REFUTED.
+        self.assertNotIn('effort level', inputs(REVIEW / 'jobs/reproduce.md'))
+        inputs_body = ' '.join(section(REVIEW / 'jobs/reproduce.md', 'Inputs').split())
+        self.assertIn('whether it verifies every finding', inputs_body)
         body = ' '.join(section(REVIEW / 'jobs/reproduce.md', 'Return').split())
         self.assertIn('](../levels.md)', body)
         self.assertIn('CONFIRMED, PLAUSIBLE or REFUTED', body)
@@ -174,8 +176,8 @@ class ReviewLevels(unittest.TestCase):
         # Rule: the coverage stage reads the level when it assigns reviewers, reproduction and the sweep.
         body = ' '.join((REVIEW / 'coverage.md').read_text().split())
         self.assertIn('](levels.md)', body)
-        for phrase in ('one [diff-review](jobs/diff-review.md) worker', 'per [angle](levels.md)',
-                       'one reproduce job per finding', 'one sweep reviewer'):
+        for phrase in ('`low`, `medium` and `high` keep that one [diff-review](jobs/diff-review.md) worker',
+                       'per [angle](levels.md)', 'one reproduce job per finding', 'one sweep reviewer'):
             self.assertIn(phrase, body)
 
 
