@@ -262,10 +262,37 @@ VERDICTS = {"review_by": {"review_status": "clean", "documentation_status": "pas
             "e2e_by": {"e2e_status": "passed", "e2e_head": None}}
 
 
+def review_by_problems(fm, attempts, route=None):
+    """Why review_by does not name completed collected diff-review attempts at review_head."""
+    if fm.get('review_by') == 'local' and (route or {}).get('status') == 'no_route' and route.get('reason'):
+        return []
+    collected = {saved['attempt']: saved for saved in attempts if saved.get('result')}
+    names = fm.get('review_by') or 'missing'
+    problems = []
+    for name in names if isinstance(names, list) else [str(names).strip()]:
+        saved = collected.get(name)
+        if saved is None:
+            problems.append(f'review_by: {name} names no collected worker attempt')
+        elif saved['result']['status'] != 'completed':
+            problems.append(f"review_by: {name} returned {saved['result']['status']}")
+        elif saved.get('job') != 'diff-review':
+            problems.append(f'review_by: {name} is not a diff-review attempt')
+        elif saved['result'].get('head') != fm.get('review_head'):
+            problems.append(f"review_by: {name} head {saved['result'].get('head')} is not review_head {fm.get('review_head')}")
+    return problems
+
+
 def verdict_problems(slug, key, fm):
     """Each status the review report records must be the one every named worker attempt returned, as collected,
     with its report still saying so; e2e_by may name run_check logs of checks the orchestrator ran instead."""
-    attempts = {saved["attempt"]: saved for saved in workstream_attempts(slug) if saved.get("result")}
+    saved_attempts = workstream_attempts(slug)
+    if key == 'review_by':
+        binding_path = ISSUES / slug / 'reports' / 'review.json'
+        binding = json.loads(binding_path.read_text()) if binding_path.is_file() else {}
+        problems = review_by_problems(fm, saved_attempts, binding.get('route'))
+        if problems or fm.get('review_by') == 'local':
+            return problems
+    attempts = {saved["attempt"]: saved for saved in saved_attempts if saved.get("result")}
     problems = []
     for name in fm[key] if isinstance(fm[key], list) else [str(fm[key]).strip()]:
         saved = attempts.get(name)

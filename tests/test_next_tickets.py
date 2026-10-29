@@ -1210,6 +1210,18 @@ class BoardCLI(unittest.TestCase):
     def ready_names(self, slug):
         return [t['ticket'] for t in json.loads(self.cli(slug).stdout)]
 
+    def test_delivery_requires_the_named_review_attempt_to_be_a_diff_review(self):
+        self.write_ticket('fx/01', 'done')
+        start = self.commit('start')
+        self.git('branch', 'feat/fx')
+        self.git('checkout', 'feat/fx')
+        head = self.commit('reviewed work')
+        review, evidence = self.deliver('fx', 'feat/fx', start, head, workers=False)
+        support.collected_attempt(self.root, 'fx', 'review/fx/1', review, job='e2e-gate', head=head)
+        support.collected_attempt(self.root, 'fx', 'e2e/fx/1', review, job='e2e-gate', head=head)
+        refused = self.cli('fx', '--delivery', code=1).stderr
+        self.assertEqual(refused, 'fx: review_by: review/fx/1 is not a diff-review attempt\n')
+
     def test_a_workstream_run_on_main_is_delivered_from_main_and_releases_its_dependents(self):
         self.write_ticket('onmain/01', 'done')
         self.write_ticket('later/01', blocked='onmain/01', touches='docs')

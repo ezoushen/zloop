@@ -45,52 +45,16 @@ Stages after this one, in order: [coverage and findings](coverage.md),
 
 ## Resolve and understand
 
-1. Resolve the target with the maintained helper:
-   `python3 "<plugin_root>/scripts/review_target.py" --repo "<checkout>" <arguments>`.
-   The helper takes the target, `--base`, `--autofix` and `--comments`; `--effort` selects
-   the [level](levels.md) here and is not forwarded.
-   Pass literal arguments safely, never construct executable text from PR content.
-   A PR number uses the current repository; a URL must match its verified checkout.
-   Locate or clone that repository separately if needed. Branches resolve locally;
-   use `refs/heads/123` for a numeric branch or `refs/remotes/origin/<branch>` for a
-   remote ref. `--base` selects an explicit comparison, not a new review target.
-   The helper checks an associated open PR when no base is supplied and otherwise
-   uses the repository default. No guessed `main`, no silent fallback on auth errors.
-   With no `gh`, local branches require `--base` or an unambiguous remote HEAD.
-   Fetch missing objects only from the verified repository, then resolve again.
-2. Record the returned base/head, unique merge base, files and options in the review
-   report. An empty diff is an empty review, not proof of application correctness.
-   Use a dedicated worktree at that head; leave the user's checkout and edits alone.
-   Autofix uses a local repair branch there, never the PR author's remote branch.
-   Review one target per procedure execution. No worker from implementation may still write
-   this target. Before starting workers, verify the active adapter, selected executor
-   tools, permissions and capacity. Unconfigured native review can run locally where
-   permitted when child tools are absent. For an unavailable configured worker,
-   follow [pool recovery](../../runtime/workers/recovery.md):
-   automatically select a suitable allowed alternative, preserving explicit user
-   pins and permission boundaries. Read-only review does not require an implementation board.
-   Record the resolver's profile/source, executor and requested settings before
-   dispatching, including partitioned or resumed review rounds. A partial report
-   from a quota-exhausted or failed configured worker remains incomplete. Preserve
-   useful evidence, reconcile its owned jobs and reassign the same obligation through
-   the allowed pool. A replacement's complete verified report can close it; parent
-   coverage or the failed worker's partial report cannot. Keep `review_status: incomplete`
-   until all required obligations have complete evidence, including after fallback.
-   An already-dispatched reviewer is still a worker when reviewing serially; it
-   must honor the adapter's preflight and assigned worktree boundary.
-3. Read the PR/issue discussion and existing review comments, changed code, relevant
-   callers, project standards and existing alignment, including canonical issues
-   in the project's configured tracker under the bootstrap's conventions. For a verified zloop
-   workstream use `.scratch/<slug>/reports/spec-review.md`; otherwise use a local
-   `.scratch/reviews/<review-id>/review.md` with a stable, filesystem-safe ID and the
-   target identity recorded inside it. Never infer a workstream from a similar name.
-   Create the report from [report.md](report.md). Resume only a matching repository,
-   target and scope. When its revision changes, preserve human decisions and the
-   follow-up list, but revalidate findings and reopen affected coverage before
-   reusing evidence. Never silently replace an unrelated review's report.
-   On subsequent rounds, refresh base/head, discussions and dependency pins. Map
-   prior findings to fixed, still-open, superseded or accepted decisions before
-   drafting duplicates; a rebase or repository move can change the coverage boundary.
+Start with `python3 "<plugin_root>/scripts/review_target.py" --host <host> --repo "<checkout>" <arguments>`.
+Pass the target, `--base`, `--autofix`, `--comments` and an explicit `--workstream <slug>` for a workstream;
+`--effort` selects the [level](levels.md) here and is not forwarded. The script writes the
+[report](report.md) and returns its state, reviewer route and next commands.
+A configured reviewer owns the assessment; the host coordinates it and preserves the user's decisions.
+
+Use a dedicated worktree at the resolved head, and a local repair branch for autofix.
+Read the PR/issue discussion, existing comments, changed code, relevant callers,
+project standards and accepted alignment. An empty diff proves no application behavior.
+Revalidate findings and coverage when the revision changes; retain human decisions and follow-ups.
 
 ## Agree scope and priorities
 

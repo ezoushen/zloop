@@ -18,7 +18,7 @@ head; preserve unrelated local edits. Run the
 [shared review procedure](../review/SKILL.md), read as a file (its typed-only setting governs
 invocation, not reading), on the verified workstream branch,
 one target at a time. Pass the selected ticket scope, accepted alignment/ledger,
-priority sources, project instructions, report path and the review effort level
+priority sources, project instructions, `--workstream <slug>` and the review effort level
 — `--review-effort`, else `--effort`, else the review's default `high`; the procedure
 records it in `review_level:`. Include `--autofix` only
 when repairs are authorized. With `--autofix`, also pass the dispatch's verification level: it widens the E2E stage. If the user explicitly requested a walkthrough before

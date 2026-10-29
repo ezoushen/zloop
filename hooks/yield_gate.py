@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Stop hook: keep the host working while a lifecycle worker could finish without waking it.
 
-Reads every run's workers.sqlite under the main checkout's .scratch/*/reports/ that
+Reads every run's workers.sqlite under the main checkout's .scratch/*/reports/ and .scratch/reviews/*/ that
 changed in the last day, without writing to it, and applies the lifecycle's yield
 gate to the workers this session registered (by host session, else pane), or, for one that
 recorded neither, to the session bound to orchestrate its workstream (with none bound, to every
@@ -17,7 +17,9 @@ review report (before it records one, the binding) records autofix: true and no 
 every ticket done and delivery failing, until it is finished (branch deleted, reviewed head in
 main or on the remote's main, E2E passed at a head in main). A session is also held while a
 confirmed autopilot run card (.scratch/<slug>/autopilot.md) naming it lacks one terminal state or its
-evidence. Neither the delivery hold nor the card hold applies while a live worker of the workstream holds a running
+evidence. A review binding beside a standalone or workstream report holds its session until the report names a
+completed collected diff-review attempt at review_head, records a blocker, or names local review with a recorded
+no-route result. The review, delivery and card holds do not apply while a live worker of that state holds a running
 wait that will wake the host. A
 check that cannot run, and a launch log line that is unreadable or malformed, are named gaps,
 never a pass. `claude` and `codex` speak their shared Stop
@@ -80,18 +82,19 @@ def gaps(cwd, session=None):
         return [], []
     cwd, pane = Path(cwd).resolve(), os.environ.get('HERDR_PANE_ID')
     module, missing = None, []
-    for state in sorted(root.glob('.scratch/*/reports/workers.sqlite')):
+    for state in states(root):
         # Sessions share the folder: a worker holds only the session that registered it, by host session before pane;
         # one registered with neither recorded holds the session bound to orchestrate its workstream, or, with none
         # bound, every session that is not a worker, since nothing tells its owner apart.
-        binding, bound = read_binding(state.with_name(BINDING), pane, session)
-        unbound = binding is None and not state.with_name(BINDING).exists()
+        owner = state.with_name('review.json' if state.parent.parent.name == 'reviews' else BINDING)
+        binding, bound = read_binding(owner, pane, session)
+        unbound = binding is None and not owner.exists()
         recent = time.time() - state.stat().st_mtime <= RECENT_SECONDS
         try:
             saved_attempts, malformed, _ = read_state(state)
         except Exception as error:
             missing += [f'{state}: cannot be read ({error}); fix or remove it'] if unreadable_holds(
-                state, pane, session, bound, recent) else []
+                state, pane, session, bound, recent and state.parent.parent.name != 'reviews') else []
             continue
         missing += [f'{state}: attempt row {key} is malformed; fix or remove it' for key, saved in malformed
                     if bound or (isinstance(saved, dict) and attributed(saved) and owns(saved, pane, session))]
@@ -117,7 +120,43 @@ def gaps(cwd, session=None):
             db.close()
     # Every session answers for its own launches; a worker (its launch set ZLOOP_WORKER) not for its siblings.
     return (missing + unregistered(root, pane, session, siblings=not os.environ.get('ZLOOP_WORKER')),
-            stale_tabs(root, pane, session) + undelivered(root, pane, session) + unfinished_runs(root, session))
+            stale_tabs(root, pane, session) + undelivered(root, pane, session) + unfinished_runs(root, session)
+            + unreviewed(root, pane, session))
+
+
+def unreviewed(root, pane, session):
+    """Review bindings naming this session whose reports lack collected reviewer evidence."""
+    missing = []
+    for path in sorted(root.glob('.scratch/reviews/*/review.json')) + sorted(root.glob('.scratch/*/reports/review.json')):
+        binding, mine = read_binding(path, pane, session)
+        if not mine:
+            continue
+        if binding is None:
+            missing.append(f'{path}: review binding cannot be read; rerun review_target.py for this target')
+            continue
+        try:
+            report, state = Path(binding['report']), Path(binding['state'])
+            if awaited(state):
+                continue
+            board = script('next_tickets')
+            fields = board.parse_front_matter(report.read_text()) or {}
+            if fields.get('blocker') not in (None, '', 'none'):
+                continue
+            attempts = read_state(state)[0] if state.is_file() and fields.get('review_by') != 'local' else []
+            problems = board.review_by_problems(fields, attempts, binding['route'])
+            if problems:
+                live = [saved for saved in attempts if not saved.get('result')]
+                action = ('collect' if any(saved.get('submitted') or saved.get('submission_requested') for saved in live)
+                          else 'submit' if live else 'route')
+                missing.append(f"{report}: {'; '.join(problems)}; next: `{binding['next_commands'][action]}`")
+        except Exception as error:
+            missing.append(f'{path}: could not check review: {error}; rerun review_target.py for this target')
+    return missing
+
+
+def states(root):
+    """Lifecycle states of workstreams and standalone reviews in the main checkout."""
+    return sorted(set(root.glob('.scratch/*/reports/workers.sqlite')) | set(root.glob('.scratch/reviews/*/workers.sqlite')))
 
 
 def unreadable_holds(state, pane, session, bound, recent):
@@ -238,7 +277,7 @@ def stale_tabs(root, pane, session):
     the session bound to orchestrate its workstream or, with none bound, the pane that registered it, however old the
     run."""
     listed, missing = {}, []
-    for state in sorted(root.glob('.scratch/*/reports/workers.sqlite')):
+    for state in states(root):
         # An unreadable binding decides nothing here (undelivered names it); the registering pane does.
         binding, mine = read_binding(state.with_name(BINDING), pane, session)
         bound = mine if binding else None
@@ -436,7 +475,7 @@ def unregistered(root, pane, session, siblings=True):
     it when both know one), with `siblings` each other live agent in a ticket worktree of its Herdr workspace; and
     each unreadable log line."""
     attempts = []
-    for state in root.glob('.scratch/*/reports/workers.sqlite'):
+    for state in states(root):
         try:
             saved_attempts, _, registered = read_state(state)
         except Exception:  # gaps() names a state that cannot be read to its workstream's orchestrator.

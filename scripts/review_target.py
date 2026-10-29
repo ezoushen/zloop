@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""Resolve a review target without checking out, fetching, editing or publishing."""
+"""Start a bound review: resolve its target, write its report and resolve its reviewer route."""
 import argparse
+import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
+import sys
 from urllib.parse import urlsplit
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def run(repo, *args):
@@ -24,6 +30,8 @@ def parser():
     p.add_argument('--comments', choices=('draft', 'confirm', 'post'), default='draft',
                    help='keep local drafts, preview before posting, or authorize direct posting')
     p.add_argument('--base', help='explicit comparison ref')
+    p.add_argument('--host', choices=('claude', 'codex', 'pi', 'opencode'), help='host named by SessionStart')
+    p.add_argument('--workstream', help='explicit workstream slug; otherwise start a standalone review')
     return p
 
 
@@ -112,9 +120,79 @@ def resolve(args):
                 autofix=args.autofix, comments=args.comments)
 
 
+def start(args):
+    """Resolve and bind one review, returning its report, route and lifecycle commands."""
+    resolved = resolve(args)
+    if not args.host:
+        raise ValueError('starting a review requires --host from the SessionStart hint')
+    sessions = [os.environ[name] for name in ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID')
+                if os.environ.get(name)]
+    pane = os.environ.get('HERDR_PANE_ID')
+    if not sessions and not pane:
+        raise ValueError('no host session ID or Herdr pane; the review stop hold cannot bind this session')
+    if args.workstream is not None and not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]*', args.workstream):
+        raise ValueError('--workstream must be a filesystem-safe slug')
+    repo = Path(resolved['repo'])
+    main = Path(run(repo, 'git', 'rev-parse', '--path-format=absolute', '--git-common-dir')).parent
+    identity = hashlib.sha256((args.target + '\0' + resolved['head']).encode()).hexdigest()[:20]
+    directory = (main / '.scratch' / args.workstream / 'reports' if args.workstream
+                 else main / '.scratch/reviews' / identity)
+    report = directory / ('spec-review.md' if args.workstream else 'review.md')
+    state, binding_path = directory / 'workers.sqlite', directory / 'review.json'
+    previous = json.loads(binding_path.read_text()) if binding_path.is_file() else None
+    if (report.exists() or previous) and (
+            not previous or previous.get('repo') != str(main) or previous.get('target') != args.target):
+        raise ValueError(f'{report}: existing report belongs to a different target; choose another --workstream')
+    if previous:
+        sessions = list(dict.fromkeys(previous['sessions'] + sessions))
+    route_argv = [sys.executable, str(ROOT / 'scripts/agent_models.py'), '--repo', str(main),
+                  '--host', args.host, '--route', '--job', 'diff-review', '--reports', str(directory)]
+    routed = subprocess.run(route_argv, cwd=repo, text=True, capture_output=True, timeout=30)
+    route = ({'status': 'no_route', 'reason': routed.stderr.strip() or routed.stdout.strip() or
+              f'agent_models.py exited {routed.returncode}'} if routed.returncode else
+             {'status': 'resolved', 'result': json.loads(routed.stdout)})
+    if route.get('result', {}).get('status') == 'selection_required':
+        route['status'] = 'selection_required'
+    lifecycle = [sys.executable, str(ROOT / 'scripts/worker_lifecycle.py')]
+    commands = {'route': shlex.join(route_argv)}
+    for action, verb in (('register', 'record'), ('submit', 'submit'), ('collect', 'collect')):
+        commands[action] = shlex.join(lifecycle + [verb, '--state', str(state),
+                                                  *([] if action == 'register' else ['--attempt', '<attempt>']),
+                                                  '--input', str(directory / f'{action}.json')])
+    template = (ROOT / 'skills/review/report.md').read_text().split('```markdown\n', 1)[1].split('```', 1)[0]
+    front, body = template.split('\n---\n', 1)
+    fields = dict(review_head=resolved['head'], review_base=resolved['base'], review_diff_base=resolved['diff_base'],
+                  autofix=str(args.autofix).lower(), review_level='high')
+    for key, value in fields.items():
+        front = re.sub(rf'(?m)^{key}: .*$', f'{key}: {value}', front)
+    headings = re.findall(r'(?m)^#{2,3} .+$', body)
+    content = front + '\n---\n\n' + '\n\n'.join(headings) + '\n'
+    content = content.replace('## Scope and priorities\n', '## Scope and priorities\n\n```json\n'
+                              + json.dumps(resolved, indent=2) + '\n```\n', 1)
+    directory.mkdir(parents=True, exist_ok=True)
+    if previous and report.is_file():
+        front, body = report.read_text().split('\n---\n', 1)
+        refresh = dict(fields, review_status='incomplete', documentation_status='incomplete', review_by='none',
+                       blocker='none', e2e_status='not-run', e2e_head='none', e2e_by='none')
+        del refresh['review_level']
+        for key, value in refresh.items():
+            front = re.sub(rf'(?m)^{key}:[^\n]*(?:\n[ \t]+-[^\n]*)*', f'{key}: {value}', front)
+        body = body.replace(json.dumps(previous['resolution'], indent=2), json.dumps(resolved, indent=2), 1)
+        content = front + '\n---\n' + body
+    if not report.is_file() or not previous or previous['resolution'] != resolved:
+        report.write_text(content)
+    binding = dict(pane=pane, sessions=sessions, report=str(report), state=str(state),
+                   repo=str(main), target=args.target, resolution=resolved, route=route, next_commands=commands)
+    binding_path.write_text(json.dumps(binding, indent=2) + '\n')
+    if 'result' in route:
+        (directory / 'execution.json').write_text(json.dumps(route['result'], indent=2) + '\n')
+    return dict(resolved, report=str(report), state=str(state), binding=str(binding_path), route=route,
+                next_commands=commands)
+
+
 if __name__ == '__main__':
     p = parser()
     try:
-        print(json.dumps(resolve(p.parse_args()), indent=2))
+        print(json.dumps(start(p.parse_args()), indent=2))
     except (ValueError, OSError, subprocess.TimeoutExpired) as error:
-        p.exit(2, f'review target: {error}\nMissing commits must be fetched from the verified repository before retrying; no checkout was changed.\n')
+        p.exit(2, f'review target: {error}\n')

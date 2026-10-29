@@ -1,6 +1,6 @@
 # Review report
 
-Create one Markdown report outside the disposable worktree. For worker attribution,
+`review_target.py` writes the report outside disposable worktrees. For attribution,
 follow the [routing decision contract](../../runtime/routing/report.md).
 Front matter uses literal scalars, never quoted placeholders in a finished report.
 `review_by` and `e2e_by` name the collected worker attempts (one, or a list) whose own

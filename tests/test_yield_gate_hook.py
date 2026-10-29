@@ -163,6 +163,131 @@ const ctx = {{ cwd: {json.dumps(str(self.repo))}, sessionManager: {{ getSessionI
         return f"{self.repo / '.scratch/herdr-launches.jsonl'}: {agent} (pane {pane}): launched without a registered attempt"
 
 
+class ReviewHold(GateRepo):
+    def setUp(self):
+        super().setUp()
+        self.report = self.repo / '.scratch/reviews/feature-abc/review.md'
+        self.report.parent.mkdir(parents=True)
+        self.state = self.report.with_name('workers.sqlite')
+        self.command = f'python3 {ROOT}/scripts/agent_models.py --repo {self.repo} --host codex --route --job diff-review'
+        self.binding = self.report.with_name('review.json')
+        self.binding.write_text(json.dumps(dict(pane='w1:p1', sessions=['host-1'], report=str(self.report),
+                                                state=str(self.state), route={'status': 'resolved', 'reason': 'configured reviewer'},
+                                                next_commands={'route': self.command,
+                                                               'submit': 'worker_lifecycle.py submit --state review-state',
+                                                               'collect': 'worker_lifecycle.py collect --state review-state'})))
+        self.review()
+
+    def review(self, **fields):
+        values = dict(dict(review_head='a' * 40, review_by='none', blocker='none'), **fields)
+        self.report.write_text('---\n' + ''.join(f'{key}: {value}\n' for key, value in values.items()) + '---\n')
+
+    def collected(self, **fields):
+        shutil.rmtree(self.repo / '.scratch/reviewer', ignore_errors=True)
+        state = support.collected_attempt(self.repo, 'reviewer', 'review/1', self.report,
+                                           **dict(dict(job='diff-review', head='a' * 40), **fields))
+        shutil.copy2(state, self.state)
+
+    def test_a_review_without_a_collected_reviewer_holds_with_the_next_command(self):
+        for host in ('claude', 'codex'):
+            decision = self.stop(host=host, session='host-1')
+            self.assertIsNotNone(decision)
+            self.assertEqual(decision['decision'], 'block')
+            self.assertIn('review_by: none names no collected worker attempt', decision['reason'])
+            self.assertIn(self.command, decision['reason'])
+        gaps = self.check(session='host-1')
+        self.assertEqual(len(gaps), 1)
+        self.assertIn(self.command, gaps[0])
+
+    def test_a_completed_collected_reviewer_at_the_report_head_releases_even_with_findings(self):
+        self.review(review_by='review/1', review_status='findings', documentation_status='findings')
+        self.collected()
+        self.assertEqual(self.check(session='host-1'), [])
+        self.assertIsNone(self.stop(session='host-1'))
+
+    def test_only_a_completed_diff_review_at_the_report_head_counts(self):
+        for options, reason in (({'status': 'failed'}, 'returned failed'),
+                                 ({'job': 'e2e-gate'}, 'is not a diff-review attempt'),
+                                 ({'head': 'b' * 40}, 'is not review_head')):
+            with self.subTest(options=options):
+                self.review(review_by='review/1')
+                self.collected(**options)
+                gaps = self.check(session='host-1')
+                self.assertEqual(len(gaps), 1)
+                self.assertIn(reason, gaps[0])
+
+    def test_a_concrete_blocker_releases_the_review(self):
+        self.review(blocker='reviewer quota exhausted')
+        self.assertEqual(self.check(session='host-1'), [])
+
+    def test_local_review_releases_only_with_a_recorded_no_route(self):
+        self.review(review_by='local')
+        gaps = self.check(session='host-1')
+        self.assertEqual(len(gaps), 1)
+        self.assertIn('review_by: local names no collected worker attempt', gaps[0])
+        binding = json.loads(self.binding.read_text())
+        binding['route'] = {'status': 'no_route', 'reason': 'no reachable reviewer executor'}
+        self.binding.write_text(json.dumps(binding))
+        self.assertEqual(self.check(session='host-1'), [])
+
+    def test_a_live_reviewer_with_an_armed_wait_yields_until_its_wait_is_lost(self):
+        self.collected()
+        with sqlite3.connect(self.state) as db:
+            saved = json.loads(db.execute('SELECT data FROM attempts').fetchone()[0])
+            del saved['result']
+            saved['monitor'] = dict(state='running', pid=os.getpid(), stamp='live-process',
+                                    notify={'argv': ['wake-parent']})
+            db.execute('UPDATE attempts SET data = ?', (json.dumps(saved),))
+        process_table = self.bin / 'ps'
+        process_table.write_text(f'#!{sys.executable}\nprint("live-process")\n')
+        process_table.chmod(0o700)
+        self.assertEqual(self.check(session='host-1'), [])
+        process_table.write_text(f'#!{sys.executable}\n')
+        gaps = self.check(session='host-1')
+        self.assertEqual(len(gaps), 1)
+        self.assertIn('review_by: none names no collected worker attempt', gaps[0])
+
+    def test_review_bindings_hold_only_their_session_else_their_pane(self):
+        self.assertEqual(self.check(session='host-2'), [])
+        self.assertEqual(self.check(pane='w1:p9', session=None), [])
+        self.assertEqual(len(self.check(pane='w1:p9', session='host-1')), 1)
+        self.assertEqual(len(self.check(session=None)), 1)
+        self.binding.rename(self.repo / '.scratch/workstream/reports/review.json')
+        self.assertEqual(self.check(session='host-2'), [])
+        self.assertEqual(len(self.check(session='host-1')), 1)
+
+    def test_another_sessions_unreadable_standalone_state_cannot_hold_this_session(self):
+        self.state.write_bytes(b'not a sqlite database')
+        self.assertEqual(self.check(session='host-2'), [])
+        mine = self.check(session='host-1')
+        self.assertTrue(any('cannot be read' in gap for gap in mine))
+
+    def test_a_standalone_review_state_accounts_for_its_registered_herdr_launch(self):
+        self.review(review_by='review/1')
+        self.collected()
+        shutil.rmtree(self.repo / '.scratch/reviewer')
+        with sqlite3.connect(self.state) as db:
+            saved = json.loads(db.execute('SELECT data FROM attempts').fetchone()[0])
+            saved.update(worker='w1:p5', session='host-1', sessions=['host-1'])
+            db.execute('UPDATE attempts SET data = ?', (json.dumps(saved),))
+        worktree = self.repo / '.worktrees/reviewer'
+        worktree.mkdir(parents=True)
+        self.launch('herdr agent start reviewer --kind codex --pane w1:p5', cwd=worktree)
+        self.assertEqual(self.check(session='host-1'), [])
+
+    def test_an_uncollected_reviewer_names_the_collect_command(self):
+        self.review(review_by='review/1')
+        self.collected()
+        with sqlite3.connect(self.state) as db:
+            saved = json.loads(db.execute('SELECT data FROM attempts').fetchone()[0])
+            del saved['result']
+            db.execute('UPDATE attempts SET data = ?', (json.dumps(saved),))
+        gaps = self.check(session='host-1')
+        review_gap = next(gap for gap in gaps if str(self.report) in gap)
+        self.assertIn('review_by: review/1 names no collected worker attempt', review_gap)
+        self.assertIn('worker_lifecycle.py collect --state review-state', review_gap)
+
+
 class YieldGateHook(GateRepo):
     def setUp(self):
         super().setUp()
