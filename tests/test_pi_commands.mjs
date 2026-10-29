@@ -53,6 +53,10 @@ assert.deepEqual(await complete("review", "PR-12 --comments "), ["draft", "confi
 })));
 assert.deepEqual(await labels("review", "--effort "), ["low", "medium", "high", "xhigh", "max"]);
 assert.equal(await labels("review", "--base "), null);
+// The dispatch takes the level for both steps, and each split flag takes the same levels.
+assert.deepEqual(await labels("dispatch", "--effort "), ["low", "medium", "high", "xhigh", "max"]);
+assert.deepEqual(await labels("dispatch", "--dispatch-effort "), ["low", "medium", "high", "xhigh", "max"]);
+assert.deepEqual(await labels("dispatch", "--review-effort l"), ["low"]);
 assert.deepEqual(await labels("setup", "calibration "), ["status"]);
 
 // Nothing typed is offered again, nor another choice for an argument already given, nor a branch the hint's spaced
@@ -91,7 +95,7 @@ assert.deepEqual(await labels("setup", "why calibration "), ["--scope", "--route
 // these and never a word of prose.
 const START = {
   align: ["--interactive"], autopilot: ["--take-over", "--pause"], brief: ["map"], diagnose: null,
-  dispatch: ["--autofix"], explain: null, huh: null, pr: null, prototype: null, refine: null,
+  dispatch: ["--effort", "--dispatch-effort", "--review-effort", "--autofix"], explain: null, huh: null, pr: null, prototype: null, refine: null,
   remediate: ["tautological-tests", "misleading-comments", "--base", "--project"], research: null,
   review: ["walkthrough", "--effort", "--autofix", "--comments", "--base"],
   setup: ["show", "set", "reset", "calibrate", "calibration", "check", "retro", "replay", "--scope", "--route",

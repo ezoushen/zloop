@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The commands ask for a workstream: a body of work takes the glossary's word, never `effort`."""
+"""The commands ask for a workstream: a body of work takes the glossary's word, never `effort`; only the level flags name effort."""
 import re
 import unittest
 
@@ -20,12 +20,15 @@ def hint(command):
 
 
 class CommandHints(unittest.TestCase):
-    def test_a_command_hint_names_a_workstream_and_never_an_effort(self):
+    def test_a_command_hint_names_a_workstream_and_effort_only_as_a_level_flag(self):
+        # Rule: a body of work is a workstream; the effort level appears only as `--effort`, `--dispatch-effort`
+        # or `--review-effort`, never as the word for the work.
         for command in COMMANDS:
             with self.subTest(command=command):
                 value = hint(command)
                 self.assertIn('workstream', value, value)
-                self.assertIsNone(re.search(r'effort', value, re.I), value)
+                without_flags = re.sub(r'--(?:dispatch-|review-)?effort', '', value)
+                self.assertIsNone(re.search(r'effort', without_flags, re.I), value)
 
 
 if __name__ == '__main__':

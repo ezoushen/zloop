@@ -32,7 +32,8 @@ class ZloopGlossary(unittest.TestCase):
         text = (ROOT / 'GLOSSARY.md').read_text()
         entries = dict(re.findall(r'^\*\*([^*\n]+)\*\*:\n(.*?)(?=^\*\*|^#|\Z)', text, re.M | re.S))
         definition = ' '.join(entries['Effort level'].partition('_Avoid_:')[0].split())
-        for meaning in ('thoroughness', '`low`', '`max`', "model's reasoning effort"):
+        for meaning in ('thoroughness', '`low`', '`max`', "a review's", "a dispatch's",
+                        "model's reasoning effort"):
             with self.subTest(meaning=meaning):
                 self.assertIn(meaning, definition)
 
