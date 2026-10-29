@@ -23,7 +23,9 @@ tradeoffs, not a blocker without a violated requirement or applicable standard.
 Collect all currently discoverable findings within a layer's assigned coverage
 before handing off or repairing. Reconcile overlapping claims by evidence and
 root cause; keep axis provenance. No top-N cutoff and no extra unchanged full
-pass merely to search for one more issue. A progress update is not a final batch.
+pass merely to search for one more issue. Two [levels](levels.md) relax these, and
+only those: `low` reports its surest findings only, at most 4; `xhigh` and `max` add
+the per-angle passes. A progress update is not a final batch.
 Include adjacent state transitions, ownership/lifetime cases and affected public
 contracts in the same scoped batch. Batch independent checks within the assigned
 reviewer rather than creating a worker or round for every case. Use an independent
@@ -46,7 +48,9 @@ the [implementation review method](method.md) once, with the accepted boundary a
 prior coverage, and completes both axes directly; serial execution keeps the same two
 axes and both complete axis reports. Additional independent scope assignments belong
 to the orchestrator, within available capacity and selected executor settings; a
-worker does not create a nested review team.
+worker does not create a nested review team. At `xhigh` and `max` the orchestrator
+assigns those owners instead of the single one: one per [angle](levels.md) at `xhigh`,
+and one per angle and module at `max`, then the level's sweep reviewer.
 
 ## Reopen only affected coverage
 

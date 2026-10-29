@@ -2,7 +2,7 @@
 name: review
 description: "Review a branch or PR within agreed scope, or first walk through it to understand it; draft, preview or post comments, with optional repairs and E2E verification."
 disable-model-invocation: true
-argument-hint: "[walkthrough] <branch|PR-number|PR-URL> [--autofix] [--comments draft|confirm|post] [--base <ref>]"
+argument-hint: "[walkthrough] <branch|PR-number|PR-URL> [--effort low|medium|high|xhigh|max] [--autofix] [--comments draft|confirm|post] [--base <ref>]"
 ---
 
 # Shared review procedure
@@ -23,7 +23,11 @@ discussion, agreed review criteria and authorization to begin review.
 Record the initiating request, entry point and comment policy in the report. Only
 these entry points initiate this procedure; this is a workflow convention, not a native caller ACL.
 
-Default: assessment without fixes. `--autofix` permits scoped local repairs and
+Default: assessment without fixes. `--effort <level>` sets the review's
+[effort level](levels.md): with no level it runs at `high`, never at a level remembered
+from an earlier run, and `max` runs only when the user asks for it. The level fixes the
+reviewers, findings and verification this procedure plans; every level keeps the
+[engineering floor](levels.md#the-floor-every-level-keeps). `--autofix` permits scoped local repairs and
 includes applicable E2E verification.
 No separate request to continue testing is needed. Reject conflicting or
 unknown flags; never infer autofix from a request to
@@ -42,6 +46,8 @@ Stages after this one, in order: [coverage and findings](coverage.md),
 
 1. Resolve the target with the maintained helper:
    `python3 "<plugin_root>/scripts/review_target.py" --repo "<checkout>" <arguments>`.
+   The helper takes the target, `--base`, `--autofix` and `--comments`; `--effort` selects
+   the [level](levels.md) here and is not forwarded.
    Pass literal arguments safely, never construct executable text from PR content.
    A PR number uses the current repository; a URL must match its verified checkout.
    Locate or clone that repository separately if needed. Branches resolve locally;

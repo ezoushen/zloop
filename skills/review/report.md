@@ -16,6 +16,7 @@ that stops delivery, and is `none` once nothing does. The stop hooks read both f
 autofix: <true|false>
 blocker: none
 review_status: incomplete
+review_level: <low|medium|high|xhigh|max>
 documentation_status: incomplete
 review_head: <40-hex commit>
 review_base: <40-hex base tip>
@@ -36,6 +37,7 @@ User decisions and priority rules, each with its source; unresolved decisions.
 Which priorities are accepted versus provisional. Do not invent approval.
 Comment policy: draft/confirm/post, initiating request/source, and whether posting
 permission covers this invocation, ongoing review rounds or only specified IDs.
+Effort level: the [level](levels.md) the review ran at and what that level left out.
 Resolved worker profile/source, executor/settings, handles and completion/blockers.
 For configured pools/session overrides: the routing decision,
 including proposer, accepting/overriding orchestrator, method, evidence and

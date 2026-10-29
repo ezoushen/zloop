@@ -28,6 +28,14 @@ class ZloopGlossary(unittest.TestCase):
             with self.subTest(meaning=meaning):
                 self.assertIn(meaning, definition)
 
+    def test_an_effort_level_is_a_steps_thoroughness_not_the_models_effort(self):
+        text = (ROOT / 'GLOSSARY.md').read_text()
+        entries = dict(re.findall(r'^\*\*([^*\n]+)\*\*:\n(.*?)(?=^\*\*|^#|\Z)', text, re.M | re.S))
+        definition = ' '.join(entries['Effort level'].partition('_Avoid_:')[0].split())
+        for meaning in ('thoroughness', '`low`', '`max`', "model's reasoning effort"):
+            with self.subTest(meaning=meaning):
+                self.assertIn(meaning, definition)
+
     def test_drifted_words_are_avoided_under_their_canonical_terms(self):
         text = (ROOT / 'GLOSSARY.md').read_text()
         entries = dict(re.findall(r'^\*\*([^*\n]+)\*\*:\n(.*?)(?=^\*\*|^#|\Z)', text, re.M | re.S))
@@ -44,7 +52,7 @@ class ZloopGlossary(unittest.TestCase):
             'Workstream', 'Ticket', 'Assignment', 'Attempt', 'Job', 'Agent',
             'Builder', 'Reviewer', 'Verifier', 'Worker', 'Orchestrator', 'Host',
             'Runtime', 'Executor', 'Route', 'Candidate', 'Pool', 'Profile',
-            'Router', 'Thinking', 'Effort', 'Mandate', 'Ledger', 'Alignment',
+            'Router', 'Thinking', 'Effort', 'Effort level', 'Mandate', 'Ledger', 'Alignment',
             'Run card', 'Run', 'Phase', 'Checkpoint', 'Decision family', 'Report',
             'Evidence', 'Check tier', 'Full gate', 'E2E', 'Board', 'Tracker',
             'Slug', 'Panel', 'Allowance', 'Kind', 'Standard', 'ADR',

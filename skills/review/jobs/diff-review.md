@@ -1,7 +1,7 @@
 ---
 name: diff-review
 agent: reviewer
-inputs: ["worktree", "report", "base", "diff_base", "head", "changed files", "scope sources", "priority sources"]
+inputs: ["worktree", "report", "base", "diff_base", "head", "changed files", "scope sources", "priority sources", "effort level"]
 returns: ["## Coverage", "## Review round"]
 independent_of: []
 acceptance: false
@@ -21,8 +21,10 @@ Contents:
 
 The assignment names the `worktree` and `report`; the pinned `base`, `diff_base` and
 `head`; the full `changed files` list; the `scope sources` and `priority sources`;
-settled direction and blast radius; eligible implementation coverage; and the
-brief/spec if any. Read `## Scope and priorities` in the report before acting.
+settled direction and blast radius; eligible implementation coverage; the
+brief/spec if any; and the review's `effort level` ([levels](../levels.md)). At
+`xhigh` and `max` it also names the `angle`, and at `max` the `module`. Read
+`## Scope and priorities` in the report before acting.
 
 ## Finish line
 
@@ -36,6 +38,13 @@ range and demonstrated effects on its consumers are the review boundary, not all
 improvements the repository could use. Preserve complete axis reports even when
 the return summary is short. Missing spec → explicit limitation, never invented
 requirements. A PR description is evidence of intent, not an approved standard.
+
+The [level](../levels.md) narrows this job. At `low`, report only your surest
+findings, at most 4, each with an executed reproduction or a traced failure path, and
+drop the rest with the dropped count. At `medium`, report every finding marked
+UNVERIFIED and reproduce none. At `xhigh` and `max` you are assigned one angle, and at
+`max` one angle in its module, and you execute that part of the method. Every level
+returns a verdict per finding.
 
 Complete the assigned axes directly. Request any independent partition from the
 orchestrator, and a [reproduce](reproduce.md) job for hard or disputed findings.

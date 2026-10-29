@@ -1,7 +1,7 @@
 ---
 name: reproduce
 agent: reviewer
-inputs: ["worktree", "head", "report", "findings", "proof steps"]
+inputs: ["worktree", "head", "report", "findings", "proof steps", "effort level"]
 returns: []
 independent_of: ["diff-review", "audit"]
 acceptance: false
@@ -16,7 +16,8 @@ them. Review and remediation assign it.
 
 The assignment names the `worktree`, pinned `head` and `report`; the `findings`:
 one finding, or a batch that shares one kind and proof procedure; their scope and
-priority evidence; the `proof steps` to apply; and any counter-evidence. Read the
+priority evidence; the `proof steps` to apply; any counter-evidence; and the review's
+`effort level` ([levels](../levels.md)). Read the
 report's scope and do not expand it. The worker that raised a finding never decides
 it.
 
@@ -39,4 +40,8 @@ investigate further or create issues.
 Append, per finding, CONFIRMED with the repro or trace, FALSE-POSITIVE with the
 disproof, or UNVERIFIED with the exact missing capability and attempted commands.
 Return each finding ID, its verdict and deciding evidence. The orchestrator owns
-priority and disposition.
+priority and disposition. When the assignment verifies every finding — a review at
+`xhigh` or `max` ([levels](../levels.md)) — return CONFIRMED, PLAUSIBLE or REFUTED
+instead: CONFIRMED with its reproduction, PLAUSIBLE with evidence that supports the
+finding without reproducing it, REFUTED with the disproof. The review keeps CONFIRMED
+and PLAUSIBLE and drops REFUTED, recording its verdict.

@@ -305,6 +305,11 @@ _Avoid_: none
 Assessment of direction, scope and implementation against the mandate, accepted requirements and evidence.
 _Avoid_: none
 
+**Effort level**:
+The thoroughness a step runs at, from `low` to `max`, setting its reviewers, findings and verification.
+Not Effort, the model's reasoning effort.
+_Avoid_: none
+
 **Review layer**:
 One of the ordered levels a review assesses: direction (why, what, how), then scope, then implementation; an unresolved decision in a layer pauses only the review that depends on it.
 _Avoid_: none
