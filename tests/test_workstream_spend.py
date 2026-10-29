@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 import support
-from native_records import assistant_turn, session_record
+from native_records import assistant_turn, session_record, user_message
 
 
 SCRIPT = support.script('workstream_spend.py')
@@ -60,6 +60,7 @@ class WorkstreamSpend(unittest.TestCase):
         self.record('submitted', attempt, evidence=['native:2'])
         report = self.root / f'{session}.md'
         report.write_text('## Implemented\n\n## Fixed round 1\n\nreport\n')
+        user_message(native, runtime, f'assignment: {assignment}  attempt: {attempt}')
         assistant_turn(native, runtime)
         self.record('result', attempt, status=status, head='head-1', report=str(report), native=str(native), evidence=['checks'])
         if accepted:

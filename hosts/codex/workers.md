@@ -126,8 +126,8 @@ start (Herdr: `agent_not_ready`, agent `blocked`). Report that dialog to the use
 it.
 `codex exec` has no `-a` and always runs with approval `never`.
 
-Startup follows [the startup order](../../runtime/workers/prepare.md). Herdr's `agent_session`
-names the rollout id; pass the rollout as `native` to `submit` and `collect`.
+Follow [prepare](../../runtime/workers/prepare.md): send `assignment: <id>  attempt: <id>` and collect its reply.
+Herdr's `agent_session` names the rollout id for `native`.
 
 The [executor guides](../executors/README.md) cover each executor type a route can select.
 

@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import support
-from native_records import assistant_turn, session_record
+from native_records import assistant_turn, session_record, user_message
 
 import journal_store
 import decisions
@@ -59,6 +59,7 @@ class OutcomeLedger(unittest.TestCase):
         self.record('submitted', attempt, evidence=['native.jsonl:2'])
         report = self.root / f'{attempt.replace("/", "-")}.md'
         report.write_text(f'## Implemented\n\nReport for {attempt}\n')
+        user_message(native, 'claude', f'assignment: {attempt.split("/")[0]}  attempt: {attempt}')
         assistant_turn(native, 'claude')
         self.record('result', attempt, status=status, head='head-1', report=str(report), native=str(native),
                     evidence=['checks.log'])

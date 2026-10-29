@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 import support
-from native_records import assistant_turn, session_record
+from native_records import assistant_turn, session_record, user_message
 
 
 LIFECYCLE = support.script('worker_lifecycle.py')
@@ -60,6 +60,7 @@ class Capacity(unittest.TestCase):
         self.record(state, 'submitted', attempt, evidence=['n:2'])
         report = self.root / f'{attempt.replace("/", "-")}.md'
         report.write_text('done\n')
+        user_message(native, 'pi', f'assignment: {attempt.split("/")[0]}  attempt: {attempt}')
         assistant_turn(native, 'pi')
         self.record(state, 'result', attempt, status='completed', head='head-1', report=str(report), native=str(native),
                     evidence=['checks.log'])

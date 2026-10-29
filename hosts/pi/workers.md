@@ -89,8 +89,7 @@ tools; the flag is listed by `pi --help`, its effect unobserved here), then `--p
 `--model` and `--thinking`. Never narrow with `--exclude-tools`: extension shells such as `bg_run` stay.
 A `writes: none` worker keeps `bash` for checks and its report but has no write or edit tool;
 the read-only worktree check at collection covers what its shell writes.
-Startup follows [the startup order](../../runtime/workers/prepare.md). Pi records live under
-`~/.pi/agent/sessions/`; Herdr's `agent_session` is the session JSONL path.
-Pass it as `native` to `submit` and `collect`.
+Follow [prepare](../../runtime/workers/prepare.md): send `assignment: <id>  attempt: <id>` and collect its reply.
+Herdr's `agent_session` is the JSONL under `~/.pi/agent/sessions/`; pass it as `native`.
 
 The [executor guides](../executors/README.md) cover each executor type a route can select.

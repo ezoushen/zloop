@@ -2,43 +2,18 @@
 
 import hashlib
 import json
-from datetime import datetime
+import re
 from pathlib import Path
 
 
-def entry_time(row):
-    """A native entry's UTC epoch seconds, or None when that format supplies no entry time."""
-    value = row.get('timestamp')
-    if value is None:
-        clock = row.get('time') or {}
-        value = clock.get('completed', clock.get('created')) if isinstance(clock, dict) else clock
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return datetime.fromisoformat(value.replace('Z', '+00:00')).timestamp()
-    if isinstance(value, (float, int)):
-        return value / 1000 if value > 100_000_000_000 else value
-    raise ValueError('Unsupported native entry timestamp; supply a fresh native session record')
+def packet_reply(path, runtime, session, attempt):
+    """Whether this session holds the attempt packet in user text and an assistant turn after it.
 
-
-def latest_entry_time(path, runtime):
-    """The latest native entry time; file mtime is used only for formats carrying no entry times."""
+    Only top-level text parts count; tool inputs and results cannot establish a packet. Pi follows its active branch.
+    """
     path = Path(path)
     if runtime == 'opencode':
         rows = json.loads(path.read_bytes())['messages']
-        rows = [row.get('info', row) for row in rows]
-    else:
-        rows = [json.loads(line) for line in path.read_bytes().splitlines()]
-    times = [stamp for row in rows if (stamp := entry_time(row)) is not None]
-    return times[-1] if times else path.stat().st_mtime
-
-
-def assistant_turns(path, runtime, session):
-    """Return content-free identities and times of this session's assistant turns on its active branch."""
-    path = Path(path)
-    if runtime == 'opencode':
-        exported = json.loads(path.read_bytes())
-        rows = [row.get('info', row) for row in exported['messages']]
     else:
         rows = [json.loads(line) for line in path.read_bytes().splitlines()]
     if runtime == 'pi':
@@ -51,31 +26,40 @@ def assistant_turns(path, runtime, session):
                 break
             current = entries[parent]
         rows = list(reversed(branch))
-    turns = []
-    for index, row in enumerate(rows):
-        payload = row.get('payload') or {}
+    packet = False
+    line = re.compile(r'(?m)^(?:assignment:[^\r\n]*?[ \t]+)?attempt:[ \t]+' + re.escape(attempt) + r'[ \t]*$')
+    for row in rows:
+        parts, text_types = [], ('text',)
         if runtime == 'claude':
-            assistant = row.get('type') == 'assistant' and (row.get('agentId') or row.get('sessionId')) == session
+            if (row.get('agentId') or row.get('sessionId')) != session:
+                continue
+            role = row.get('type')
+            parts = row.get('message', {}).get('content', [])
         elif runtime == 'codex':
-            assistant = (row.get('type') == 'response_item' and payload.get('type') == 'message'
-                         and payload.get('role') == 'assistant'
-                         or row.get('type') == 'event_msg' and payload.get('type') == 'agent_message')
+            payload = row.get('payload') or {}
+            role = payload.get('role') if row.get('type') == 'response_item' and payload.get('type') == 'message' else None
+            if row.get('type') == 'event_msg' and payload.get('type') == 'agent_message':
+                role = 'assistant'
+            parts, text_types = payload.get('content', []), ('input_text',)
         elif runtime == 'pi':
-            assistant = row.get('type') == 'message' and row.get('message', {}).get('role') == 'assistant'
+            message = row.get('message') or {}
+            role, parts = message.get('role'), message.get('content', [])
         else:
-            assistant = row.get('role', row.get('type')) == 'assistant' and row.get('sessionID', session) == session
-        if assistant:
-            identity = hashlib.sha256(json.dumps([index, row], sort_keys=True).encode()).hexdigest()
-            turns.append({'identity': identity, 'time': entry_time(row)})
-    return turns
-
-
-def worked_after(path, runtime, session, after, startup_turns):
-    """Whether the record proves a new assistant turn after the productive-work boundary."""
-    known = {turn['identity'] for turn in startup_turns}
-    return any(turn['identity'] not in known and (
-        turn['time'] if turn['time'] is not None else Path(path).stat().st_mtime) > after
-        for turn in assistant_turns(path, runtime, session))
+            info = row.get('info')
+            if isinstance(info, dict):
+                if info.get('sessionID') != session:
+                    continue
+                role, parts = info.get('role'), row.get('parts', [])
+            else:
+                role, parts = row.get('type'), row.get('content', row.get('text', []))
+        if role == 'user':
+            text = parts if isinstance(parts, str) else '\n'.join(
+                part['text'] for part in parts if isinstance(part, dict) and part.get('type') in text_types
+                and isinstance(part.get('text'), str))
+            packet = packet or bool(line.search(text))
+        elif role == 'assistant' and packet:
+            return True, True
+    return packet, False
 
 
 def observe(path, runtime, session, worktree):

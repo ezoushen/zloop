@@ -4,7 +4,7 @@ import os
 import re
 from pathlib import Path
 import sys
-from native_records import assistant_turn, session_record
+from native_records import assistant_turn, session_record, user_message
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / 'scripts'
@@ -100,6 +100,7 @@ def collected_attempt(repo, slug, attempt, report, job='ticket', head='head-1', 
     native = session_record(work / 'native.jsonl', 'claude', f'native-{attempt}', repo)
     record('startup', native=str(native))
     record('submitted', evidence=['native.jsonl:2:accepted prompt'])
+    user_message(native, 'claude', f'assignment: {attempt.rpartition("/")[0] or attempt}  attempt: {attempt}')
     assistant_turn(native, 'claude')
     record('result', status=status, head=head, report=str(report), native=str(native), evidence=['checks.log'])
     return state
