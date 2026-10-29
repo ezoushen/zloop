@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import support
-from native_records import assistant_turn, session_record
+from native_records import assistant_turn, session_record, user_message
 
 import journal_store
 import decisions
@@ -84,6 +84,7 @@ class WorkerLifecycleCase(unittest.TestCase):
         """The fixture worker answers after its prompt, leaving proof to pass to result/collect."""
         saved = self.cli('status', '--attempt', attempt)['attempts'][0]
         path = self.native_paths[attempt]
+        user_message(path, saved['requested']['runtime'], f'assignment: {saved["assignment"]}  attempt: {attempt}')
         assistant_turn(path, saved['requested']['runtime'])
         return {'native': str(path)}
 

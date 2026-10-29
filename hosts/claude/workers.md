@@ -150,8 +150,7 @@ else the trust dialog blocks the start (Herdr: `agent_not_ready`, agent `blocked
 dialog to the user; never answer it. Claude's write scope rests on these launch flags plus the
 read-only worktree check at collection.
 
-Startup of a Herdr-started Claude worker follows [the startup order](../../runtime/workers/prepare.md):
-`herdr agent get` reports `agent_session` (kind `id`). The transcript is
-`~/.claude/projects/<project>/<id>.jsonl`; pass it as `native` to `submit` and `collect`.
+Follow [prepare](../../runtime/workers/prepare.md): send `assignment: <id>  attempt: <id>` and collect its reply.
+Herdr's `agent_session` names `<id>`; `native` is `~/.claude/projects/<project>/<id>.jsonl`.
 
 The [executor guides](../executors/README.md) cover each executor type a route can select.

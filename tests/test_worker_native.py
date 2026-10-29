@@ -3,26 +3,29 @@
 
 import json
 import os
-import time
+from pathlib import Path
 import unittest
 
 from lifecycle_case import WorkerLifecycleCase
-from native_records import assistant_turn, session_record
+from native_records import assistant_turn, session_record, user_message
 
 
 class NativeProof(WorkerLifecycleCase):
-    @staticmethod
-    def without_times(path, runtime):
-        if runtime == 'opencode':
-            data = json.loads(path.read_text())
-            for row in data['messages']:
-                row.get('info', row).pop('time', None)
-            path.write_text(json.dumps(data))
-        else:
-            rows = [json.loads(line) for line in path.read_text().splitlines()]
-            for row in rows:
-                row.pop('timestamp', None)
-            path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+    def test_registration_refuses_every_registering_host_session_as_a_worker(self):
+        for runtime in ('claude', 'codex', 'pi', 'opencode'):
+            self.state = self.root / f'{runtime}.sqlite'
+            self.execution.write_text(json.dumps({'host': runtime, 'native_dispatch': True,
+                'agent': 'builder', 'job': 'ticket', 'settings': {}}))
+            self.native_env = dict(os.environ, CLAUDE_CODE_SESSION_ID='claude-host',
+                                   CODEX_SESSION_ID='codex-host', PI_SESSION_ID='pi-host')
+            for session in ('claude-host', 'codex-host', 'pi-host'):
+                with self.subTest(runtime=runtime, session=session):
+                    error = self.register(f'{runtime}/{session}', runtime=runtime, session=session,
+                                          worker=session, code=2)
+                    self.assertIn('host session', error)
+                    self.assertIn('fresh worker', error)
+            with self.subTest(runtime=runtime, persisted=True):
+                self.assertEqual(self.cli('status')['attempts'], [])
 
     def runtime_attempt(self, runtime):
         model = 'fixture/model' if runtime in ('pi', 'opencode') else 'model'
@@ -64,88 +67,89 @@ class NativeProof(WorkerLifecycleCase):
                     saved = self.cli('status', '--attempt', attempt)['attempts'][0]
                     self.assertEqual(saved['observed'], {'runtime': runtime, 'model': model, 'effort': 'high'})
 
-    def test_startup_refuses_records_older_than_registration_even_when_copied_today(self):
-        for runtime in ('claude', 'codex', 'pi', 'opencode'):
-            with self.subTest(runtime=runtime):
-                attempt, model = self.runtime_attempt(runtime)
-                path = session_record(self.root / f'{runtime}.jsonl', runtime, runtime,
-                                      self.root, model=model, timestamp=time.time() - 60)
-                error = self.record('startup', attempt, native=str(path), code=2)
-                self.assertIn('registration', error)
-                self.assertIn('native', error)
-                self.assertIn('record startup', error)
-                session_record(path, runtime, runtime, self.root, model=model)
-                self.assertTrue(self.record('startup', attempt, native=str(path))['verified'])
+    def result_request(self, attempt, path):
+        report = self.root / (attempt.replace('/', '-') + '.md')
+        report.write_text('## Implemented\n\nWorker report.\n')
+        request = self.root / 'collect.json'
+        request.write_text(json.dumps({'status': 'completed', 'head': 'head-1',
+            'report': str(report), 'evidence': ['checks'], 'native': str(path),
+            'disposition': {'kind': 'retain', 'reason': 'recheck', 'next_use': 'recheck',
+                            'evidence': ['report read']}}))
+        return str(request)
 
-    def test_startup_uses_file_mtime_only_for_records_without_entry_times(self):
+    def test_collection_requires_this_attempt_in_the_users_own_text(self):
         for runtime in ('claude', 'codex', 'pi', 'opencode'):
             with self.subTest(runtime=runtime):
                 attempt, model = self.runtime_attempt(runtime)
                 path = session_record(self.root / f'{runtime}.jsonl', runtime, runtime, self.root, model=model)
-                self.without_times(path, runtime)
-                old = time.time() - 60
-                os.utime(path, (old, old))
-                error = self.record('startup', attempt, native=str(path), code=2)
-                self.assertIn('registration', error)
-                path.touch()
-                self.assertTrue(self.record('startup', attempt, native=str(path))['verified'])
-
-    def completion(self, *, submitted, untimed=False):
-        """A result needs an assistant turn newer than the worker's productive-work boundary."""
-        for runtime in ('claude', 'codex', 'pi', 'opencode'):
-            with self.subTest(runtime=runtime):
-                attempt, model = self.runtime_attempt(runtime)
-                path = session_record(self.root / f'{runtime}.jsonl', runtime, runtime, self.root, model=model)
-                if untimed:
-                    self.without_times(path, runtime)
                 self.record('startup', attempt, native=str(path))
-                if submitted:
-                    if not untimed:
+                request = self.result_request(attempt, path)
+                for text, kind in (('an unrelated live session', 'text'),
+                                   (f'attempt: {attempt}-different', 'text'),
+                                   (f'assignment: fixture  attempt: {attempt}', 'tool_result'),
+                                   (f'assignment: fixture  attempt: {attempt}', 'tool_input')):
+                    with self.subTest(kind=kind, text=text):
+                        user_message(path, runtime, text, kind=kind)
                         assistant_turn(path, runtime)
-                    self.record('submitted', attempt, evidence=['productive prompt accepted'])
-                report = self.root / f'{runtime}.md'
-                report.write_text('## Implemented\n\nWorker report.\n')
-                request = self.root / 'collect.json'
-                fields = {'status': 'completed', 'head': 'head-1', 'report': str(report), 'evidence': ['checks'],
-                          'native': str(path), 'disposition': {'kind': 'retain', 'reason': 'recheck',
-                          'next_use': 'recheck', 'evidence': ['collected report']}}
-                for update in (None, 'user') if untimed else (None, 'user', 'old assistant'):
-                    if update == 'user':
-                        assistant_turn(path, runtime, role='user')
-                        if untimed:
-                            self.without_times(path, runtime)
-                    elif update:
-                        assistant_turn(path, runtime, timestamp=time.time() - 60)
-                    request.write_text(json.dumps(fields))
-                    error = self.cli('collect', '--attempt', attempt, '--input', str(request), code=2)
-                    self.assertIn('assistant turn', error)
-                    self.assertIn('native', error)
+                        error = self.cli('collect', '--attempt', attempt, '--input', request, code=2)
+                        self.assertIn('send the worker its packet', error)
+                        self.assertIn(f'assignment: {runtime}  attempt: {attempt}', error)
+                user_message(path, runtime, f'assignment: {runtime}  attempt: {attempt}')
                 assistant_turn(path, runtime)
-                if untimed:
-                    self.without_times(path, runtime)
-                request.write_text(json.dumps({key: value for key, value in fields.items() if key != 'native'}))
-                error = self.cli('collect', '--attempt', attempt, '--input', str(request), code=2)
-                self.assertIn('native', error)
-                other = session_record(self.root / f'other-{runtime}.jsonl', runtime, runtime, self.root, model=model)
-                assistant_turn(other, runtime)
-                request.write_text(json.dumps(dict(fields, native=str(other))))
+                self.cli('collect', '--attempt', attempt, '--input', request)
+                self.assertEqual(self.cli('status', '--attempt', attempt)['attempts'][0]['result']['status'],
+                                 'completed')
+
+    def test_collection_waits_for_an_assistant_reply_after_the_packet(self):
+        for runtime in ('claude', 'codex', 'pi', 'opencode'):
+            with self.subTest(runtime=runtime):
+                attempt, model = self.runtime_attempt(runtime)
+                path = session_record(self.root / f'{runtime}.jsonl', runtime, runtime, self.root, model=model)
+                self.record('startup', attempt, native=str(path))
+                assistant_turn(path, runtime)
+                user_message(path, runtime, f'assignment: {runtime}  attempt: {attempt}')
+                request = self.result_request(attempt, path)
+                error = self.cli('collect', '--attempt', attempt, '--input', request, code=2)
+                self.assertIn('let the worker answer it, then collect', error)
+                assistant_turn(path, runtime)
+                self.cli('collect', '--attempt', attempt, '--input', request)
+
+    def test_a_finished_native_child_is_collectible_with_its_packet_and_reply_before_startup(self):
+        for runtime in ('claude', 'codex', 'pi', 'opencode'):
+            with self.subTest(runtime=runtime):
+                attempt, model = self.runtime_attempt(runtime)
+                path = session_record(self.root / f'{runtime}.jsonl', runtime, runtime, self.root,
+                                      model=model, timestamp=1, child=runtime in ('claude', 'codex'))
+                user_message(path, runtime, f'assignment: {runtime}  attempt: {attempt}')
+                assistant_turn(path, runtime, timestamp=1)
+                os.utime(path, (1, 1))
+                self.record('startup', attempt, native=str(path))
+                request = self.result_request(attempt, path)
+                fields = json.loads(Path(request).read_text())
+                del fields['native']
+                Path(request).write_text(json.dumps(fields))
+                error = self.cli('collect', '--attempt', attempt, '--input', request, code=2)
+                self.assertIn('requires native', error)
+                other = self.root / f'other-{runtime}.jsonl'
+                other.write_bytes(path.read_bytes())
+                request = self.result_request(attempt, other)
                 if runtime != 'opencode':
-                    error = self.cli('collect', '--attempt', attempt, '--input', str(request), code=2)
-                    self.assertIn(str(path), error)
-                    self.assertIn('native', error)
-                request.write_text(json.dumps(dict(fields, native=str(other if runtime == 'opencode' else path))))
-                self.cli('collect', '--attempt', attempt, '--input', str(request))
-                saved = self.cli('status', '--attempt', attempt)['attempts'][0]
-                self.assertEqual(saved['result']['status'], 'completed')
+                    error = self.cli('collect', '--attempt', attempt, '--input', request, code=2)
+                    self.assertIn('startup session record', error)
+                    request = self.result_request(attempt, path)
+                self.cli('collect', '--attempt', attempt, '--input', request)
 
-    def test_collection_requires_an_assistant_turn_after_submission(self):
-        self.completion(submitted=True)
-
-    def test_a_native_child_without_submission_requires_a_turn_after_startup(self):
-        self.completion(submitted=False)
-
-    def test_untimed_records_need_a_new_assistant_entry_not_just_a_touched_file_or_user_message(self):
-        self.completion(submitted=True, untimed=True)
+    def test_pi_ignores_packets_and_replies_on_an_abandoned_branch(self):
+        attempt, model = self.runtime_attempt('pi')
+        path = session_record(self.root / 'pi.jsonl', 'pi', 'pi', self.root, model=model)
+        self.record('startup', attempt, native=str(path))
+        user_message(path, 'pi', f'assignment: pi  attempt: {attempt}')
+        assistant_turn(path, 'pi')
+        with path.open('a') as stream:
+            stream.write(json.dumps({'type': 'model_change', 'id': 'branch', 'parentId': 'probe',
+                                     'provider': 'fixture', 'modelId': 'model'}) + '\n')
+        error = self.cli('collect', '--attempt', attempt, '--input', self.result_request(attempt, path), code=2)
+        self.assertIn('send the worker its packet', error)
 
     def test_effort_levels_pi_run3_cannot_verify_a_claude_worker_without_its_record(self):
         # The recorded failure had worker_seconds=0.294 and used the orchestrator's own spec-review.md.
@@ -163,28 +167,26 @@ class NativeProof(WorkerLifecycleCase):
         self.assertFalse(saved['verified'])
         self.assertNotIn('result', saved)
 
-    def test_opencode_2_collection_requires_a_new_assistant_in_a_fresh_export_of_the_same_session(self):
+    def test_opencode_2_collection_reads_its_user_text_and_reply_from_a_fresh_export(self):
         self.execution.write_text(json.dumps({'host': 'opencode', 'native_dispatch': True,
             'agent': 'builder', 'job': 'ticket', 'settings': {
                 'model': 'opencode/deepseek-v4.1-flash-free', 'effort': 'high'}}))
         self.register(runtime='opencode')
-        ready = ({'type': 'text', 'text': 'READY'},)
-        native = self.opencode_v2_export(ready)
+        native = self.opencode_v2_export(({'type': 'text', 'text': 'READY'},))
         self.record('startup', native=str(native))
         self.record('submitted', evidence=['productive prompt accepted'])
-        report = self.root / 'report.md'
-        report.write_text('## Implemented\n')
-        fields = dict(status='completed', head='head-1', report=str(report), evidence=['checks'], native=str(native))
-        self.opencode_v2_export(ready)
-        error = self.record('result', code=2, **fields)
-        self.assertIn('assistant turn after submission', error)
-        self.opencode_v2_export(ready, ({'type': 'text', 'text': 'done'},), session='different-session')
-        self.assertIn('registered session', self.record('result', code=2, **fields))
-        self.opencode_v2_export(ready, ({'type': 'text', 'text': 'done'},))
         fresh = self.root / 'fresh-export.json'
         fresh.write_bytes(native.read_bytes())
-        self.record('result', **dict(fields, native=str(fresh)))
-        self.assertEqual(self.cli('status')['attempts'][0]['result']['status'], 'completed')
+        request = self.result_request('ticket-1/1', fresh)
+        error = self.cli('collect', '--attempt', 'ticket-1/1', '--input', request, code=2)
+        self.assertIn('send the worker its packet', error)
+        user_message(fresh, 'opencode', 'assignment: ticket-1  attempt: ticket-1/1')
+        error = self.cli('collect', '--attempt', 'ticket-1/1', '--input', request, code=2)
+        self.assertIn('let the worker answer it, then collect', error)
+        data = json.loads(fresh.read_text())
+        data['messages'].append(dict(data['messages'][1], id='reply'))
+        fresh.write_text(json.dumps(data))
+        self.cli('collect', '--attempt', 'ticket-1/1', '--input', request)
 
 
 if __name__ == '__main__':

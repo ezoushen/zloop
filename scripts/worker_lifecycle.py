@@ -700,8 +700,6 @@ def record(db, data, refuse_changes=False, submitting=False):
             observation = native_settings.observe(data['native'], target['runtime'], target['native_session'],
                 located if not submitting and target['execution_snapshot'].get('native_dispatch') and located
                 else target['worktree'])
-            observation['latest_at'] = native_settings.latest_entry_time(data['native'], target['runtime'])
-            observation['turns'] = native_settings.assistant_turns(data['native'], target['runtime'], target['native_session'])
         except (OSError, ValueError) as error:
             raise ValueError(f'{error}; record startup with native: the session record of registered worker '
                              f'{target["native_session"]} (OpenCode: opencode session export)') from None
@@ -727,12 +725,10 @@ def record(db, data, refuse_changes=False, submitting=False):
         except (OSError, ValueError) as error:
             raise ValueError(f'{error}; collect with native: {native}, the registered worker session record '
                              '(OpenCode: a fresh opencode session export)') from None
-        boundary = target['submitted_at'] if target.get('submitted') else target['startup_at']
-        require(native_settings.worked_after(data['native'], target['runtime'], target['native_session'], boundary,
-                    target['startup_evidence']['native_observation']['turns']),
-                f'Completion requires an assistant turn after {"submission" if target.get("submitted") else "startup"}; '
-                f'let the worker finish, then collect with native: {native} '
-                '(OpenCode: a fresh opencode session export)')
+        packet, reply = native_settings.packet_reply(data['native'], target['runtime'], target['native_session'], attempt)
+        require(packet, 'Completion requires the assignment packet; send the worker its packet, which starts with '
+                f'`assignment: {target["assignment"]}  attempt: {attempt}`, then collect with native: {native}')
+        require(reply, f'Completion requires the packet reply; let the worker answer it, then collect with native: {native}')
     # Herdr is asked before the write lock is taken too, so a Herdr that does not answer holds no lock. The
     # execution is read once, here, so the attempt keeps the route that decided whether to ask.
     placed = execution = None
@@ -756,6 +752,8 @@ def record(db, data, refuse_changes=False, submitting=False):
                         f"native_session {data['native_session']} is not the session {named} the native record names")
             for key in ('assignment', 'repo', 'worktree', 'head', 'worker', 'native_session', 'runtime'):
                 require(text(data.get(key)), f'Registration requires {key}')
+            require(data['native_session'] not in host_sessions(),
+                    'A host session cannot be its own worker; start a fresh worker and register its native_session')
             for key in ('repo', 'worktree'):
                 require(Path(data[key]).is_absolute() and Path(data[key]).is_dir(),
                         f'{key} must be an existing absolute directory')
@@ -812,8 +810,7 @@ def record(db, data, refuse_changes=False, submitting=False):
                     f'A route to a {data["runtime"]} worker started as its own process requires its launch controls '
                     '(launch.verify); resolve it again with agent_models.py --route')
             saved = dict(data, agent=execution['agent'], job=execution['job'], execution_snapshot=execution,
-                         requested=dict(scope, **settings, runtime=data['runtime']), verified=False,
-                         registered_at=time.time())
+                         requested=dict(scope, **settings, runtime=data['runtime']), verified=False)
             if needs is not None:
                 saved['needs'] = needs
             if ticket is not None:
@@ -862,9 +859,6 @@ def record(db, data, refuse_changes=False, submitting=False):
             require((saved['runtime'], saved['native_session']) not in closed_sessions(db)
                     or kind in ('ruling', 'accepted', 'declined'), 'Native conversation already closed')
             if kind == 'startup':
-                require(observation['latest_at'] >= saved['registered_at'],
-                        'Native record predates registration; run a fresh probe in the registered worker, then '
-                        'record startup with native: its updated session record (OpenCode: opencode session export)')
                 observed = observation['observed']
                 directory = Path(state_path(db) + '.native')
                 directory.mkdir(mode=0o700, exist_ok=True)
@@ -878,7 +872,6 @@ def record(db, data, refuse_changes=False, submitting=False):
                 require(not aliases or text(observed.get('model')) and text(saved['requested'].get('model')),
                         'Alias evidence requires requested and observed model IDs')
                 saved['observed'], saved['startup_evidence'] = observed, data
-                saved['startup_at'] = time.time()
                 if located:
                     # A Claude or Codex native child records its orchestrator's directory, so this only warns.
                     saved['observed_cwd'] = str(Path(located).resolve())
@@ -891,7 +884,6 @@ def record(db, data, refuse_changes=False, submitting=False):
                 require(not saved.get('submitted') and not saved.get('result'),
                         'Prompt already submitted; reconcile rather than duplicate it')
                 saved['submitted'] = data
-                saved['submitted_at'] = time.time()
             elif kind == 'reconciled':
                 monitor = saved.get('monitor', {})
                 require(monitor.get('state') == 'finished' or watching(saved)
@@ -1296,7 +1288,6 @@ def watch(db, state, attempt, request, *, productive=False):
         if productive and code == 0:
             # The submit argv is activity-gated (e.g. Herdr `agent prompt --wait`), so success proves acceptance.
             saved['submitted'] = dict(argv=argv, evidence=[str(log)], source='submit')
-            saved['submitted_at'] = time.time()
             event(db, attempt, 'submitted', saved['submitted'])
         save(db, saved)
         receipt = dict(token=token, exit_code=code, reason=reason, log=str(log),

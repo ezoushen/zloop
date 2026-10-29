@@ -86,15 +86,15 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    `collect` result reports a capture gap; without that field nothing was linked,
    so record an override yourself. An unbound forwarding executor needs an explicitly verified
    destination; a known destination must agree with the resolver.
-3. Startup and completed work come from the worker's own session record.
+3. Packets start with `assignment: <id>  attempt: <attempt id>`; collection needs
+   the worker's reply to that packet in its own session record.
    Use `submit` for transport commands. Native children use `worker_lifecycle.py record
    --state ... --input /absolute/startup.json` with `kind: startup`, `attempt` and
    `native`: the record path named by the host adapter. Optional `model_alias_evidence`
    names an installed binding. Pass `native` again to `collect`; refresh an OpenCode export.
 
    **Startup order.** Start the worker and obtain its session id (probe for a fixed reply
-   and no tools if needed). Register with the assignment as `packet`, then send a fresh
-   probe through the transport, inspect its acknowledgement and `submit` the assignment.
+   and no tools if needed). Register with the assignment as `packet`, then `submit` it.
    A native child already has its assignment; record its startup once its record is available.
 4. For supported native formats, invoke productive work through `submit --state
    ... --attempt ... --input /absolute/submit.json`, using this input shape:
