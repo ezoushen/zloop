@@ -18,8 +18,9 @@ every ticket done and delivery failing, until it is finished (branch deleted, re
 main or on the remote's main, E2E passed at a head in main). A session is also held while a
 confirmed autopilot run card (.scratch/<slug>/autopilot.md) naming it lacks one terminal state or its
 evidence. A review binding beside a standalone or workstream report holds its session until the report names a
-completed collected diff-review attempt at review_head, records a blocker, or names local review with a recorded
-no-route result. The review, delivery and card holds do not apply while a live worker of that state holds a running
+completed collected diff-review attempt at review_head, names local review with a recorded no-route result, or
+records a blocker with a failed, blocked or cancelled diff-review attempt in its state or a recorded no-route result.
+The review, delivery and card holds do not apply while a live worker of that state holds a running
 wait that will wake the host. A
 check that cannot run, and a launch log line that is unreadable or malformed, are named gaps,
 never a pass. `claude` and `codex` speak their shared Stop
@@ -140,13 +141,19 @@ def unreviewed(root, pane, session):
                 continue
             board = script('next_tickets')
             fields = board.parse_front_matter(report.read_text()) or {}
-            if fields.get('blocker') not in (None, '', 'none'):
+            blocker = fields.get('blocker') not in (None, '', 'none')
+            if blocker and binding['route'].get('status') == 'no_route' and binding['route'].get('reason'):
                 continue
-            attempts = read_state(state)[0] if state.is_file() and fields.get('review_by') != 'local' else []
+            attempts = read_state(state)[0] if state.is_file() and (blocker or fields.get('review_by') != 'local') else []
+            if blocker and any(saved.get('job') == 'diff-review' and
+                               (saved.get('result') or {}).get('status') in ('failed', 'blocked', 'cancelled')
+                               for saved in attempts):
+                continue
             problems = board.review_by_problems(fields, attempts, binding['route'])
             if problems:
                 live = [saved for saved in attempts if not saved.get('result')]
-                action = ('collect' if any(saved.get('submitted') or saved.get('submission_requested') for saved in live)
+                action = ('route' if blocker else
+                          'collect' if any(saved.get('submitted') or saved.get('submission_requested') for saved in live)
                           else 'submit' if live else 'route')
                 missing.append(f"{report}: {'; '.join(problems)}; next: `{binding['next_commands'][action]}`")
         except Exception as error:

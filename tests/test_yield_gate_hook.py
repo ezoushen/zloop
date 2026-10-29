@@ -229,9 +229,50 @@ class ReviewHold(GateRepo):
                 self.assertEqual(len(gaps), 1)
                 self.assertIn(reason, gaps[0])
 
-    def test_a_concrete_blocker_releases_the_review(self):
-        self.review(blocker='reviewer quota exhausted')
+    def test_a_blocker_without_a_reviewer_attempt_still_requires_launching_the_reviewer(self):
+        self.review(blocker='reviewer capacity could not be reconciled')
+        gaps = self.check(session='host-1')
+        self.assertEqual(len(gaps), 1)
+        self.assertIn('review_by: none names no collected worker attempt', gaps[0])
+        self.assertIn(self.command, gaps[0])
+        for host in ('claude', 'codex'):
+            decision = self.stop(host=host, session='host-1')
+            self.assertIsNotNone(decision)
+            self.assertEqual(decision['decision'], 'block')
+            self.assertIn(self.command, decision['reason'])
+
+    def test_a_blocker_releases_after_a_diff_reviewer_settles_without_completing(self):
+        self.review(blocker='reviewer could not complete')
+        for status in ('failed', 'blocked', 'cancelled'):
+            with self.subTest(status=status):
+                self.collected(status=status)
+                self.assertEqual(self.check(session='host-1'), [])
+                self.assertIsNone(self.stop(session='host-1'))
+
+    def test_a_blocker_releases_with_a_recorded_no_route_without_a_reviewer_attempt(self):
+        self.review(blocker='no reviewer route is configured')
+        binding = json.loads(self.binding.read_text())
+        binding['route'] = {'status': 'no_route', 'reason': 'no reachable reviewer executor'}
+        self.binding.write_text(json.dumps(binding))
         self.assertEqual(self.check(session='host-1'), [])
+        self.assertIsNone(self.stop(session='host-1'))
+
+    def test_a_blocker_with_an_unsettled_or_unrelated_attempt_still_names_the_launch_command(self):
+        self.review(blocker='reviewer unavailable', review_by='local')
+        for job, settled in (('diff-review', False), ('e2e-gate', True)):
+            with self.subTest(job=job, settled=settled):
+                self.collected(job=job, status='failed')
+                if not settled:
+                    with sqlite3.connect(self.state) as db:
+                        saved = json.loads(db.execute('SELECT data FROM attempts').fetchone()[0])
+                        del saved['result']
+                        db.execute('UPDATE attempts SET data = ?', (json.dumps(saved),))
+                gaps = self.check(session='host-1')
+                review_gaps = [gap for gap in gaps if str(self.report) in gap]
+                self.assertEqual(len(review_gaps), 1)
+                review_gap = review_gaps[0]
+                self.assertIn('review_by: local names no collected worker attempt', review_gap)
+                self.assertIn(self.command, review_gap)
 
     def test_local_review_releases_only_with_a_recorded_no_route(self):
         self.review(review_by='local')
