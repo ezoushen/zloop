@@ -1357,6 +1357,26 @@ class BoardCLI(unittest.TestCase):
                           .replace('e2e/fx/1', 'e2e/fx/2'))
         self.cli('fx', '--delivery')
 
+    def test_a_review_by_written_as_a_block_list_names_each_attempt_in_it(self):
+        # effort-levels live check: a Codex host at xhigh listed every angle and sweep attempt one per line, and the
+        # gate read review_by as empty ("names no worker run") although each attempt had returned clean.
+        self.write_ticket('fx/01', 'done')
+        start = self.commit('start')
+        self.git('switch', '-q', '-c', 'feat/fx')
+        head = self.commit('reviewed work')
+        self.git('switch', '-q', 'main')
+        review, evidence = self.deliver('fx', 'feat/fx', start, head)
+        angle = review.with_name('review-angle.md')
+        angle.write_text(evidence.replace('review_status: clean', 'review_status: findings'))
+        support.collected_attempt(self.root, 'fx', 'review/fx/angle', angle, job='diff-review', head=head)
+        review.write_text(evidence.replace('review_by: review/fx/1', 'review_by:\n  - review/fx/1\n  - review/fx/angle'))
+        refused = self.cli('fx', '--delivery', code=1).stderr
+        assert refused == 'fx: review_by: review/fx/angle returned review_status: findings, not clean\n', refused
+        angle.write_text(evidence)
+        support.collected_attempt(self.root, 'fx', 'review/fx/angle-2', angle, job='diff-review', head=head)
+        review.write_text(evidence.replace('review_by: review/fx/1', 'review_by:\n  - review/fx/1\n  - review/fx/angle-2'))
+        self.cli('fx', '--delivery')
+
     def test_e2e_the_orchestrator_ran_itself_counts_only_as_passing_checks_at_the_head(self):
         self.write_ticket('fx/01', 'done')
         self.commit_gitignore()

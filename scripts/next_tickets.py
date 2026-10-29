@@ -64,15 +64,21 @@ def parse_front_matter(text):
     if not m:
         return None
     fm = {}
+    key = None
     for line in m.group(1).splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
+        # A block list: `key:` alone, then one `- item` line each.
+        item = re.fullmatch(r"\s*-\s+(.+)", line)
+        if item and key is not None and (fm[key] == "" or isinstance(fm[key], list)):
+            fm[key] = (fm[key] or []) + [item.group(1).strip()]
+            continue
         key, _, value = line.partition(":")
-        value = value.strip()
+        key, value = key.strip(), value.strip()
         if value.startswith("[") and value.endswith("]"):
-            fm[key.strip()] = [v.strip() for v in value[1:-1].split(",") if v.strip()]
+            fm[key] = [v.strip() for v in value[1:-1].split(",") if v.strip()]
         else:
-            fm[key.strip()] = value
+            fm[key] = value
     return fm
 
 
