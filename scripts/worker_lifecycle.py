@@ -686,17 +686,52 @@ def record(db, data, refuse_changes=False):
     require(text(attempt), 'Event requires attempt')
     # A read-only worktree is read before the write lock is taken; the result check and any refusal use that one read.
     now = observed_state(get(db, attempt)) if kind == 'result' and data.get('status') == 'completed' else None
-    located = elsewhere = None
-    if kind == 'startup' and text(data.get('native')):
+    located = elsewhere = observation = None
+    if kind == 'startup':
+        require('observed' not in data and 'evidence' not in data,
+                'record startup takes native: the absolute worker session record, not observed or evidence')
+        require(text(data.get('native')),
+                'record startup requires native: the absolute path of the worker session record')
         # A native record, and a read-only agent's other checkout, are read before the write lock is taken too.
         target = get(db, attempt)
-        located = native_settings.working_directory(data['native'], target['runtime'], target['native_session'])
+        try:
+            if target['runtime'] != 'opencode':
+                located = native_settings.working_directory(data['native'], target['runtime'], target['native_session'])
+            observation = native_settings.observe(data['native'], target['runtime'], target['native_session'],
+                located if target['execution_snapshot'].get('native_dispatch') and located else target['worktree'])
+            observation['latest_at'] = native_settings.latest_entry_time(data['native'], target['runtime'])
+            observation['turns'] = native_settings.assistant_turns(data['native'], target['runtime'], target['native_session'])
+        except (OSError, ValueError) as error:
+            raise ValueError(f'{error}; record startup with native: the session record of registered worker '
+                             f'{target["native_session"]} (OpenCode: opencode session export)') from None
         # Only a Pi record names the child's own directory; Claude and Codex ones name their orchestrator's.
         checkout = (located and target['runtime'] == 'pi' and 'worktree_baseline' in target
                     and checkout_root(located))
         if checkout and checkout != checkout_root(target['worktree']) \
                 and checkout not in target.get('checkout_baselines', {}):
             elsewhere = checkout, worktree_state(checkout)
+    if kind == 'result' and data.get('status') == 'completed':
+        target = get(db, attempt)
+        require(target.get('verified'), 'Completion requires verified settings; record startup with native: '
+                'the registered worker session record before collecting')
+        native = target['startup_evidence']['native']
+        require(text(data.get('native')), f'Completion requires native: {native}; collect with that session record '
+                '(OpenCode: a fresh opencode session export)')
+        require(target['runtime'] == 'opencode' or Path(data['native']).resolve() == Path(native).resolve(),
+                f'Completion requires the startup session record; set native: {native}')
+        try:
+            native_settings.observe(data['native'], target['runtime'], target['native_session'],
+                target.get('observed_cwd', target['worktree']) if target['execution_snapshot'].get('native_dispatch')
+                else target['worktree'])
+        except (OSError, ValueError) as error:
+            raise ValueError(f'{error}; collect with native: {native}, the registered worker session record '
+                             '(OpenCode: a fresh opencode session export)') from None
+        boundary = target['submitted_at'] if target.get('submitted') else target['startup_at']
+        require(native_settings.worked_after(data['native'], target['runtime'], target['native_session'], boundary,
+                    target['startup_evidence']['native_observation']['turns']),
+                f'Completion requires an assistant turn after {"submission" if target.get("submitted") else "startup"}; '
+                f'let the worker finish, then collect with native: {native} '
+                '(OpenCode: a fresh opencode session export)')
     # Herdr is asked before the write lock is taken too, so a Herdr that does not answer holds no lock. The
     # execution is read once, here, so the attempt keeps the route that decided whether to ask.
     placed = execution = None
@@ -776,7 +811,8 @@ def record(db, data, refuse_changes=False):
                     f'A route to a {data["runtime"]} worker started as its own process requires its launch controls '
                     '(launch.verify); resolve it again with agent_models.py --route')
             saved = dict(data, agent=execution['agent'], job=execution['job'], execution_snapshot=execution,
-                         requested=dict(scope, **settings, runtime=data['runtime']), verified=False)
+                         requested=dict(scope, **settings, runtime=data['runtime']), verified=False,
+                         registered_at=time.time())
             if needs is not None:
                 saved['needs'] = needs
             if ticket is not None:
@@ -825,18 +861,23 @@ def record(db, data, refuse_changes=False):
             require((saved['runtime'], saved['native_session']) not in closed_sessions(db)
                     or kind in ('ruling', 'accepted', 'declined'), 'Native conversation already closed')
             if kind == 'startup':
-                observed = data.get('observed')
-                require(isinstance(observed, dict) and not set(observed) - {'runtime', 'model', 'effort', *SCOPE}
-                        and all(text(value) or isinstance(value, list) and value for value in observed.values()),
-                        'Invalid native settings')
-                require(isinstance(data.get('evidence'), list) and data['evidence']
-                        and all(text(x) for x in data['evidence']),
-                        'Startup requires native evidence')
+                require(observation['latest_at'] >= saved['registered_at'],
+                        'Native record predates registration; run a fresh probe in the registered worker, then '
+                        'record startup with native: its updated session record (OpenCode: opencode session export)')
+                observed = observation['observed']
+                directory = Path(state_path(db) + '.native')
+                directory.mkdir(mode=0o700, exist_ok=True)
+                snapshot = directory / (uuid.uuid4().hex + '.json')
+                with os.fdopen(os.open(snapshot, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as stream:
+                    json.dump(observation, stream, indent=2)
+                    stream.write('\n')
+                data = dict(data, observed=observed, evidence=[str(snapshot)], native_observation=observation)
                 aliases = data.get('model_alias_evidence', [])
                 require(isinstance(aliases, list) and all(text(x) for x in aliases), 'Invalid alias evidence')
                 require(not aliases or text(observed.get('model')) and text(saved['requested'].get('model')),
                         'Alias evidence requires requested and observed model IDs')
                 saved['observed'], saved['startup_evidence'] = observed, data
+                saved['startup_at'] = time.time()
                 if located:
                     # A Claude or Codex native child records its orchestrator's directory, so this only warns.
                     saved['observed_cwd'] = str(Path(located).resolve())
@@ -849,6 +890,7 @@ def record(db, data, refuse_changes=False):
                 require(not saved.get('submitted') and not saved.get('result'),
                         'Prompt already submitted; reconcile rather than duplicate it')
                 saved['submitted'] = data
+                saved['submitted_at'] = time.time()
             elif kind == 'reconciled':
                 monitor = saved.get('monitor', {})
                 require(monitor.get('state') == 'finished' or watching(saved)
@@ -864,7 +906,8 @@ def record(db, data, refuse_changes=False):
                 require(not watching(saved) and saved.get('monitor', {}).get('state') != 'finished',
                         'Collect or reconcile the wait before the assignment result')
                 if data['status'] == 'completed':
-                    require(not gaps(db, saved, 'work') and saved.get('submitted'),
+                    require(not gaps(db, saved, 'work') and (saved.get('submitted')
+                            or saved['execution_snapshot'].get('native_dispatch')),
                             'Completion requires verified settings, accepted prompt and resolved design hold')
                     require(not unmet_needs(saved, data.get('evidence')), unmet_needs(saved, data.get('evidence')))
                 require(not saved.get('result'), 'Result already collected; use a new attempt for further work')
@@ -1252,6 +1295,7 @@ def watch(db, state, attempt, request, *, productive=False):
         if productive and code == 0:
             # The submit argv is activity-gated (e.g. Herdr `agent prompt --wait`), so success proves acceptance.
             saved['submitted'] = dict(argv=argv, evidence=[str(log)], source='submit')
+            saved['submitted_at'] = time.time()
             event(db, attempt, 'submitted', saved['submitted'])
         save(db, saved)
         receipt = dict(token=token, exit_code=code, reason=reason, log=str(log),
@@ -1283,17 +1327,9 @@ def submit(db, state, attempt, request):
             'A Herdr submit returns once the worker is working: use `herdr agent prompt <worker> <assignment> '
             '--wait --until working --until blocked --timeout 45000`; once its receipt is reconciled, arm '
             '`watch` with `herdr agent wait <worker>` and notify for its completion')
-    saved = get(db, attempt)
-    observation = native_settings.observe(request['native'], saved['runtime'],
-                                         saved['native_session'], saved['worktree'])
-    directory = state.parent / (state.name + '.native')
-    directory.mkdir(mode=0o700, exist_ok=True)
-    snapshot = directory / (uuid.uuid4().hex + '.json')
-    with os.fdopen(os.open(snapshot, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as stream:
-        json.dump(observation, stream, indent=2)
-        stream.write('\n')
-    record(db, dict(kind='startup', attempt=attempt, observed=observation['observed'],
-                    evidence=[str(snapshot)], native_observation=observation,
+    require('observed' not in request and 'evidence' not in request,
+            'submit takes native: the absolute worker session record, not observed or evidence')
+    record(db, dict(kind='startup', attempt=attempt, native=request.get('native'),
                     model_alias_evidence=request.get('model_alias_evidence', [])))
     return watch(db, state, attempt, request, productive=True)
 

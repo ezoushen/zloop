@@ -7,6 +7,7 @@ import sys
 import unittest
 
 from lifecycle_case import WorkerLifecycleCase
+from native_records import session_record
 
 
 class Submission(WorkerLifecycleCase):
@@ -647,11 +648,11 @@ class Submission(WorkerLifecycleCase):
     def test_model_or_effort_mismatch_blocks_work_and_acceptance(self):
         for observed in ({'runtime': 'claude', 'model': 'opus', 'effort': 'high'},
                          {'runtime': 'claude', 'model': 'sonnet', 'effort': 'medium'},
-                         {'runtime': 'claude', 'model': 'sonnet'},
-                         {'runtime': 'codex', 'model': 'sonnet', 'effort': 'high'}):
+                         {'runtime': 'claude', 'model': 'sonnet'}):
             if not self.state.exists():
                 self.register()
-            result = self.record('startup', observed=observed, evidence=['native.jsonl:1'])
+            result = self.record('startup', native=str(self.native(model=observed.get('model'),
+                                                                   effort=observed.get('effort'))))
             self.assertFalse(result['verified'])
             gate = self.cli('gate', '--attempt', 'ticket-1/1', '--stage', 'work', code=1)
             self.assertIn('runtime settings verification', gate['missing'])
@@ -665,13 +666,13 @@ class Submission(WorkerLifecycleCase):
 
     def test_native_alias_requires_binding_evidence_and_inherited_controls_stay_omitted(self):
         self.register()
-        observed = {'runtime': 'claude', 'model': 'claude-sonnet-native', 'effort': 'high'}
-        self.assertFalse(self.record('startup', observed=observed, evidence=['native.jsonl:1'])['verified'])
-        self.assertTrue(self.record('startup', observed=observed, evidence=['native.jsonl:1'],
+        native = self.native(model='claude-sonnet-native')
+        self.assertFalse(self.record('startup', native=str(native))['verified'])
+        self.assertTrue(self.record('startup', native=str(native),
                                    model_alias_evidence=['installed catalog binds sonnet to claude-sonnet-native'])['verified'])
         self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'builder', 'job': 'ticket', 'settings': {}}))
         self.register('ticket-2/1', 'ticket-2', 'native-2', 'pane-2')
-        self.record('startup', 'ticket-2/1', observed={'runtime': 'claude'}, evidence=['native.jsonl:2'])
+        self.record('startup', 'ticket-2/1', native=str(self.native('ticket-2/1', model=None, effort=None)))
         self.assertEqual(self.cli('status')['attempts'][1]['requested'], {'runtime': 'claude'})
 
     def test_new_ticket_or_role_rejects_reused_native_session(self):
@@ -712,17 +713,20 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
         return {'claude': [{'type': 'user', 'sessionId': 'parent-1', 'agentId': session, 'isSidechain': True,
                             'cwd': str(cwd)},
                            {'type': 'assistant', 'sessionId': 'parent-1', 'agentId': session, 'isSidechain': True,
-                            'cwd': str(cwd), 'message': {'model': 'm'}}],
+                            'cwd': str(cwd), 'perTurnEffort': 'high', 'message': {'model': 'm'}}],
                 'codex': [{'type': 'session_meta', 'payload': {'id': 'thread-1', 'agent_path': session,
                                                                'cwd': str(cwd)}},
-                          {'type': 'turn_context', 'payload': {'model': 'm', 'cwd': str(cwd)}}],
-                'pi': [{'type': 'session', 'id': session, 'cwd': str(cwd)}]}[runtime]
+                          {'type': 'turn_context', 'payload': {'model': 'm', 'effort': 'high', 'cwd': str(cwd)}}],
+                'pi': [{'type': 'session', 'id': session, 'cwd': str(cwd)},
+                       {'type': 'thinking_level_change', 'id': 'thinking', 'parentId': None, 'thinkingLevel': 'high'},
+                       {'type': 'message', 'id': 'probe', 'parentId': 'thinking', 'message': {
+                           'role': 'assistant', 'provider': 'fixture', 'model': 'm', 'stopReason': 'stop'}}]}[runtime]
 
     def native_child(self, runtime, agent='builder', job='ticket', worktree=None):
         """Register a native child of `runtime` for the worktree, as its orchestrator's resolved route says."""
         self.execution.write_text(json.dumps({'host': runtime, 'target_runtime': runtime, 'native_dispatch': True,
                                               'agent': agent, 'job': job,
-                                              'settings': {'model': 'm', 'effort': 'high'}}))
+                                              'settings': {'model': 'fixture/m' if runtime == 'pi' else 'm', 'effort': 'high'}}))
         attempt = f'{runtime}-1/1'
         self.record('register', attempt, assignment=f'{runtime}-1', repo=str(self.root),
                     worktree=str(worktree or self.worktree), head='head-1', execution=str(self.execution),
@@ -731,12 +735,11 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
         return attempt
 
     def startup(self, attempt, runtime, rows=None, code=0):
-        """Record startup with the observed settings and, given `rows`, the native record holding them."""
+        """Record startup from a native child session record."""
         native = self.root / f'{runtime}.jsonl'
         if rows is not None:
             native.write_text(''.join(json.dumps(row) + '\n' for row in rows))
-        return self.record('startup', attempt, code=code, evidence=[str(native)],
-                           observed={'runtime': runtime, 'model': 'm', 'effort': 'high'},
+        return self.record('startup', attempt, code=code,
                            **({'native': str(native)} if rows is not None else {}))
 
     def attempt(self, attempt):
@@ -772,23 +775,20 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
         self.startup(attempt, 'claude', self.native_rows('claude', child, session))
         self.assertNotIn('warnings', self.attempt(attempt))
 
-    def test_a_native_child_with_no_record_keeps_todays_settings_verification(self):
-        # Rule: a native child registered after launch records startup with its observed settings alone, as Claude
-        # dispatch does today; that still verifies it (no record: no observed_cwd, no warning). A record of another
-        # session is refused.
+    def test_a_native_child_requires_its_own_session_record(self):
         attempt, session = self.native_child('claude'), self.SESSIONS['claude']
-        self.assertTrue(self.startup(attempt, 'claude')['verified'])
+        self.assertIn('requires native', self.startup(attempt, 'claude', code=2))
         self.assertNotIn('observed_cwd', self.attempt(attempt))
         refused = self.startup(attempt, 'claude', self.native_rows('claude', self.worktree, 'other-child'), code=2)
-        self.assertEqual(refused, 'Native evidence does not belong to the registered session a1b2c3: the record '
-                                  'is session other-child\n')
+        self.assertIn('Native evidence does not belong to the registered session a1b2c3: the record '
+                      'is session other-child', refused)
 
     def test_a_pi_child_is_registered_by_its_session_record_which_names_its_session(self):
         # Live E2E 2026-10-26: a pi-subagents run id is not the child's session id, and a Pi orchestrator kept
         # registering the wrong one. Given the record (pi-subagents' status sessionFile), registration reads the id.
         self.execution.write_text(json.dumps({'host': 'pi', 'target_runtime': 'pi', 'native_dispatch': True,
                                               'agent': 'builder', 'job': 'ticket',
-                                              'settings': {'model': 'm', 'effort': 'high'}}))
+                                              'settings': {'model': 'fixture/m', 'effort': 'high'}}))
         native = self.root / 'child.jsonl'
         native.write_text(json.dumps({'type': 'session', 'id': 'pi-child-7', 'cwd': str(self.worktree)}) + '\n')
         fields = dict(assignment='pi-1', repo=str(self.root), worktree=str(self.worktree), head='head-1',
@@ -797,15 +797,14 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
         self.assertEqual(refused, 'native_session run-42 is not the session pi-child-7 the native record names\n')
         self.record('register', 'pi-1/1', native=str(native), **fields)
         self.assertEqual(self.attempt('pi-1/1')['native_session'], 'pi-child-7')
-        self.assertTrue(self.record('startup', 'pi-1/1', evidence=[str(native)], native=str(native),
-                                    observed={'runtime': 'pi', 'model': 'm', 'effort': 'high'})['verified'])
+        session_record(native, 'pi', 'pi-child-7', self.worktree, model='fixture/m')
+        self.assertTrue(self.record('startup', 'pi-1/1', native=str(native))['verified'])
         # A record of another session at startup names both.
         other = self.root / 'other.jsonl'
         other.write_text(json.dumps({'type': 'session', 'id': 'pi-child-8', 'cwd': str(self.worktree)}) + '\n')
-        refused = self.record('startup', 'pi-1/1', evidence=[str(other)], native=str(other), code=2,
-                              observed={'runtime': 'pi', 'model': 'm', 'effort': 'high'})
-        self.assertEqual(refused, 'Native evidence does not belong to the registered session pi-child-7: the record '
-                                  'is session pi-child-8\n')
+        refused = self.record('startup', 'pi-1/1', native=str(other), code=2)
+        self.assertIn('Native evidence does not belong to the registered session pi-child-7: the record '
+                      'is session pi-child-8', refused)
 
     def git(self, checkout, *args):
         return subprocess.run(['git', '-C', str(checkout), '-c', 'user.name=t', '-c', 'user.email=t@t', *args],
@@ -825,12 +824,13 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
         self.git(repo, 'worktree', 'add', '-q', '--detach', str(review), head)
         return head, effort, review
 
-    def collect_request(self, head):
+    def collect_request(self, head, attempt):
         report = self.root / 'review.md'
         report.write_text('## Coverage\n\n## Review round 1\n')
         request = self.root / 'collect.json'
         request.write_text(json.dumps({
             'status': 'completed', 'head': head, 'report': str(report), 'evidence': ['review.md'],
+            **self.completion_evidence(attempt),
             'disposition': {'kind': 'retain', 'reason': 'recheck', 'next_use': 'recheck', 'evidence': ['review.md']}}))
         return str(request)
 
@@ -842,7 +842,7 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
         attempt = self.native_child('pi', 'reviewer', 'diff-review', worktree=review)
         self.startup(attempt, 'pi', self.native_rows('pi', effort, self.SESSIONS['pi']))
         self.record('submitted', attempt, evidence=['native child started'])
-        request = self.collect_request(head)
+        request = self.collect_request(head, attempt)
         (effort / 'notes.md').write_text('reviewer scratch\n')
         refused = self.cli('collect', '--attempt', attempt, '--input', request, code=2)
         self.assertEqual(refused, f'Collection requires an unchanged worktree for a read-only agent (in {effort}, '
@@ -870,7 +870,7 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
                 self.git(effort, 'commit', '-qm', f'integrate a ticket while the {runtime} review runs')
                 self.assertEqual(self.attempt(attempt).get('warnings'), [
                     f'the native record puts the worker in {effort}, outside its registered worktree {review}'])
-                self.cli('collect', '--attempt', attempt, '--input', self.collect_request(head))
+                self.cli('collect', '--attempt', attempt, '--input', self.collect_request(head, attempt))
 
 
 if __name__ == '__main__':

@@ -50,7 +50,7 @@ class CollectionNeeds(WorkerLifecycleCase):
             evidence.append(str(file))
         done = self.root / 'done.md'
         done.write_text('## Implemented\n\nVerified assignment report at head-1\n')
-        return self.record('result', status=status, head='head-1', report=str(done), evidence=evidence, code=code)
+        return self.completed(status=status, head='head-1', report=str(done), evidence=evidence, code=code)
 
     def test_a_ticket_needing_docker_is_not_collected_without_a_probe(self):
         refused = self.complete(self.ticket(['docker']), code=2)

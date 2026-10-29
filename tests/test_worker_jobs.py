@@ -51,7 +51,7 @@ class Jobs(WorkerLifecycleCase):
         (self.worktree / 'before.txt').write_text('there before the agent started\n')
         report = self.review(head)
         (self.worktree / 'before.txt').write_text('rewritten by the agent\n')
-        self.record('result', 'review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
+        self.completed('review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
         gate = self.cli('gate', '--attempt', 'review-1/1', '--stage', 'accept', '--revision', head, code=1)
         self.assertEqual(gate['missing'],
                          ['unchanged worktree for a read-only agent (an untracked file changed: before.txt)'])
@@ -61,7 +61,7 @@ class Jobs(WorkerLifecycleCase):
         (self.worktree / 'before.txt').write_text('there before the agent started\n')
         report = self.review(head)
         (self.worktree / 'before.txt').unlink()
-        self.record('result', 'review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
+        self.completed('review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
         gate = self.cli('gate', '--attempt', 'review-1/1', '--stage', 'accept', '--revision', head, code=1)
         self.assertEqual(gate['missing'],
                          ['unchanged worktree for a read-only agent (an untracked file was deleted: before.txt)'])
@@ -73,7 +73,7 @@ class Jobs(WorkerLifecycleCase):
         (self.worktree / 'dangling').symlink_to('absent')
         self.git('init', '-q', 'nested')
         report = self.review(head)
-        self.record('result', 'review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
+        self.completed('review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
         self.assertTrue(self.cli('gate', '--attempt', 'review-1/1', '--stage', 'accept', '--revision', head)['complete'])
 
     def forget_untracked(self, attempt):
@@ -118,10 +118,11 @@ sys.exit(process.returncode)
         executable.chmod(0o700)
         self.native_env = dict(os.environ, PATH=str(directory) + os.pathsep + os.environ['PATH'])
 
-    def collect_request(self, head, report):
+    def collect_request(self, head, report, attempt='review-1/1'):
         request = self.root / 'collect.json'
         request.write_text(json.dumps({
             'status': 'completed', 'head': head, 'report': str(report), 'evidence': ['review.md'],
+            **self.completion_evidence(attempt),
             'disposition': {'kind': 'retain', 'reason': 'recheck', 'next_use': 'recheck', 'evidence': ['review.md']}}))
         return str(request)
 
@@ -148,7 +149,7 @@ sys.exit(process.returncode)
         self.ready('review-1/1')
         report = self.root / 'review.md'
         report.write_text('## Coverage\n\n## Review round 1\n')
-        self.record('result', 'review-1/1', status='completed', head='head-1', report=str(report),
+        self.completed('review-1/1', status='completed', head='head-1', report=str(report),
                     evidence=['review.md'])
         self.acknowledge()
         self.record('retain', 'review-1/1', reason='Disputed finding', next_use='recheck', evidence=['review.md'])
@@ -212,7 +213,7 @@ sys.exit(process.returncode)
                 (self.worktree / 'code.py').write_text('x = 2\n')
             if edit == 'commit':
                 self.git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', 'reviewer edit')
-            self.record('result', attempt, status='completed', head=head, report=str(report), evidence=['review.md'])
+            self.completed(attempt, status='completed', head=head, report=str(report), evidence=['review.md'])
             changed = edit in ('edit', 'commit', 'dirty-edit')
             gate = self.cli('gate', '--attempt', attempt, '--stage', 'accept', '--revision', head, code=1 if changed else 0)
             if changed:
@@ -227,7 +228,7 @@ sys.exit(process.returncode)
         head = self.checkout()
         report = self.review(head)
         (self.worktree / 'notes.txt').write_text('scratch\n')
-        self.record('result', 'review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
+        self.completed('review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
         gate = self.cli('gate', '--attempt', 'review-1/1', '--stage', 'accept', '--revision', head, code=1)
         self.assertEqual(gate['missing'],
                          ['unchanged worktree for a read-only agent (an untracked file appeared: notes.txt)'])
@@ -236,7 +237,7 @@ sys.exit(process.returncode)
         head = self.checkout({'code.py': 'x = 1\n', '.gitignore': '*.log\n'})
         report = self.review(head)
         (self.worktree / 'run.log').write_text('output\n')
-        self.record('result', 'review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
+        self.completed('review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
         gate = self.cli('gate', '--attempt', 'review-1/1', '--stage', 'accept', '--revision', head)
         self.assertTrue(gate['complete'])
 
@@ -247,7 +248,7 @@ sys.exit(process.returncode)
             report = self.review(head, attempt, session)
             if added:
                 (self.worktree / added).write_text('scratch\n')
-            self.record('result', attempt, status='completed', head=head, report=str(report), evidence=['review.md'])
+            self.completed(attempt, status='completed', head=head, report=str(report), evidence=['review.md'])
             gate = self.cli('gate', '--attempt', attempt, '--stage', 'accept', '--revision', head,
                             code=1 if added else 0)
             if added:
@@ -271,7 +272,7 @@ sys.exit(process.returncode)
                 reason = {'commit': f'HEAD moved from {head} to {self.git("rev-parse", "HEAD")}',
                           'edit': 'tracked files differ from their state at registration',
                           'untracked': 'an untracked file appeared: notes.txt'}[change]
-                request = self.collect_request(head, report)
+                request = self.collect_request(head, report, attempt)
                 error = self.cli('collect', '--attempt', attempt, '--input', request, code=2)
                 self.assertIn(f'Collection requires an unchanged worktree for a read-only agent ({reason}); '
                               'restore it and collect again', error)
@@ -323,7 +324,7 @@ sys.exit(process.returncode)
                     self.git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', 'reviewer edit')
                 reason = (f'HEAD moved from {head} to {self.git("rev-parse", "HEAD")}' if change == 'commit'
                           else 'tracked files differ from their state at registration')
-                error = self.cli('collect', '--attempt', attempt, '--input', self.collect_request(head, report), code=2)
+                error = self.cli('collect', '--attempt', attempt, '--input', self.collect_request(head, report, attempt), code=2)
                 self.assertIn('Collection requires an unchanged worktree for a read-only agent '
                               f'({reason}; untracked files were not recorded at registration)', error)
                 self.git('reset', '-q', '--hard', head)
@@ -340,7 +341,7 @@ sys.exit(process.returncode)
             if readable:
                 secret.chmod(0o600)
                 secret.write_text('rewritten by the agent\n')
-            self.record('result', attempt, status='completed', head=head, report=str(report), evidence=['review.md'])
+            self.completed(attempt, status='completed', head=head, report=str(report), evidence=['review.md'])
             gate = self.cli('gate', '--attempt', attempt, '--stage', 'accept', '--revision', head,
                             code=1 if readable else 0)
             if readable:
@@ -355,7 +356,7 @@ sys.exit(process.returncode)
         self.fake_git(vanish=self.worktree / 'before.txt')
         report = self.review(head)
         self.assertFalse((self.worktree / 'before.txt').exists())
-        self.record('result', 'review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
+        self.completed('review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
         self.assertTrue(self.cli('gate', '--attempt', 'review-1/1', '--stage', 'accept', '--revision', head)['complete'])
 
     def test_an_untracked_name_that_is_not_utf8_does_not_break_the_snapshot(self):
@@ -363,7 +364,7 @@ sys.exit(process.returncode)
         # APFS refuses such a name, so Git is made to list one; the file itself is not there to hash.
         self.fake_git(extra=b'caf\xe9.txt')
         report = self.review(head)
-        self.record('result', 'review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
+        self.completed('review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
         self.assertTrue(self.cli('gate', '--attempt', 'review-1/1', '--stage', 'accept', '--revision', head)['complete'])
 
     def test_retargeting_an_untracked_symlink_is_a_change(self):
@@ -374,7 +375,7 @@ sys.exit(process.returncode)
         report = self.review(head)
         (self.worktree / 'link').unlink()
         (self.worktree / 'link').symlink_to('two')
-        self.record('result', 'review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
+        self.completed('review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
         gate = self.cli('gate', '--attempt', 'review-1/1', '--stage', 'accept', '--revision', head, code=1)
         self.assertEqual(gate['missing'],
                          ['unchanged worktree for a read-only agent (an untracked file changed: link)'])
@@ -389,7 +390,7 @@ sys.exit(process.returncode)
         self.assertNotIn('restore it', error)
         self.assertNotIn('result', self.cli('status', '--attempt', 'review-1/1')['attempts'][0])
         # Recording the result keeps the gap on it, so acceptance stays refused.
-        self.record('result', 'review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
+        self.completed('review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
         gate = self.cli('gate', '--attempt', 'review-1/1', '--stage', 'accept', '--revision', head, code=1)
         self.assertEqual(gate['missing'],
                          ['unchanged worktree for a read-only agent (worktree state unreadable at collection)'])
@@ -405,12 +406,12 @@ sys.exit(process.returncode)
                     (self.worktree / 'before.txt').write_text('rewritten by the agent\n')
                 else:
                     (self.worktree / 'before.txt').unlink()
-                request = self.collect_request(head, report)
+                request = self.collect_request(head, report, attempt)
                 error = self.cli('collect', '--attempt', attempt, '--input', request, code=2)
                 self.assertIn('record the result with its gap (`record`, kind `result`), then collect again', error)
                 self.assertNotIn('restore it', error)
                 # The way out: the result keeps its gap, the collection resumes, and acceptance stays refused.
-                self.record('result', attempt, status='completed', head=head, report=str(report), evidence=['review.md'])
+                self.completed(attempt, status='completed', head=head, report=str(report), evidence=['review.md'])
                 self.assertTrue(self.cli('collect', '--attempt', attempt, '--input', request)['result']['already_collected'])
                 gate = self.cli('gate', '--attempt', attempt, '--stage', 'accept', '--revision', head, code=1)
                 self.assertEqual(gate['missing'], [f'unchanged worktree for a read-only agent '
@@ -449,7 +450,7 @@ sys.exit(process.returncode)
         self.ready('review-1/1')
         report = self.root / 'review.md'
         report.write_text('## Coverage\n\n## Review round 1\n')
-        self.record('result', 'review-1/1', status='completed', head='head-1', report=str(report), evidence=['r'])
+        self.completed('review-1/1', status='completed', head='head-1', report=str(report), evidence=['r'])
         gate = self.cli('gate', '--attempt', 'review-1/1', '--stage', 'accept', '--revision', 'head-1', code=1)
         self.assertEqual(gate['missing'], ['unchanged worktree for a read-only agent (not a readable Git checkout '
                                            'at registration; read-only work cannot be verified)'])
@@ -494,7 +495,7 @@ sys.exit(process.returncode)
                           'commit': f'HEAD moved from {sub_head} to {self.sub_git("rev-parse", "HEAD")}',
                           'untracked': 'an untracked file appeared: notes.txt',
                           'dirty-edit': 'tracked files differ from their state at registration'}[change]
-                request = self.collect_request(head, report)
+                request = self.collect_request(head, report, attempt)
                 error = self.cli('collect', '--attempt', attempt, '--input', request, code=2)
                 self.assertIn('Collection requires an unchanged worktree for a read-only agent '
                               f'(in submodule sub: {reason}); restore it and collect again', error)
@@ -542,7 +543,7 @@ sys.exit(process.returncode)
                           'unborn-untracked': 'in nested repository empty/: an untracked file appeared: notes.txt',
                           'unborn-added': 'in nested repository empty/: tracked files differ from their state at '
                                           'registration'}[change]
-                request = self.collect_request(head, report)
+                request = self.collect_request(head, report, attempt)
                 error = self.cli('collect', '--attempt', attempt, '--input', request, code=2)
                 self.assertIn(f'Collection requires an unchanged worktree for a read-only agent ({reason}); '
                               'restore it and collect again', error)
@@ -560,7 +561,7 @@ sys.exit(process.returncode)
             with self.subTest(change=change):
                 attempt = f'review-{number}/1'
                 report = self.review(head, attempt, f'native-{number}')
-                request = self.collect_request(head, report)
+                request = self.collect_request(head, report, attempt)
                 if change is None:
                     collected = self.cli('collect', '--attempt', attempt, '--input', request)
                     self.assertEqual(collected['result']['partly_checked'], ['sub/'])
@@ -624,7 +625,7 @@ sys.exit(process.returncode)
                     # Git cannot open it now, so it leaves the listing, as it did for the older code.
                     (self.worktree / 'nested').chmod(0)
                     self.addCleanup((self.worktree / 'nested').chmod, 0o700)
-                request = self.collect_request(head, report)
+                request = self.collect_request(head, report, attempt)
                 if not added:
                     self.cli('collect', '--attempt', attempt, '--input', request)
                     continue
@@ -648,7 +649,7 @@ sys.exit(process.returncode)
                     # Searchable, not listable: Git reads its tracked files but sees none of its untracked ones.
                     place.chmod(0o300)
                     report = self.review(head, attempt, f'native-{number}')
-                    request = self.collect_request(head, report)
+                    request = self.collect_request(head, report, attempt)
                     place.chmod(0o700)
                     (place / 'added.txt').write_text('scratch\n')
                     place.chmod(0o300)
@@ -657,10 +658,10 @@ sys.exit(process.returncode)
                     self.assertIn(f'Collection requires an unchanged worktree for a read-only agent ({reason}); '
                                   'record the result with its gap', error)
                     # The way out records the gap; the next attempt, with nothing changed, names the directory.
-                    self.record('result', attempt, status='completed', head=head, report=str(report), evidence=['r'])
+                    self.completed(attempt, status='completed', head=head, report=str(report), evidence=['r'])
                     attempt = f'review-{number}/2'
                     report = self.review(head, attempt, f'native-{number}-2')
-                    collected = self.cli('collect', '--attempt', attempt, '--input', self.collect_request(head, report))
+                    collected = self.cli('collect', '--attempt', attempt, '--input', self.collect_request(head, report, attempt))
                     self.assertEqual(collected['result']['partly_checked'], [partly])
                 finally:
                     place.chmod(0o700)  # A later subtest needs it listable.
@@ -690,7 +691,7 @@ sys.exit(process.returncode)
                     (self.worktree / 'locked').chmod(0)
                 elif change == 'appeared':
                     self.lock(self.worktree / 'late')
-                request = self.collect_request(head, report)
+                request = self.collect_request(head, report, attempt)
                 if change is None:
                     collected = self.cli('collect', '--attempt', attempt, '--input', request)
                     self.assertEqual(collected['result']['partly_checked'],

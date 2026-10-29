@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 
 import support
+from native_records import assistant_turn, session_record
 
 
 SCRIPT = support.script('workstream_spend.py')
@@ -49,16 +50,18 @@ class WorkstreamSpend(unittest.TestCase):
                 status='completed', accepted=True):
         execution = self.root / f'{session}.execution.json'
         execution.write_text(json.dumps({'host': runtime, 'native_dispatch': True, 'agent': 'builder', 'job': job,
-                                         'settings': {'model': 'm', 'effort': 'high'}}))
+                                         'settings': {'model': 'fixture/m' if runtime in ('pi', 'opencode') else 'm', 'effort': 'high'}}))
         self.record('register', attempt, assignment=assignment, repo=str(self.root), worktree=str(self.root),
                     head='head-1', execution=str(execution), runtime=runtime, worker=f'pane-{session}',
                     native_session=session, owned=True, packet=str(support.assignment_file(self.root, job)))
-        self.record('startup', attempt, observed={'runtime': runtime, 'model': 'm', 'effort': 'high'},
-                    evidence=['native:1'])
+        native = session_record(self.root / f'{session}.native.jsonl', runtime, session, self.root,
+                                model='fixture/m' if runtime in ('pi', 'opencode') else 'm')
+        self.record('startup', attempt, native=str(native))
         self.record('submitted', attempt, evidence=['native:2'])
         report = self.root / f'{session}.md'
         report.write_text('## Implemented\n\n## Fixed round 1\n\nreport\n')
-        self.record('result', attempt, status=status, head='head-1', report=str(report), evidence=['checks'])
+        assistant_turn(native, runtime)
+        self.record('result', attempt, status=status, head='head-1', report=str(report), native=str(native), evidence=['checks'])
         if accepted:
             self.record('accepted', attempt, commit='merge-1', evidence=['git log merge-1'])
 

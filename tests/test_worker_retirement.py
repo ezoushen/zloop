@@ -48,6 +48,7 @@ class Retirement(WorkerLifecycleCase):
         report.write_text('Completed assignment at head-1\n')
         request = self.root / 'collect.json'
         request.write_text(json.dumps({'status': 'completed', 'head': 'head-1', 'report': str(report),
+            **self.completion_evidence(),
             'evidence': ['current report checked'], 'disposition': {'kind': 'retire',
             'session': 'fixture-session', 'pane': 'pane-1', 'jobs_evidence': ['owned jobs stopped'],
             'acceptance': {'decision': 'deferred', 'reason': 'acceptance checks pending'}}}))
@@ -65,6 +66,7 @@ class Retirement(WorkerLifecycleCase):
         report.write_text('Completed at head-1\n')
         request = self.root / 'collect.json'
         request.write_text(json.dumps({'status': 'completed', 'head': 'head-1', 'report': str(report),
+            **self.completion_evidence(),
                                        'evidence': ['checked report']}))
         self.cli('collect', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
         self.assertNotIn('result', self.cli('status')['attempts'][0])
@@ -118,6 +120,7 @@ class Retirement(WorkerLifecycleCase):
         report.write_text('Completed at head-1\n')
         request = self.root / 'collect.json'
         request.write_text(json.dumps({'status': 'completed', 'head': 'head-1', 'report': str(report),
+            **self.completion_evidence(),
             'evidence': ['checked report'], 'disposition': {'kind': 'retire',
             'session': 'fixture-session', 'pane': 'pane-1', 'jobs_evidence': ['owned jobs stopped'],
             'acceptance': {'decision': 'deferred', 'reason': 'acceptance checks pending'}}}))

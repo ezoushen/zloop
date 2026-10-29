@@ -39,9 +39,10 @@ Do not launch a child first and discover this limitation during collection.
 Supply absolute `adapter`, `agent_file`, `job_file`, `plugin_root`, `repo`, the job's inputs, relevant
 user decisions and exact failure evidence. Children read the adapter, agent file and job
 file, then verify worktree and branch. Pass paths instead of copied conversations.
-Record a child's startup with `native`, its rollout (its `session_meta` names the child's
-`agent_path`): a child inherits its parent's `turn_context.cwd`, so outside the child's
-worktree it is a `status` warning. A child's task message is stored encrypted, so before each
+Record a child's startup with `worker_lifecycle.py record`, `kind: startup` and `native`:
+its rollout under `$CODEX_HOME/sessions/` (default `~/.codex/sessions/`), named
+`rollout-*-<id>.jsonl`; register the child's `agent_path` as `native_session`.
+A child's task message is stored encrypted, so before each
 `spawn_agent` record its assignment, from inside the checkout the child works in, with `python3
 <plugin_root>/hooks/read_only_writes.py codex-assign --task <task_name> --agent-file <agent_file> --worktree
 <worktree>`; only when it succeeds, spawn it with that `task_name`, new for each child. The record survives a
@@ -122,14 +123,11 @@ exactly these entries; under `codex sandbox` with the profile, `git commit` succ
 worktree. Start it in a
 worktree of a checkout the user already trusts: anywhere else "Trust this folder?" blocks the
 start (Herdr: `agent_not_ready`, agent `blocked`). Report that dialog to the user; never answer
-it. `submit` verifies the rollout's latest `turn_context`: the `sandbox_policy` type
-(`workspace-write` for a profile), `approval_policy` and the `permission_profile` entries.
+it.
 `codex exec` has no `-a` and always runs with approval `never`.
 
-Startup follows [the startup order](../../runtime/workers/prepare.md): the rollout and Herdr's
-`agent_session` appear only after the first turn, so send the probe
-(`herdr agent prompt <name> '<reply READY, use no tools>' --wait`), read the rollout id, register, then
-`submit`.
+Startup follows [the startup order](../../runtime/workers/prepare.md). Herdr's `agent_session`
+names the rollout id; pass the rollout as `native` to `submit` and `collect`.
 
 The [executor guides](../executors/README.md) cover each executor type a route can select.
 

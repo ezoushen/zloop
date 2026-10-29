@@ -271,8 +271,7 @@ class Waits(WorkerLifecycleCase):
 
     def test_stale_idle_is_a_wait_receipt_and_requires_prompt_and_report(self):
         self.register()
-        self.record('startup', observed={'runtime': 'claude', 'model': 'sonnet', 'effort': 'high'},
-                    evidence=['native.jsonl:1'])
+        self.record('startup', native=str(self.native()))
         self.watch()
         self.cli('gate', '--attempt', 'ticket-1/1', '--stage', 'accept', '--revision', 'head-1', code=1)
         report = self.root / 'report.md'
