@@ -102,6 +102,9 @@ else:
         return dict(env, **({'HERDR_PANE_ID': pane, 'HERDR_WORKSPACE_ID': 'w1'} if pane else {}), **values)
 
     def lifecycle(self, kind, attempt='ticket-1/1', pane='w1:p1', env=None, **fields):
+        if kind == 'register':
+            packet = Path(fields['packet'])
+            packet.write_text(f'attempt: {attempt}\n' + packet.read_text())
         event = self.state.parent / 'event.json'
         event.write_text(json.dumps(dict(kind=kind, attempt=attempt, **fields)))
         subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'record', '--state', str(self.state),

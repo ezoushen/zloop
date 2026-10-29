@@ -52,7 +52,7 @@ class OutcomeLedger(unittest.TestCase):
         self.record('register', attempt, assignment=attempt.split('/')[0], repo=str(self.root),
                     worktree=str(self.root), head='head-1', execution=str(execution), runtime='claude',
                     worker=f'pane-{number}', native_session=f'native-{number}', owned=True,
-                    packet=str(support.assignment_file(self.root, job)))
+                    packet=str(support.assignment_file(self.root, job, attempt=attempt)))
         native = session_record(self.root / f'native-{number}.jsonl', 'claude', f'native-{number}',
                                 self.root, model=candidate)
         self.record('startup', attempt, native=str(native))

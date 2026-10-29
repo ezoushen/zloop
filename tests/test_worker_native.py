@@ -11,6 +11,32 @@ from native_records import assistant_turn, session_record, user_message
 
 
 class NativeProof(WorkerLifecycleCase):
+    def test_codex_native_child_uses_its_registering_parent_and_reply_despite_an_encrypted_task(self):
+        self.native_env = dict(os.environ, CODEX_SESSION_ID='codex-host')
+        attempt, model = self.runtime_attempt('codex', child=True)
+        path = session_record(self.root / 'child.jsonl', 'codex', 'codex', self.root,
+                              model=model, child=True)
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        rows[0]['payload']['parent_thread_id'] = 'codex-host'
+        rows = [row for row in rows if (row.get('payload') or {}).get('role') != 'assistant']
+        path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        self.record('startup', attempt, native=str(path))
+        request = self.result_request(attempt, path)
+        error = self.cli('collect', '--attempt', attempt, '--input', request, code=2)
+        self.assertIn('let the worker answer it, then collect', error)
+        assistant_turn(path, 'codex')
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        for parent in ('unrelated-host', None):
+            rows[0]['payload']['parent_thread_id'] = parent
+            path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+            error = self.cli('collect', '--attempt', attempt, '--input', request, code=2)
+            self.assertIn('parent_thread_id', error)
+            self.assertIn('start a native child from that host', error)
+        rows[0]['payload']['parent_thread_id'] = 'codex-host'
+        path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        self.cli('collect', '--attempt', attempt, '--input', request)
+        self.assertEqual(self.cli('status', '--attempt', attempt)['attempts'][0]['result']['status'], 'completed')
+
     def test_registration_refuses_every_registering_host_session_as_a_worker(self):
         for runtime in ('claude', 'codex', 'pi', 'opencode'):
             self.state = self.root / f'{runtime}.sqlite'
@@ -27,10 +53,13 @@ class NativeProof(WorkerLifecycleCase):
             with self.subTest(runtime=runtime, persisted=True):
                 self.assertEqual(self.cli('status')['attempts'], [])
 
-    def runtime_attempt(self, runtime):
+    def runtime_attempt(self, runtime, *, child=False):
         model = 'fixture/model' if runtime in ('pi', 'opencode') else 'model'
-        self.execution.write_text(json.dumps({'host': runtime, 'native_dispatch': True,
-            'agent': 'builder', 'job': 'ticket', 'settings': {'model': model, 'effort': 'high'}}))
+        route = {'host': runtime, 'native_dispatch': runtime != 'codex' or child,
+                 'agent': 'builder', 'job': 'ticket', 'settings': {'model': model, 'effort': 'high'}}
+        if runtime == 'codex' and not child:
+            route['launch'] = {'verify': {'sandbox': 'workspace-write', 'approval': 'never'}}
+        self.execution.write_text(json.dumps(route))
         attempt = f'{runtime}/1'
         self.register(attempt, assignment=runtime, session=runtime, worker=runtime, runtime=runtime)
         return attempt, model
@@ -51,7 +80,7 @@ class NativeProof(WorkerLifecycleCase):
     def test_startup_reads_settings_and_identity_from_each_registered_session(self):
         for runtime in ('claude', 'codex', 'pi', 'opencode'):
             with self.subTest(runtime=runtime):
-                attempt, model = self.runtime_attempt(runtime)
+                attempt, model = self.runtime_attempt(runtime, child=True)
                 path = self.root / f'{runtime}.jsonl'
                 for child in (False, True) if runtime in ('claude', 'codex') else (False,):
                     session_record(path, runtime, 'someone-else', self.root, model=model, child=child)
@@ -77,12 +106,26 @@ class NativeProof(WorkerLifecycleCase):
                             'evidence': ['report read']}}))
         return str(request)
 
+    def test_registration_requires_its_exact_attempt_line_in_the_packet(self):
+        packet = self.packet()
+        original = '\n'.join(line for line in packet.read_text().splitlines() if not line.startswith('attempt:'))
+        for header in ('', 'attempt: ticket-1/10\n'):
+            with self.subTest(header=header):
+                packet.write_text(header + original)
+                error = self.register(packet=str(packet), code=2)
+                self.assertIn('attempt: ticket-1/1', error)
+                self.assertIn('add', error)
+                self.assertEqual(self.cli('status')['attempts'], [])
+        packet.write_text('assignment: ticket-1  attempt: ticket-1/1\n' + original)
+        self.register(packet=str(packet))
+
     def test_collection_requires_this_attempt_in_the_users_own_text(self):
         for runtime in ('claude', 'codex', 'pi', 'opencode'):
             with self.subTest(runtime=runtime):
                 attempt, model = self.runtime_attempt(runtime)
-                path = session_record(self.root / f'{runtime}.jsonl', runtime, runtime, self.root, model=model)
+                path = self.native(attempt, model=model)
                 self.record('startup', attempt, native=str(path))
+                self.record('submitted', attempt, evidence=['packet sent'])
                 request = self.result_request(attempt, path)
                 for text, kind in (('an unrelated live session', 'text'),
                                    (f'attempt: {attempt}-different', 'text'),
@@ -104,8 +147,9 @@ class NativeProof(WorkerLifecycleCase):
         for runtime in ('claude', 'codex', 'pi', 'opencode'):
             with self.subTest(runtime=runtime):
                 attempt, model = self.runtime_attempt(runtime)
-                path = session_record(self.root / f'{runtime}.jsonl', runtime, runtime, self.root, model=model)
+                path = self.native(attempt, model=model)
                 self.record('startup', attempt, native=str(path))
+                self.record('submitted', attempt, evidence=['packet sent'])
                 assistant_turn(path, runtime)
                 user_message(path, runtime, f'assignment: {runtime}  attempt: {attempt}')
                 request = self.result_request(attempt, path)
@@ -117,10 +161,12 @@ class NativeProof(WorkerLifecycleCase):
     def test_a_finished_native_child_is_collectible_with_its_packet_and_reply_before_startup(self):
         for runtime in ('claude', 'codex', 'pi', 'opencode'):
             with self.subTest(runtime=runtime):
-                attempt, model = self.runtime_attempt(runtime)
+                self.native_env = dict(os.environ, CODEX_SESSION_ID='codex-host')
+                attempt, model = self.runtime_attempt(runtime, child=True)
                 path = session_record(self.root / f'{runtime}.jsonl', runtime, runtime, self.root,
                                       model=model, timestamp=1, child=runtime in ('claude', 'codex'))
-                user_message(path, runtime, f'assignment: {runtime}  attempt: {attempt}')
+                if runtime != 'codex':
+                    user_message(path, runtime, f'assignment: {runtime}  attempt: {attempt}')
                 assistant_turn(path, runtime, timestamp=1)
                 os.utime(path, (1, 1))
                 self.record('startup', attempt, native=str(path))

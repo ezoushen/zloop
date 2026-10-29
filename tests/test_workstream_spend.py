@@ -24,7 +24,8 @@ class WorkstreamSpend(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         # Outcomes go to a ledger under the state home; keep the user's ledger out of tests.
-        self.enterContext(patch.dict(os.environ, {'XDG_STATE_HOME': str(self.root / 'state')}))
+        self.enterContext(patch.dict(os.environ, {'XDG_STATE_HOME': str(self.root / 'state'),
+                                                 'CODEX_SESSION_ID': 'codex-host'}))
         self.state = self.root / 'workers.sqlite'
         self.claude = self.root / 'claude'
         self.codex = self.root / 'codex'
@@ -53,14 +54,15 @@ class WorkstreamSpend(unittest.TestCase):
                                          'settings': {'model': 'fixture/m' if runtime in ('pi', 'opencode') else 'm', 'effort': 'high'}}))
         self.record('register', attempt, assignment=assignment, repo=str(self.root), worktree=str(self.root),
                     head='head-1', execution=str(execution), runtime=runtime, worker=f'pane-{session}',
-                    native_session=session, owned=True, packet=str(support.assignment_file(self.root, job)))
+                    native_session=session, owned=True, packet=str(support.assignment_file(self.root, job, attempt=attempt)))
         native = session_record(self.root / f'{session}.native.jsonl', runtime, session, self.root,
-                                model='fixture/m' if runtime in ('pi', 'opencode') else 'm')
+                                model='fixture/m' if runtime in ('pi', 'opencode') else 'm', child=runtime == 'codex')
         self.record('startup', attempt, native=str(native))
         self.record('submitted', attempt, evidence=['native:2'])
         report = self.root / f'{session}.md'
         report.write_text('## Implemented\n\n## Fixed round 1\n\nreport\n')
-        user_message(native, runtime, f'assignment: {assignment}  attempt: {attempt}')
+        if runtime != 'codex':
+            user_message(native, runtime, f'assignment: {assignment}  attempt: {attempt}')
         assistant_turn(native, runtime)
         self.record('result', attempt, status=status, head='head-1', report=str(report), native=str(native), evidence=['checks'])
         if accepted:

@@ -55,7 +55,8 @@ class WorkerLifecycleCase(unittest.TestCase):
     def registration(self, attempt='ticket-1/1', assignment='ticket-1', session='native-1',
                      worker='pane-1', owned=True, runtime='claude', **fields):
         """The register event's fields, as register records them."""
-        fields.setdefault('packet', str(self.packet()))
+        if 'packet' not in fields:
+            fields['packet'] = str(self.packet(attempt))
         return dict(assignment=assignment, repo=str(self.root), worktree=str(self.root), head='head-1',
                     execution=str(self.execution), runtime=runtime, worker=worker, native_session=session,
                     owned=owned, **fields)
@@ -63,9 +64,10 @@ class WorkerLifecycleCase(unittest.TestCase):
     def register(self, attempt='ticket-1/1', *args, code=0, **fields):
         return self.record('register', attempt, code=code, **self.registration(attempt, *args, **fields))
 
-    def packet(self):
+    def packet(self, attempt='ticket-1/1'):
         """A complete assignment for the job the current execution names."""
-        return support.assignment_file(self.root, json.loads(self.execution.read_text()).get('job', 'ticket'))
+        return support.assignment_file(self.root, json.loads(self.execution.read_text()).get('job', 'ticket'),
+                                       attempt=attempt)
 
     def ready(self, attempt='ticket-1/1'):
         """A worker whose native record shows the settings and launch controls it was given, prompted."""
@@ -84,7 +86,9 @@ class WorkerLifecycleCase(unittest.TestCase):
         """The fixture worker answers after its prompt, leaving proof to pass to result/collect."""
         saved = self.cli('status', '--attempt', attempt)['attempts'][0]
         path = self.native_paths[attempt]
-        user_message(path, saved['requested']['runtime'], f'assignment: {saved["assignment"]}  attempt: {attempt}')
+        if saved['requested']['runtime'] != 'codex' or not json.loads(
+                path.read_text().splitlines()[0])['payload'].get('parent_thread_id'):
+            user_message(path, saved['requested']['runtime'], f'assignment: {saved["assignment"]}  attempt: {attempt}')
         assistant_turn(path, saved['requested']['runtime'])
         return {'native': str(path)}
 

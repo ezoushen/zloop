@@ -725,7 +725,11 @@ def record(db, data, refuse_changes=False, submitting=False):
         except (OSError, ValueError) as error:
             raise ValueError(f'{error}; collect with native: {native}, the registered worker session record '
                              '(OpenCode: a fresh opencode session export)') from None
-        packet, reply = native_settings.packet_reply(data['native'], target['runtime'], target['native_session'], attempt)
+        child = target['runtime'] == 'codex' and target['execution_snapshot'].get('native_dispatch')
+        packet, reply = native_settings.packet_reply(data['native'], target['runtime'], target['native_session'], attempt,
+            parents=target.get('sessions', []) if child else None)
+        require(not child or packet, 'Completion requires the Codex child rollout to name a registering host session '
+                'as parent_thread_id; start a native child from that host and collect with its native record')
         require(packet, 'Completion requires the assignment packet; send the worker its packet, which starts with '
                 f'`assignment: {target["assignment"]}  attempt: {attempt}`, then collect with native: {native}')
         require(reply, f'Completion requires the packet reply; let the worker answer it, then collect with native: {native}')
@@ -770,6 +774,8 @@ def record(db, data, refuse_changes=False, submitting=False):
             packet = Path(data.get('packet') or '')
             require(packet.is_absolute() and packet.is_file(),
                     'Registration requires packet: the absolute path of the assignment text sent to the worker')
+            require(native_settings.has_attempt(packet.read_text(errors='replace'), attempt),
+                    f'Registration packet lacks its attempt line; add `attempt: {attempt}` to the packet')
             missing = agent_defs.missing_inputs(job, packet.read_text(errors='replace'))
             require(not missing, f'The {execution["job"]} assignment lacks {", ".join(missing)}; write each as '
                                  f'`name: value` (see {job["path"]})')

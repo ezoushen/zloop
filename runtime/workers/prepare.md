@@ -86,8 +86,8 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    `collect` result reports a capture gap; without that field nothing was linked,
    so record an override yourself. An unbound forwarding executor needs an explicitly verified
    destination; a known destination must agree with the resolver.
-3. Packets start with `assignment: <id>  attempt: <attempt id>`; collection needs
-   the worker's reply to that packet in its own session record.
+3. Name attempts in packets. Collection needs its worker's reply;
+   Codex native children prove parentage through rollout metadata.
    Use `submit` for transport commands. Native children use `worker_lifecycle.py record
    --state ... --input /absolute/startup.json` with `kind: startup`, `attempt` and
    `native`: the record path named by the host adapter. Optional `model_alias_evidence`
@@ -116,7 +116,7 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    it wakes nobody, so read the receipt with `status`.
 
    `native` is the registered session's Claude/Pi JSONL, Codex rollout JSONL, or
-   a current OpenCode export JSON file (`opencode session export <id>` in OpenCode 2,
+   a current OpenCode export JSON file (`opencode session export <native session>` in OpenCode 2,
    `opencode export` in OpenCode 1). Obtain it from the installed native
    interface. The helper retains settings and source hashes without copying conversation contents.
    Verify source provenance and exclusive ownership of native controls; refresh an

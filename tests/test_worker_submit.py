@@ -2,6 +2,7 @@
 """Worker submission verifies native model and effort before productive work."""
 
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -711,6 +712,7 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
 
     def setUp(self):
         super().setUp()
+        self.native_env = dict(os.environ, CODEX_SESSION_ID='codex-host')
         self.worktree = (self.root / '.worktrees' / 'ticket-1').resolve()
         self.worktree.mkdir(parents=True)
 
@@ -723,7 +725,7 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
                            {'type': 'assistant', 'sessionId': 'parent-1', 'agentId': session, 'isSidechain': True,
                             'cwd': str(cwd), 'perTurnEffort': 'high', 'message': {'model': 'm'}}],
                 'codex': [{'type': 'session_meta', 'payload': {'id': 'thread-1', 'agent_path': session,
-                                                               'cwd': str(cwd)}},
+                                                               'parent_thread_id': 'codex-host', 'cwd': str(cwd)}},
                           {'type': 'turn_context', 'payload': {'model': 'm', 'effort': 'high', 'cwd': str(cwd)}}],
                 'pi': [{'type': 'session', 'id': session, 'cwd': str(cwd)},
                        {'type': 'thinking_level_change', 'id': 'thinking', 'parentId': None, 'thinkingLevel': 'high'},
@@ -739,7 +741,7 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
         self.record('register', attempt, assignment=f'{runtime}-1', repo=str(self.root),
                     worktree=str(worktree or self.worktree), head='head-1', execution=str(self.execution),
                     runtime=runtime, worker=self.SESSIONS[runtime], native_session=self.SESSIONS[runtime], owned=True,
-                    packet=str(self.packet()))
+                    packet=str(self.packet(attempt)))
         return attempt
 
     def startup(self, attempt, runtime, rows=None, code=0):
@@ -800,7 +802,8 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
         native = self.root / 'child.jsonl'
         native.write_text(json.dumps({'type': 'session', 'id': 'pi-child-7', 'cwd': str(self.worktree)}) + '\n')
         fields = dict(assignment='pi-1', repo=str(self.root), worktree=str(self.worktree), head='head-1',
-                      execution=str(self.execution), runtime='pi', worker='run-42', owned=True, packet=str(self.packet()))
+                      execution=str(self.execution), runtime='pi', worker='run-42', owned=True,
+                      packet=str(self.packet('pi-1/1')))
         refused = self.record('register', 'pi-1/1', native=str(native), native_session='run-42', code=2, **fields)
         self.assertEqual(refused, 'native_session run-42 is not the session pi-child-7 the native record names\n')
         self.record('register', 'pi-1/1', native=str(native), **fields)

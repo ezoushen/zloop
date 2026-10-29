@@ -48,7 +48,7 @@ def isolated_env(root, **values):
                 CODEX_HOME=str(root / 'codex'), **values)
 
 
-def assignment_file(root, job, text=''):
+def assignment_file(root, job, text='', *, attempt='ticket-1/1'):
     """An assignment for job that names every input the resolver requires, followed by text."""
     import agent_defs
     definition = agent_defs.load()['jobs'][job]
@@ -57,7 +57,7 @@ def assignment_file(root, job, text=''):
     lines = [f'{name}: ' + {'ticket': 'fx/01', 'needs': '[]'}.get(name, f'/fixture/{name.replace(" ", "-")}')
              for name in (*agent_defs.COMMON_INPUTS, *definition['inputs'])]
     path = Path(root) / f'{job}-assignment.txt'
-    path.write_text('\n'.join(lines) + '\n' + text)
+    path.write_text(f'attempt: {attempt}\n' + '\n'.join(lines) + '\n' + text)
     return path
 
 
@@ -96,7 +96,7 @@ def collected_attempt(repo, slug, attempt, report, job='ticket', head='head-1', 
 
     record('register', assignment=attempt.rpartition('/')[0] or attempt, repo=str(repo), worktree=str(repo),
            head=head, execution=str(execution), runtime='claude', worker=f'pane-{attempt}',
-           native_session=f'native-{attempt}', owned=True, packet=str(assignment_file(work, job)))
+           native_session=f'native-{attempt}', owned=True, packet=str(assignment_file(work, job, attempt=attempt)))
     native = session_record(work / 'native.jsonl', 'claude', f'native-{attempt}', repo)
     record('startup', native=str(native))
     record('submitted', evidence=['native.jsonl:2:accepted prompt'])

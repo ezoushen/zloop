@@ -48,7 +48,7 @@ class Capacity(unittest.TestCase):
                            assignment=attempt.split('/')[0], repo=str(self.root), worktree=str(self.root),
                            head='head-1', execution=str(execution), runtime='pi', worker=f'pane-{self.number}',
                            native_session=f'native-{self.number}', owned=True,
-                           packet=str(support.assignment_file(self.root, 'e2e-gate')))
+                           packet=str(support.assignment_file(self.root, 'e2e-gate', attempt=attempt)))
 
     def collect(self, attempt, state=None):
         state = state or self.root / 'workers.sqlite'

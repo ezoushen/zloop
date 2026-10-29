@@ -48,9 +48,9 @@ configuration stay callable under a session's deny rules.
    writes through the `general` subagent unless subagent is denied.
 3. In the worker's tab, export `OPENCODE_PASSWORD` and the same isolated `XDG_CONFIG_HOME`,
    `XDG_DATA_HOME` and `XDG_STATE_HOME`; without them the TUI loads the user's own `tui.json`, not the
-   Herdr reporter. Then start the TUI with `--server <url> --session <id>`.
-4. [Prepare](../../runtime/workers/prepare.md): send `assignment: <id>  attempt: <id>` and collect its reply.
-   Export: `opencode session export <id> --server <url>` (v1: `opencode export`).
+   Herdr reporter. Then start the TUI with `--server <url> --session <native-session>`.
+4. Use [prepare](../../runtime/workers/prepare.md) for registration and collection.
+   Export: `opencode session export <native-session> --server <url>` (v1: `opencode export`).
    Use `native` for `submit` or `worker_lifecycle.py record` (`kind: startup`); refresh for `collect`.
    The export records no server, so `submit` cannot tell an export of the private server's
    session from one of the user's service: export with `--server <url>` and never substitute.

@@ -40,7 +40,7 @@ class Jobs(WorkerLifecycleCase):
         self.use('reviewer', 'diff-review')
         self.record('register', attempt, assignment=attempt.split('/')[0], repo=str(self.worktree),
                     worktree=str(self.worktree), head=head, execution=str(self.execution), runtime='claude',
-                    worker='pane-' + session, native_session=session, owned=True, packet=str(self.packet()))
+                    worker='pane-' + session, native_session=session, owned=True, packet=str(self.packet(attempt)))
         self.ready(attempt)
         report = self.root / 'review.md'
         report.write_text('## Coverage\n\n## Review round 1\n')

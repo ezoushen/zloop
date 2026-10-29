@@ -19,12 +19,19 @@ def session_record(path, runtime, session, worktree, *, model='sonnet', effort='
             rows.append({'type': 'permission-mode', 'permissionMode': scope['permission_mode']})
     elif runtime == 'codex':
         rows = [{'type': 'session_meta', 'payload': {'id': 'thread' if child else session,
-                 **({'agent_path': session} if child else {}), 'cwd': str(worktree)}},
+                 **({'agent_path': session, 'parent_thread_id': 'codex-host', 'source': {'subagent': {
+                     'thread_spawn': {'parent_thread_id': 'codex-host', 'agent_path': session, 'depth': 1}}}}
+                    if child else {}), 'cwd': str(worktree)}},
                 {'type': 'turn_context', 'payload': {'cwd': str(worktree), 'model': model, 'effort': effort,
                  **({'sandbox_policy': {'type': scope['sandbox']}} if 'sandbox' in scope else {}),
                  **({'approval_policy': scope['approval']} if 'approval' in scope else {})}},
                 {'type': 'response_item', 'payload': {'type': 'message', 'role': 'assistant',
                     'content': [{'type': 'output_text', 'text': 'READY'}]}}]
+        if child:
+            rows.insert(2, {'type': 'response_item', 'payload': {'type': 'agent_message',
+                'author': '/root', 'recipient': session, 'content': [
+                    {'type': 'text', 'text': 'Message Type: NEW_TASK\nPayload:'},
+                    {'type': 'encrypted_content', 'encrypted_content': 'fixture-ciphertext'}]}})
     elif runtime == 'pi':
         provider, _, model_id = model.partition('/')
         rows = [{'type': 'session', 'id': session, 'cwd': str(worktree)},

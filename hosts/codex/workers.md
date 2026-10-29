@@ -41,7 +41,7 @@ user decisions and exact failure evidence. Children read the adapter, agent file
 file, then verify worktree and branch. Pass paths instead of copied conversations.
 Record a child's startup with `worker_lifecycle.py record`, `kind: startup` and `native`:
 its rollout under `$CODEX_HOME/sessions/` (default `~/.codex/sessions/`), named
-`rollout-*-<id>.jsonl`; register the child's `agent_path` as `native_session`.
+`rollout-*-<native-session>.jsonl`; register the child's `agent_path` as `native_session`.
 A child's task message is stored encrypted, so before each
 `spawn_agent` record its assignment, from inside the checkout the child works in, with `python3
 <plugin_root>/hooks/read_only_writes.py codex-assign --task <task_name> --agent-file <agent_file> --worktree
@@ -126,7 +126,7 @@ start (Herdr: `agent_not_ready`, agent `blocked`). Report that dialog to the use
 it.
 `codex exec` has no `-a` and always runs with approval `never`.
 
-Follow [prepare](../../runtime/workers/prepare.md): send `assignment: <id>  attempt: <id>` and collect its reply.
+Follow [prepare](../../runtime/workers/prepare.md) for registration and collection.
 Herdr's `agent_session` names the rollout id for `native`.
 
 The [executor guides](../executors/README.md) cover each executor type a route can select.

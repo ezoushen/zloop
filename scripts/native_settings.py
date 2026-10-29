@@ -6,10 +6,17 @@ import re
 from pathlib import Path
 
 
-def packet_reply(path, runtime, session, attempt):
-    """Whether this session holds the attempt packet in user text and an assistant turn after it.
+def has_attempt(text, attempt):
+    """Whether packet text contains the exact attempt header, alone or after its assignment."""
+    return bool(re.search(r'(?m)^(?:assignment:[^\r\n]*?[ \t]+)?attempt:[ \t]+'
+                          + re.escape(attempt) + r'[ \t]*$', text))
 
-    Only top-level text parts count; tool inputs and results cannot establish a packet. Pi follows its active branch.
+
+def packet_reply(path, runtime, session, attempt, *, parents=None):
+    """Return packet proof and its reply, or parent proof and a reply for a Codex native child.
+
+    Only user text establishes a packet. Codex children have encrypted tasks and use parents from registration.
+    Pi follows its active branch.
     """
     path = Path(path)
     if runtime == 'opencode':
@@ -27,7 +34,6 @@ def packet_reply(path, runtime, session, attempt):
             current = entries[parent]
         rows = list(reversed(branch))
     packet = False
-    line = re.compile(r'(?m)^(?:assignment:[^\r\n]*?[ \t]+)?attempt:[ \t]+' + re.escape(attempt) + r'[ \t]*$')
     for row in rows:
         parts, text_types = [], ('text',)
         if runtime == 'claude':
@@ -37,6 +43,8 @@ def packet_reply(path, runtime, session, attempt):
             parts = row.get('message', {}).get('content', [])
         elif runtime == 'codex':
             payload = row.get('payload') or {}
+            if parents is not None and row.get('type') == 'session_meta':
+                packet = payload.get('parent_thread_id') in parents
             role = payload.get('role') if row.get('type') == 'response_item' and payload.get('type') == 'message' else None
             if row.get('type') == 'event_msg' and payload.get('type') == 'agent_message':
                 role = 'assistant'
@@ -52,11 +60,11 @@ def packet_reply(path, runtime, session, attempt):
                 role, parts = info.get('role'), row.get('parts', [])
             else:
                 role, parts = row.get('type'), row.get('content', row.get('text', []))
-        if role == 'user':
+        if role == 'user' and parents is None:
             text = parts if isinstance(parts, str) else '\n'.join(
                 part['text'] for part in parts if isinstance(part, dict) and part.get('type') in text_types
                 and isinstance(part.get('text'), str))
-            packet = packet or bool(line.search(text))
+            packet = packet or has_attempt(text, attempt)
         elif role == 'assistant' and packet:
             return True, True
     return packet, False
