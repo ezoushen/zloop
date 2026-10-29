@@ -35,6 +35,8 @@ only accepted ADRs bind, and a change that conflicts with one is raised, not wor
   ([ADR 0014](adr/0014-the-doc-checker-enforces-the-glossary.md)).
 - An effort level adds or removes only work beyond the engineering floor and the required checks, and a missing level
   is the default, never the one used last ([ADR 0015](adr/0015-effort-levels-scale-thoroughness-above-a-fixed-floor.md)).
+- A worker counts only when its own session record shows its startup and a reply after its packet, and the stop hook
+  holds a review until its configured reviewer is collected, a launched one failed, or no route exists ([ADR 0016](adr/0016-a-worker-counts-only-with-its-own-session-record.md)).
 
 ## Suite and hooks
 
