@@ -2,7 +2,13 @@
 
 The file autopilot writes to `.scratch/<slug>/autopilot.md` before it goes hands-off.
 It holds what the run may do and when it ends, so the stop condition survives
-compaction. Fill every section; the user confirms it once.
+compaction. Fill every section; the user confirms it once. The State always records
+both effort levels on their own lines, `dispatch-effort:` and `review-effort:`,
+defaults included (medium and high), as the start or a take-over set them, so the user
+confirms them with the card. `--effort` sets both steps and a split flag overrides it for
+its step; with no level they run at these defaults, never at a level remembered from an
+earlier run, and `max` runs only when the user asks. An unknown flag or level value is
+refused, and so is a take-over of a card without the two lines.
 
 ```markdown
 # <slug> — autopilot run card
@@ -35,6 +41,8 @@ Decisions made without the user are rows in `.scratch/<slug>/ledger.md`; open on
 confirmed: no | <date> "<the user's words>"
 session: <the host's session ID where it exposes one in the environment, else unknown; never a path>
 auto-merge: no | yes
+dispatch-effort: medium
+review-effort: high
 phase: align | refine | dispatch | pr   (the phase the run is in; kept at the one it stopped in when it ends)
 terminal: <state, once ended>
 history: <earlier terminal states, each with its date, kept on take-over>

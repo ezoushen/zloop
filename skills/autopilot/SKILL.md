@@ -2,7 +2,7 @@
 name: autopilot
 description: "Run the whole loop hands-off: settle the goal in one interview, confirm a run card with its stop condition, then refine, dispatch with autofix, review and open the PR without asking again; --pause takes control, --take-over hands it back."
 disable-model-invocation: true
-argument-hint: "<goal> | --take-over [--auto-merge] | --pause"
+argument-hint: "<goal> [--effort low|medium|high|xhigh|max] [--dispatch-effort low|medium|high|xhigh|max] [--review-effort low|medium|high|xhigh|max] | --take-over [--auto-merge] [--effort low|medium|high|xhigh|max] [--dispatch-effort low|medium|high|xhigh|max] [--review-effort low|medium|high|xhigh|max] | --pause"
 ---
 
 # autopilot
@@ -22,27 +22,31 @@ types the command; a message that mentions it is not an invocation. Never widens
 
 ## Start
 
-- **`autopilot <goal>`:** run [align](../align/SKILL.md) on the goal, with its interview.
-  Settle everything later phases would ask: goal, principles, acceptance criteria with
-  Verify lines that tell success from failure, and what the user reserves.
+- **`autopilot <goal> [--effort <level>] [--dispatch-effort <level>] [--review-effort <level>]`:** run
+  [align](../align/SKILL.md) on the goal, with its interview.
+  Settle what later phases would ask: goal, principles, acceptance criteria with Verify
+  lines, and what the user reserves.
 - **`autopilot --take-over`:** start from the session's current state. It reuses accepted decisions, tickets and reports,
-  and asks only the align questions still unsettled; a phase already finished is not redone. With an existing card, continue from its State.
+  and asks only the align questions still unsettled; a phase already finished is not redone.
   A confirmed card whose goal, criteria and grants are unchanged is not confirmed again;
   a card that ended `waiting-on-user` or `paused-allowance` resumes once its cause is gone. Take over a card with
-  `python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--auto-merge]`: it moves the terminal state to
-  `history:`, clears `terminal:` and sets `auto-merge:` from the flag alone, so the grant of the run that ended lapses
+  `python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--auto-merge] [--effort <level>]
+  [--dispatch-effort <level>] [--review-effort <level>]`: it keeps the card's levels unless a level flag is given
+  (`--effort` sets both, a split flag overrides it for its step); it moves the terminal state to `history:`,
+  clears `terminal:` and sets `auto-merge:` from the flag alone, so the grant of the run that ended lapses
   with its terminal state. `phase:` stays as recorded: a run that ends keeps the phase it stopped in.
   A card that ended `paused-by-user` resumes at once, with no cause to wait for: first record each decision the
   user made while in control in the ledger as theirs, with their words, and re-read the branch and the board, so
   the work the user did is the current state.
 - **`autopilot --pause`:** the user takes control of a confirmed run. Record `paused-by-user` with the user's words
-  and the phase it stopped in, and answer the user as an ordinary session from then on.
+  and the phase it stopped in, and answer the user as an ordinary session.
 - **`autopilot --take-over --timed`:** what a resume timer runs, as the user's own take-over, authorized on the card.
   It resumes only a card that still ended `paused-allowance` with `timer:` set; for any other state it reports the
-  card's state and changes nothing.
+  card's state and changes nothing. It keeps the card's levels unchanged.
 - **`--auto-merge`:** also grants merging once the PR is open; see [Stop](#stop).
 
-Then autopilot writes the [run card](run-card.md) to `.scratch/<slug>/autopilot.md` and asks the user to confirm it once.
+Then autopilot writes the [run card](run-card.md) to `.scratch/<slug>/autopilot.md`, records both effort levels on
+it, and asks the user to confirm it once.
 The card, ledger and reports are workflow state: a principle about the project's files never keeps them out of `.scratch/`.
 No phase after align starts before that confirmation; silence or an unrelated reply is
 not one. Record the confirmation on the card, with the user's words. Waiting for this confirmation is not a terminal state: `terminal:` stays empty.
@@ -56,13 +60,14 @@ user's decision with their words, and ask nothing. One that changes the goal, a 
 the card with the user's words.
 
 1. [refine](../refine/SKILL.md) the brief into tickets;
-2. [dispatch](../dispatch/SKILL.md) them with `--autofix` (review, repairs, applicable E2E);
+2. [dispatch](../dispatch/SKILL.md) them with `--autofix` and the card's levels, `--dispatch-effort <level>`
+   and `--review-effort <level>` (review, repairs, applicable E2E);
 3. [pr](../pr/SKILL.md): write the description, push the workstream branch and open the PR, then watch the required checks.
    In a repository with no PR host, publish nothing: pass the PR procedure's delivery gate, write the delivery report and end `delivered-local`.
 
 At each phase boundary and before each worker launch, run `python3 "<plugin_root>/scripts/allowance.py" status`.
-Routing already leaves out the candidates of a `critical` provider unless a configuration layer sets `include_critical_allowance`,
-so a `critical` provider that still leaves every needed job an eligible candidate does not pause the run. Pause only when the
+Routing already omits a `critical` provider's candidates unless a configuration layer sets `include_critical_allowance`,
+so one that still leaves every job a candidate does not pause the run. Pause only when the
 resolver refuses a needed job for want of an eligible candidate and names the allowance: finish the step in progress, commit
 passing work and end `paused-allowance`, and have the report ask the user whether to include the critical provider.
 Ending `paused-allowance`, schedule the resume instead of leaving it to the user: set one timer through the host's

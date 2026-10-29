@@ -16,7 +16,7 @@ modes the command takes, and `$zloop:<name>` in Codex. Each command's procedure 
 | `dispatch` | Implement the tickets, inline or in builder worktrees, then review; `--autofix` adds repairs and E2E, and `--effort`, `--dispatch-effort` and `--review-effort` set how thorough the verification and review are |
 | `review` | Review a branch or PR; `review walkthrough <target>` explains it first, and `--effort low|medium|high|xhigh|max` sets how thorough it is |
 | `pr` | Open the PR once review and verification evidence is current |
-| `autopilot` | Settle the goal in one interview, confirm a run card with its stop condition, then refine, dispatch, review and open the PR hands-off; `--take-over` mid-session, `--pause` to take control and `--take-over` to hand it back, `--auto-merge` to merge too |
+| `autopilot` | Settle the goal in one interview, confirm a run card with its stop condition, then refine, dispatch, review and open the PR hands-off; `--effort` for both steps, `--dispatch-effort` and `--review-effort` per step; `--take-over` mid-session, `--pause` to take control and `--take-over` to hand it back, `--auto-merge` to merge too |
 | `remediate` | Find, prove and repair tautological tests or misleading comments |
 | `setup` | Explain or change worker, routing and decision settings |
 | `brief` | Report progress; `brief map` shows which command fits |
