@@ -681,7 +681,7 @@ def unmet_needs(saved, evidence):
     return capability_probe.unmet(needs, reports, saved['worktree'])
 
 
-def record(db, data, refuse_changes=False):
+def record(db, data, refuse_changes=False, submitting=False):
     kind, attempt = data.get('kind'), data.get('attempt')
     require(text(attempt), 'Event requires attempt')
     # A read-only worktree is read before the write lock is taken; the result check and any refusal use that one read.
@@ -698,7 +698,8 @@ def record(db, data, refuse_changes=False):
             if target['runtime'] != 'opencode':
                 located = native_settings.working_directory(data['native'], target['runtime'], target['native_session'])
             observation = native_settings.observe(data['native'], target['runtime'], target['native_session'],
-                located if target['execution_snapshot'].get('native_dispatch') and located else target['worktree'])
+                located if not submitting and target['execution_snapshot'].get('native_dispatch') and located
+                else target['worktree'])
             observation['latest_at'] = native_settings.latest_entry_time(data['native'], target['runtime'])
             observation['turns'] = native_settings.assistant_turns(data['native'], target['runtime'], target['native_session'])
         except (OSError, ValueError) as error:
@@ -1330,7 +1331,7 @@ def submit(db, state, attempt, request):
     require('observed' not in request and 'evidence' not in request,
             'submit takes native: the absolute worker session record, not observed or evidence')
     record(db, dict(kind='startup', attempt=attempt, native=request.get('native'),
-                    model_alias_evidence=request.get('model_alias_evidence', [])))
+                    model_alias_evidence=request.get('model_alias_evidence', [])), submitting=True)
     return watch(db, state, attempt, request, productive=True)
 
 

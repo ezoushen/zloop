@@ -61,12 +61,15 @@ class Submission(WorkerLifecycleCase):
                     boundary.mkdir()
                 else:
                     boundary.write_text('gitdir: /another/worktree\n')
-                self.cli('submit', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
-                self.assertFalse((self.root / 'productive-work').exists())
-                if kind == 'directory':
-                    boundary.rmdir()
-                else:
-                    boundary.unlink()
+                try:
+                    error = self.cli('submit', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+                    self.assertIn('nested repository', error)
+                    self.assertFalse((self.root / 'productive-work').exists())
+                finally:
+                    if kind == 'directory':
+                        boundary.rmdir()
+                    else:
+                        boundary.unlink()
 
     def test_registration_refuses_a_top_level_route_without_launch_controls(self):
         # Rule: a worker started as its own runtime process carries the resolver's launch controls, or its write
@@ -570,17 +573,22 @@ class Submission(WorkerLifecycleCase):
                                                'from pathlib import Path; Path("productive-work").touch()']}))
         good = {'type': 'assistant', 'sessionId': 'native-1', 'cwd': str(self.root),
                 'message': {'model': 'sonnet'}, 'effort': 'high'}
-        invalid = [dict(good, message={'model': 'opus'}), dict(good, perTurnEffort='medium'),
-                   dict(good, effort=None), dict(good, sessionId='different-session'),
-                   dict(good, cwd=str(self.root / 'different-worktree')),
-                   dict(good, isSidechain=True), dict(good, message='unsupported schema')]
-        for row in invalid:
+        invalid = [(dict(good, message={'model': 'opus'}), 'model requested sonnet, observed opus'),
+                   (dict(good, perTurnEffort='medium'), 'effort requested high, observed medium'),
+                   (dict(good, effort=None), 'effort requested high, observed none'),
+                   (dict(good, sessionId='different-session'), 'registered session'),
+                   (dict(good, cwd=str(self.root / 'different-worktree')), 'worktree does not match'),
+                   (dict(good, isSidechain=True), 'registered session'),
+                   (dict(good, message='unsupported schema'), 'assistant schema')]
+        for row, reason in invalid:
             with self.subTest(row=row):
                 native.write_text(json.dumps(row) + '\n')
-                self.cli('submit', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+                error = self.cli('submit', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+                self.assertIn(reason, error)
                 self.assertFalse(marker.exists())
         native.write_text(json.dumps(good))
-        self.cli('submit', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+        error = self.cli('submit', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+        self.assertIn('incomplete record', error)
         self.assertFalse(marker.exists())
 
     def test_submit_accepts_only_explicit_model_alias_evidence(self):

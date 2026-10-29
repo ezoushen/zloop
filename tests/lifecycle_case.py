@@ -39,6 +39,9 @@ class WorkerLifecycleCase(unittest.TestCase):
                                   '--state', str(self.state), *args], capture_output=True, text=True,
                                  env=getattr(self, 'native_env', None))
         self.assertEqual(process.returncode, code, process.stdout + process.stderr)
+        if action == 'submit' and process.returncode == 0:
+            request = json.loads(Path(args[args.index('--input') + 1]).read_text())
+            self.native_paths[args[args.index('--attempt') + 1]] = Path(request['native'])
         return json.loads(process.stdout) if process.stdout else process.stderr
 
     def record(self, kind, attempt='ticket-1/1', code=0, **fields):

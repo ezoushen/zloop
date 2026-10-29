@@ -206,6 +206,8 @@ def observe(path, runtime, session, worktree):
             raise ValueError('Pi has a failed native response; inspect the provider before work')
     identity = ((latest.get('agentId') or latest.get('sessionId')) if runtime == 'claude' and latest
                 else (header or {}).get('id'))
+    if runtime == 'claude' and latest and latest.get('isSidechain'):
+        identity = latest.get('agentId')
     if latest is None or session not in (identity, (header or {}).get('agent_path')):
         raise ValueError('Native evidence does not belong to the registered session')
     if not isinstance(latest.get('cwd'), str):
