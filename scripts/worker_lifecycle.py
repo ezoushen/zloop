@@ -764,6 +764,12 @@ def record(db, data, refuse_changes=False, submitting=False):
                 data[key] = str(Path(data[key]).resolve())
             require(type(data.get('owned')) is bool, 'Registration requires explicit owned boolean')
             require(execution, 'Registration requires execution, the resolved execution file')
+            if data['runtime'] == 'codex' and execution.get('native_dispatch'):
+                task = 'attempt_' + attempt.encode('utf-8').hex()
+                require(data['native_session'].startswith('/root/')
+                        and data['native_session'].rsplit('/', 1)[-1] == task,
+                        f'Codex native attempts need a fresh child; spawn with task_name: {task} '
+                        f'and register its agent_path (/root/.../{task}) as native_session')
             settings = execution.get('settings')
             require(isinstance(settings, dict) and not set(settings) - {'model', 'effort'}
                     and all(text(value) for value in settings.values()), 'Invalid resolved settings')

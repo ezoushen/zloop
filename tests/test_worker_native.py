@@ -7,14 +7,63 @@ from pathlib import Path
 import unittest
 
 from lifecycle_case import WorkerLifecycleCase
-from native_records import assistant_turn, session_record, user_message
+from native_records import assistant_turn, codex_child_session, session_record, user_message
 
 
 class NativeProof(WorkerLifecycleCase):
+    def test_codex_child_registration_refuses_a_sibling_named_for_another_attempt(self):
+        self.execution.write_text(json.dumps({'host': 'codex', 'native_dispatch': True,
+            'agent': 'builder', 'job': 'ticket', 'settings': {}}))
+        session_record(self.root / 'sibling.jsonl', 'codex', '/root/attempt_622f31', self.root, child=True)
+        for session in ('/root/attempt_622f31', 'attempt_612f31', '/root/attempt_612f31_extra'):
+            with self.subTest(session=session):
+                error = self.register('a/1', assignment='a', runtime='codex', session=session, code=2)
+                self.assertIn('fresh child', error)
+                self.assertIn('task_name: attempt_612f31', error)
+                self.assertEqual(self.cli('status')['attempts'], [])
+        self.register('a/1', assignment='a', runtime='codex', session='/root/parent/attempt_612f31')
+
+    def test_codex_child_from_an_older_state_cannot_register_for_a_new_attempt(self):
+        self.native_env = dict(os.environ, CODEX_SESSION_ID='codex-host')
+        attempt, model = self.runtime_attempt('codex', child=True)
+        path = session_record(self.root / 'old.jsonl', 'codex', codex_child_session(attempt), self.root,
+                              model=model, child=True)
+        self.record('startup', attempt, native=str(path))
+        self.cli('collect', '--attempt', attempt, '--input', self.result_request(attempt, path))
+        original = path.read_bytes()
+        self.state = self.root / 'new-state.sqlite'
+        error = self.register('codex/2', assignment='codex', runtime='codex',
+                              session='/root/attempt_636f6465782f31', code=2)
+        self.assertIn('task_name: attempt_636f6465782f32', error)
+        self.assertIn('fresh child', error)
+        self.assertEqual(self.cli('status')['attempts'], [])
+        self.assertEqual(path.read_bytes(), original)
+
+    def test_codex_retained_child_cannot_register_its_second_attempt_without_new_work(self):
+        self.native_env = dict(os.environ, CODEX_SESSION_ID='codex-host')
+        attempt, model = self.runtime_attempt('codex', child=True)
+        path = session_record(self.root / 'retained.jsonl', 'codex', codex_child_session(attempt), self.root,
+                              model=model, child=True)
+        self.record('startup', attempt, native=str(path))
+        self.cli('collect', '--attempt', attempt, '--input', self.result_request(attempt, path))
+        original = path.read_bytes()
+        error = self.register('codex/2', assignment='codex', runtime='codex', worker='codex',
+                              session='/root/attempt_636f6465782f31', code=2)
+        self.assertIn('task_name: attempt_636f6465782f32', error)
+        self.assertIn('fresh child', error)
+        self.assertEqual([row['attempt'] for row in self.cli('status')['attempts']], ['codex/1'])
+        self.assertEqual(path.read_bytes(), original)
+        self.register('codex/2', assignment='codex', runtime='codex', worker='fresh-child',
+                      session='/root/attempt_636f6465782f32')
+        fresh = session_record(self.root / 'fresh.jsonl', 'codex', '/root/attempt_636f6465782f32', self.root,
+                               model=model, child=True)
+        self.record('startup', 'codex/2', native=str(fresh))
+        self.cli('collect', '--attempt', 'codex/2', '--input', self.result_request('codex/2', fresh))
+
     def test_codex_native_child_uses_its_registering_parent_and_reply_despite_an_encrypted_task(self):
         self.native_env = dict(os.environ, CODEX_SESSION_ID='codex-host')
         attempt, model = self.runtime_attempt('codex', child=True)
-        path = session_record(self.root / 'child.jsonl', 'codex', 'codex', self.root,
+        path = session_record(self.root / 'child.jsonl', 'codex', codex_child_session(attempt), self.root,
                               model=model, child=True)
         rows = [json.loads(line) for line in path.read_text().splitlines()]
         rows[0]['payload']['parent_thread_id'] = 'codex-host'
@@ -61,7 +110,8 @@ class NativeProof(WorkerLifecycleCase):
             route['launch'] = {'verify': {'sandbox': 'workspace-write', 'approval': 'never'}}
         self.execution.write_text(json.dumps(route))
         attempt = f'{runtime}/1'
-        self.register(attempt, assignment=runtime, session=runtime, worker=runtime, runtime=runtime)
+        session = codex_child_session(attempt) if runtime == 'codex' and child else runtime
+        self.register(attempt, assignment=runtime, session=session, worker=runtime, runtime=runtime)
         return attempt, model
 
     def test_startup_requires_native_and_refuses_host_typed_settings_for_every_runtime(self):
@@ -69,7 +119,8 @@ class NativeProof(WorkerLifecycleCase):
             self.execution.write_text(json.dumps({'host': runtime, 'native_dispatch': True,
                 'agent': 'builder', 'job': 'ticket', 'settings': {}}))
             attempt = f'{runtime}/1'
-            self.register(attempt, assignment=runtime, session=runtime, worker=runtime, runtime=runtime)
+            session = codex_child_session(attempt) if runtime == 'codex' else runtime
+            self.register(attempt, assignment=runtime, session=session, worker=runtime, runtime=runtime)
             for fields in ({}, {'observed': {'runtime': runtime}, 'evidence': ['host says it ran']}):
                 with self.subTest(runtime=runtime, fields=fields):
                     error = self.record('startup', attempt, code=2, **fields)
@@ -87,7 +138,8 @@ class NativeProof(WorkerLifecycleCase):
                     error = self.record('startup', attempt, native=str(path), code=2)
                     self.assertIn('registered session', error)
                     self.assertIn('native', error.lower())
-                    session_record(path, runtime, runtime, self.root, model=model, child=child)
+                    session = codex_child_session(attempt) if runtime == 'codex' else runtime
+                    session_record(path, runtime, session, self.root, model=model, child=child)
                     for field in ('observed', 'evidence'):
                         error = self.record('startup', attempt, native=str(path), code=2,
                                             **{field: {} if field == 'observed' else ['typed']})
@@ -163,7 +215,8 @@ class NativeProof(WorkerLifecycleCase):
             with self.subTest(runtime=runtime):
                 self.native_env = dict(os.environ, CODEX_SESSION_ID='codex-host')
                 attempt, model = self.runtime_attempt(runtime, child=True)
-                path = session_record(self.root / f'{runtime}.jsonl', runtime, runtime, self.root,
+                session = codex_child_session(attempt) if runtime == 'codex' else runtime
+                path = session_record(self.root / f'{runtime}.jsonl', runtime, session, self.root,
                                       model=model, timestamp=1, child=runtime in ('claude', 'codex'))
                 if runtime != 'codex':
                     user_message(path, runtime, f'assignment: {runtime}  attempt: {attempt}')

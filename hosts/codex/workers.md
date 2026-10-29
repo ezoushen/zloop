@@ -45,7 +45,7 @@ its rollout under `$CODEX_HOME/sessions/` (default `~/.codex/sessions/`), named
 A child's task message is stored encrypted, so before each
 `spawn_agent` record its assignment, from inside the checkout the child works in, with `python3
 <plugin_root>/hooks/read_only_writes.py codex-assign --task <task_name> --agent-file <agent_file> --worktree
-<worktree>`; only when it succeeds, spawn it with that `task_name`, new for each child. The record survives a
+<worktree>`; on success, name each child `attempt_<UTF-8 hex of attempt id>`. The record survives a
 child's redirects, `tee` and `apply_patch`, not `rm`, `mv` or an interpreter, and codex-assign's refusal of a
 child rests on `CODEX_THREAD_ID`, which a child can set. In a session with records, each path a child writes is
 judged by the record in its checkout: a child of a `writes: none` agent, or one with no record there, writes

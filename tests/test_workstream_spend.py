@@ -50,19 +50,21 @@ class WorkstreamSpend(unittest.TestCase):
     def attempt(self, attempt, assignment, session, runtime='claude', job='ticket',
                 status='completed', accepted=True):
         execution = self.root / f'{session}.execution.json'
-        execution.write_text(json.dumps({'host': runtime, 'native_dispatch': True, 'agent': 'builder', 'job': job,
-                                         'settings': {'model': 'fixture/m' if runtime in ('pi', 'opencode') else 'm', 'effort': 'high'}}))
+        scope = {'sandbox': 'workspace-write', 'approval': 'never'} if runtime == 'codex' else {}
+        execution.write_text(json.dumps({'host': runtime, 'native_dispatch': runtime != 'codex',
+            'agent': 'builder', 'job': job, 'launch': {'verify': scope},
+            'settings': {'model': 'fixture/m' if runtime in ('pi', 'opencode') else 'm', 'effort': 'high'}}))
         self.record('register', attempt, assignment=assignment, repo=str(self.root), worktree=str(self.root),
                     head='head-1', execution=str(execution), runtime=runtime, worker=f'pane-{session}',
-                    native_session=session, owned=True, packet=str(support.assignment_file(self.root, job, attempt=attempt)))
+                    native_session=session, owned=True,
+                    packet=str(support.assignment_file(self.root, job, attempt=attempt)))
         native = session_record(self.root / f'{session}.native.jsonl', runtime, session, self.root,
-                                model='fixture/m' if runtime in ('pi', 'opencode') else 'm', child=runtime == 'codex')
+                                model='fixture/m' if runtime in ('pi', 'opencode') else 'm', scope=scope)
         self.record('startup', attempt, native=str(native))
         self.record('submitted', attempt, evidence=['native:2'])
         report = self.root / f'{session}.md'
         report.write_text('## Implemented\n\n## Fixed round 1\n\nreport\n')
-        if runtime != 'codex':
-            user_message(native, runtime, f'assignment: {assignment}  attempt: {attempt}')
+        user_message(native, runtime, f'assignment: {assignment}  attempt: {attempt}')
         assistant_turn(native, runtime)
         self.record('result', attempt, status=status, head='head-1', report=str(report), native=str(native), evidence=['checks'])
         if accepted:

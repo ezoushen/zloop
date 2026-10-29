@@ -6,6 +6,11 @@ from pathlib import Path
 import time
 
 
+def codex_child_session(attempt):
+    """The fixture child's agent_path for an attempt, using Codex's task-name alphabet."""
+    return '/root/attempt_' + attempt.encode('utf-8').hex()
+
+
 def session_record(path, runtime, session, worktree, *, model='sonnet', effort='high', scope=None,
                    timestamp=None, child=False):
     """Write one runtime's settings and probe response, optionally with a native child identity."""

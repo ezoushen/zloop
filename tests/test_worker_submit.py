@@ -8,7 +8,7 @@ import sys
 import unittest
 
 from lifecycle_case import WorkerLifecycleCase
-from native_records import session_record
+from native_records import codex_child_session, session_record
 
 
 class Submission(WorkerLifecycleCase):
@@ -86,7 +86,7 @@ class Submission(WorkerLifecycleCase):
         self.assertEqual(self.cli('status')['attempts'], [])
         self.execution.write_text(json.dumps({'host': 'codex', 'target_runtime': 'codex', 'native_dispatch': True,
                                               'agent': 'builder', 'job': 'ticket', 'settings': {}}))
-        self.register(runtime='codex')
+        self.register(runtime='codex', session=codex_child_session('ticket-1/1'))
         self.assertEqual(len(self.cli('status')['attempts']), 1)
 
     def test_registration_refuses_an_untargeted_top_level_route_by_its_registered_runtime(self):
@@ -109,9 +109,10 @@ class Submission(WorkerLifecycleCase):
     def test_submit_reads_codex_session_and_latest_turn_controls(self):
         self.execution.write_text(json.dumps({'host': 'codex', 'native_dispatch': True, 'agent': 'builder', 'job': 'ticket',
                                              'settings': {'model': 'gpt-6.1-sol', 'effort': 'high'}}))
-        self.register(runtime='codex')
+        session = codex_child_session('ticket-1/1')
+        self.register(runtime='codex', session=session)
         native = self.root / 'native.jsonl'
-        rows = [{'type': 'session_meta', 'payload': {'id': 'native-1', 'cwd': str(self.root)}},
+        rows = [{'type': 'session_meta', 'payload': {'id': 'thread-1', 'agent_path': session, 'cwd': str(self.root)}},
                 {'type': 'turn_context', 'payload': {'model': 'gpt-6.1-sol', 'effort': 'medium', 'cwd': str(self.root)}},
                 {'type': 'turn_context', 'payload': {'model': 'gpt-6.1-sol', 'effort': 'high', 'cwd': str(self.root)}}]
         native.write_text(''.join(json.dumps(row) + '\n' for row in rows))
@@ -708,7 +709,7 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
     worktree is a warning, and for an agent that writes nothing that checkout is watched as well (E4: a Codex reviewer
     registered to the review worktree wrote in the workstream worktree)."""
 
-    SESSIONS = {'claude': 'a1b2c3', 'codex': '/root/review', 'pi': 'pi-child-1'}
+    SESSIONS = {'claude': 'a1b2c3', 'codex': codex_child_session('codex-1/1'), 'pi': 'pi-child-1'}
 
     def setUp(self):
         super().setUp()
