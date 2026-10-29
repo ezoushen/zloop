@@ -18,7 +18,9 @@ head; preserve unrelated local edits. Run the
 [shared review procedure](../review/SKILL.md), read as a file (its typed-only setting governs
 invocation, not reading), on the verified workstream branch,
 one target at a time. Pass the selected ticket scope, accepted alignment/ledger,
-priority sources, project instructions and report path. Include `--autofix` only
+priority sources, project instructions, report path and the review effort level
+— `--review-effort`, else `--effort`, else the review's default `high`; the procedure
+records it in `review_level:`. Include `--autofix` only
 when repairs are authorized. If the user explicitly requested a walkthrough before
 review, follow [walkthrough](../review/walkthrough.md) first and honor its transition
 policy. With no integrated changes, report that there is no review target.

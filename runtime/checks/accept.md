@@ -8,14 +8,18 @@ check a tier in the assignment:
   returns and again after each repair;
 - **full gate:** the project's complete required gate, run once on the workstream's
   integrated head before review and E2E (not per ticket merge) and once after the
-  last repair, by the orchestrator or by an E2E run that already includes it.
+  last repair, by the orchestrator or by an E2E run that already includes it;
+  `high` and higher run it after every ticket merge too.
 
 Workers run the full gate only when the project requires it per change; name that
 requirement and its source in the assignment. E2E adds only what CI and the full
-gate do not cover. Acceptance reuses a worker's recorded checks at the same commit
+gate do not cover; `xhigh` and higher add E2E for every criterion with an observable
+path. Acceptance reuses a worker's recorded checks at the same commit
 rather than running them again. Repetitions, traces and negative controls follow
 the accepted measurement contract or a concrete validity gap, rather than adding
-another batch for confidence alone.
+another batch for confidence alone; `max` repeats E2E and flaky-prone suites when
+the user asked for it. Each tier rule above names the effort levels that relax it,
+and only those ([verification levels](#verification-levels)).
 
 Before execution, reconcile each required check with retained evidence in the
 existing report: accepted outcome, command and preconditions, original revision
@@ -58,3 +62,22 @@ agreement between equally wrong outputs is not correctness evidence. Optimizatio
 claims use comparable metrics and measured variability; an improved submetric does
 not prove an unchanged or noisy end-to-end metric improved. Keep the original unmet
 criterion visible alongside any human-approved narrowing or follow-up.
+
+## Verification levels
+
+A dispatch verifies at one effort level: the thoroughness of its checks, not the
+model's reasoning effort. Every level runs the project's required checks — the full
+gate once on the workstream's integrated head before review, and required E2E — and
+the level scales only the checks beyond the ones the project requires, never those.
+
+| Level | Beyond the required checks |
+| --- | --- |
+| low | each ticket's focused tests only |
+| medium (default) | + each ticket's affected suites before it returns |
+| high | + the full gate after every ticket merge, and a verifier re-runs each ticket's acceptance on the integrated head |
+| xhigh | + E2E for every acceptance criterion with an observable path, even where CI covers it |
+| max (only when the user asks) | + repeated E2E and flaky-prone suite runs |
+
+No level relaxes the engineering standard's floor: every criterion maps to
+evidence the accepting verifier observed, and the dispatch report says what the
+level left out. A lower level buys fewer extra checks, not less proof.

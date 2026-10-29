@@ -306,7 +306,7 @@ Assessment of direction, scope and implementation against the mandate, accepted 
 _Avoid_: none
 
 **Effort level**:
-The thoroughness a step runs at, from `low` to `max`, setting its reviewers, findings and verification.
+The thoroughness a step runs at, from `low` to `max`: a review's reviewers, findings and verification, and a dispatch's checks beyond the project's required checks.
 Not Effort, the model's reasoning effort.
 _Avoid_: none
 

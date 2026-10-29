@@ -2,7 +2,7 @@
 name: dispatch
 description: "Implement scoped tickets and review the integrated changes; --autofix adds repairs and applicable E2E verification."
 disable-model-invocation: true
-argument-hint: "[<workstream|project|milestone|issue-ID|issue-URL|the plan agreed in this conversation>] [--autofix]"
+argument-hint: "[<workstream|project|milestone|issue-ID|issue-URL|the plan agreed in this conversation>] [--effort low|medium|high|xhigh|max] [--dispatch-effort low|medium|high|xhigh|max] [--review-effort low|medium|high|xhigh|max] [--autofix]"
 ---
 
 # dispatch
@@ -30,6 +30,14 @@ repairs and applicable E2E verification; separate it from the board selector.
 Carry forward existing explicit repair authorization, including an applicable
 full-delivery request. Without that authorization, dispatch stops after read-only
 review. Publication requires its own request.
+
+`--effort <level>` sets both this dispatch's verification and its review; `--dispatch-effort`
+and `--review-effort` override it for their step. With no level, verification runs at
+`medium` (today's dispatch) and the review at `high` (the review's own default), never at a
+level remembered from an earlier run; `max` runs only when the user asks. The verification
+level scales only the checks beyond the project's required ones
+([verification levels](../../runtime/checks/accept.md)), and every level keeps them.
+Reject an unknown flag or level value.
 
 ## Setup
 
@@ -63,6 +71,9 @@ review. Publication requires its own request.
    work: a live workstream branch, or a ticket not done. Name the slug to bind any other, such
    as a workstream whose branch was deleted before review. It refuses, binding nothing, where
    it finds no pane or session.
+6. Record the invocation's effort levels in the dispatch report before the first launch:
+   both levels, and what the verification level left out. A resumed dispatch keeps them
+   from there rather than defaulting again.
 
 A supplied scope is never widened, even to unblock it. Use the board's
 [overall scope](../../runtime/board/scope.md) rules to preserve
