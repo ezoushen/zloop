@@ -1295,7 +1295,7 @@ class DeliveryHold(GateRepo):
 
     def test_an_old_workstream_without_e2e_fields_is_bound_only_by_name_and_then_held_until_finished(self):
         # Re-review F1, in an old real workstream's shape: reviewed clean, no E2E or producer fields, merged into main
-        # and its branch deleted. Coordinating every workstream binds only those with active work (a branch, or a ticket
+        # and its branch deleted. Orchestrating every workstream binds only those with active work (a branch, or a ticket
         # not done), so not it; named explicitly, it is held until finished by the definition above.
         path = self.repo / '.scratch/audit/issues/01-task.md'
         path.parent.mkdir(parents=True)
