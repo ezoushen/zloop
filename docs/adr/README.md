@@ -18,6 +18,7 @@ The binding decisions of this repository, newest last. Format, statuses and supe
 - [0012](0012-an-autopilot-resume-timer-is-the-users-own-take-over.md) An autopilot resume timer is the user's own take-over: authorized on the run card, it runs `--take-over --timed` and resumes only a card still waiting on it; a pause or take-over cancels it.
 - [0013](0013-no-backward-compatibility-before-a-stable-release.md) No backward compatibility before a stable release: one switch, no alias, fallback, reader of the old form or migration, until zloop declares a stable release.
 - [0014](0014-the-doc-checker-enforces-the-glossary.md) The doc checker enforces the glossary: an _Avoid_ phrase in an agent doc is an error naming the term to write; a quoted phrase passes.
+- [0015](0015-effort-levels-scale-thoroughness-above-a-fixed-floor.md) Effort levels scale thoroughness above a fixed floor: a missing level is the default, never the one used last.
 
 ## Superseded
 

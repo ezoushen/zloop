@@ -33,6 +33,8 @@ only accepted ADRs bind, and a change that conflicts with one is raised, not wor
   reader of the old form or migration ([ADR 0013](adr/0013-no-backward-compatibility-before-a-stable-release.md)).
 - The doc checker reports an _Avoid_ phrase the glossary lists when an agent doc uses it, naming the term to write
   ([ADR 0014](adr/0014-the-doc-checker-enforces-the-glossary.md)).
+- An effort level adds or removes only work beyond the engineering floor and the required checks, and a missing level
+  is the default, never the one used last ([ADR 0015](adr/0015-effort-levels-scale-thoroughness-above-a-fixed-floor.md)).
 
 ## Suite and hooks
 
