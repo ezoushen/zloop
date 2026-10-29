@@ -13,7 +13,7 @@ requested. Use the brief command for a requested progress snapshot.
 ## Establish the change
 
 Resolve the user's target with
-`python3 "<plugin_root>/scripts/review_target.py" --repo "<checkout>" <target> [--base <ref>]`.
+`python3 "<plugin_root>/scripts/review_target.py" --resolve --repo "<checkout>" <target> [--base <ref>]`.
 Pass literal arguments safely. Verify the repository identity; fetch missing
 objects only from that repository, then resolve again. Preserve the user's checkout.
 Keep the returned repository, target, base/head and merge base with the discussion.

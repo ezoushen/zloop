@@ -192,8 +192,9 @@ class ReviewLevels(unittest.TestCase):
         self.assertIn('never at a level remembered from an earlier run', body)
         self.assertIn('`max` runs only when the user asks for it', body)
         self.assertIn('Reject conflicting or unknown flags and an unknown level value', body)
-        # Rule: the level stays with this procedure; the maintained target resolver takes no --effort.
-        self.assertIn('`--effort` selects the [level](levels.md) here and is not forwarded', body)
+        resolve = body.split('## Resolve and understand', 1)[1].split('## Agree scope and priorities', 1)[0]
+        self.assertIn('`--effort <level>`', resolve)
+        self.assertIn('The script records the [level](levels.md)', resolve)
 
     def test_a_walkthrough_carries_its_effort_into_the_review_it_continues_into(self):
         # Rule: `review walkthrough <target> --effort L` continues into a review at L, as it carries --autofix.

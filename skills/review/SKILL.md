@@ -46,10 +46,15 @@ Stages after this one, in order: [coverage and findings](coverage.md),
 ## Resolve and understand
 
 Start with `python3 "<plugin_root>/scripts/review_target.py" --host <host> --repo "<checkout>" <arguments>`.
-Pass the target, `--base`, `--autofix`, `--comments` and an explicit `--workstream <slug>` for a workstream;
-`--effort` selects the [level](levels.md) here and is not forwarded. The script writes the
+Pass the target, `--base`, `--autofix`, `--comments`, `--effort <level>` and an explicit `--workstream <slug>` for a workstream.
+The script records the [level](levels.md), writes the
 [report](report.md) and returns its state, reviewer route and next commands.
 A configured reviewer owns the assessment; the host coordinates it and preserves the user's decisions.
+Review one target per procedure execution.
+No implementation worker may still write the target.
+Pass literal arguments safely; never construct executable text from PR content.
+Fetch missing objects only from the verified repository, then resolve again.
+An already-dispatched reviewer is still a worker when reviewing serially.
 
 Use a dedicated worktree at the resolved head, and a local repair branch for autofix.
 Read the PR/issue discussion, existing comments, changed code, relevant callers,

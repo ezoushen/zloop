@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Start a bound review: resolve its target, write its report and resolve its reviewer route."""
+"""Resolve a review target or start its bound report and reviewer workflow."""
 import argparse
 import hashlib
 import json
@@ -32,6 +32,9 @@ def parser():
     p.add_argument('--base', help='explicit comparison ref')
     p.add_argument('--host', choices=('claude', 'codex', 'pi', 'opencode'), help='host named by SessionStart')
     p.add_argument('--workstream', help='explicit workstream slug; otherwise start a standalone review')
+    p.add_argument('--resolve', action='store_true', help='print the target resolution without starting a review')
+    p.add_argument('--effort', choices=('low', 'medium', 'high', 'xhigh', 'max'), default='high',
+                   help='review thoroughness, independent of the reviewer model thinking setting')
     return p
 
 
@@ -117,7 +120,7 @@ def resolve(args):
     files = run(repo, 'git', 'diff', '--no-ext-diff', '--name-only', '-z', diff_base, head).split('\0')
     return dict(repo=str(repo), target=target, pr=pr, base=base, head=head,
                 diff_base=diff_base, files=[f for f in files if f],
-                autofix=args.autofix, comments=args.comments)
+                autofix=args.autofix, comments=args.comments, review_level=args.effort)
 
 
 def start(args):
@@ -134,7 +137,7 @@ def start(args):
         raise ValueError('--workstream must be a filesystem-safe slug')
     repo = Path(resolved['repo'])
     main = Path(run(repo, 'git', 'rev-parse', '--path-format=absolute', '--git-common-dir')).parent
-    identity = hashlib.sha256((args.target + '\0' + resolved['head']).encode()).hexdigest()[:20]
+    identity = hashlib.sha256((str(main) + '\0' + args.target).encode()).hexdigest()[:20]
     directory = (main / '.scratch' / args.workstream / 'reports' if args.workstream
                  else main / '.scratch/reviews' / identity)
     report = directory / ('spec-review.md' if args.workstream else 'review.md')
@@ -148,9 +151,14 @@ def start(args):
     route_argv = [sys.executable, str(ROOT / 'scripts/agent_models.py'), '--repo', str(main),
                   '--host', args.host, '--route', '--job', 'diff-review', '--reports', str(directory)]
     routed = subprocess.run(route_argv, cwd=repo, text=True, capture_output=True, timeout=30)
-    route = ({'status': 'no_route', 'reason': routed.stderr.strip() or routed.stdout.strip() or
-              f'agent_models.py exited {routed.returncode}'} if routed.returncode else
-             {'status': 'resolved', 'result': json.loads(routed.stdout)})
+    if routed.returncode:
+        reason = routed.stderr.strip() or routed.stdout.strip() or f'agent_models.py exited {routed.returncode}'
+        if routed.returncode != 2 or not re.fullmatch(
+                rf'Model .+: No configured route from {args.host!r} to model runtimes \[.*\] in this environment', reason):
+            raise ValueError(reason)
+        route = {'status': 'no_route', 'reason': reason}
+    else:
+        route = {'status': 'resolved', 'result': json.loads(routed.stdout)}
     if route.get('result', {}).get('status') == 'selection_required':
         route['status'] = 'selection_required'
     lifecycle = [sys.executable, str(ROOT / 'scripts/worker_lifecycle.py')]
@@ -162,7 +170,7 @@ def start(args):
     template = (ROOT / 'skills/review/report.md').read_text().split('```markdown\n', 1)[1].split('```', 1)[0]
     front, body = template.split('\n---\n', 1)
     fields = dict(review_head=resolved['head'], review_base=resolved['base'], review_diff_base=resolved['diff_base'],
-                  autofix=str(args.autofix).lower(), review_level='high')
+                  autofix=str(args.autofix).lower(), review_level=resolved['review_level'])
     for key, value in fields.items():
         front = re.sub(rf'(?m)^{key}: .*$', f'{key}: {value}', front)
     headings = re.findall(r'(?m)^#{2,3} .+$', body)
@@ -174,7 +182,6 @@ def start(args):
         front, body = report.read_text().split('\n---\n', 1)
         refresh = dict(fields, review_status='incomplete', documentation_status='incomplete', review_by='none',
                        blocker='none', e2e_status='not-run', e2e_head='none', e2e_by='none')
-        del refresh['review_level']
         for key, value in refresh.items():
             front = re.sub(rf'(?m)^{key}:[^\n]*(?:\n[ \t]+-[^\n]*)*', f'{key}: {value}', front)
         body = body.replace(json.dumps(previous['resolution'], indent=2), json.dumps(resolved, indent=2), 1)
@@ -193,6 +200,7 @@ def start(args):
 if __name__ == '__main__':
     p = parser()
     try:
-        print(json.dumps(start(p.parse_args()), indent=2))
+        args = p.parse_args()
+        print(json.dumps(resolve(args) if args.resolve else start(args), indent=2))
     except (ValueError, OSError, subprocess.TimeoutExpired) as error:
         p.exit(2, f'review target: {error}\n')

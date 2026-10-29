@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Stop hook: keep the host working while a lifecycle worker could finish without waking it.
 
-Reads every run's workers.sqlite under the main checkout's .scratch/*/reports/ and .scratch/reviews/*/ that
-changed in the last day, without writing to it, and applies the lifecycle's yield
+Reads every run's workers.sqlite under the main checkout's .scratch/*/reports/ and .scratch/reviews/*/ without
+writing to it. For states changed in the last day, applies the lifecycle's yield
 gate to the workers this session registered (by host session, else pane), or, for one that
 recorded neither, to the session bound to orchestrate its workstream (with none bound, to every
 session). Sessions share the checkout: another session's workers and launches never hold this

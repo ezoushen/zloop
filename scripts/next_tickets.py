@@ -263,7 +263,9 @@ VERDICTS = {"review_by": {"review_status": "clean", "documentation_status": "pas
 
 
 def review_by_problems(fm, attempts, route=None):
-    """Why review_by does not name completed collected diff-review attempts at review_head."""
+    """Why review_by lacks completed collected diff-review attempts at review_head, or allowed local review.
+
+    Local review requires a recorded no_route result with its reason."""
     if fm.get('review_by') == 'local' and (route or {}).get('status') == 'no_route' and route.get('reason'):
         return []
     collected = {saved['attempt']: saved for saved in attempts if saved.get('result')}

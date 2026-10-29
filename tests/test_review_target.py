@@ -52,7 +52,8 @@ class ReviewTarget(unittest.TestCase):
         env.update(HOME=str(self.repo))
         if identified:
             env.update(CODEX_SESSION_ID=session, HERDR_PANE_ID='w1:p9')
-        result = subprocess.run([sys.executable, str(SCRIPT), '--repo', self.directory, '--host', host,
+        result = subprocess.run([sys.executable, str(SCRIPT), '--repo', self.directory,
+                                 *(['--host', host] if host else []),
                                  target, '--base', 'trunk', *extra], capture_output=True, text=True, env=env)
         self.assertEqual(result.returncode, code, result.stdout + result.stderr)
         return json.loads(result.stdout) if code == 0 else result.stderr
@@ -195,6 +196,36 @@ class ReviewTarget(unittest.TestCase):
         self.assertIn('review_by: none', text)
         self.assertIn('User decision: retain scope.', text)
 
+    def test_a_new_standalone_head_refreshes_one_binding_and_keeps_decisions_and_follow_ups(self):
+        first = self.launch()
+        report = Path(first['report'])
+        report.write_text(report.read_text().replace('review_status: incomplete', 'review_status: clean')
+                          .replace('review_by: none', 'review_by: old-review/1')
+                          .replace('documentation_status: incomplete', 'documentation_status: passed')
+                          .replace('e2e_status: not-run', 'e2e_status: passed')
+                          .replace('e2e_head: none', f'e2e_head: {self.head}')
+                          .replace('e2e_by: none', 'e2e_by: old-e2e/1')
+                          + '\nUser decision: retain scope.\nFollow-up: inspect the consumer.\n')
+        self.git('commit', '--allow-empty', '-m', 'repair after review')
+        head = self.git('rev-parse', 'HEAD')
+        restarted = self.launch()
+        self.assertEqual(restarted['report'], first['report'])
+        self.assertEqual(restarted['binding'], first['binding'])
+        self.assertEqual(list((self.repo / '.scratch/reviews').glob('*/review.json')), [Path(first['binding'])])
+        for line in (f'review_head: {head}', 'review_status: incomplete', 'documentation_status: incomplete',
+                     'review_by: none', 'e2e_status: not-run', 'e2e_head: none', 'e2e_by: none',
+                     'User decision: retain scope.', 'Follow-up: inspect the consumer.'):
+            self.assertIn(line, report.read_text())
+        binding = json.loads(Path(restarted['binding']).read_text())
+        self.assertEqual(binding['resolution']['head'], head)
+        env = {key: value for key, value in os.environ.items() if not key.startswith(('ZLOOP_', 'HERDR_'))}
+        checked = subprocess.run([sys.executable, str(support.ROOT / 'hooks/yield_gate.py'), 'check',
+                                  str(self.repo), 'review-session'], capture_output=True, text=True, env=env)
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        gaps = json.loads(checked.stdout)['missing']
+        self.assertEqual(len(gaps), 1)
+        self.assertIn(str(report), gaps[0])
+
     def test_no_reviewer_route_records_its_reason_without_allowing_an_unselected_pool(self):
         config = self.repo / '.zloop/executors.json'
         config.parent.mkdir()
@@ -212,10 +243,59 @@ class ReviewTarget(unittest.TestCase):
         selected = self.launch('--workstream', 'fx')
         self.assertEqual(selected['route']['status'], 'selection_required')
 
+    def test_reviewer_configuration_errors_stop_start_without_recording_no_route(self):
+        config = self.repo / '.zloop'
+        config.mkdir()
+        for name, content, reason in (
+                ('models.json', '{"agents":{"reviewer":{"model":"typo-model"}}}', 'expected host keys'),
+                ('executors.json', '{broken', 'Expecting property name enclosed in double quotes'),
+                ('executors.json', '{"agents":{"reviewer":{"model":"typo-model"}}}',
+                 "Unknown model definition 'typo-model'")):
+            with self.subTest(name=name, content=content):
+                for path in config.iterdir():
+                    path.unlink()
+                (config / name).write_text(content)
+                refused = self.launch(code=2)
+                self.assertIn(reason, refused)
+                self.assertFalse((self.repo / '.scratch').exists())
+
+    def test_start_records_the_requested_review_level_and_defaults_to_high_on_restart(self):
+        for level in ('low', 'medium', 'high', 'xhigh', 'max', None):
+            with self.subTest(level=level):
+                result = self.launch(*(['--effort', level] if level else []))
+                self.assertIn(f'review_level: {level or "high"}\n', Path(result['report']).read_text())
+                self.assertNotIn('effort', result['route']['result']['settings'])
+        report, binding = Path(result['report']), Path(result['binding'])
+        before = report.read_bytes(), binding.read_bytes()
+        refused = self.launch('--effort', 'turbo', code=2)
+        self.assertIn("invalid choice: 'turbo'", refused)
+        self.assertEqual((report.read_bytes(), binding.read_bytes()), before)
+
     def test_a_review_cannot_start_without_a_session_or_pane_to_hold(self):
         refused = self.launch(identified=False, code=2)
         self.assertIn('no host session ID or Herdr pane; the review stop hold cannot bind this session', refused)
         self.assertFalse((self.repo / '.scratch/reviews').exists())
+
+    def test_resolve_for_walkthrough_needs_no_host_or_route_and_creates_no_hold(self):
+        config = self.repo / '.zloop/executors.json'
+        config.parent.mkdir()
+        config.write_text('{broken')
+        before = self.git('status', '--porcelain')
+        resolved = self.launch('--resolve', host=None, identified=False)
+        self.assertEqual(resolved['head'], self.head)
+        self.assertEqual(resolved['base'], self.base)
+        self.assertEqual(resolved['diff_base'], self.base)
+        self.assertEqual(set(resolved['files']), {'code.txt', ' leading space.txt'})
+        self.assertNotIn('report', resolved)
+        self.assertNotIn('binding', resolved)
+        self.assertFalse((self.repo / '.scratch').exists())
+        self.assertEqual(self.git('status', '--porcelain'), before)
+        self.assertEqual(config.read_text(), '{broken')
+        env = {key: value for key, value in os.environ.items() if not key.startswith(('ZLOOP_', 'HERDR_'))}
+        checked = subprocess.run([sys.executable, str(support.ROOT / 'hooks/yield_gate.py'), 'check',
+                                  str(self.repo), 'review-session'], capture_output=True, text=True, env=env)
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        self.assertEqual(json.loads(checked.stdout)['missing'], [])
 
     def test_workstream_slugs_cannot_escape_the_report_directory_or_be_empty(self):
         for slug in ('', '../escape', '/absolute', 'a/b', '..'):
