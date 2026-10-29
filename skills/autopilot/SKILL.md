@@ -22,17 +22,16 @@ types the command; a message that mentions it is not an invocation. Never widens
 
 ## Start
 
-- **`autopilot <goal> [--effort <level>] [--dispatch-effort <level>] [--review-effort <level>]`:** run
-  [align](../align/SKILL.md) on the goal, with its interview.
-  Settle what later phases would ask: goal, principles, acceptance criteria with Verify
-  lines, and what the user reserves.
+- **`autopilot <goal>`:** run [align](../align/SKILL.md) on the goal, with its interview.
+  Settle everything later phases would ask: goal, principles, acceptance criteria with
+  Verify lines that tell success from failure, and what the user reserves.
 - **`autopilot --take-over`:** start from the session's current state. It reuses accepted decisions, tickets and reports,
-  and asks only the align questions still unsettled; a phase already finished is not redone.
+  and asks only the align questions still unsettled; a phase already finished is not redone. With an existing card, continue from its State.
   A confirmed card whose goal, criteria and grants are unchanged is not confirmed again;
   a card that ended `waiting-on-user` or `paused-allowance` resumes once its cause is gone. Take over a card with
   `python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--auto-merge] [--effort <level>]
-  [--dispatch-effort <level>] [--review-effort <level>]`: it keeps the card's levels unless a level flag is given
-  (`--effort` sets both, a split flag overrides it for its step); it moves the terminal state to `history:`,
+  [--dispatch-effort <level>] [--review-effort <level>]`: it keeps the card's levels unless a level flag is given;
+  it moves the terminal state to `history:`,
   clears `terminal:` and sets `auto-merge:` from the flag alone, so the grant of the run that ended lapses
   with its terminal state. `phase:` stays as recorded: a run that ends keeps the phase it stopped in.
   A card that ended `paused-by-user` resumes at once, with no cause to wait for: first record each decision the
@@ -66,8 +65,8 @@ the card with the user's words.
    In a repository with no PR host, publish nothing: pass the PR procedure's delivery gate, write the delivery report and end `delivered-local`.
 
 At each phase boundary and before each worker launch, run `python3 "<plugin_root>/scripts/allowance.py" status`.
-Routing already omits a `critical` provider's candidates unless a configuration layer sets `include_critical_allowance`,
-so one that still leaves every job a candidate does not pause the run. Pause only when the
+Routing already leaves out the candidates of a `critical` provider unless a configuration layer sets `include_critical_allowance`,
+so a `critical` provider that still leaves every needed job an eligible candidate does not pause the run. Pause only when the
 resolver refuses a needed job for want of an eligible candidate and names the allowance: finish the step in progress, commit
 passing work and end `paused-allowance`, and have the report ask the user whether to include the critical provider.
 Ending `paused-allowance`, schedule the resume instead of leaving it to the user: set one timer through the host's
