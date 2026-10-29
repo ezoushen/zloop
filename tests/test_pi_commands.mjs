@@ -49,8 +49,9 @@ assert.equal(await complete("autopilot", "--x"), null);
 const labels = async (name, typed) => (await complete(name, typed))?.map((item) => item.label) ?? null;
 assert.deepEqual(await complete("review", "PR-12 --comments "), ["draft", "confirm", "post"].map((label) => ({
   value: `PR-12 --comments ${label} `, label,
-  description: "[walkthrough] <branch|PR-number|PR-URL> [--autofix] [--comments draft|confirm|post] [--base <ref>]",
+  description: "[walkthrough] <branch|PR-number|PR-URL> [--effort low|medium|high|xhigh|max] [--autofix] [--comments draft|confirm|post] [--base <ref>]",
 })));
+assert.deepEqual(await labels("review", "--effort "), ["low", "medium", "high", "xhigh", "max"]);
 assert.equal(await labels("review", "--base "), null);
 assert.deepEqual(await labels("setup", "calibration "), ["status"]);
 
@@ -92,7 +93,7 @@ const START = {
   align: ["--interactive"], autopilot: ["--take-over", "--pause"], brief: ["map"], diagnose: null,
   dispatch: ["--autofix"], explain: null, huh: null, pr: null, prototype: null, refine: null,
   remediate: ["tautological-tests", "misleading-comments", "--base", "--project"], research: null,
-  review: ["walkthrough", "--autofix", "--comments", "--base"],
+  review: ["walkthrough", "--effort", "--autofix", "--comments", "--base"],
   setup: ["show", "set", "reset", "calibrate", "calibration", "check", "retro", "replay", "--scope", "--route",
     "--config-profile", "host=claude", "host=codex", "host=pi", "host=opencode", "--candidate",
     "thinking="],
