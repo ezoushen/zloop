@@ -1,14 +1,14 @@
 # Workstream spend per accepted ticket
 
 Use this read-only helper to compare workstreams by what they cost per accepted ticket
-and to see where the coordinator's tokens went. It reads a workstream's lifecycle state
+and to see where the orchestrator's tokens went. It reads a workstream's lifecycle state
 and the native transcripts that state names, needs only Python's standard library,
 and emits JSON on stdout. It makes no model calls and changes nothing.
 
 ```sh
 python3 /path/to/zloop/scripts/workstream_spend.py \
   --state /absolute/project/.scratch/<slug>/reports/workers.sqlite \
-  --host /absolute/coordinator-transcript.jsonl \
+  --host /absolute/orchestrator-transcript.jsonl \
   --since 2026-10-14T01:00:00+00:00 --until 2026-10-14T09:00:00+00:00
 ```
 
@@ -17,7 +17,7 @@ Workers come from the state: each registered attempt's `runtime` and
 worker's own Agent-tool children and every page of a Codex rollout count toward
 that worker. The host does not register, so name its transcript with `--host`
 (repeatable; the format is detected). `--host` requires `--since` and `--until`,
-because a coordinator session often spans more than one workstream. Start the window
+because an orchestrator session often spans more than one workstream. Start the window
 at the workstream's planning, not its first registration, to include preparation.
 `--claude-root`, `--codex-root` and `--pi-root` override the default transcript
 directories.

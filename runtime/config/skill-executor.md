@@ -8,7 +8,7 @@ Use the exact selected skill; do not guess a filesystem
 path, install a substitute or invoke a similarly named sub-agent. Skill invocation
 rules still apply: reading instructions is not a workaround for an explicit-only
 invocation restriction. Report an unavailable or non-composable skill as a blocker.
-The coordinator may recover through another allowed candidate under the shared
+The orchestrator may recover through another allowed candidate under the shared
 recovery policy; this executor does not
 choose replacement models or bypass invocation restrictions.
 

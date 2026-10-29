@@ -1,6 +1,6 @@
 # Review layers and invalidation
 
-The coordinator completes layers in dependency order for each affected scope.
+The orchestrator completes layers in dependency order for each affected scope.
 Record their coverage in the existing review report; no separate state store.
 
 | Layer | Complete when |

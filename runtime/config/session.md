@@ -5,7 +5,7 @@ Use the real root session ID when available; otherwise create one stable ID when
 the first session override is requested and retain it in existing workstream state.
 Pass that ID and canonical repository to descendants and resume messages. Workers
 use their actual host adapter; carrying the session ID does not pin the parent's host.
-Only the coordinator changes the shared override record.
+Only the orchestrator changes the shared override record.
 
 State lives under `${XDG_STATE_HOME:-~/.local/state}/zloop/sessions/`, keyed by
 canonical repository and root session ID. The record includes both identities and

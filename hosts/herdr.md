@@ -74,8 +74,8 @@ pane, whatever placement the installed skill defaults to:
    zloop's stop check tells a worker from its orchestrator.
 2. `herdr agent start <name> --kind <kind> --pane <returned root pane> -- <launch args>`,
    with the `.result.root_pane.pane_id` that step 1 returned. The launch args are the
-   route's `launch.argv`; a Claude coordinator's Claude-runtime worker is a native subagent with no
-   `launch`, so the Claude recipe applies only to a Claude worker of another host's coordinator. The argv holds the worker's write scope, model and effort; each
+   route's `launch.argv`; a Claude orchestrator's Claude-runtime worker is a native subagent with no
+   `launch`, so the Claude recipe applies only to a Claude worker of another host's orchestrator. The argv holds the worker's write scope, model and effort; each
    runtime's recipe is in its adapter: [Claude](claude/workers.md#top-level-workers),
    [Codex](codex/workers.md#top-level-workers), [Pi](pi/workers.md#top-level-workers) and
    [OpenCode](opencode/workers.md#top-level-workers), whose args name a private server and session.

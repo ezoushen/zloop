@@ -40,7 +40,7 @@
   results and target execution remain distinct; target success is not yet established.
 - Case 6 uses native Codex for its same-runtime assignment, Herdr for the other
   destinations, and each worker's actual host adapter. The worker reports the scope
-  boundary to the coordinator; it does not start a helper. The coordinator narrows
+  boundary to the orchestrator; it does not start a helper. The orchestrator narrows
   the task or makes a separate bounded assignment with focused context.
 - Case 7 closes completed owned panes and clears handles after artifact checks,
   retains the needed reviewer with a reason and leaves the user's pane alone.

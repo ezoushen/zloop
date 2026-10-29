@@ -39,8 +39,8 @@ configuration stay callable under a session's deny rules.
 1. Start `opencode serve --hostname 127.0.0.1 --port <free port>` with `XDG_CONFIG_HOME`,
    `XDG_DATA_HOME` and `XDG_STATE_HOME` in a fresh directory and a known `OPENCODE_PASSWORD`,
    and with `HERDR_PANE_ID` and `HERDR_TAB_ID` unset (`env -u HERDR_PANE_ID -u HERDR_TAB_ID`): the
-   server's Herdr plugin reports state for the pane in that environment, which from the coordinator's
-   shell is the coordinator's pane.
+   server's Herdr plugin reports state for the pane in that environment, which from the orchestrator's
+   shell is the orchestrator's pane.
 2. Create the session from the route's `launch.api`: `opencode api POST /api/session
    --server <url> -d '<body>'`, with `"location":{"directory":"<worktree>"}` added to
    `launch.api.body`; without it the session gets another directory. The body denies edit

@@ -65,7 +65,7 @@ straight after a settled, triaged wake records that wake's `done` label. To reta
 use `disposition` with `kind: retain`, `reason`, `next_use` and `evidence`.
 Retention may preserve a pending design-hold receipt; it does not acknowledge the
 escalation, permit reuse, clear the hold or authorize dependent work. Mismatch and
-hold receipts need explicit acknowledgement after the coordinator consumes them.
+hold receipts need explicit acknowledgement after the orchestrator consumes them.
 If retirement fails, the intact result stays collected. Resume with the same
 status/head/report and valid disposition; do not overwrite the report or resubmit
 productive work. Receipt acknowledgement survives restarts without deleting logs

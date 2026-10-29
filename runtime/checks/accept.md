@@ -36,7 +36,7 @@ Report expected versus observed activity with retained evidence: successful
 interactions, loads, state changes or the project's equivalent signal. Exit zero,
 completed loop counts and no crash do not prove the scenario happened. Failed
 interactions, an unsuitable fixture or missing activity leave its proof incomplete;
-an observed contract failure fails the check. The coordinator verifies these
+an observed contract failure fails the check. The orchestrator verifies these
 signals before accepting a worker's pass, without replaying valid checks.
 For script checks, invoke the verified script directly, or use a supported transfer
 mechanism; `cat <script> | bash` can exit zero when the script is missing. Shell

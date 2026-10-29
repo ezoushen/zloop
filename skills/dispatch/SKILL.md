@@ -54,7 +54,7 @@ review. Publication requires its own request.
    With [a plan agreed in chat](../refine/chat-plan.md) and no tickets yet, cut them
    first; the iteration starts once the user has checked them. Tickets the user
    selected for dispatch are already checked.
-5. On a local board, bind this session as the coordinator before the first launch, and
+5. On a local board, bind this session as the orchestrator before the first launch, and
    again when another session resumes the dispatch:
    `python3 "<plugin_root>/scripts/next_tickets.py" --repo "<repo>" [slug] --orchestrate`,
    adding `--autofix` when repairs are authorized. Run it through the host's shell: it

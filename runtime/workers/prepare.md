@@ -1,19 +1,19 @@
 # Prepare a worker attempt
 
 Use this protocol for delegated work, review included, and on resume or compaction.
-The coordinator owns its state; workers return evidence through their
+The orchestrator owns its state; workers return evidence through their
 assigned channel. Keep one absolute `workers.sqlite` path per orchestration run in
 the main checkout's retained reports directory, `.scratch/<slug>/reports/workers.sqlite`;
 the yield hooks read only that location. Use the maintained
 `scripts/worker_lifecycle.py`; do not copy it into the project. Read-only workers
-only return evidence. If the coordinator itself cannot write
+only return evidence. If the orchestrator itself cannot write
 coordination state, preserve the gap and use supported native waits and reports.
 
 The hooks also append each `herdr agent start` a session runs, including behind `timeout`,
 `env` or a shell's `-c` string, to the main checkout's `.scratch/herdr-launches.jsonl`
 (time, agent name, pane, the session's Herdr pane and host session, and the pane's cwd
 when Herdr reports it). A launch is named at stop, even after its pane closed, until an
-attempt names its pane or agent and, as [wait](wait.md) says, comes from its coordinator:
+attempt names its pane or agent and, as [wait](wait.md) says, comes from its orchestrator:
 registration records the registering Herdr pane and host session. A launch inside a
 heredoc or backticks is not logged, and a pane or name from a loop variable is logged as
 typed; the live-agent check still names such a worker.
@@ -21,14 +21,14 @@ A launch or live agent that needs no attempt (it failed, its pane was closed at 
 dialog, a probe) is accounted for by running the command the stop message prints,
 `python3 <plugin root>/hooks/herdr_launch.py dismiss --pane <pane> --session <host session>
 --reason "<why>"` (or `--name <agent>`), in the checkout. The reason is required, and so is
-`--session` outside Herdr; the dismissal covers only this coordinator's launches logged
+`--session` outside Herdr; the dismissal covers only this orchestrator's launches logged
 before it.
 
 Launch every worker with `ZLOOP_WORKER=<slug>/<assignment>` in its environment (in
 Herdr, the Herdr guide's tab recipe sets it). For the Herdr
 checks a session is a worker exactly when this marker is set: the stop check still holds it
 for its own launches, but not for live agents beside it. A session without it is a
-coordinator, wherever it runs and whichever pane it is in.
+orchestrator, wherever it runs and whichever pane it is in.
 
 The helper records attempts and durable receipts. Its `submit` captures
 session-bound native settings before invoking a productive prompt command. It
@@ -44,14 +44,14 @@ them use the native wait/collection path.
 After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](../resources/retire.md).
 
 1. Resolve settings from the **calling** host and save the resolver JSON. A Pi
-   coordinator remains `--host pi` when its selected destination is Codex.
+   orchestrator remains `--host pi` when its selected destination is Codex.
    Map the resolved controls to the installed executor's actual model and effort
    controls. A model name or “think hard” in the prompt cannot set them.
 2. Create a fresh worker/conversation for a new ticket or agent. Obtain its native
    session identity as well as the transport handle. A fresh pane or a worker's
    claim of fresh context does not establish a new conversation. Give each worker a
    tab or window of its own, as the host's guidance describes, never a split of the
-   coordinator's. Register before submitting productive work, using the following
+   orchestrator's. Register before submitting productive work, using the following
    input shape:
 
    ```json
@@ -78,7 +78,7 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    its `worker` is a `session/pane/name` handle; registration reads its pane, tab,
    workspace and name from Herdr, waiting up to 5 s per call, refuses a session,
    `tab_id`, `pane_id`, name, `runtime` or `native_session` that Herdr or the handle
-   contradicts, and refuses a tab the worker shares or the coordinator's.
+   contradicts, and refuses a tab the worker shares or the orchestrator's.
 
    When the snapshot applied a decision-model recommendation, the helper records
    that decision for you: its action at registration, its execution at verified
@@ -119,7 +119,7 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    A `timeout` over 60 needs `notify`: the helper refuses a longer wait before invoking
    the worker, since nothing would wake the host. `notify.argv` is any literal argv with
    one whole `{receipt}` argument and a `timeout` of at most 45. With no named parent agent
-   (an unnamed coordinator pane, or a subagent whose prompt would reach the user's
+   (an unnamed orchestrator pane, or a subagent whose prompt would reach the user's
    session), use a command that only records the receipt, such as `["echo", "{receipt}"]`;
    it wakes nobody, so read the receipt with `status`.
 

@@ -174,7 +174,7 @@ _Avoid_: none
 
 **Orchestrator**:
 The coordinating session responsible for scheduling workers, worktrees, integration and board updates.
-_Avoid_: none
+_Avoid_: coordinator
 
 **Host**:
 The app running the current session and supplying its interaction and tool interface.

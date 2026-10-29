@@ -2,7 +2,7 @@
 
 ## Cases
 
-1. A Claude coordinator is preparing its first configured Herdr assignment. It has
+1. A Claude orchestrator is preparing its first configured Herdr assignment. It has
    read the first 70 lines of the installed skill and CLI help. State the remaining
    preparation and how it will submit work and collect completion.
 2. After observed working activity, the assigned worker is now `idle`, its report
@@ -24,7 +24,7 @@
    contains unmerged prerequisite work. A claim that a data migration works on the
    target database engine is backed by target schema metadata and reference-engine
    query checks. Use the refinement procedure to determine readiness and evidence.
-6. Inside Herdr, a Codex coordinator requests a Codex reviewer, a Claude builder for a repair job
+6. Inside Herdr, a Codex orchestrator requests a Codex reviewer, a Claude builder for a repair job
    and a Pi worker. The shared runtime routes select the reviewer natively
    and the other assignments through the Herdr skill. State the launch paths and
    adapter passed to each. Then the Claude worker reports that its assignment needs
@@ -64,10 +64,10 @@
     on a known live lock owner. State the routing action, any service calls and the
     update to the user. Then the worker reports a second failed approach to the
     same understood contract, with logs and a live test child; one permitted
-    attempt remains. Explain what the coordinator does before another attempt.
+    attempt remains. Explain what the orchestrator does before another attempt.
 14. A consolidated review confirms a material contract error in the first
     implementation. The correction needs reasoning beyond the original task
-    description; Sol/high is permitted and available. The coordinator invokes
+    description; Sol/high is permitted and available. The orchestrator invokes
     OpenJev with the failure evidence, but it repeats a model/effort combination
     already shown unsuitable without new evidence. State the next action and the
     user-visible attribution. Repeat with a missing fixture instead of a reasoning

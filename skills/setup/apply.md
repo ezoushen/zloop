@@ -50,7 +50,7 @@ override. Use the resolver's `--session` for all affected inspections and descen
 Copy the effective agent entry before a partial override, preserve unrelated session
 entries, validate, and save the complete configuration through `--save-session`.
 The saved file contains its repository/session identity plus `config`; the helper
-input is only that `config` object. The coordinator owns writes. Report the ID and
+input is only that `config` object. The orchestrator owns writes. Report the ID and
 absolute path so resume can recover them. Never write session preferences to user
 or project defaults, or treat another host's parent profile as the child's host.
 Construct edits from layers up to the requested scope: user only for a user edit,

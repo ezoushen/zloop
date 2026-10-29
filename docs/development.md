@@ -97,7 +97,7 @@ waits, state reconciliation and automatic review continuation, and the
   includes native workers and attributes related worktree sessions over an explicit
   time window. It reports recorded tokens without estimating account credits.
 - The read-only [workstream spend report](../runtime/workers/workstream-spend.md) divides a workstream's worker and
-  coordinator tokens by its accepted tickets and shows what the coordinator's tokens
+  orchestrator tokens by its accepted tickets and shows what the orchestrator's tokens
   went to. It reads Claude, Codex and Pi transcripts.
 - `scripts/allowance.py status` reports the Claude Code and Codex allowance windows and
   their pressure levels; see [selection](../runtime/routing/choose.md#allowance).

@@ -23,7 +23,7 @@ delay the hold. The hold is committed before notification, using the attempt's
 armed parent channel or an explicit `notify` object in this request. Delivery
 failure leaves the hold and its event pending. With no callback, consume the
 foreground return through the native progress channel; read-only workers return
-the structured blocker and the coordinator records it immediately. A blocked
+the structured blocker and the orchestrator records it immediately. A blocked
 return is not permission to continue dependent work.
 
 Before writing any new artifact, prefer the direct form when the worker can invoke
@@ -38,7 +38,7 @@ python3 /absolute/plugin/scripts/worker_lifecycle.py escalate \
 ```
 
 The armed parent channel is inherited. If a native approval blocks the worker's
-progress operation, the coordinator consumes its available finding and records
+progress operation, the orchestrator consumes its available finding and records
 the hold through its own authorized progress channel. Preserve the worker's actual
 permission dialog; this fallback neither approves it nor performs its pending
 file/code operation. Finish the brief before a ruling, after the hold is visible.
@@ -59,7 +59,7 @@ Complete the brief before adjudication: governing requirement, current evidence,
 alternatives, compatibility/user effects, recommendation and the decision owner. A
 brief that goes to the user [asks with context](../ask/ask.md).
 Use a separate fresh assignment for independent adjudication. Routine reversible
-engineering stays with the coordinator; user-reserved product/API choices need
+engineering stays with the orchestrator; user-reserved product/API choices need
 the user's ruling. Model strength does not transfer that authority.
 
 Record `ruling` only after the brief exists and the actual authority has decided:
@@ -69,7 +69,7 @@ revision. Escalations through `escalate` additionally require an immutable exist
 `ruling_source` file and `source_kind`: `user-message` for a human ruling, or
 `host-investigation`/`phase-decision` for an in-scope host ruling. A possible breach
 requires human authority and a user-message source; a backend response cannot
-stand in for it. The coordinator verifies that the source actually contains that
+stand in for it. The orchestrator verifies that the source actually contains that
 human's decision. Legacy manual `record hold` defaults to possible breach and
 retains its reference-based criteria contract; it does not provide the canonical
 file integrity checks of `escalate`.
@@ -82,7 +82,7 @@ A host may record the ruling against a closed blocked attempt; closing a worker
 does not dispose of its outstanding decision.
 
 The helper checks record structure, not the legitimacy of an asserted approval or
-the substance of a criterion. The coordinator must verify those sources. Keep
+the substance of a criterion. The orchestrator must verify those sources. Keep
 backend decision/action/execution/outcome recording under
 [routing decisions](../routing/report.md); lifecycle receipts
 do not substitute for measured worker-quality or completion-cost evidence.

@@ -7,7 +7,7 @@ Use the current host's delegation tool and lifecycle from its adapter. With empt
 `executor_config`, use its normal profile for the job's agent. A configured `agent` selects
 that exact native profile/agent instead. Verify it exists and can fulfill the
 assignment before starting; do not substitute a generic worker on failure. Report
-availability failures to the coordinator for [pool recovery](../../runtime/workers/recovery.md).
+availability failures to the orchestrator for [pool recovery](../../runtime/workers/recovery.md).
 
 Supply the shared assignment, resolved model policy and settings. A named agent
 may forward to another runtime. Inspect its installed entry point to establish

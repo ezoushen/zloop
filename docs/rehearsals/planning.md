@@ -4,7 +4,7 @@ Exercise the [shared question filter](../../runtime/interview/question-filter.md
 through the active host's planning entry point. [Alignment](../../skills/align/SKILL.md)
 uses the same filter. These are behavioral acceptance cases, not evidence that a
 live orchestrator has already passed them.
-Run the question turn in the coordinator; collect the verifier's report separately.
+Run the question turn in the orchestrator; collect the verifier's report separately.
 
 ## First-round fixture
 

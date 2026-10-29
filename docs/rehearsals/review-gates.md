@@ -15,7 +15,7 @@ Give the evaluator these cases without the assessment below.
    Repeat with a required restart denied by the host, then with an explicit user
    instruction to stop after ten minutes.
 2. A skill-backed reviewer has finished its first pass and is idle. Repairs will
-   need re-review; pane capacity is full. The coordinator proposes closing that
+   need re-review; pane capacity is full. The orchestrator proposes closing that
    pane now and sending the same worker another assignment after repair. State
    how to proceed and what must be retained if the worker is retired.
 3. The report links to evidence in the main checkout, but files exist only in the
@@ -29,7 +29,7 @@ Give the evaluator these cases without the assessment below.
 
 ### Assessment
 
-- Case 1 routes the missing verification through the coordinator to the configured
+- Case 1 routes the missing verification through the orchestrator to the configured
   verifier, reserves resources and continues without an approval round. Arithmetic
   does not prove run conditions. A real denial or user limit remains binding, with
   the specific blocked check recorded; neither permits a silent waiver or bypass.
@@ -107,7 +107,7 @@ Give the evaluator only these inputs plus the applicable skills. No live mutatio
    ambiguous "looks good" reply to two incompatible public-API alternatives.
 2. `/brief` is requested while local code is integrated. The latest report has a
    confirmed in-scope inaccurate comment, focused tests passed, and required E2E
-   not yet run. A coordinator message says "all clean". A follow-up is unrelated.
+   not yet run. An orchestrator message says "all clean". A follow-up is unrelated.
    No new user decision is needed. Give the briefing using the bundled presentation
    reference; tools permit reads and in-chat output only.
 

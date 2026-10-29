@@ -16,7 +16,7 @@ including public contracts, platform exceptions and governing criteria. Stop onl
 dependent edits and supply the requirement, evidence and decision-brief path.
 Use the supplied attempt/state with `worker_lifecycle.py escalate` and its armed
 parent channel before dependent work. A read-only or unsupported progress channel
-returns the structured blocker immediately; the coordinator records the hold.
+returns the structured blocker immediately; the orchestrator records the hold.
 Within-agreement uncertainty uses the phase's optional decision consultation or
 host investigation. A possible agreement breach always reaches the human; neither
 a worker nor a backend may authorize it. Resume only after a sourced ruling and
@@ -27,7 +27,7 @@ an additional reasoning or delegation layer.
 Use check execution for bounded failure controls, complete attempt logs
 and evidence that survives checkout retirement.
 
-The coordinator reserves verified exclusive resources before launching dependent
+The orchestrator reserves verified exclusive resources before launching dependent
 experiments: mutable build outputs, device, fixture, shared service or worktree.
 Follow resource coordination: a local
 mutex is optional, and a remote scheduler owns its execution capacity. Launch one
@@ -87,7 +87,7 @@ status relays after that handoff; re-engage when that condition changes or the u
 requests coordination. Ownership transfer does not authorize duplicate work or
 publication on the other session's behalf.
 
-Before accepting a worker result, the coordinator reconciles its jobs and evidence.
+Before accepting a worker result, the orchestrator reconciles its jobs and evidence.
 Retain a reviewer needed for an upcoming repair check, recording that next use.
 Once no assignment remains, preserve its report and retire the owned worker handle
 through the executor's supported close operation. If capacity requires earlier
