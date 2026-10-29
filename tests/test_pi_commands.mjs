@@ -35,11 +35,9 @@ assert.deepEqual(sent, [
 // Typing arguments offers the flags and modes the skill's argument-hint declares, matching what is typed; picking one
 // replaces the arguments typed so far. Each item shows the whole hint beside it.
 const complete = (name, typed) => commands.get(`zloop:${name}`).getArgumentCompletions(typed);
-const AUTOPILOT = "<goal> | --take-over [--auto-merge] | --pause";
-assert.deepEqual(await complete("autopilot", ""), [
-  { value: "--take-over ", label: "--take-over", description: AUTOPILOT },
-  { value: "--pause ", label: "--pause", description: AUTOPILOT },
-]);
+const AUTOPILOT = "<goal> [--effort low|medium|high|xhigh|max] [--dispatch-effort low|medium|high|xhigh|max] [--review-effort low|medium|high|xhigh|max] | --take-over [--auto-merge] [--effort low|medium|high|xhigh|max] [--dispatch-effort low|medium|high|xhigh|max] [--review-effort low|medium|high|xhigh|max] | --pause";
+assert.deepEqual(await complete("autopilot", ""), ["--effort", "--dispatch-effort", "--review-effort", "--take-over", "--pause"]
+  .map((label) => ({ value: `${label} `, label, description: AUTOPILOT })));
 assert.deepEqual(await complete("autopilot", "--t"), [
   { value: "--take-over ", label: "--take-over", description: AUTOPILOT },
 ]);
@@ -57,12 +55,16 @@ assert.equal(await labels("review", "--base "), null);
 assert.deepEqual(await labels("dispatch", "--effort "), ["low", "medium", "high", "xhigh", "max"]);
 assert.deepEqual(await labels("dispatch", "--dispatch-effort "), ["low", "medium", "high", "xhigh", "max"]);
 assert.deepEqual(await labels("dispatch", "--review-effort l"), ["low"]);
+// The start and a take-over both take the three effort flags, and each completes the five levels.
+assert.deepEqual(await labels("autopilot", "--effort "), ["low", "medium", "high", "xhigh", "max"]);
+assert.deepEqual(await labels("autopilot", "--take-over --effort "), ["low", "medium", "high", "xhigh", "max"]);
+assert.deepEqual(await labels("autopilot", "--take-over --review-effort x"), ["xhigh"]);
 assert.deepEqual(await labels("setup", "calibration "), ["status"]);
 
 // Nothing typed is offered again, nor another choice for an argument already given, nor a branch the hint's spaced
 // | rules out once its alternative is typed; a flag written after another's value comes once that flag is typed.
-assert.deepEqual(await labels("autopilot", "--take-over "), ["--auto-merge"]);
-assert.equal(await labels("autopilot", "--take-over --auto-merge "), null);
+assert.deepEqual(await labels("autopilot", "--take-over "), ["--auto-merge", "--effort", "--dispatch-effort", "--review-effort"]);
+assert.deepEqual(await labels("autopilot", "--take-over --auto-merge "), ["--effort", "--dispatch-effort", "--review-effort"]);
 assert.equal(await labels("autopilot", "--pause "), null);
 assert.deepEqual(await labels("remediate", ""), ["tautological-tests", "misleading-comments", "--base", "--project"]);
 assert.deepEqual(await labels("remediate", "tautological-tests "), ["--base", "--project"]);
@@ -71,7 +73,7 @@ assert.deepEqual(await labels("remediate", "--base main "), ["tautological-tests
 
 // A word no literal names fills the hint's next open placeholder, ruling out the branches that placeholder excludes;
 // a flag's value is never read as a mode; a key= argument already given is not offered again.
-assert.equal(await labels("autopilot", "build a greeting tool "), null);
+assert.deepEqual(await labels("autopilot", "build a greeting tool "), ["--effort", "--dispatch-effort", "--review-effort"]);
 assert.equal(await labels("brief", "my-workstream "), null);
 assert.equal(await labels("remediate", "tautological-tests src/ "), null);
 // remediate quotes a free-form goal, so an unquoted word is a path: no other scope is offered after it.
@@ -94,7 +96,8 @@ assert.deepEqual(await labels("setup", "why calibration "), ["--scope", "--route
 // Every hint lists only real flags and modes as bare words, placeholders in <>, so a blank argument offers exactly
 // these and never a word of prose.
 const START = {
-  align: ["--interactive"], autopilot: ["--take-over", "--pause"], brief: ["map"], diagnose: null,
+  align: ["--interactive"], autopilot: ["--effort", "--dispatch-effort", "--review-effort", "--take-over", "--pause"],
+  brief: ["map"], diagnose: null,
   dispatch: ["--effort", "--dispatch-effort", "--review-effort", "--autofix"], explain: null, huh: null, pr: null, prototype: null, refine: null,
   remediate: ["tautological-tests", "misleading-comments", "--base", "--project"], research: null,
   review: ["walkthrough", "--effort", "--autofix", "--comments", "--base"],

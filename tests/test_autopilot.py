@@ -38,7 +38,8 @@ class RunCard(unittest.TestCase):
 
     def test_the_goal_form_runs_aligns_interview_before_the_card(self):
         start = ' '.join(SKILL.read_text().split('## Start', 1)[1].split('\n## ', 1)[0].split())
-        self.assertIn('**`autopilot <goal>`:** run [align](../align/SKILL.md) on the goal, with its interview', start)
+        self.assertIn('**`autopilot <goal> [--effort <level>] [--dispatch-effort <level>] [--review-effort <level>]`:**'
+                      ' run [align](../align/SKILL.md) on the goal, with its interview', start)
 
     def test_the_user_confirms_the_card_once_and_is_asked_nothing_after(self):
         text = prose(SKILL)
@@ -259,6 +260,53 @@ class JumpIn(unittest.TestCase):
         self.assertIn("One that changes the goal, a criterion or a grant also updates the card with the user's words", run)
 
 
+class EffortLevels(unittest.TestCase):
+    def test_the_card_records_both_levels_on_their_own_lines_at_the_defaults(self):
+        # Rule: a run card always states the dispatch and review levels, defaults included, so the user confirms
+        # them with the card. A card without them has no reader.
+        state = CARD.read_text().split('## State', 1)[1]
+        self.assertRegex(state, r'(?m)^dispatch-effort: medium$')
+        self.assertRegex(state, r'(?m)^review-effort: high$')
+        self.assertIn('both effort levels on their own lines', prose(CARD))
+
+    def test_the_start_and_a_take_over_take_the_three_flags(self):
+        # Rule: `--effort` sets both steps, `--dispatch-effort` and `--review-effort` override it; no level means the
+        # command's defaults, never a level remembered, and max runs only when asked.
+        text = SKILL.read_text()
+        hint = re.search(r'^argument-hint: (.+)$', text.split('---', 2)[1], re.M)
+        assert hint, 'autopilot declares its argument hint'
+        hint = hint.group(1)
+        self.assertIn('<goal> [--effort low|medium|high|xhigh|max]', hint)
+        self.assertIn('--take-over [--auto-merge] [--effort low|medium|high|xhigh|max]', hint)
+        for flag in ('--dispatch-effort', '--review-effort'):
+            self.assertEqual(hint.count(flag), 2, hint)
+        start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
+        for phrase in ('records both effort levels', "keeps the card's levels unless a level flag is given",
+                       '`--effort` sets both, a split flag overrides it for its step'):
+            self.assertIn(phrase, start)
+        card = prose(CARD)
+        for phrase in ('with no level they run at these defaults', 'never at a level remembered from an earlier run',
+                       '`max` runs only when the user asks', 'An unknown flag or level value is refused',
+                       'a take-over of a card without the two lines'):
+            self.assertIn(phrase, card)
+
+    def test_the_run_passes_both_levels_to_dispatch_beside_autofix(self):
+        # Rule: dispatch receives the card's levels, and its handoff runs the review at the review level.
+        run = prose(SKILL).split('## Run', 1)[1].split('## Decide without asking', 1)[0]
+        self.assertIn('`--autofix`', run)
+        self.assertIn('`--dispatch-effort <level>` and `--review-effort <level>`', run)
+
+    def test_a_take_over_keeps_the_levels_unless_flags_are_given(self):
+        # Rule: a take-over or a timed take-over keeps the card's levels; only level flags change them.
+        start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
+        self.assertIn('take-over <card> [--auto-merge] [--effort <level>] [--dispatch-effort <level>] '
+                      '[--review-effort <level>]', start)
+        self.assertIn("keeps the card's levels unless a level flag is given", start)
+        self.assertIn("`--effort` sets both, a split flag overrides it for its step", start)
+        timed = SKILL.read_text().split('- **`autopilot --take-over --timed`:**', 1)[1].split('\n- **`--auto-merge`', 1)[0]
+        self.assertIn("keeps the card's levels unchanged", ' '.join(timed.split()))
+
+
 class Registration(unittest.TestCase):
     def test_only_the_user_starts_it_on_every_host(self):
         self.assertIn('disable-model-invocation: true', SKILL.read_text())
@@ -271,10 +319,16 @@ class Registration(unittest.TestCase):
         self.assertIn('](../../standards/engineering.md)', first_read.group(0))
 
     def test_pause_is_listed_where_users_see_the_command(self):
-        self.assertIn('argument-hint: "<goal> | --take-over [--auto-merge] | --pause"', SKILL.read_text())
+        hint = re.search(r'^argument-hint: (.+)$', SKILL.read_text().split('---', 2)[1], re.M)
+        assert hint, 'autopilot declares its argument hint'
+        hint = hint.group(1)
+        self.assertIn('--take-over [--auto-merge] [--effort low|medium|high|xhigh|max]', hint)
+        self.assertIn('| --pause', hint)
         self.assertIn('--pause', (ROOT / 'skills/autopilot/agents/openai.yaml').read_text())
         readme = next(l for l in (ROOT / 'README.md').read_text().splitlines() if l.startswith('| `autopilot` |'))
         self.assertIn('`--pause` to take control', readme)
+        self.assertIn('`--effort` for both steps', readme)
+        self.assertIn('`--dispatch-effort` and `--review-effort` per step', readme)
         self.assertIn('`paused-by-user`', CARD.read_text().split('## Stop condition', 1)[1].split('\n## ', 1)[0])
 
     def test_the_command_is_listed_where_users_and_the_doc_checker_look(self):
