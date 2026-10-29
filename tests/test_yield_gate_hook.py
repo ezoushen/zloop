@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import patch
 
 import support
+from native_records import session_record
 
 ROOT = support.ROOT
 HOOK = ROOT / 'hooks' / 'yield_gate.py'
@@ -34,6 +35,7 @@ class GateRepo(unittest.TestCase):
         self.enterContext(patch.dict(os.environ, {'XDG_STATE_HOME': str(Path(self.tmp.name) / 'state')}))
         self.repo = Path(self.tmp.name).resolve() / 'project'
         self.repo.mkdir()
+        self.registrations = {}
         subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
         self.state = self.repo / '.scratch/workstream/reports/workers.sqlite'
         self.execution = self.repo / '.scratch/workstream/reports/execution.json'
@@ -104,6 +106,14 @@ else:
         event.write_text(json.dumps(dict(kind=kind, attempt=attempt, **fields)))
         subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'record', '--state', str(self.state),
                         '--input', str(event)], check=True, capture_output=True, env=self.env(pane, **(env or {})))
+        if kind == 'register':
+            self.registrations[attempt] = fields
+
+    def native(self, attempt='ticket-1/1'):
+        """The registered fixture worker's session record, outside the checkout it may only read."""
+        saved = self.registrations[attempt]
+        return session_record(self.execution.parent / (attempt.replace('/', '-') + '.jsonl'), saved['runtime'],
+                              saved['native_session'], saved['worktree'], effort=None)
 
     def stop(self, cwd=None, active=False, env=None, pane='w1:p1', host='claude', session=None):
         payload = {'hook_event_name': 'Stop', 'cwd': str(cwd or self.repo), 'stop_hook_active': active,
@@ -295,7 +305,7 @@ class YieldGateHook(GateRepo):
                        head='head-1', execution=str(self.execution), runtime='claude', worker='pane-1',
                        native_session='native-1', owned=True,
                        packet=str(support.assignment_file(self.execution.parent, 'ticket')))
-        self.lifecycle('startup', observed={'runtime': 'claude', 'model': 'sonnet'}, evidence=['native.jsonl:1'])
+        self.lifecycle('startup', native=str(self.native('ticket-1/1')))
         self.lifecycle('submitted', evidence=['native.jsonl:2:accepted prompt'])
 
     def test_a_live_worker_without_a_wake_path_blocks_the_stop_once(self):
@@ -839,8 +849,7 @@ console.log('null');
         self.assertIn(self.gap('builder-3', 'w1:p6'), self.check(pane=None, session='pi-stale'))
         # Neither session's worker holds the Pi parent, which launched neither.
         claude = dict(child, CLAUDE_CODE_SESSION_ID='host-1')
-        self.lifecycle('startup', 'ticket-1/2', None, env=claude, observed={'runtime': 'claude', 'model': 'sonnet'},
-                       evidence=['native.jsonl:1'])
+        self.lifecycle('startup', 'ticket-1/2', None, env=claude, native=str(self.native('ticket-1/2')))
         self.lifecycle('submitted', 'ticket-1/2', None, env=claude, evidence=['native.jsonl:2:accepted prompt'])
         self.assertTrue(any('ticket-1/2' in gap for gap in self.check(pane=None, session='host-1')))
         self.assertFalse([gap for gap in self.check(pane=None, session='pi-parent') if 'ticket-1/' in gap])
@@ -982,8 +991,7 @@ console.log('null');
 
     def live_attempt(self, attempt, pane, session):
         self.register(f'builder-{attempt[7]}', attempt, pane=pane, session=session)
-        self.lifecycle('startup', attempt, pane, observed={'runtime': 'claude', 'model': 'sonnet'},
-                       evidence=['native.jsonl:1'])
+        self.lifecycle('startup', attempt, pane, native=str(self.native(attempt)))
         self.lifecycle('submitted', attempt, pane, evidence=['native.jsonl:2:accepted prompt'])
 
     def test_a_workers_lifecycle_gaps_hold_only_the_session_that_registered_it(self):
@@ -1003,8 +1011,7 @@ console.log('null');
                        assignment='ticket-1', repo=str(self.repo), worktree=str(self.worktree), head='head-1',
                        execution=str(self.execution), runtime='claude', worker='builder-1', native_session='native-1',
                        owned=True, packet=str(support.assignment_file(self.execution.parent, 'ticket')))
-        self.lifecycle('startup', 'ticket-1/1', None, observed={'runtime': 'claude', 'model': 'sonnet'},
-                       evidence=['native.jsonl:1'])
+        self.lifecycle('startup', 'ticket-1/1', None, native=str(self.native('ticket-1/1')))
         self.lifecycle('submitted', 'ticket-1/1', None, evidence=['native.jsonl:2:accepted prompt'])
         self.assertEqual(self.check(pane=None, session='codex-inner'), [f'{self.state}: ticket-1/1: no armed wait'])
         self.assertEqual(self.check(pane=None, session='host-2'), [])
@@ -1029,8 +1036,7 @@ console.log('null');
         sibling.mkdir()
         for attempt, worktree in (('ticket-1/1', self.worktree), ('ticket-2/1', sibling)):
             self.register(f'builder-{attempt[7]}', attempt, worktree=worktree)
-            self.lifecycle('startup', attempt, observed={'runtime': 'claude', 'model': 'sonnet'},
-                           evidence=['native.jsonl:1'])
+            self.lifecycle('startup', attempt, native=str(self.native(attempt)))
             self.lifecycle('submitted', attempt, evidence=['native.jsonl:2:accepted prompt'])
         self.assertEqual(self.check(cwd=self.worktree, pane=None, session='native-child'), [])
         self.assertEqual(self.check(session='host-1'),
@@ -1086,7 +1092,7 @@ console.log(JSON.stringify((await handlers.agent_before_settle(
         sibling = self.repo / '.worktrees/ticket-2'
         sibling.mkdir()
         self.register('builder-1', 'ticket-1/1')
-        self.lifecycle('startup', observed={'runtime': 'claude', 'model': 'sonnet'}, evidence=['native.jsonl:1'])
+        self.lifecycle('startup', native=str(self.native('ticket-1/1')))
         self.lifecycle('submitted', evidence=['native.jsonl:2:accepted prompt'])
         self.serve(agents=[self.agent('builder-2', 'w1:p6', sibling)])
         settle = """
@@ -1373,8 +1379,7 @@ class DeliveryHold(GateRepo):
                        head='head-1', execution=str(self.execution), runtime='claude', worker='pane-1',
                        native_session='native-1', owned=True,
                        packet=str(support.assignment_file(self.execution.parent, 'ticket')))
-        self.lifecycle('startup', 'fix/01/1', observed={'runtime': 'claude', 'model': 'sonnet'},
-                       evidence=['native.jsonl:1'])
+        self.lifecycle('startup', 'fix/01/1', native=str(self.native('fix/01/1')))
         self.lifecycle('submitted', 'fix/01/1', evidence=['native.jsonl:2:accepted prompt'])
         pidfile, request = self.state.parent / 'wait.pid', self.state.parent / 'wait.json'
         request.write_text(json.dumps({'argv': [sys.executable, '-c',
@@ -1639,8 +1644,7 @@ class StaleTabs(GateRepo):
                        head='head-1', execution=str(self.execution), runtime='claude', worker='pane-2',
                        native_session='native-2', owned=True,
                        packet=str(support.assignment_file(self.execution.parent, 'ticket')))
-        self.lifecycle('startup', 'ticket-2/1', observed={'runtime': 'claude', 'model': 'sonnet'},
-                       evidence=['native.jsonl:1'])
+        self.lifecycle('startup', 'ticket-2/1', native=str(self.native('ticket-2/1')))
         self.lifecycle('submitted', 'ticket-2/1', evidence=['native.jsonl:2:accepted prompt'])
         self.serve(fail='connection refused')
         gap = ('could not check worker tabs: herdr tab list exited 1: '
@@ -1700,8 +1704,7 @@ class AutopilotCardHold(GateRepo):
                        head='head-1', execution=str(self.execution), runtime='claude', worker='pane-1',
                        native_session='native-1', owned=True,
                        packet=str(support.assignment_file(self.execution.parent, 'ticket')))
-        self.lifecycle('startup', 'workstream/01/1', observed={'runtime': 'claude', 'model': 'sonnet'},
-                       evidence=['native.jsonl:1'])
+        self.lifecycle('startup', 'workstream/01/1', native=str(self.native('workstream/01/1')))
         self.lifecycle('submitted', 'workstream/01/1', evidence=['native.jsonl:2:accepted prompt'])
         pidfile, request = self.state.parent / 'wait.pid', self.state.parent / 'wait.json'
         request.write_text(json.dumps({'argv': [sys.executable, '-c',

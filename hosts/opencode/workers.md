@@ -49,10 +49,10 @@ configuration stay callable under a session's deny rules.
 3. In the worker's tab, export `OPENCODE_PASSWORD` and the same isolated `XDG_CONFIG_HOME`,
    `XDG_DATA_HOME` and `XDG_STATE_HOME`; without them the TUI loads the user's own `tui.json`, not the
    Herdr reporter. Then start the TUI with `--server <url> --session <id>`.
-4. Send the startup probe through the transport (`herdr agent prompt <name> '<reply READY, use no tools>' --wait`);
-   the export has no assistant turn before it. Then redirect `opencode session export <id> --server <url>` to a
-   file and submit with it: `info.permissions` must equal the launch's rules and the latest
-   assistant turn must show the model and variant.
+4. Follow [the startup order](../../runtime/workers/prepare.md), then redirect
+   `opencode session export <id> --server <url>` (`opencode export` in version 1) to a file.
+   Pass that file as `native` to `submit`, or `worker_lifecycle.py record` with `kind: startup`.
+   Export again for `collect`.
    The export records no server, so `submit` cannot tell an export of the private server's
    session from one of the user's service: export with `--server <url>` and never substitute.
 

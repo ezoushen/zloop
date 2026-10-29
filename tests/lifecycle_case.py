@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import support
+from native_records import assistant_turn, session_record
 
 import journal_store
 import decisions
@@ -25,6 +26,7 @@ class WorkerLifecycleCase(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(prefix='zloop worker ')
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
+        self.native_paths = {}
         # Outcomes go to a ledger under the state home; keep the user's ledger out of tests.
         self.enterContext(patch.dict(os.environ, {'XDG_STATE_HOME': str(self.root / 'state')}))
         self.state = self.root / 'workers.sqlite'
@@ -37,12 +39,18 @@ class WorkerLifecycleCase(unittest.TestCase):
                                   '--state', str(self.state), *args], capture_output=True, text=True,
                                  env=getattr(self, 'native_env', None))
         self.assertEqual(process.returncode, code, process.stdout + process.stderr)
+        if action == 'submit' and process.returncode == 0:
+            request = json.loads(Path(args[args.index('--input') + 1]).read_text())
+            self.native_paths[args[args.index('--attempt') + 1]] = Path(request['native'])
         return json.loads(process.stdout) if process.stdout else process.stderr
 
     def record(self, kind, attempt='ticket-1/1', code=0, **fields):
         path = self.root / 'event.json'
         path.write_text(json.dumps(dict(kind=kind, attempt=attempt, **fields)))
-        return self.cli('record', '--input', str(path), code=code)
+        result = self.cli('record', '--input', str(path), code=code)
+        if kind == 'startup' and code == 0:
+            self.native_paths[attempt] = Path(fields['native'])
+        return result
 
     def registration(self, attempt='ticket-1/1', assignment='ticket-1', session='native-1',
                      worker='pane-1', owned=True, runtime='claude', **fields):
@@ -61,10 +69,27 @@ class WorkerLifecycleCase(unittest.TestCase):
 
     def ready(self, attempt='ticket-1/1'):
         """A worker whose native record shows the settings and launch controls it was given, prompted."""
-        scope = json.loads(self.execution.read_text()).get('launch', {}).get('verify', {})
-        self.record('startup', attempt, observed={'runtime': 'claude', 'model': 'sonnet',
-                                                'effort': 'high', **scope}, evidence=['native.jsonl:1'])
+        self.record('startup', attempt, native=str(self.native(attempt)))
         self.record('submitted', attempt, evidence=['native.jsonl:2:accepted prompt'])
+
+    def native(self, attempt='ticket-1/1', *, model='sonnet', effort='high', scope=None):
+        """A session fixture with explicit settings, named by the registered attempt."""
+        saved = self.cli('status', '--attempt', attempt)['attempts'][0]
+        path = self.root / (attempt.replace('/', '-') + '.jsonl')
+        scope = scope if scope is not None else json.loads(self.execution.read_text()).get('launch', {}).get('verify', {})
+        return session_record(path, saved['requested']['runtime'], saved['native_session'], self.root,
+                              model=model, effort=effort, scope=scope)
+
+    def completion_evidence(self, attempt='ticket-1/1'):
+        """The fixture worker answers after its prompt, leaving proof to pass to result/collect."""
+        saved = self.cli('status', '--attempt', attempt)['attempts'][0]
+        path = self.native_paths[attempt]
+        assistant_turn(path, saved['requested']['runtime'])
+        return {'native': str(path)}
+
+    def completed(self, attempt='ticket-1/1', **fields):
+        """Record a completed result backed by the fixture worker's turn."""
+        return self.record('result', attempt, **self.completion_evidence(attempt), **fields)
 
     def watch(self, attempt='ticket-1/1', script='print("idle")', code=0, timeout=2):
         path = self.root / 'wait.json'
@@ -75,7 +100,7 @@ class WorkerLifecycleCase(unittest.TestCase):
         if report is None:
             report = self.root / (attempt.replace('/', '-') + '.md')
             report.write_text('## Implemented\n\nVerified assignment report at head-1\n')
-        self.record('result', attempt, status='completed', head='head-1', report=str(report),
+        self.completed(attempt, status='completed', head='head-1', report=str(report),
                     evidence=['checks.log@head-1'])
         return report
 

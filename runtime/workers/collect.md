@@ -42,11 +42,12 @@ Pass it with `record --state ... --input /absolute/reconciled.json`.
 For a checked result, use `collect --state ... --attempt ... --input
 /absolute/result.json` after native inspection and wait reconciliation. The input
 contains `status`, checked `head`, existing immutable `report`, verification
-`evidence`, and a required `disposition`:
+`evidence`, the worker's `native` session record for a completed result, and `disposition`:
 
 ```json
 {
   "status": "completed", "head": "checked-revision",
+  "native": "/absolute/worker-session-record",
   "report": "/absolute/retained-report.md", "evidence": ["native-result-and-checks"],
   "disposition": {
     "kind": "retire", "session": "explicit-owned-herdr-session", "pane": "returned-pane-id",

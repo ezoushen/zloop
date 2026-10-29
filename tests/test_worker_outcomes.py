@@ -38,9 +38,7 @@ class Outcomes(WorkerLifecycleCase):
                                                   'verify': {'sandbox': 'workspace-write', 'approval': 'never'}})
         self.execution.write_text(json.dumps(execution))
         self.register(runtime='codex')
-        result = self.record('startup', observed={'runtime': 'codex', 'model': 'sonnet', 'effort': 'high',
-                                                  'sandbox': 'workspace-write', 'approval': 'never'},
-                             evidence=['rollout.jsonl:2'])
+        result = self.record('startup', native=str(self.native()))
         self.assertEqual((result['verified'], result['journal']), (True, {'execution': 'recorded'}))
         recorded = self.annotations(decision_id)[-1]
         self.assertEqual((recorded['event'], recorded['requested'], recorded['observed']),
@@ -50,8 +48,7 @@ class Outcomes(WorkerLifecycleCase):
     def test_journal_capture_failure_is_reported_without_blocking_the_worker(self):
         decision_id = self.routed(runtime='executor-defined')
         self.register()
-        result = self.record('startup', observed={'runtime': 'claude', 'model': 'sonnet', 'effort': 'high'},
-                             evidence=['native.jsonl:1'])
+        result = self.record('startup', native=str(self.native()))
         self.assertTrue(result['verified'])
         self.assertIn('not recorded: Requested settings must match', result['journal']['execution'])
         self.assertEqual([row['event'] for row in self.annotations(decision_id)], ['action'])
@@ -83,8 +80,7 @@ class Outcomes(WorkerLifecycleCase):
         self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': agent, 'job': job,
                                              'settings': {'model': model, 'effort': 'high'}}))
         self.register(attempt, attempt.split('/')[0], f'native-{number}', f'pane-{number}', **fields)
-        self.record('startup', attempt, observed={'runtime': 'claude', 'model': model, 'effort': 'high'},
-                    evidence=['native.jsonl:1'])
+        self.record('startup', attempt, native=str(self.native(attempt, model=model)))
         self.record('submitted', attempt, evidence=['native.jsonl:2:accepted prompt'])
         self.watch(attempt)
         self.record('reconciled', attempt, evidence=['native worker idle with its report'])

@@ -72,12 +72,8 @@ Only a successful new resolution supplies launch settings. If none is adequate,
 report the missing registration/control; a resolver error cannot be bypassed with
 a model-only launch. Preserve explicit pins and the main session's settings.
 At launch, follow the shared [decision record](../../runtime/routing/report.md):
-record the host action (the worker lifecycle does this for workers it registers) and inspect the first child assistant entry's `message.model`,
-`effort` and `perTurnEffort` (or equivalent native metadata). Read only those fields,
-not the whole transcript. An absent field remains unverified; conflicting fields
-require investigation. Record actual settings and evidence, including a mismatch.
-Resolve a mismatch at a safe worker handoff before accepting its work or launching
-another worker through the same failed control.
+record the host action through the worker lifecycle and supply the child's transcript
+to `worker_lifecycle.py record` with `kind: startup` and `native`.
 Apply the shared executor preflight and job-lifetime rules, including
 native background Bash tasks still queued behind a build lock.
 
@@ -121,10 +117,9 @@ From a Claude orchestrator, `agent_models.py --host claude --route` resolves a C
 worker as a native subagent: `native_dispatch` is true and there is no `launch`. Start it with the
 `Agent` tool; its restrictions are the agent profile's tools, which Claude enforces, plus
 the read-only worktree check at collection. It is not launched through Herdr.
-Register it with its `agentId` as `native_session` and record startup with `native`, its
-transcript (`subagents/agent-<agentId>.jsonl` in the session's directory). Every row there
-carries the orchestrator's session directory, not the subagent's own `cd`, so outside the
-assigned worktree it is a `status` warning, not a refusal. A `PreToolUse` hook
+Register it with its `agentId` as `native_session`. Its transcript lives at
+`~/.claude/projects/<project>/<session>/subagents/agent-<agentId>.jsonl`.
+A `PreToolUse` hook
 (`hooks/read_only_writes.py`) denies a `writes: none` subagent (its `agent_type`) Edit, Write,
 NotebookEdit and a Bash `>`, `>>`, `&>` or `tee` to a literal path in the main checkout or its
 worktrees, except `.scratch/<slug>/reports/` and the `worktree:` its assignment names (that
@@ -153,13 +148,10 @@ does not stop a script that opens files itself, and MCP tools the user's setting
 callable. Start the worker only in a worktree of a checkout the user already trusts: anywhere
 else the trust dialog blocks the start (Herdr: `agent_not_ready`, agent `blocked`). Report that
 dialog to the user; never answer it. Claude's write scope rests on these launch flags plus the
-read-only worktree check at collection: a TUI transcript lists no tools, so `submit` checks only
-that the latest `permission-mode` row is `dontAsk`, which `none` and `worktree` launches share.
+read-only worktree check at collection.
 
 Startup of a Herdr-started Claude worker follows [the startup order](../../runtime/workers/prepare.md):
-`herdr agent get` reports `agent_session` (kind `id`) at start, but the transcript gets its first
-assistant row, which `submit` reads for model and effort, only after a reply. Send the probe with
-`herdr agent prompt <name> '<reply READY, use no tools>' --wait --timeout 120000`, then register with that id
-and `submit`.
+`herdr agent get` reports `agent_session` (kind `id`). The transcript is
+`~/.claude/projects/<project>/<id>.jsonl`; pass it as `native` to `submit` and `collect`.
 
 The [executor guides](../executors/README.md) cover each executor type a route can select.

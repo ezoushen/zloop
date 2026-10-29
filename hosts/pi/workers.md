@@ -23,8 +23,8 @@ worktree; explicitly disable extra isolation even if Pi's configured default
 enables it. Include absolute `adapter`, `agent_file`, `job_file`,
 `plugin_root`, `repo`, report and input paths, branch/head, accepted scope and
 decisions. The child reads these files and verifies its checkout before acting.
-Register it, and record its startup, with `native`: the child's Pi session record, whose header names the
-orchestrator's session as `parentSession`, its own id, and the worktree as `cwd` (`status` warns otherwise).
+Register it with `native`: the child's `sessionFile` from `subagent` status. Record startup
+with `worker_lifecycle.py record`, `kind: startup` and that `native` path.
 Fresh context keeps prior hypotheses and unrelated parent history out of reviews.
 
 Use only the route's resolved settings by the **shared agent**, not the generic
@@ -89,12 +89,8 @@ tools; the flag is listed by `pi --help`, its effect unobserved here), then `--p
 `--model` and `--thinking`. Never narrow with `--exclude-tools`: extension shells such as `bg_run` stay.
 A `writes: none` worker keeps `bash` for checks and its report but has no write or edit tool;
 the read-only worktree check at collection covers what its shell writes.
-`submit` verifies the tools the session offers, replayed from its system messages'
-`toolsAdded` and `toolsRemoved`: an extension or MCP tool beyond the allowlist blocks the work.
-
-Startup follows [the startup order](../../runtime/workers/prepare.md): the session JSONL exists only
-after the first reply, so send the probe with `herdr agent prompt <name> '<reply READY, use no tools>' --wait`
-first. `herdr agent get` reports `agent_session` as a path, so take `native_session` from that JSONL's
-filename UUID; register `packet` as the assignment text, not the probe, then `submit`.
+Startup follows [the startup order](../../runtime/workers/prepare.md). Pi records live under
+`~/.pi/agent/sessions/`; Herdr's `agent_session` is the session JSONL path.
+Pass it as `native` to `submit` and `collect`.
 
 The [executor guides](../executors/README.md) cover each executor type a route can select.

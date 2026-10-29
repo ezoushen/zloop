@@ -86,24 +86,16 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    `collect` result reports a capture gap; without that field nothing was linked,
    so record an override yourself. An unbound forwarding executor needs an explicitly verified
    destination; a known destination must agree with the resolver.
-3. Use `submit` below to capture settings automatically from native evidence for
-   Claude, Codex, Pi and OpenCode. Native children (they skip `submit`) and other formats
-   use `record startup` with `attempt`, native `observed` runtime/model/effort and an
-   `evidence` array of native metadata references. A Claude, Codex or Pi child may add `native`,
-   its record; outside its worktree that draws a `status` warning, and collection holds a
-   read-only Pi child to it. Verify each new attempt; cached
-   availability proves no new worker's settings. Inherited
-   controls remain omitted from `requested`; record actual controls when available.
-   A legitimate model alias needs `model_alias_evidence` from the installed binding,
-   not a similarity guess. Missing or conflicting requested controls leave work
-   blocked.
+3. Startup and completed work come from the worker's own session record.
+   Use `submit` for transport commands. Native children use `worker_lifecycle.py record
+   --state ... --input /absolute/startup.json` with `kind: startup`, `attempt` and
+   `native`: the record path named by the host adapter. Optional `model_alias_evidence`
+   names an installed binding. Pass `native` again to `collect`; refresh an OpenCode export.
 
-   **Startup order.** The native session record (Claude transcript, Codex rollout, Pi
-   session JSONL, OpenCode session) exists only after the worker's first reply, yet
-   `register` needs `native_session` and `submit` needs the recorded settings. So:
-   start the worker; send a short probe asking for a fixed reply and no tools, through the
-   transport and not `submit`; read the native session id; `register` (its `packet` is the
-   assignment text, not the probe); then `submit` the assignment. Verify the probe's reply first.
+   **Startup order.** Start the worker and obtain its session id (probe for a fixed reply
+   and no tools if needed). Register with the assignment as `packet`, then send a fresh
+   probe through the transport, inspect its acknowledgement and `submit` the assignment.
+   A native child already has its assignment; record its startup once its record is available.
 4. For supported native formats, invoke productive work through `submit --state
    ... --attempt ... --input /absolute/submit.json`, using this input shape:
 
@@ -126,23 +118,7 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    `native` is the registered session's Claude/Pi JSONL, Codex rollout JSONL, or
    a current OpenCode export JSON file (`opencode session export <id>` in OpenCode 2,
    `opencode export` in OpenCode 1). Obtain it from the installed native
-   interface, not a worker-authored settings claim. The helper binds the session
-   and worktree, reads actual model/effort, and retains a minimal snapshot with the
-   source prefix length and SHA-256; it does not copy conversation contents. A route's
-   `launch.verify` joins the requested controls at registration and must match the native record,
-   whose fields each host adapter names; a record without them leaves the attempt unverified.
-   Registration refuses a worker that starts its own process without `launch`, judged by its
-   registered runtime when the route names none; a native child route is exempt.
-   Claude may report a subdirectory within the assigned checkout; nested Git
-   repositories/worktrees and paths outside that checkout remain rejected.
-   Pi controls follow the latest persisted branch. A failed Pi assistant response
-   blocks submission until a successful probe on that branch. Unknown controls stay absent.
-   An OpenCode assistant error blocks submission even when its model fields match;
-   a failed request is not a successful startup probe. Tool errors in the latest
-   OpenCode probe turn also block submission; a clean new probe clears prior errors.
-   For every runtime, verify
-   the probe's actual acknowledgement before productive work, rather than infer
-   readiness from a transport idle state or settings alone.
+   interface. The helper retains settings and source hashes without copying conversation contents.
    Verify source provenance and exclusive ownership of native controls; refresh an
    OpenCode export before submission. A source snapshot cannot intercept subsequent
    manual changes or an in-memory Pi branch switch that has not been persisted.
@@ -150,23 +126,17 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    Optional `model_alias_evidence` carries explicit host-verified installed binding
    references. It affects only model identity; effort must still match. The helper
    does not authenticate the semantic truth of these host assertions.
-   Submission reobserves controls, checks design holds and reserves one productive
-   invocation per attempt before starting an independent durable wait. A mismatch,
-   unknown requested control, wrong session/worktree or incomplete record exits 2
-   without invoking the command. The submit `argv` must return once the worker shows
-   activity on the prompt, as Herdr's `--wait --until working` does; submit refuses a
-   Herdr prompt without it. Exit 0 records `submitted` with the wait log as evidence;
+   The submit `argv` returns once the worker shows activity, as Herdr's
+   `--wait --until working` does. Exit 0 records `submitted` with the wait log as evidence;
    reconcile it, then wait for completion with `watch`. Any other exit leaves
    the attempt unsubmitted: inspect the worker and record `submitted` only with
    evidence of activity. Reconciliation never authorizes resubmitting the
    same attempt; inspect the native worker and use `watch` for continued monitoring.
    Further same-assignment work requires a collected, retained previous attempt.
 
-   For other native formats, check `gate --state ... --attempt ... --stage work`
-   before productive submission or continuation. It exits 1 while settings are
-   unverified or a design hold is active. Record `submitted` with evidence that
-   the actual assignment prompt was
-   accepted and produced activity. Submission success alone is insufficient.
+   For native children, check `gate --state ... --attempt ... --stage work`
+   before productive continuation. Record `submitted` when the native interface
+   confirms acceptance of a separate assignment prompt.
    After a stalled or uncertain submission, inspect the same worker before retrying.
 
 Same-assignment repair or recheck may retain context only after collecting the old

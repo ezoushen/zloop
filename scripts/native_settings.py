@@ -2,7 +2,80 @@
 
 import hashlib
 import json
+from datetime import datetime
 from pathlib import Path
+
+
+def entry_time(row):
+    """A native entry's UTC epoch seconds, or None when that format supplies no entry time."""
+    value = row.get('timestamp')
+    if value is None:
+        clock = row.get('time') or {}
+        value = clock.get('completed', clock.get('created')) if isinstance(clock, dict) else clock
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return datetime.fromisoformat(value.replace('Z', '+00:00')).timestamp()
+    if isinstance(value, (float, int)):
+        return value / 1000 if value > 100_000_000_000 else value
+    raise ValueError('Unsupported native entry timestamp; supply a fresh native session record')
+
+
+def latest_entry_time(path, runtime):
+    """The latest native entry time; file mtime is used only for formats carrying no entry times."""
+    path = Path(path)
+    if runtime == 'opencode':
+        rows = json.loads(path.read_bytes())['messages']
+        rows = [row.get('info', row) for row in rows]
+    else:
+        rows = [json.loads(line) for line in path.read_bytes().splitlines()]
+    times = [stamp for row in rows if (stamp := entry_time(row)) is not None]
+    return times[-1] if times else path.stat().st_mtime
+
+
+def assistant_turns(path, runtime, session):
+    """Return content-free identities and times of this session's assistant turns on its active branch."""
+    path = Path(path)
+    if runtime == 'opencode':
+        exported = json.loads(path.read_bytes())
+        rows = [row.get('info', row) for row in exported['messages']]
+    else:
+        rows = [json.loads(line) for line in path.read_bytes().splitlines()]
+    if runtime == 'pi':
+        entries = {row['id']: row for row in rows if row.get('type') != 'session'}
+        branch, current = [], rows[-1]
+        while current.get('type') != 'session':
+            branch.append(current)
+            parent = current.get('parentId')
+            if parent is None:
+                break
+            current = entries[parent]
+        rows = list(reversed(branch))
+    turns = []
+    for index, row in enumerate(rows):
+        payload = row.get('payload') or {}
+        if runtime == 'claude':
+            assistant = row.get('type') == 'assistant' and (row.get('agentId') or row.get('sessionId')) == session
+        elif runtime == 'codex':
+            assistant = (row.get('type') == 'response_item' and payload.get('type') == 'message'
+                         and payload.get('role') == 'assistant'
+                         or row.get('type') == 'event_msg' and payload.get('type') == 'agent_message')
+        elif runtime == 'pi':
+            assistant = row.get('type') == 'message' and row.get('message', {}).get('role') == 'assistant'
+        else:
+            assistant = row.get('role', row.get('type')) == 'assistant' and row.get('sessionID', session) == session
+        if assistant:
+            identity = hashlib.sha256(json.dumps([index, row], sort_keys=True).encode()).hexdigest()
+            turns.append({'identity': identity, 'time': entry_time(row)})
+    return turns
+
+
+def worked_after(path, runtime, session, after, startup_turns):
+    """Whether the record proves a new assistant turn after the productive-work boundary."""
+    known = {turn['identity'] for turn in startup_turns}
+    return any(turn['identity'] not in known and (
+        turn['time'] if turn['time'] is not None else Path(path).stat().st_mtime) > after
+        for turn in assistant_turns(path, runtime, session))
 
 
 def observe(path, runtime, session, worktree):
@@ -70,7 +143,7 @@ def observe(path, runtime, session, worktree):
             row = json.loads(line)
             if not isinstance(row, dict):
                 raise ValueError('Native evidence record must be an object')
-            if runtime == 'claude' and row.get('type') == 'assistant' and not row.get('isSidechain'):
+            if runtime == 'claude' and row.get('type') == 'assistant':
                 if not isinstance(row.get('message'), dict):
                     raise ValueError('Unsupported native assistant schema')
                 latest = row
@@ -131,8 +204,11 @@ def observe(path, runtime, session, worktree):
                 latest['response_failed'] = message['stopReason'] == 'error'
         if latest.get('response_failed'):
             raise ValueError('Pi has a failed native response; inspect the provider before work')
-    identity = latest.get('sessionId') if runtime == 'claude' and latest else (header or {}).get('id')
-    if latest is None or identity != session:
+    identity = ((latest.get('agentId') or latest.get('sessionId')) if runtime == 'claude' and latest
+                else (header or {}).get('id'))
+    if runtime == 'claude' and latest and latest.get('isSidechain'):
+        identity = latest.get('agentId')
+    if latest is None or session not in (identity, (header or {}).get('agent_path')):
         raise ValueError('Native evidence does not belong to the registered session')
     if not isinstance(latest.get('cwd'), str):
         raise ValueError('Native evidence worktree does not match the assignment')
@@ -203,7 +279,7 @@ def working_directory(path, runtime, session):
             payload = row.get('payload') if isinstance(row.get('payload'), dict) else {}
             if runtime == 'claude':
                 named = named or row.get('agentId') or row.get('sessionId')
-                if session in (row.get('agentId'), row.get('sessionId')):
+                if session == (row.get('agentId') or row.get('sessionId')):
                     found, cwd = True, row.get('cwd', cwd)
             elif runtime == 'codex' and row.get('type') == 'session_meta':
                 named = payload.get('agent_path') or payload.get('id')

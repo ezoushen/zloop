@@ -13,6 +13,7 @@ import unittest
 from unittest.mock import patch
 
 import support
+from native_records import assistant_turn, session_record
 
 
 LIFECYCLE = support.script('worker_lifecycle.py')
@@ -41,7 +42,7 @@ class Capacity(unittest.TestCase):
         self.number += 1
         execution = self.root / f'execution-{self.number}.json'
         execution.write_text(json.dumps({'host': 'pi', 'native_dispatch': True, 'agent': 'verifier', 'job': 'e2e-gate', 'candidate': 'ornith',
-                                         'settings': {'model': 'ornith'}, 'backend': 'lane',
+                                         'settings': {'model': 'fixture/ornith'}, 'backend': 'lane',
                                          'capacity': dict({'slots': 2}, **capacity)}))
         return self.record(state or self.root / 'workers.sqlite', 'register', attempt, code=code,
                            assignment=attempt.split('/')[0], repo=str(self.root), worktree=str(self.root),
@@ -51,11 +52,16 @@ class Capacity(unittest.TestCase):
 
     def collect(self, attempt, state=None):
         state = state or self.root / 'workers.sqlite'
-        self.record(state, 'startup', attempt, observed={'runtime': 'pi', 'model': 'ornith'}, evidence=['n:1'])
+        saved = next(row for row in self.run_script('status', '--state', str(state))['attempts']
+                     if row['attempt'] == attempt)
+        native = session_record(self.root / f'{attempt.replace("/", "-")}.jsonl', 'pi',
+                                saved['native_session'], self.root, model='fixture/ornith', effort=None)
+        self.record(state, 'startup', attempt, native=str(native))
         self.record(state, 'submitted', attempt, evidence=['n:2'])
         report = self.root / f'{attempt.replace("/", "-")}.md'
         report.write_text('done\n')
-        self.record(state, 'result', attempt, status='completed', head='head-1', report=str(report),
+        assistant_turn(native, 'pi')
+        self.record(state, 'result', attempt, status='completed', head='head-1', report=str(report), native=str(native),
                     evidence=['checks.log'])
 
     def test_a_full_backend_refuses_registration_until_a_worker_finishes(self):

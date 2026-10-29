@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import support
+from native_records import assistant_turn, session_record
 
 import journal_store
 import decisions
@@ -52,12 +53,15 @@ class OutcomeLedger(unittest.TestCase):
                     worktree=str(self.root), head='head-1', execution=str(execution), runtime='claude',
                     worker=f'pane-{number}', native_session=f'native-{number}', owned=True,
                     packet=str(support.assignment_file(self.root, job)))
-        self.record('startup', attempt, observed={'runtime': 'claude', 'model': candidate, 'effort': 'high'},
-                    evidence=['native.jsonl:1'])
+        native = session_record(self.root / f'native-{number}.jsonl', 'claude', f'native-{number}',
+                                self.root, model=candidate)
+        self.record('startup', attempt, native=str(native))
         self.record('submitted', attempt, evidence=['native.jsonl:2'])
         report = self.root / f'{attempt.replace("/", "-")}.md'
         report.write_text(f'## Implemented\n\nReport for {attempt}\n')
-        self.record('result', attempt, status=status, head='head-1', report=str(report), evidence=['checks.log'])
+        assistant_turn(native, 'claude')
+        self.record('result', attempt, status=status, head='head-1', report=str(report), native=str(native),
+                    evidence=['checks.log'])
         for receipt in self.run_script(LIFECYCLE, 'status', '--state', str(self.state))['pending']:
             self.run_script(LIFECYCLE, 'ack', '--state', str(self.state), '--event-id', str(receipt['id']))
         if closure:
