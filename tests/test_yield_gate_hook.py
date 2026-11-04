@@ -2294,6 +2294,23 @@ class StopReap(HerdrWorkers):
         self.assertNotIn('closed', self.attempt('ticket-1/1'))
         self.assertNotIn('closed', self.attempt('ticket-2/1'))
 
+    def test_one_stop_reaps_every_state_inside_one_budget(self):
+        # Review 2: each run state had a budget of its own, so several states on a hung Herdr outlasted the 20 s hook
+        # timeout; one deadline covers them all and leaves the states it did not reach for the next stop.
+        self.serve(agents=[{'agent': 'claude', 'agent_status': 'idle', 'name': 'builder-1', 'pane_id': 'w1:p5',
+                            'tab_id': 'w1:t5', 'workspace_id': 'w1'}], tabs={'default': [self.tab]})
+        self.register()
+        self.lifecycle('result', status='failed', head='head-1', report=str(self.report), evidence=['worker.log'])
+        for name in ('other-1', 'other-2', 'other-3'):
+            copy = self.repo / '.scratch' / name / 'reports' / 'workers.sqlite'
+            copy.parent.mkdir(parents=True)
+            shutil.copy(self.state, copy)
+        self.serve(hang=True)
+        started = time.monotonic()
+        self.stop_command()
+        # The reap's five seconds plus the gate's own Herdr checks, well inside the hosts' 20 s.
+        self.assertLess(time.monotonic() - started, 15)
+
     def test_a_stop_reaps_the_rows_the_lifecycle_reads_not_only_those_the_gate_validates(self):
         # The gate calls a placement without tab_id malformed and names it; the lifecycle still judges it by its pane,
         # so the stop reap does too.

@@ -106,8 +106,8 @@ def report_owed(saved, declined=False):
     """Whether the attempt's report is settled: only a completed result owes an intact report, or its decline (a
     changed report can never be accepted, and its attempt still closes); an accepted attempt owes none, since
     acceptance consumed its report."""
-    return (saved['result']['status'] != 'completed' or report_intact(saved) or bool(declined)
-            or bool(saved.get('accepted')))
+    return (saved['result']['status'] != 'completed' or bool(saved.get('accepted')) or bool(declined)
+            or report_intact(saved))
 
 
 def conversation(db, saved):
@@ -134,8 +134,8 @@ def final_retirement(db, saved, declined=False):
         if not row.get('result'):
             lacks.append(f'a collected result (`python3 {script} collect --state {state} --attempt {name} '
                          '--input <request>`)')
-        elif not (report_owed(row, row.get('declined') or declined and name == saved['attempt'])
-                  or reports[number] in reports[number + 1:]):
+        elif not (reports[number] in reports[number + 1:]
+                  or report_owed(row, row.get('declined') or declined and name == saved['attempt'])):
             lacks.append(f'an intact report (record it declined: `python3 {script} record --state {state} --input '
                          f'<JSON {{"kind": "declined", "attempt": "{name}", "reason", "evidence"}}>`)')
         lacks += [f'receipt {receipt["id"]} acknowledged (`python3 {script} ack --state {state} --event-id '

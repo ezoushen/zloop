@@ -157,11 +157,15 @@ def reaped(cwd, session=None):
     if root is None:
         return []
     cwd, pane = Path(cwd).resolve(), os.environ.get('HERDR_PANE_ID')
-    missing = []
+    missing, deadline = [], None
     for state in states(root):
         mine = None
         try:
             module = lifecycle()
+            # One budget for the whole stop, whatever the number of run states: what it does not reach waits for the next.
+            deadline = deadline or time.monotonic() + module.REAP_SECONDS
+            if time.monotonic() >= deadline:
+                break
             db = sqlite3.connect(state, timeout=10)
             try:
                 # The attempts the lifecycle itself reads, not only those the gate's validation accepts.
@@ -171,7 +175,8 @@ def reaped(cwd, session=None):
                 mine = {saved['attempt'] for saved in saved_attempts if orchestrated(saved)}
                 if not mine:
                     continue
-                found = module.reap(db, state, lambda saved: saved['attempt'] in mine)
+                found = module.reap(db, state, lambda saved: saved['attempt'] in mine,
+                                    budget=deadline - time.monotonic())
             finally:
                 db.close()
         except Exception as error:  # A check that cannot run is a named gap, never a pass; gaps() names an unreadable state.
