@@ -348,31 +348,33 @@ export default function (pi) {
     },
   });
 
-  // Keep working while a lifecycle worker could finish without waking this host, a worker this session launched is
-  // unregistered, or a workstream it orchestrates is undelivered under autofix: at most once per run, so a gap the host
-  // cannot fix never loops.
-  let continued = false;
-  pi.on("agent_settled", () => {
-    continued = false;
-  });
+  // Keep working while the yield gate says to hold the stop: a lifecycle worker could finish without waking this host, a
+  // worker this session launched is unregistered, or a workstream it orchestrates is undelivered under autofix. The
+  // gate bounds its own repeats; a check that could not even run holds once.
+  let failed = false;
   pi.on("agent_before_settle", (event, ctx) => {
-    if (continued || event.outcome !== "completed" || process.env.ZLOOP_YIELD_HOOK === "off") return undefined;
+    if (event.outcome !== "completed" || process.env.ZLOOP_YIELD_HOOK === "off") return undefined;
     // pi-subagents hosts background children, which load this extension, in a runner it marks PI_SUBAGENT_CHILD=1;
     // a child must not stop for its orchestrator's gaps. (A /fork sets the header's parentSession too: no signal.)
     if (process.env.PI_SUBAGENT_CHILD === "1") return undefined;
-    let missing, session, content;
+    let session, verdict;
     try {
       session = ctx.sessionManager.getSessionId();
-      const output = execFileSync("python3", [`${root}/hooks/yield_gate.py`, "check", ctx.cwd, session],
+      const output = execFileSync("python3", [`${root}/hooks/yield_gate.py`, "stop", ctx.cwd, session],
         { encoding: "utf8", timeout: 20000 });
-      ({ missing, reason: content } = JSON.parse(output));  // The check words the hold as the Stop hooks do.
-    } catch (error) {
-      missing = [`could not check workers: ${error.message.trim()}`];  // A broken check never passes silently.
+      verdict = JSON.parse(output);  // The check words the hold as the Stop hooks do and counts its own repeats.
+      failed = false;
+    } catch (error) {  // A broken check never passes silently, but holds once.
+      if (failed) return undefined;
+      failed = true;
+      verdict = { hold: true, missing: [`could not check workers: ${error.message.trim()}`] };
     }
-    if (!missing.length) return undefined;
-    continued = true;
-    content ??= "Stopping now leaves these gaps:\n"
-      + missing.map((gap) => `- ${gap}\n`).join("")
+    if (verdict.notice) {
+      return { entries: [{ type: "custom_message", customType: "zloop_yield_gate", content: verdict.notice, display: true }], continue: false };
+    }
+    if (!verdict.hold) return undefined;
+    const content = verdict.reason ?? "Stopping now leaves these gaps:\n"
+      + verdict.missing.map((gap) => `- ${gap}\n`).join("")
       + "Register each launched worker, or dismiss a launch that needs none with "
       + `\`python3 ${root}/hooks/herdr_launch.py dismiss --pane <pane> --session ${session} --reason <why>\` `
       + `(${root}/runtime/workers/prepare.md). Arm a notified wait, recover the receipt or collect the result `

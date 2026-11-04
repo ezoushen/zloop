@@ -39,7 +39,7 @@ try {
       "explain", "huh", "pr", "prototype", "refine", "remediate", "research", "review", "setup", "tdd"]
       .map((skill) => `zloop:${skill}`).concat("zloop-panel").sort(), pass);
     assert.deepEqual([...extension.handlers.keys()],
-      ["before_agent_start", "agent_settled", "agent_before_settle", "tool_call", "tool_result",
+      ["before_agent_start", "agent_before_settle", "tool_call", "tool_result",
         "session_start", "session_shutdown"]);
     // Every tool_call handler runs in order on the same input until one blocks, as Pi's runner does.
     const call = async (event, ctx) => {

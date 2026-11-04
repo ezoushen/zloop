@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,24 +34,27 @@ const until = async (check, what) => {
   assert.fail(`timed out waiting for ${what}`);
 };
 
-// A checkout whose launch log holds one launch, that no attempt registered, by each session in `gaps`: real
-// yield-gate gaps for those sessions and none for any other. `end` always has one.
-function checkout(gaps, end = "ses_end") {
+// A launch log line for a launch that no attempt registered, by `session`: a real yield-gate gap for that session.
+const launched = (session) => JSON.stringify({
+  time: "2026-10-27T00:00:00Z", agent: `w-${session}`, pane: `p-${session}`, orchestrator: { pane: null, session },
+}) + "\n";
+
+// A checkout whose launch log holds one such launch by each session in `gaps`: gaps for those sessions and none for
+// any other.
+function checkout(gaps) {
   const repo = mkdtempSync(join(temp, "repo-"));
   execFileSync("git", ["init", "-q", repo]);
   mkdirSync(join(repo, ".scratch"));
-  writeFileSync(join(repo, ".scratch/herdr-launches.jsonl"), [...gaps, end].map((session) => JSON.stringify({
-    time: "2026-10-27T00:00:00Z", agent: `w-${session}`, pane: `p-${session}`, orchestrator: { pane: null, session },
-  }) + "\n").join(""));
+  writeFileSync(join(repo, ".scratch/herdr-launches.jsonl"), gaps.map(launched).join(""));
   return repo;
 }
 
 // A stand-in for OpenCode's plugin context: events pushed by the test, sessions with a directory and an optional parent.
 let loads = 0;
 async function load(gaps, parents = {}, admission = 0, written = {}) {
-  // Each load closes with its own session: the plugin's holds outlive one setup, as they do across OpenCode's.
+  // Each load closes with its own sessions: the plugin's holds outlive one setup, as they do across OpenCode's.
   const end = `ses_end_${++loads}`;
-  const repo = checkout(gaps, end);
+  const repo = checkout(gaps);
   const subscribers = new Set();
   let stopped = 0;
   const sent = [];
@@ -101,12 +104,16 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
     }
   };
   const holds = (sessionID) => sent.filter((input) => input.sessionID === sessionID).length;
-  // Events are handled in order, so once `end`'s hold arrives every earlier event has been handled.
+  // The hold of session `sessionID` number `count`, admitted.
+  const holding = (sessionID, count) => until(() => holds(sessionID) === count && admitted === sent.length,
+    `hold ${count} of ${sessionID}`);
+  // Events are handled in order, so once a session of its own is held every earlier event has been handled.
+  let closings = 0;
   const settle = async () => {
-    const before = holds(end);
-    push("succeeded", end);
-    await until(() => holds(end) > before && admitted === sent.length, "the closing hold");
-    push("succeeded", end);  // Its own held turn ends, so the next settle is checked again.
+    const closing = `${end}_${++closings}`;
+    appendFileSync(join(repo, ".scratch/herdr-launches.jsonl"), launched(closing));
+    push("succeeded", closing);
+    await holding(closing, 1);
   };
   // OpenCode sets the plugin up once for each directory it serves, all on one server.
   // `slow` delays that setup's session lookups, so the test can order it against the first one.
@@ -117,26 +124,25 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
       return ctx.session.get(input);
     } },
   });
-  return { repo, end, sent, hooks, push, holds, settle, cleanup, elsewhere, control, stopped: () => stopped };
+  return { repo, end, sent, hooks, push, holds, holding, settle, cleanup, elsewhere, control, stopped: () => stopped };
 }
 
 {
-  // A root session that ends its turn with a gap is prompted once, with the check's reason, in the same session.
+  // A root session that ends its turn with a gap is prompted with the check's reason in the same session, and again
+  // each time the turn the hold started ends with the same gaps, up to three holds; then the stop is let through.
   const host = await load(["ses_a"]);
   host.push("succeeded", "ses_a");
-  await host.settle();
-  assert.equal(host.holds("ses_a"), 1);
+  await host.holding("ses_a", 1);
   assert.equal(host.sent[0].sessionID, "ses_a");
   assert.match(host.sent[0].text,
     /^Stopping now leaves these gaps:\n- .*herdr-launches\.jsonl: w-ses_a \(pane p-ses_a\): launched without a registered attempt\n/);
-
-  // The turn the hold started ends unchecked, so a gap the agent cannot clear never loops; the turn after is checked.
+  host.push("succeeded", "ses_a");  // The held turn's end.
+  await host.holding("ses_a", 2);
+  host.push("succeeded", "ses_a");
+  await host.holding("ses_a", 3);
   host.push("succeeded", "ses_a");
   await host.settle();
-  assert.equal(host.holds("ses_a"), 1, "the held turn's own end is not held again");
-  host.push("succeeded", "ses_a");
-  await host.settle();
-  assert.equal(host.holds("ses_a"), 2, "the next turn is checked");
+  assert.equal(host.holds("ses_a"), 3, "the fourth turn end of the same gaps is let through");
   await host.cleanup();
 }
 
@@ -164,8 +170,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
 }
 
 {
-  // A session moved to another directory while it is held keeps its hold: the held turn ends unchecked wherever it ends,
-  // and the turn after is checked where the session now is.
+  // A session moved to another directory while it is held is checked where it now is when the held turn ends.
   const written = {};
   const host = await load(["ses_v"], {}, 0, written);
   const there = checkout(["ses_v"]);
@@ -174,10 +179,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   await host.settle();
   written.ses_v = there;
   host.push("succeeded", "ses_v");  // The held turn's end, now in `there`.
-  await host.settle();
-  assert.equal(host.holds("ses_v"), 1);
-  host.push("succeeded", "ses_v");
-  await until(() => host.holds("ses_v") === 2, "the next turn's check where the session now is");
+  await host.holding("ses_v", 2);
   await other();
   await host.cleanup();
 }
@@ -225,9 +227,10 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   host.push("succeeded", "ses_y");  // A newer turn, held by the replacement.
   await until(() => host.holds("ses_y") === 2, "the replacement's hold");
   await new Promise((done) => setTimeout(done, 700));  // The replaced setup's prompt has failed by now.
-  host.push("succeeded", "ses_y");  // The held turn's end.
+  host.push("succeeded", "ses_y");  // The held turn's end: checked, once.
+  await host.holding("ses_y", 3);
   await host.settle();
-  assert.equal(host.holds("ses_y"), 2);
+  assert.equal(host.holds("ses_y"), 3);
   await again();
 }
 
@@ -286,7 +289,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   host.push("succeeded", "ses_k");  // The held turn's end.
   setTimeout(() => replaced(), 100);  // Replaced while it looks the session up.
   await host.settle();  // The replacement handles events in order, so it has handled the held turn's end.
-  assert.equal(host.holds("ses_k"), 1);
+  assert.equal(host.holds("ses_k"), 2, "the replacement holds the turn end, the replaced setup does not");
   await replacement();
 }
 
@@ -307,7 +310,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
 
 {
   // A success published before the hold was sent (a turn that ended while the check ran) neither holds again nor
-  // stands in for the end of the turn the hold started.
+  // stands in for the end of the turn the hold started, which is checked in its own right.
   const host = await load(["ses_q"]);
   const earlier = Date.now();
   host.push("succeeded", "ses_q", earlier);
@@ -315,15 +318,16 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   host.push("succeeded", "ses_q", earlier + 1);  // Queued behind the first, older than the hold.
   host.push("succeeded", "ses_q");  // The held turn's end.
   await host.settle();
-  assert.equal(host.holds("ses_q"), 1);
+  assert.equal(host.holds("ses_q"), 2, "the older success held nothing; the held turn's end did");
   host.push("succeeded", "ses_q");
   await host.settle();
-  assert.equal(host.holds("ses_q"), 2, "the next turn is checked");
+  assert.equal(host.holds("ses_q"), 3, "the next turn is checked");
   await host.cleanup();
 }
 
 {
-  // A turn that ends while the hold is being admitted is older than the hold's own turn and does not end the hold.
+  // A turn that ends while the hold is being admitted is older than the hold's own turn: it is not held, and the end of
+  // the turn the hold started is.
   const host = await load(["ses_r"], {}, 300);
   host.push("succeeded", "ses_r");
   await until(() => host.holds("ses_r") === 1, "the hold to be sent");
@@ -331,7 +335,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   await host.settle();
   host.push("succeeded", "ses_r");  // The held turn's end.
   await host.settle();
-  assert.equal(host.holds("ses_r"), 1);
+  assert.equal(host.holds("ses_r"), 2);
   await host.cleanup();
 }
 
@@ -344,23 +348,29 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   host.push("interrupted", "ses_i");
   host.push("succeeded", "ses_clean");
   await host.settle();
-  assert.deepEqual(host.sent.map((input) => input.sessionID), [host.end]);
+  assert.deepEqual(host.sent.map((input) => input.sessionID), [`${host.end}_1`]);
   assert.equal(checked("ses_child"), false, "a child's turn end runs no check");
   await host.cleanup();
 }
 
 {
-  // A check that cannot run holds, naming why, and never passes silently; the next turn is checked as usual.
+  // A check that cannot run holds once, naming why, and never passes silently; it holds again only after a check has run.
   const host = await load([]);
   process.env.PATH = bin;  // No python3.
   host.push("succeeded", "ses_clean");
-  await until(() => host.holds("ses_clean") === 1, "the failed check's hold");
-  process.env.PATH = path;
+  await host.holding("ses_clean", 1);
   assert.match(host.sent[0].text, /^Stopping now leaves these gaps:\n- could not check workers: .*python3/);
-  host.push("succeeded", "ses_clean");  // The end of the turn that hold started.
-  host.push("succeeded", "ses_clean");
+  host.push("succeeded", "ses_clean");  // The end of the turn that hold started, the check still unable to run.
+  await new Promise((done) => setTimeout(done, 500));
+  assert.equal(host.holds("ses_clean"), 1, "a check that could not run holds once");
+  process.env.PATH = path;
+  host.push("succeeded", "ses_clean");  // The check runs again and finds no gap.
   await host.settle();
   assert.equal(host.holds("ses_clean"), 1, "a check that runs again clears");
+  process.env.PATH = bin;
+  host.push("succeeded", "ses_clean");  // A later failure is a new one: held once more.
+  await host.holding("ses_clean", 2);
+  process.env.PATH = path;
   await host.cleanup();
 }
 
@@ -368,7 +378,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   // An agent's shell call (OpenCode 2 names the tool `shell`) that starts a Herdr agent is logged for the gate before it
   // runs, under this session, however the shell command is written.
   const host = await load([]);
-  const logged = () => readFileSync(join(host.repo, ".scratch/herdr-launches.jsonl"), "utf8").trim().split("\n")
+  const logged = () => readFileSync(join(host.repo, ".scratch/herdr-launches.jsonl"), "utf8").trim().split("\n").filter(Boolean)
     .map((line) => JSON.parse(line));
   const before = logged().length;
   const call = (command) => ({ tool: "shell", sessionID: "ses_log", agent: "build", messageID: "msg_1", id: "call_1",
@@ -399,7 +409,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
     messageID: "msg_1", id: "call_1", input: { command: `herdr agent start ${agent} --kind opencode --pane w1:${agent}` } });
   await call("ses_kid", "w20");
   await call("ses_grandkid", "w21");
-  const logged = readFileSync(join(host.repo, ".scratch/herdr-launches.jsonl"), "utf8").trim().split("\n")
+  const logged = readFileSync(join(host.repo, ".scratch/herdr-launches.jsonl"), "utf8").trim().split("\n").filter(Boolean)
     .map((line) => JSON.parse(line)).filter((record) => record.agent?.startsWith("w2"))
     .map((record) => ({ agent: record.agent, session: record.orchestrator.session }));
   assert.deepEqual(logged, [{ agent: "w20", session: "ses_top" }, { agent: "w21", session: "ses_top" }]);

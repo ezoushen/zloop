@@ -25,7 +25,8 @@ The review, delivery and card holds do not apply while a live worker of that sta
 wait that will wake the host. A
 check that cannot run, and a launch log line that is unreadable or malformed, are named gaps,
 never a pass. `claude` and `codex` speak their shared Stop
-hook protocol; `check <cwd> [session]` prints the gaps and the hold's message as JSON for other hosts. Set
+hook protocol; `check <cwd> [session]` prints the gaps and the hold's message as JSON, and `stop <cwd> [session]`, which
+other hosts call at each stop, also counts the stop and says whether to hold it. Set
 ZLOOP_YIELD_HOOK=off to disable the check.
 """
 import calendar
@@ -38,6 +39,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parent.parent
 RECENT_SECONDS = 24 * 3600
@@ -47,6 +49,10 @@ COLLECT = ROOT / 'runtime/workers/collect.md'
 HANDOFF = ROOT / 'skills/dispatch/handoff.md'
 # hooks/herdr_launch.py appends each `herdr agent start` here, one JSON object per line.
 LAUNCHES = '.scratch/herdr-launches.jsonl'
+# A session's stop is held while its gaps stand, this many consecutive times for an identical set; its count of them
+# is kept in a file per session here.
+HOLDS = '.scratch/holds'
+MAX_HOLDS = 3
 # scripts/next_tickets.py --orchestrate records here, in a workstream's reports/, the session that orchestrates it.
 BINDING = 'orchestrator.json'
 # The states skills/autopilot/run-card.md lets a run end in.
@@ -551,11 +557,48 @@ def checked(cwd, session=None):
         return [f'could not check workers: {error}'], []
 
 
+def count_hold(cwd, session, missing):
+    """Record one more stop of this session with these gaps: (whether to hold it, the notice that the gate gave up or
+    None). An identical set holds up to MAX_HOLDS consecutive stops, one when every gap is a check that could not run;
+    a changed or cleared set starts the count again."""
+    try:
+        root = main_checkout(cwd)
+    except Exception:
+        root = Path(cwd)  # Git cannot place the checkout: the count lives in the session's own directory.
+    if root is None:
+        return False, None
+    pane = os.environ.get('HERDR_PANE_ID')
+    key = f'session-{session}' if session else f'pane-{pane}' if pane else 'anonymous'
+    path = root / HOLDS / f"{quote(key, safe='')}.json"
+    if not missing:
+        path.unlink(missing_ok=True)
+        return False, None
+    missing = sorted(missing)
+    try:
+        saved = json.loads(path.read_text())
+    except (OSError, ValueError):
+        saved = {}
+    held = saved.get('holds', 0) if saved.get('gaps') == missing else 0
+    if held >= (1 if all(map(failed_check, missing)) else MAX_HOLDS):
+        return False, (f"zloop yield gate gave up holding the stop after {held} {'hold' if held == 1 else 'holds'} "
+                       'of the same gaps; stopping with:\n' + ''.join(f'- {gap}\n' for gap in missing))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f'{path.name}.{os.getpid()}.tmp')
+    temporary.write_text(json.dumps({'gaps': missing, 'holds': held + 1}))
+    os.replace(temporary, path)
+    return True, None
+
+
+def failed_check(gap):
+    """Whether a gap says a check could not run, which registering or dismissing cannot clear."""
+    return gap.startswith('could not check')
+
+
 def reason(workers, own, session=None):
     """The hold's message: every gap, the worker advice only for a worker gap that is not a failed check, and the retry
     advice for a failed check, which registering or dismissing cannot clear."""
     message = 'Stopping now leaves these gaps:\n' + ''.join(f'- {gap}\n' for gap in workers + own)
-    failed = [gap for gap in workers + own if gap.startswith('could not check')]
+    failed = [gap for gap in workers + own if failed_check(gap)]
     advice = []
     if [gap for gap in workers if gap not in failed]:
         dismiss = f"python3 {ROOT}/hooks/herdr_launch.py dismiss --pane <pane>{f' --session {session}' if session else ''}"
@@ -573,18 +616,24 @@ def reason(workers, own, session=None):
 def main():
     if os.environ.get('ZLOOP_YIELD_HOOK') == 'off':
         return 0
-    if sys.argv[1:2] == ['check'] and len(sys.argv) in (3, 4):
+    if sys.argv[1:2] in (['check'], ['stop']) and len(sys.argv) in (3, 4):
         workers, own = checked(Path(sys.argv[2]), *sys.argv[3:])
-        print(json.dumps({'missing': workers + own, 'reason': reason(workers, own, *sys.argv[3:])}))
+        report = {'missing': workers + own, 'reason': reason(workers, own, *sys.argv[3:])}
+        if sys.argv[1] == 'stop':  # A host's stop, counted; `check` only reports.
+            hold, notice = count_hold(sys.argv[2], (sys.argv[3:] or [None])[0], workers + own)
+            report.update(hold=hold, notice=notice)
+        print(json.dumps(report))
         return 0
     if sys.argv[1:] not in (['claude'], ['codex']):
-        sys.exit('usage: yield_gate.py claude|codex < stop-hook-input, or yield_gate.py check <cwd> [session]')
+        sys.exit('usage: yield_gate.py claude|codex < stop-hook-input, or yield_gate.py check|stop <cwd> [session]')
     payload = json.load(sys.stdin)
-    if payload.get('stop_hook_active'):
-        return 0
-    workers, own = checked(Path(payload.get('cwd') or os.getcwd()), payload.get('session_id'))
-    if workers or own:
-        print(json.dumps({'decision': 'block', 'reason': reason(workers, own, payload.get('session_id'))}))
+    cwd, session = Path(payload.get('cwd') or os.getcwd()), payload.get('session_id')
+    workers, own = checked(cwd, session)
+    hold, notice = count_hold(cwd, session, workers + own)
+    if hold:
+        print(json.dumps({'decision': 'block', 'reason': reason(workers, own, session)}))
+    elif notice:
+        print(json.dumps({'systemMessage': notice}))
     return 0
 
 

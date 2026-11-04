@@ -64,8 +64,9 @@ blocked worker is closed.
 Before yielding, run `gate --state ... --stage yield` (no `--attempt`). It exits 1 and
 names each live worker without an armed wait that can wake you, each lost wait and each
 undelivered receipt; fix those first. Claude Code and Codex (Stop hooks), Pi
-(extension) and OpenCode (plugin, after a turn succeeds) also run it when you stop, over
-runs active in the last day, and send you back once. `ZLOOP_YIELD_HOOK=off` disables the hooks. The stop hooks name what holds the session
+(extension) and OpenCode (plugin, after a turn succeeds) also run it when you stop, and
+send you back while the same gaps stand, up to three stops in a row, then let the stop through and say so
+(`hooks/yield_gate.py`). `ZLOOP_YIELD_HOOK=off` disables the hooks. The stop hooks name what holds the session
 (a worker, a Herdr launch no attempt accounts for, an uncollected tab, an unfinished
 autofix delivery or autopilot card) and the remedy; a check that cannot run is named, never passed.
 

@@ -381,14 +381,14 @@ class YieldGateHook(GateRepo):
         self.lifecycle('startup', native=str(self.native('ticket-1/1')))
         self.lifecycle('submitted', evidence=['native.jsonl:2:accepted prompt'])
 
-    def test_a_live_worker_without_a_wake_path_blocks_the_stop_once(self):
+    def test_a_live_worker_without_a_wake_path_blocks_the_stop(self):
         decision = self.stop(cwd=self.repo / '.scratch')
         self.assertEqual(decision['decision'], 'block')
         self.assertIn('ticket-1/1: no armed wait', decision['reason'])
         self.assertIn(str(self.state), decision['reason'])
         self.assertIn('workers/wait.md', decision['reason'])
-        # A stop that a stop hook already continued is let through, so a gap the host cannot fix never loops.
-        self.assertIsNone(self.stop(active=True))
+        # A stop that a stop hook already continued is held again: StopHolds bounds the repeats.
+        self.assertEqual(self.stop(active=True)['decision'], 'block')
         self.assertIsNone(self.stop(env={'ZLOOP_YIELD_HOOK': 'off'}))
 
     def test_an_unreadable_launch_log_line_is_named_and_hides_no_other_gap(self):
@@ -465,7 +465,7 @@ class YieldGateHook(GateRepo):
 
     def test_codex_uses_the_same_stop_protocol(self):
         self.assertEqual(self.stop(host='codex')['decision'], 'block')
-        self.assertIsNone(self.stop(host='codex', active=True))
+        self.assertEqual(self.stop(host='codex', active=True)['decision'], 'block')
 
     def test_only_the_herdr_pane_that_registered_a_worker_is_held(self):
         self.assertIsNone(self.stop(pane='w1:p9'))
@@ -503,31 +503,115 @@ class YieldGateHook(GateRepo):
         self.assertEqual(json.loads(result.stdout)['missing'], [f'{self.state}: ticket-1/1: no armed wait'])
 
     @unittest.skipUnless(shutil.which('node'), 'Node.js runs the Pi extension')
-    def test_pi_continues_once_when_a_completed_run_would_settle_with_a_gap(self):
-        script = f"""
-const bootstrap = await import({json.dumps((ROOT / 'hosts/pi/bootstrap.ts').as_uri())});
-const handlers = {{}};
-bootstrap.default({{ on: (event, handler) => {{ handlers[event] = handler; }}, registerTool() {{}}, registerCommand() {{}},
-                   registerShortcut() {{}} }});
-const settle = (outcome) => handlers.agent_before_settle(
-  {{ type: 'agent_before_settle', outcome, entries: [], continue: false }},
-  {{ cwd: {json.dumps(str(self.repo))}, sessionManager: {{ getSessionId: () => 'pi-1' }} }});
-const first = await settle('completed');
-const repeated = await settle('completed');
-handlers.agent_settled({{ type: 'agent_settled', aborted: false }});
-console.log(JSON.stringify([first, repeated, await settle('aborted'), await settle('completed')]));
-"""
-        result = subprocess.run(['node', '--input-type=module', '-e', script], capture_output=True, text=True,
-                                timeout=30, env=self.env())
-        self.assertEqual(result.returncode, 0, result.stderr)
-        first, repeated, aborted, next_run = json.loads(result.stdout)
-        self.assertTrue(first['continue'])
-        self.assertEqual(first['entries'][0]['type'], 'custom_message')
-        self.assertIn('ticket-1/1: no armed wait', first['entries'][0]['content'])
-        # One continuation per run, so a gap the host cannot fix never loops; an abort is never resumed.
-        self.assertIsNone(repeated)
+    def test_pi_continues_a_completed_run_while_the_gate_holds_then_says_it_gave_up(self):
+        # Gap 17 on Pi: the extension obeys the check, three holds of an identical gap set, then the notice; an abort is
+        # never resumed, and the extension keeps no once-per-run guard of its own.
+        results = self.pi("""
+const settle = async (outcome) => (await handlers.agent_before_settle(
+  { type: 'agent_before_settle', outcome, entries: [], continue: false }, ctx)) ?? null;
+console.log(JSON.stringify([await settle('completed'), await settle('completed'), await settle('aborted'),
+  await settle('completed'), await settle('completed'), await settle('completed'), 'agent_settled' in handlers]));
+""", pane='w1:p1')
+        first, second, aborted, third, notice, after, has_settled_handler = results
+        for decision in (first, second, third):
+            self.assertTrue(decision['continue'])
+            self.assertEqual(decision['entries'][0]['type'], 'custom_message')
+            self.assertIn('ticket-1/1: no armed wait', decision['entries'][0]['content'])
         self.assertIsNone(aborted)
-        self.assertTrue(next_run['continue'])
+        self.assertFalse(notice['continue'])
+        self.assertIn('gave up holding the stop after 3 holds of the same gaps', notice['entries'][0]['content'])
+        self.assertFalse(after['continue'])
+        self.assertFalse(has_settled_handler)
+
+
+class StopHolds(GateRepo):
+    """A stop is held while its gaps stand, up to three holds of an identical gap set per session; every host asks the
+    same gate."""
+
+    def setUp(self):
+        super().setUp()
+        (self.repo / '.worktrees').mkdir()
+
+    def launch_gap(self, name='builder-1', pane='w1:p5', session='host-1'):
+        """An unregistered launch of `session`: one gap that only a registration or a dismissal clears."""
+        self.launch(f'herdr agent start {name} --kind codex --pane {pane}', session=session)
+
+    def clear_gap(self, pane='w1:p5', session='host-1'):
+        subprocess.run([sys.executable, str(LAUNCH), 'dismiss', '--pane', pane, '--session', session, '--reason',
+                        'probe'], cwd=self.repo, check=True, capture_output=True, env=self.env())
+
+    def verdict(self, session='host-1', env=None):
+        result = subprocess.run([sys.executable, str(HOOK), 'stop', str(self.repo), session], capture_output=True,
+                                text=True, timeout=20, env=self.env(**(env or {})))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def held(self, session='host-1', host='claude', active=False):
+        """Whether the stop is held; a stop let through carries no decision."""
+        decision = self.stop(session=session, host=host, active=active)
+        self.assertTrue(decision is None or decision.get('decision') in (None, 'block'), decision)
+        return bool(decision and decision.get('decision') == 'block')
+
+    def test_claude_and_codex_hold_a_stop_three_times_while_its_gaps_stand_then_say_they_gave_up(self):
+        # Gap 17: stop_hook_active no longer means "allow"; the bound is three consecutive holds of an identical set.
+        for host, session in (('claude', 'host-1'), ('codex', 'host-2')):
+            self.launch_gap(session=session)
+            for round in range(3):
+                decision = self.stop(session=session, host=host, active=bool(round))
+                self.assertEqual(decision['decision'], 'block', (host, round))
+                self.assertIn(f'- {self.gap("builder-1", "w1:p5")}\n', decision['reason'])
+            given_up = self.stop(session=session, host=host, active=True)
+            self.assertNotIn('decision', given_up)
+            self.assertIn('gave up holding the stop after 3 holds of the same gaps', given_up['systemMessage'])
+            self.assertIn(self.gap('builder-1', 'w1:p5'), given_up['systemMessage'])
+            self.assertFalse(self.held(session=session, host=host), 'a later stop of the same gaps stays through')
+
+    def test_a_changed_gap_set_restarts_the_count(self):
+        self.launch_gap()
+        self.assertEqual([self.held(), self.held()], [True, True])
+        self.launch_gap('builder-2', 'w1:p6')  # A different set: three new holds.
+        self.assertEqual([self.held() for _ in range(4)], [True, True, True, False])
+
+    def test_a_cleared_gap_set_ends_the_count_so_the_same_gap_again_is_held_afresh(self):
+        self.launch_gap()
+        self.assertEqual([self.held(), self.held()], [True, True])
+        self.clear_gap()
+        self.assertFalse(self.held(), 'no gap, no hold')
+        self.launch_gap()
+        self.assertEqual([self.held() for _ in range(4)], [True, True, True, False])
+
+    def test_each_session_counts_its_own_holds_in_a_record_under_scratch_holds(self):
+        self.launch_gap(session='host-1')
+        self.launch_gap('builder-2', 'w1:p6', session='host-2')
+        self.assertEqual([self.held('host-1') for _ in range(4)], [True, True, True, False])
+        self.assertEqual([self.held('host-2') for _ in range(4)], [True, True, True, False])
+        records = sorted((self.repo / '.scratch/holds').iterdir())
+        self.assertEqual(len(records), 2, records)
+        for record in records:
+            self.assertEqual(json.loads(record.read_text())['holds'], 3)  # Written whole: no temporary file is left.
+
+    def test_the_stop_command_says_to_hold_and_then_that_it_gave_up(self):
+        self.launch_gap()
+        for _ in range(4):  # Reporting the gaps with `check` counts no stop.
+            self.assertEqual(self.check(session='host-1'), [self.gap('builder-1', 'w1:p5')])
+        self.assertEqual([self.verdict()['hold'] for _ in range(4)], [True, True, True, False])
+        verdict = self.verdict()
+        self.assertEqual(verdict['missing'], [self.gap('builder-1', 'w1:p5')], 'the gaps are reported whatever the count')
+        self.assertIn('gave up holding the stop after 3 holds of the same gaps', verdict['notice'])
+        self.launch_gap('builder-2', 'w1:p6')
+        self.assertEqual((self.verdict()['hold'], self.verdict()['notice']), (True, None))
+
+    def test_a_check_that_could_not_run_holds_once_but_a_real_gap_beside_it_holds_three_times(self):
+        broken = Path(self.tmp.name) / 'broken-git'
+        broken.mkdir()
+        (broken / 'git').write_text('#!/bin/sh\necho "fatal: unable to read index" >&2\nexit 128\n')
+        (broken / 'git').chmod(0o700)
+        env = {'PATH': f"{broken}{os.pathsep}{self.env()['PATH']}"}
+        self.assertTrue(self.stop(env=env, session='host-1', active=True)['decision'])
+        self.assertNotIn('decision', self.stop(env=env, session='host-1') or {})
+        self.serve(fail='connection refused')  # Herdr cannot be asked, beside a real launch gap.
+        self.launch_gap(session='host-3')
+        self.assertEqual([self.held('host-3') for _ in range(4)], [True, True, True, False])
 
 
 class UnregisteredWorkers(GateRepo):
@@ -1222,7 +1306,7 @@ console.log(JSON.stringify((await handlers.agent_before_settle(
         decision = self.stop()
         self.assertEqual(decision['decision'], 'block')
         self.assertIn(f'- {gap}\n', decision['reason'])
-        self.assertIsNone(self.stop(active=True))
+        self.assertIn('gave up holding the stop after 1 hold', self.stop(active=True)['systemMessage'])  # Held once.
         self.assertIsNone(self.stop(env={'ZLOOP_YIELD_HOOK': 'off'}))
         # A session outside Herdr has no workspace to check, so a broken Herdr is no gap there.
         self.assertEqual(self.check(pane=None, session='host-1'), [])
@@ -1254,32 +1338,34 @@ console.log(JSON.stringify((await handlers.agent_before_settle(
         gap = 'could not check workers: git rev-parse exited 128: fatal: unable to read index'
         self.assertEqual(self.check(env=env), [gap])
         self.assertIn(f'- {gap}\n', self.stop(env=env)['reason'])
-        self.assertIsNone(self.stop(env=env, active=True))
+        self.assertNotIn('decision', self.stop(env=env, active=True))  # Held once.
         outside = Path(self.tmp.name) / 'elsewhere'
         outside.mkdir()
         self.assertEqual(self.check(cwd=outside), [])
 
     @unittest.skipUnless(shutil.which('node'), 'Node.js runs the Pi extension')
     def test_pi_surfaces_a_check_that_could_not_run_and_continues_once(self):
-        # Rule 5 on Pi: when the yield gate itself cannot run, the settle hook names the failure, once per run.
+        # Rule 5 on Pi: when the yield gate itself cannot run, the settle hook names the failure and holds once, however
+        # often it settles after.
         broken = Path(self.tmp.name) / 'broken-python'
         broken.mkdir()
         (broken / 'python3').write_text('#!/bin/sh\necho "python3: simulated crash" >&2\nexit 1\n')
         (broken / 'python3').chmod(0o700)
-        first, repeated = self.pi("""
+        first, repeated, third = self.pi("""
 const settle = async () => (await handlers.agent_before_settle(
   { type: 'agent_before_settle', outcome: 'completed', entries: [], continue: false }, ctx)) ?? null;
-console.log(JSON.stringify([await settle(), await settle()]));
+console.log(JSON.stringify([await settle(), await settle(), await settle()]));
 """, pane='w1:p1', env={'PATH': f"{broken}{os.pathsep}{self.env()['PATH']}"})
         self.assertTrue(first['continue'])
         self.assertRegex(first['entries'][0]['content'],
-                         r'\n- could not check workers: Command failed: python3 \S+/hooks/yield_gate\.py check .+ pi-1\n'
+                         r'\n- could not check workers: Command failed: python3 \S+/hooks/yield_gate\.py stop .+ pi-1\n'
                          r'python3: simulated crash\n')
         self.assertIsNone(repeated)
+        self.assertIsNone(third)
 
 
 class DeliveryHold(GateRepo):
-    """Dispatch binds the session that orchestrates a workstream; that session alone is held once when it stops with the
+    """Dispatch binds the session that orchestrates a workstream; that session alone is held when it stops with the
     workstream's delivery failing under autofix. The fixture is the Pi run: every ticket done, a repair committed after
     review left review_head stale, and E2E never ran."""
 
@@ -1338,11 +1424,11 @@ class DeliveryHold(GateRepo):
         self.bind(pane='w1:p1')
         self.assertEqual(self.check(pane='w1:p1'), [self.gap()])
         for host in ('claude', 'codex'):
-            decision = self.stop(pane='w1:p1', host=host)
+            decision = self.stop(pane='w1:p1', host=host, session=host)
             self.assertEqual(decision['decision'], 'block')
             # Review 6: a delivery-only hold carries its gap and command, without the worker-registration advice.
             self.assertEqual(decision['reason'], f'Stopping now leaves these gaps:\n- {self.gap()}\n')
-            self.assertIsNone(self.stop(pane='w1:p1', host=host, active=True))
+            self.assertEqual(self.stop(pane='w1:p1', host=host, session=host, active=True)['decision'], 'block')
         self.assertIsNone(self.stop(pane='w1:p1', env={'ZLOOP_YIELD_HOOK': 'off'}))
         self.review(delivered=True)
         self.assertEqual(self.check(pane='w1:p1'), [])
@@ -1562,25 +1648,24 @@ class DeliveryHold(GateRepo):
         gap = f"could not check delivery of fix: {bad}: invalid ticket id 'Fix 2'"
         self.assertEqual(self.check(pane='w1:p1'), [gap])
         self.assertIn(f'- {gap}\n', self.stop(pane='w1:p1')['reason'])
-        self.assertIsNone(self.stop(pane='w1:p1', active=True))
+        self.assertNotIn('decision', self.stop(pane='w1:p1', active=True))  # Held once.
         self.assertEqual(self.check(pane='w1:p9'), [])
 
     @unittest.skipUnless(shutil.which('node'), 'Node.js runs the Pi extension')
-    def test_pi_holds_the_bound_orchestrator_once_per_run(self):
-        # Rules 3 and 4 on Pi: its bash tool exports PI_SESSION_ID; the settle check holds that session once per run,
-        # with the same message, and not another Pi session.
+    def test_pi_holds_the_bound_orchestrator_while_the_gate_holds_and_not_another_session(self):
+        # Rules 3 and 4 on Pi: its bash tool exports PI_SESSION_ID; the settle check holds that session with the same
+        # message for as long as the check says to, and not another Pi session.
         self.bind(pane=None, PI_SESSION_ID='pi-1')
-        first, repeated, other = self.pi("""
+        decisions, other = self.pi("""
 const settle = async (use) => (await handlers.agent_before_settle(
   { type: 'agent_before_settle', outcome: 'completed', entries: [], continue: false }, use)) ?? null;
-const first = await settle(ctx), repeated = await settle(ctx);
-handlers.agent_settled({ type: 'agent_settled', aborted: false });
-console.log(JSON.stringify([first, repeated,
+console.log(JSON.stringify([[await settle(ctx), await settle(ctx), await settle(ctx), await settle(ctx)],
   await settle({ ...ctx, sessionManager: { getSessionId: () => 'pi-2' } })]));
 """)
-        self.assertTrue(first['continue'])
-        self.assertEqual(first['entries'][0]['content'], f'Stopping now leaves these gaps:\n- {self.gap()}\n')
-        self.assertIsNone(repeated)
+        for decision in decisions[:3]:
+            self.assertTrue(decision['continue'])
+            self.assertEqual(decision['entries'][0]['content'], f'Stopping now leaves these gaps:\n- {self.gap()}\n')
+        self.assertFalse(decisions[3]['continue'])
         self.assertIsNone(other)
 
 
@@ -1724,7 +1809,8 @@ class StaleTabs(GateRepo):
                '{"error": {"code": "server_unavailable", "message": "connection refused"}}')
         self.assertEqual(self.check(pane='w1:p1'), [f'{self.state}: ticket-2/1: no armed wait', gap])
         self.assertIn(f'- {gap}\n', self.stop(pane='w1:p1')['reason'])
-        self.assertIsNone(self.stop(pane='w1:p1', active=True))
+        # The live worker's gap stands beside the failed check, so the hold is repeated, not given up after one.
+        self.assertEqual(self.stop(pane='w1:p1', active=True)['decision'], 'block')
         self.serve(hang=True)
         self.assertRegex(self.check(pane='w1:p1')[-1],
                          r"^could not check worker tabs: .*'tab', 'list'.* timed out after 5 seconds$")
