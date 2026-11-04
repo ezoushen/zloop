@@ -381,28 +381,33 @@ class YieldGateHook(GateRepo):
         self.lifecycle('startup', native=str(self.native('ticket-1/1')))
         self.lifecycle('submitted', evidence=['native.jsonl:2:accepted prompt'])
 
-    def test_a_live_worker_without_a_wake_path_blocks_the_stop_once(self):
+    def test_a_live_worker_without_a_wake_path_blocks_the_stop(self):
         decision = self.stop(cwd=self.repo / '.scratch')
         self.assertEqual(decision['decision'], 'block')
         self.assertIn('ticket-1/1: no armed wait', decision['reason'])
         self.assertIn(str(self.state), decision['reason'])
         self.assertIn('workers/wait.md', decision['reason'])
-        # A stop that a stop hook already continued is let through, so a gap the host cannot fix never loops.
-        self.assertIsNone(self.stop(active=True))
+        # A stop that a stop hook already continued is held again: StopHolds bounds the repeats.
+        self.assertEqual(self.stop(active=True)['decision'], 'block')
         self.assertIsNone(self.stop(env={'ZLOOP_YIELD_HOOK': 'off'}))
 
-    def test_an_unreadable_launch_log_line_is_named_and_hides_no_other_gap(self):
-        # Review 6: a torn or hand-broken line is reported by number and ignored for matching; the lifecycle gaps and
-        # the readable launches still show.
+    def test_an_unreadable_launch_log_line_is_named_to_the_session_it_names_and_hides_no_other_gap(self):
+        # Review 6, gap 10: a torn or hand-broken line is reported by number to a session its raw text names, and
+        # ignored for matching; the lifecycle gaps and the readable launches still show. One that names no session or
+        # pane holds no one.
         log = self.repo / '.scratch/herdr-launches.jsonl'
         self.launch('herdr agent start builder-1 --kind codex --pane w1:p5')
         with log.open('a') as stream:
             stream.write('{"time": "2026-10-2\n{"agent": "builder-9"}\n')
         self.launch('herdr agent start builder-2 --kind codex --pane w1:p6')
+        with log.open('a') as stream:
+            stream.write('{"time": "2026-10-2", "orchestrator": {"pane": null, "session": "host-1"\n')
         self.assertEqual(self.check(), [f'{self.state}: ticket-1/1: no armed wait', self.gap('builder-1', 'w1:p5'),
-                                        self.gap('builder-2', 'w1:p6'),
-                                        f'{log}: launch log line 2 is unreadable; fix or remove it',
-                                        f'{log}: launch log line 3 is unreadable; fix or remove it'])
+                                        self.gap('builder-2', 'w1:p6')])
+        self.assertEqual(self.check(pane=None, session='host-1'), [
+            self.gap('builder-1', 'w1:p5'), self.gap('builder-2', 'w1:p6'),
+            f'{log}: launch log line 5 is unreadable; fix or remove it'])
+        self.assertEqual(self.check(pane=None, session='host-2'), [])
 
     def test_a_line_with_malformed_fields_is_named_like_an_unreadable_one(self):
         # Re-review 3: valid JSON whose fields have the wrong shape (the probe's empty orchestrator, a bad time, a
@@ -417,9 +422,14 @@ class YieldGateHook(GateRepo):
                {'time': at, 'dismissed': {'pane': 'w1:p5'}, 'by': {'pane': 'w1:p1'}, 'reason': 'probe'}]
         with log.open('a') as stream:
             stream.writelines(json.dumps(record) + '\n' for record in bad)
+        # The line with the empty orchestrator, like the other three of pane w1:p9, names no session or pane that
+        # launched it, so only the session in the pane its text names is held.
         self.assertEqual(self.check(session='host-1'), [
             f'{self.state}: ticket-1/1: no armed wait', self.gap('builder-1', 'w1:p5'),
-            *(f'{log}: launch log line {number} is unreadable; fix or remove it' for number in range(2, 7))])
+            *(f'{log}: launch log line {number} is unreadable; fix or remove it' for number in range(3, 7))])
+        self.assertEqual(self.check(pane='w1:p9', session='host-3'),
+                         [f'{log}: launch log line {number} is unreadable; fix or remove it' for number in range(2, 6)])
+        self.assertEqual(self.check(pane='w1:p7', session='host-4'), [])
 
     def test_a_checkout_without_worktrees_never_asks_herdr(self):
         # Review 4: a Herdr session in a repository with no .worktrees/ has no ticket worker to look for, so a broken
@@ -465,7 +475,7 @@ class YieldGateHook(GateRepo):
 
     def test_codex_uses_the_same_stop_protocol(self):
         self.assertEqual(self.stop(host='codex')['decision'], 'block')
-        self.assertIsNone(self.stop(host='codex', active=True))
+        self.assertEqual(self.stop(host='codex', active=True)['decision'], 'block')
 
     def test_only_the_herdr_pane_that_registered_a_worker_is_held(self):
         self.assertIsNone(self.stop(pane='w1:p9'))
@@ -484,17 +494,31 @@ class YieldGateHook(GateRepo):
         self.assertEqual(self.stop()['decision'], 'block')
         self.assertIsNone(self.stop(pane=None))
 
-    def test_runs_idle_for_a_day_and_other_directories_are_not_checked(self):
-        before = self.state.stat().st_mtime
+    def test_a_worker_this_session_registered_is_judged_however_old_its_state(self):
+        # Gap 22 (gate half), audit A8: attribution, not the state's age, decides for an attributed attempt.
         stale = time.time() - 2 * 24 * 3600
         os.utime(self.state, (stale, stale))
-        self.assertIsNone(self.stop())
+        self.assertEqual(self.stop()['decision'], 'block')
         # Checking reads the state without touching it.
         self.assertEqual(self.state.stat().st_mtime, stale)
-        self.assertGreater(before, stale)
+        self.assertIsNone(self.stop(pane='w1:p9'))
         outside = Path(self.tmp.name) / 'elsewhere'
         outside.mkdir()
         self.assertIsNone(self.stop(cwd=outside))
+
+    def test_a_worker_registered_without_session_or_pane_holds_only_while_its_state_is_recent(self):
+        # The 24-hour cutoff keeps only the rows nobody can be attributed to: one that ran outside any host.
+        self.lifecycle('register', 'ticket-2/1', None, assignment='ticket-2', repo=str(self.repo),
+                       worktree=str(self.repo), head='head-1', execution=str(self.execution), runtime='claude',
+                       worker='pane-2', native_session='native-2', owned=True,
+                       packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        self.lifecycle('startup', 'ticket-2/1', native=str(self.native('ticket-2/1')))
+        self.lifecycle('submitted', 'ticket-2/1', evidence=['native.jsonl:2:accepted prompt'])
+        self.assertEqual(self.check(pane='w1:p9'), [f'{self.state}: ticket-2/1: no armed wait'])
+        stale = time.time() - 2 * 24 * 3600
+        os.utime(self.state, (stale, stale))
+        self.assertEqual(self.check(pane='w1:p9'), [])
+        self.assertEqual(self.check(pane='w1:p1'), [f'{self.state}: ticket-1/1: no armed wait'])
 
     def test_check_mode_reports_gaps_for_other_hosts(self):
         result = subprocess.run([sys.executable, str(HOOK), 'check', str(self.repo)],
@@ -503,31 +527,115 @@ class YieldGateHook(GateRepo):
         self.assertEqual(json.loads(result.stdout)['missing'], [f'{self.state}: ticket-1/1: no armed wait'])
 
     @unittest.skipUnless(shutil.which('node'), 'Node.js runs the Pi extension')
-    def test_pi_continues_once_when_a_completed_run_would_settle_with_a_gap(self):
-        script = f"""
-const bootstrap = await import({json.dumps((ROOT / 'hosts/pi/bootstrap.ts').as_uri())});
-const handlers = {{}};
-bootstrap.default({{ on: (event, handler) => {{ handlers[event] = handler; }}, registerTool() {{}}, registerCommand() {{}},
-                   registerShortcut() {{}} }});
-const settle = (outcome) => handlers.agent_before_settle(
-  {{ type: 'agent_before_settle', outcome, entries: [], continue: false }},
-  {{ cwd: {json.dumps(str(self.repo))}, sessionManager: {{ getSessionId: () => 'pi-1' }} }});
-const first = await settle('completed');
-const repeated = await settle('completed');
-handlers.agent_settled({{ type: 'agent_settled', aborted: false }});
-console.log(JSON.stringify([first, repeated, await settle('aborted'), await settle('completed')]));
-"""
-        result = subprocess.run(['node', '--input-type=module', '-e', script], capture_output=True, text=True,
-                                timeout=30, env=self.env())
-        self.assertEqual(result.returncode, 0, result.stderr)
-        first, repeated, aborted, next_run = json.loads(result.stdout)
-        self.assertTrue(first['continue'])
-        self.assertEqual(first['entries'][0]['type'], 'custom_message')
-        self.assertIn('ticket-1/1: no armed wait', first['entries'][0]['content'])
-        # One continuation per run, so a gap the host cannot fix never loops; an abort is never resumed.
-        self.assertIsNone(repeated)
+    def test_pi_continues_a_completed_run_while_the_gate_holds_then_says_it_gave_up(self):
+        # Gap 17 on Pi: the extension obeys the check, three holds of an identical gap set, then the notice; an abort is
+        # never resumed, and the extension keeps no once-per-run guard of its own.
+        results = self.pi("""
+const settle = async (outcome) => (await handlers.agent_before_settle(
+  { type: 'agent_before_settle', outcome, entries: [], continue: false }, ctx)) ?? null;
+console.log(JSON.stringify([await settle('completed'), await settle('completed'), await settle('aborted'),
+  await settle('completed'), await settle('completed'), await settle('completed'), 'agent_settled' in handlers]));
+""", pane='w1:p1')
+        first, second, aborted, third, notice, after, has_settled_handler = results
+        for decision in (first, second, third):
+            self.assertTrue(decision['continue'])
+            self.assertEqual(decision['entries'][0]['type'], 'custom_message')
+            self.assertIn('ticket-1/1: no armed wait', decision['entries'][0]['content'])
         self.assertIsNone(aborted)
-        self.assertTrue(next_run['continue'])
+        self.assertFalse(notice['continue'])
+        self.assertIn('gave up holding the stop after 3 holds of the same gaps', notice['entries'][0]['content'])
+        self.assertFalse(after['continue'])
+        self.assertFalse(has_settled_handler)
+
+
+class StopHolds(GateRepo):
+    """A stop is held while its gaps stand, up to three holds of an identical gap set per session; every host asks the
+    same gate."""
+
+    def setUp(self):
+        super().setUp()
+        (self.repo / '.worktrees').mkdir()
+
+    def launch_gap(self, name='builder-1', pane='w1:p5', session='host-1'):
+        """An unregistered launch of `session`: one gap that only a registration or a dismissal clears."""
+        self.launch(f'herdr agent start {name} --kind codex --pane {pane}', session=session)
+
+    def clear_gap(self, pane='w1:p5', session='host-1'):
+        subprocess.run([sys.executable, str(LAUNCH), 'dismiss', '--pane', pane, '--session', session, '--reason',
+                        'probe'], cwd=self.repo, check=True, capture_output=True, env=self.env())
+
+    def verdict(self, session='host-1', env=None):
+        result = subprocess.run([sys.executable, str(HOOK), 'stop', str(self.repo), session], capture_output=True,
+                                text=True, timeout=20, env=self.env(**(env or {})))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def held(self, session='host-1', host='claude', active=False):
+        """Whether the stop is held; a stop let through carries no decision."""
+        decision = self.stop(session=session, host=host, active=active)
+        self.assertTrue(decision is None or decision.get('decision') in (None, 'block'), decision)
+        return bool(decision and decision.get('decision') == 'block')
+
+    def test_claude_and_codex_hold_a_stop_three_times_while_its_gaps_stand_then_say_they_gave_up(self):
+        # Gap 17: stop_hook_active no longer means "allow"; the bound is three consecutive holds of an identical set.
+        for host, session in (('claude', 'host-1'), ('codex', 'host-2')):
+            self.launch_gap(session=session)
+            for round in range(3):
+                decision = self.stop(session=session, host=host, active=bool(round))
+                self.assertEqual(decision['decision'], 'block', (host, round))
+                self.assertIn(f'- {self.gap("builder-1", "w1:p5")}\n', decision['reason'])
+            given_up = self.stop(session=session, host=host, active=True)
+            self.assertNotIn('decision', given_up)
+            self.assertIn('gave up holding the stop after 3 holds of the same gaps', given_up['systemMessage'])
+            self.assertIn(self.gap('builder-1', 'w1:p5'), given_up['systemMessage'])
+            self.assertFalse(self.held(session=session, host=host), 'a later stop of the same gaps stays through')
+
+    def test_a_changed_gap_set_restarts_the_count(self):
+        self.launch_gap()
+        self.assertEqual([self.held(), self.held()], [True, True])
+        self.launch_gap('builder-2', 'w1:p6')  # A different set: three new holds.
+        self.assertEqual([self.held() for _ in range(4)], [True, True, True, False])
+
+    def test_a_cleared_gap_set_ends_the_count_so_the_same_gap_again_is_held_afresh(self):
+        self.launch_gap()
+        self.assertEqual([self.held(), self.held()], [True, True])
+        self.clear_gap()
+        self.assertFalse(self.held(), 'no gap, no hold')
+        self.launch_gap()
+        self.assertEqual([self.held() for _ in range(4)], [True, True, True, False])
+
+    def test_each_session_counts_its_own_holds_in_a_record_under_scratch_holds(self):
+        self.launch_gap(session='host-1')
+        self.launch_gap('builder-2', 'w1:p6', session='host-2')
+        self.assertEqual([self.held('host-1') for _ in range(4)], [True, True, True, False])
+        self.assertEqual([self.held('host-2') for _ in range(4)], [True, True, True, False])
+        records = sorted((self.repo / '.scratch/holds').iterdir())
+        self.assertEqual(len(records), 2, records)
+        for record in records:
+            self.assertEqual(json.loads(record.read_text())['holds'], 3)  # Written whole: no temporary file is left.
+
+    def test_the_stop_command_says_to_hold_and_then_that_it_gave_up(self):
+        self.launch_gap()
+        for _ in range(4):  # Reporting the gaps with `check` counts no stop.
+            self.assertEqual(self.check(session='host-1'), [self.gap('builder-1', 'w1:p5')])
+        self.assertEqual([self.verdict()['hold'] for _ in range(4)], [True, True, True, False])
+        verdict = self.verdict()
+        self.assertEqual(verdict['missing'], [self.gap('builder-1', 'w1:p5')], 'the gaps are reported whatever the count')
+        self.assertIn('gave up holding the stop after 3 holds of the same gaps', verdict['notice'])
+        self.launch_gap('builder-2', 'w1:p6')
+        self.assertEqual((self.verdict()['hold'], self.verdict()['notice']), (True, None))
+
+    def test_a_check_that_could_not_run_holds_once_but_a_real_gap_beside_it_holds_three_times(self):
+        broken = Path(self.tmp.name) / 'broken-git'
+        broken.mkdir()
+        (broken / 'git').write_text('#!/bin/sh\necho "fatal: unable to read index" >&2\nexit 128\n')
+        (broken / 'git').chmod(0o700)
+        env = {'PATH': f"{broken}{os.pathsep}{self.env()['PATH']}"}
+        self.assertTrue(self.stop(env=env, session='host-1', active=True)['decision'])
+        self.assertNotIn('decision', self.stop(env=env, session='host-1') or {})
+        self.serve(fail='connection refused')  # Herdr cannot be asked, beside a real launch gap.
+        self.launch_gap(session='host-3')
+        self.assertEqual([self.held('host-3') for _ in range(4)], [True, True, True, False])
 
 
 class UnregisteredWorkers(GateRepo):
@@ -559,8 +667,9 @@ class UnregisteredWorkers(GateRepo):
         return f'Herdr agent {name} (pane {pane}) runs in {cwd} without a registered attempt'
 
     def test_each_herdr_agent_start_is_logged_in_the_main_checkout_for_its_orchestrator(self):
-        # Rule 1: time, agent name, pane, orchestrator (its Herdr pane and host session, each when known) and the
-        # pane's cwd as the named Herdr server reports it; a command that only mentions a launch records nothing.
+        # Rule 1: time, agent name, pane, the Herdr server session it ran in (None for the default one), orchestrator
+        # (its Herdr pane and host session, each when known) and the pane's cwd as the named Herdr server reports it; a
+        # command that only mentions a launch records nothing.
         self.serve(panes={'s1': {'w1:p5': {'pane_id': 'w1:p5', 'cwd': str(self.worktree)}},
                           'default': {'w1:p5': {'pane_id': 'w1:p5', 'cwd': '/elsewhere'}}})
         before = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
@@ -572,9 +681,10 @@ class UnregisteredWorkers(GateRepo):
         for record in logged:
             self.assertTrue(before <= record.pop('time') <= after)
         self.assertEqual(logged, [
-            {'agent': 'builder-1', 'pane': 'w1:p5', 'orchestrator': {'pane': 'w1:p1', 'session': 'host-1'},
-             'cwd': str(self.worktree)},
-            {'agent': 'reviewer-2', 'pane': 'w1:p6', 'orchestrator': {'pane': None, 'session': 'host-1'}}])
+            {'agent': 'builder-1', 'pane': 'w1:p5', 'herdr_session': 's1',
+             'orchestrator': {'pane': 'w1:p1', 'session': 'host-1'}, 'cwd': str(self.worktree)},
+            {'agent': 'reviewer-2', 'pane': 'w1:p6', 'herdr_session': None,
+             'orchestrator': {'pane': None, 'session': 'host-1'}}])
 
     def test_one_command_with_many_launches_stays_inside_the_hook_timeout(self):
         # Review 7: the Herdr lookups of one hook run share a budget inside the hosts' hook timeout, so a hung
@@ -586,7 +696,7 @@ class UnregisteredWorkers(GateRepo):
         started = time.monotonic()
         self.launch(' && '.join(f'herdr agent start b-{index} --kind codex --pane w1:p{index}' for index in range(1, 6)))
         self.assertLess(time.monotonic() - started, limit - 2)
-        self.assertEqual([{key: value for key, value in record.items() if key not in ('time', 'orchestrator')}
+        self.assertEqual([{key: value for key, value in record.items() if key not in ('time', 'orchestrator', 'herdr_session')}
                           for record in self.logged()],
                          [{'agent': f'b-{index}', 'pane': f'w1:p{index}'} for index in range(1, 6)])
 
@@ -628,6 +738,21 @@ class UnregisteredWorkers(GateRepo):
         self.assertEqual(self.check(session='host-1'), [self.gap('builder-1', 'w1:p5'), unnamed])
         self.assertNotIn(unnamed, self.check(pane='w1:p2', session='host-2'))
 
+    def test_a_start_whose_name_or_pane_is_a_shell_expansion_is_not_logged_but_the_live_agent_still_is_named(self):
+        # Gap 14: `herdr agent start $name --pane $pane` in a function or script names no real agent or pane, so
+        # logging its text would demand a registration for a pane that does not exist; the live agent it started is
+        # found by the live-agent scan.
+        for command in ('spawn() { herdr agent start "$1" --pane "$2"; }; spawn w1 p1',
+                        'herdr agent start $name --pane $pane', 'herdr agent start w1 --pane "${PANE}"',
+                        'herdr agent start w1 --pane `herdr pane current`', 'herdr agent start "$(name)" --pane w1:p5'):
+            self.launch(command)
+            self.assertEqual(self.logged(), [], command)
+        self.launch('herdr agent start w1 --kind codex --pane w1:p5')
+        self.assertEqual([record['agent'] for record in self.logged()], ['w1'])
+        self.serve(agents=[self.agent('real-1', 'w1:p6', self.worktree)])
+        self.assertEqual(self.check(session='host-1'), [self.gap('w1', 'w1:p5'),
+                                                        self.live('real-1', 'w1:p6', self.worktree)])
+
     def test_logging_never_blocks_the_command_even_when_herdr_or_the_log_fails(self):
         # Rule 1: a hung Herdr still leaves a record with the cwd unknown; an unwritable log only loses the record.
         self.serve(hang=True)
@@ -635,7 +760,8 @@ class UnregisteredWorkers(GateRepo):
         self.launch('herdr agent start builder-1 --kind codex --pane w1:p5')
         self.assertLess(time.monotonic() - started, 10)
         self.assertEqual([{key: value for key, value in record.items() if key != 'time'} for record in self.logged()],
-                         [{'agent': 'builder-1', 'pane': 'w1:p5', 'orchestrator': {'pane': 'w1:p1', 'session': 'host-1'}}])
+                         [{'agent': 'builder-1', 'pane': 'w1:p5', 'herdr_session': None,
+                           'orchestrator': {'pane': 'w1:p1', 'session': 'host-1'}}])
         (self.repo / '.scratch/herdr-launches.jsonl').unlink()
         (self.repo / '.scratch/herdr-launches.jsonl').mkdir()
         self.serve()
@@ -652,9 +778,10 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
 """)
         self.assertEqual(verdicts, [None, None])
         self.assertEqual([{key: value for key, value in record.items() if key != 'time'} for record in self.logged()], [
-            {'agent': 'builder-1', 'pane': 'w1:p5', 'orchestrator': {'pane': None, 'session': 'pi-1'},
-             'cwd': str(self.worktree)},
-            {'agent': 'builder-2', 'pane': 'w1:p6', 'orchestrator': {'pane': None, 'session': 'pi-1'}}])
+            {'agent': 'builder-1', 'pane': 'w1:p5', 'herdr_session': None,
+             'orchestrator': {'pane': None, 'session': 'pi-1'}, 'cwd': str(self.worktree)},
+            {'agent': 'builder-2', 'pane': 'w1:p6', 'herdr_session': None,
+             'orchestrator': {'pane': None, 'session': 'pi-1'}}])
 
     def test_an_unregistered_launch_into_a_worktree_holds_its_orchestrator_after_the_pane_closed(self):
         # Rule 2: the log outlives the panes; an attempt whose worker is the pane or the agent name clears the gap.
@@ -722,6 +849,75 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.launch('herdr agent start builder-1 --kind codex --pane w1:p5', pane=None)
         self.assertEqual(self.check(pane=None, session='host-1'), [self.gap('builder-1', 'w1:p5')])
 
+    def test_an_opencode_launch_logged_with_its_session_and_no_pane_is_cleared_by_that_sessions_registration(self):
+        # Gap 20: OpenCode exports no Herdr pane, so its launches are logged under the host session alone; the attempt
+        # its OPENCODE_SESSION_ID registration records (session and sessions, no orchestrator pane) clears them, and
+        # only that session's. Written against the record's shape, which T1's registration produces.
+        self.launch('herdr agent start oc-builder --kind codex --pane w1:p5', pane=None, session='oc-1')
+        self.launch('herdr agent start oc-other --kind codex --pane w1:p6', pane=None, session='oc-2')
+        self.assertEqual(self.logged()[0]['orchestrator'], {'pane': None, 'session': 'oc-1'})
+        self.serve()
+        self.assertEqual(self.check(pane=None, session='oc-1'), [self.gap('oc-builder', 'w1:p5')])
+        self.write_rows(dict(attempt='ticket-1/1', assignment='ticket-1', repo=str(self.repo), runtime='opencode',
+                             native_session='n-1', worker='oc-builder', session='oc-1', sessions=['oc-1'], owned=True,
+                             result={'status': 'completed'}))
+        self.assertEqual(self.check(pane=None, session='oc-1'), [])
+        self.assertEqual(self.check(pane=None, session='oc-2'), [self.gap('oc-other', 'w1:p6')])
+
+    def test_matching_launches_to_attempts_stays_well_inside_the_hook_timeout_for_a_long_history(self):
+        # Audit A11: sixteen thousand registered launches took about 29 s to match against as many attempts; the
+        # hook's timeout is 20 s, so a long-lived checkout stopped without a check. Matching is by identity, not a scan.
+        count = 16000
+        self.write_rows(*(dict(attempt=f'run/{number}', assignment='run/01', repo=str(self.repo), runtime='claude',
+                               native_session=f'n-{number}', worker=f'builder-{number}', session='host-1',
+                               orchestrator='w1:p1', owned=True, result={'status': 'completed'})
+                          for number in range(count)))
+        log = self.repo / '.scratch/herdr-launches.jsonl'
+        log.write_text(''.join(json.dumps({
+            'time': '2026-10-20T10:00:00Z', 'agent': f'builder-{number}', 'pane': f'w1:p{number}', 'herdr_session': None,
+            'orchestrator': {'pane': 'w1:p1', 'session': 'host-1'}, 'cwd': str(self.worktree)}) + '\n'
+            for number in range(count)) + json.dumps({
+                'time': '2026-10-20T10:00:00Z', 'agent': 'unregistered', 'pane': 'w1:p99999', 'herdr_session': None,
+                'orchestrator': {'pane': 'w1:p1', 'session': 'host-1'}, 'cwd': str(self.worktree)}) + '\n')
+        started = time.monotonic()
+        self.assertEqual(self.check(session='host-1'), [self.gap('unregistered', 'w1:p99999')])
+        self.assertLess(time.monotonic() - started, 10)
+
+    def test_a_dismissed_launch_whose_pane_is_still_open_holds_its_session_until_it_is_closed_or_kept(self):
+        # Gap 15: a probe or failed launch dismissed but left open is still a worker nobody accounts for; closing the
+        # pane or recording it kept on purpose (`--keep <reason>`) ends the hold, and only the dismissing session is held.
+        open_pane = 'w1:p5: dismissed launch is still open; close it, or dismiss with --keep <reason>'
+        self.launch('herdr agent start builder-1 --kind codex --pane w1:p5', pane=None, session='host-1')
+        self.launch('herdr agent start builder-2 --kind codex --pane w1:p6', pane=None, session='host-2')
+        self.serve(panes={'default': {pane: {'pane_id': pane, 'cwd': str(self.worktree)} for pane in ('w1:p5', 'w1:p6')}})
+        self.assertEqual(self.dismiss('--pane', 'w1:p5', '--session', 'host-1', '--reason', 'probe').returncode, 0)
+        self.assertEqual(self.check(pane=None, session='host-1'), [open_pane])
+        self.assertIn(open_pane, self.stop(pane=None, session='host-1')['reason'])
+        self.assertEqual(self.check(pane=None, session='host-2'), [self.gap('builder-2', 'w1:p6')],
+                         'the other session is held for its own launch only')
+        self.serve(panes={'default': {'w1:p6': {'pane_id': 'w1:p6', 'cwd': str(self.worktree)}}})  # p5 closed.
+        self.assertEqual(self.check(pane=None, session='host-1'), [])
+        self.serve(panes={'default': {'w1:p5': {'pane_id': 'w1:p5', 'cwd': str(self.worktree)}}})  # Open again.
+        self.assertEqual(self.check(pane=None, session='host-1'), [open_pane])
+        for reason in ('', '  '):
+            refused = self.dismiss('--pane', 'w1:p5', '--session', 'host-1', '--keep', reason)
+            self.assertEqual(refused.returncode, 2, reason)
+            self.assertIn('--keep', refused.stderr)
+        both = self.dismiss('--pane', 'w1:p5', '--session', 'host-1', '--reason', 'probe', '--keep', 'user asked')
+        self.assertEqual(both.returncode, 2)
+        kept = self.dismiss('--pane', 'w1:p5', '--session', 'host-1', '--keep', 'the user reads its output')
+        self.assertEqual((kept.returncode, kept.stderr), (0, ''))
+        self.assertEqual(self.check(pane=None, session='host-1'), [], 'a pane kept on purpose never holds')
+        self.launch('herdr agent start builder-4 --kind codex --pane w1:p8', pane=None, session='host-1')
+        self.serve(panes={'default': {pane: {'pane_id': pane, 'cwd': str(self.worktree)} for pane in ('w1:p5', 'w1:p8')}})
+        self.assertEqual(self.dismiss('--pane', 'w1:p8', '--session', 'host-1', '--keep', 'kept from the start').returncode, 0)
+        self.assertEqual(self.check(pane=None, session='host-1'), [], 'kept at its first dismissal, it never holds')
+        self.serve(fail='connection refused')  # Whether the pane is open cannot be told: named, never a pass.
+        self.launch('herdr agent start builder-3 --kind codex --pane w1:p7', pane=None, session='host-1')
+        self.assertEqual(self.dismiss('--pane', 'w1:p7', '--session', 'host-1', '--reason', 'probe').returncode, 0)
+        [failure] = self.check(pane=None, session='host-1')
+        self.assertRegex(failure, r'^could not check Herdr workers: herdr pane get exited 1: .*connection refused')
+
     def test_a_dismissal_without_a_reason_is_refused_and_changes_nothing(self):
         # Decision 1: accounting for a launch needs a stated reason.
         self.launch('herdr agent start builder-1 --kind codex --pane w1:p5', pane=None)
@@ -778,8 +974,9 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.assertEqual(self.check(session='host-1'), missing)
         self.assertEqual(self.check(pane=None, session='host-1'), missing)
 
-    def test_a_session_pane_name_handle_clears_a_launch_matching_its_pane_or_its_name(self):
-        # Decision 2: the lifecycle also accepts `<session>/<pane>/<name>` as a worker handle.
+    def test_a_session_pane_name_handle_clears_only_the_launch_of_its_pane_and_server(self):
+        # Decision 2, audit A3: the lifecycle also accepts `<session>/<pane>/<name>` as a worker handle, and it names
+        # one pane of one Herdr server: a name another handle shares, or a pane of another server, clears nothing.
         self.serve(panes={'default': {pane: {'pane_id': pane, 'cwd': str(self.worktree)}
                                       for pane in ('w1:p5', 'w1:p6', 'w1:p7')}})
         for agent, pane in (('builder-1', 'w1:p5'), ('builder-2', 'w1:p6'), ('builder-3', 'w1:p7')):
@@ -788,7 +985,39 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.register('default/w1:p5/renamed-1', 'ticket-1/1', pane=None)
         self.register('s2/w1:p9/builder-2', 'ticket-2/1', pane=None)
         self.register('default/w1:p8/builder-9', 'ticket-3/1', pane=None)
-        self.assertEqual(self.check(pane=None, session='host-1'), [self.gap('builder-3', 'w1:p7')])
+        self.assertEqual(self.check(pane=None, session='host-1'),
+                         [self.gap('builder-2', 'w1:p6'), self.gap('builder-3', 'w1:p7')])
+
+    def test_a_handle_clears_only_the_launch_in_its_own_herdr_server(self):
+        # Audit A3: the launch log keeps the Herdr server a launch ran in, so `s1/w1:p5/alpha` does not also clear an
+        # unrelated launch in pane w1:p5 of server s2.
+        panes = {server: {'w1:p5': {'pane_id': 'w1:p5', 'cwd': str(self.worktree)}} for server in ('s1', 's2')}
+        self.serve(panes=panes)
+        self.launch('herdr --session s1 agent start alpha --kind codex --pane w1:p5', pane=None)
+        self.launch('herdr --session=s2 agent start beta --kind codex --pane w1:p5', pane=None)
+        self.launch('herdr agent start gamma --kind codex --pane w1:p6', pane=None)
+        self.assertEqual([record['herdr_session'] for record in self.logged()], ['s1', 's2', None])
+        self.serve()
+        self.register('s1/w1:p5/alpha', 'ticket-1/1', pane=None)
+        self.assertEqual(self.check(pane=None, session='host-1'),
+                         [self.gap('beta', 'w1:p5'), self.gap('gamma', 'w1:p6')])
+        self.register('s2/w1:p5/beta', 'ticket-2/1', pane=None)
+        self.assertEqual(self.check(pane=None, session='host-1'), [self.gap('gamma', 'w1:p6')])
+
+    def test_another_sessions_attempt_hides_a_live_agent_only_by_its_pane_or_its_logged_name_and_pane(self):
+        # Audit A3: a name is reused freely, so another session's registered `build-1` does not account for a different
+        # pane's `build-1`; this session's own attempt does by name, and the pane or the launch log ties a name to its pane.
+        agents = [self.agent('build-1', 'w1:p9', self.worktree), self.agent('build-2', 'w1:p8', self.worktree),
+                  self.agent('build-3', 'w1:p7', self.worktree), self.agent('build-4', 'w1:p6', self.worktree)]
+        self.serve(agents=agents)
+        self.register('build-1', 'ticket-1/1', pane='w1:p3', session='host-2')  # Another session's, name only.
+        self.assertEqual(self.check(session='host-1'), [self.live(agent['name'], agent['pane_id'], self.worktree)
+                                                        for agent in agents])
+        self.register('build-2', 'ticket-2/1', pane='w1:p1', session='host-1')  # Its own.
+        self.register('w1:p7', 'ticket-3/1', pane='w1:p3', session='host-2')  # Another's, by pane.
+        self.launch('herdr agent start build-4 --kind codex --pane w1:p6', pane='w1:p3', session='host-2')
+        self.register('build-4', 'ticket-4/1', pane='w1:p3', session='host-2')  # Another's, with a logged pane.
+        self.assertEqual(self.check(session='host-1'), [self.live('build-1', 'w1:p9', self.worktree)])
 
     def test_launches_outside_worktrees_are_not_gaps_but_an_unknown_cwd_is(self):
         # Rule 2: E2E subjects and demos run in panes outside .worktrees/; a cwd Herdr did not report still counts.
@@ -994,10 +1223,9 @@ console.log('null');
         db.close()
         self.assertEqual(self.check(session='host-1'), [f'{self.state}: ticket-1/1: no armed wait'])
 
-    def test_a_state_that_cannot_be_read_is_named_to_all_while_recent_then_to_the_sessions_it_records(self):
-        # Rule: an unreadable state hides its owners' gaps, and a worker that recorded no owner may be among them, so it
-        # is named to every session while recent; once old, to its workstream's bound orchestrator and each pane or session
-        # its bytes still record.
+    def test_a_state_that_cannot_be_read_is_named_only_to_the_sessions_it_can_be_attributed_to(self):
+        # Gap 10, audit A9: an unreadable state hides its owners' gaps, so it holds a session whose binding sits beside
+        # it or whose pane or host session its bytes still record, however recent; any other session is not held.
         self.live_attempt('ticket-1/1', 'w1:p1', 'host-1')
         db = sqlite3.connect(self.state)
         db.execute('DROP TABLE events')
@@ -1006,15 +1234,14 @@ console.log('null');
         unreadable = self.check(session='host-1')
         self.assertEqual(len(unreadable), 1, unreadable)
         self.assertRegex(unreadable[0], rf'^{re.escape(str(self.state))}: cannot be read \(.+\); fix or remove it$')
-        # Recent, it may hide a worker that recorded no owner, so every session is told.
-        self.assertRegex(self.check(pane='w1:p2', session='host-2')[0], 'cannot be read')
-        self.state.write_bytes(b'not a database')
-        self.assertRegex(self.check(pane='w1:p2', session='host-2')[0], 'cannot be read')
-        old = time.time() - 3 * 24 * 3600
-        os.utime(self.state, (old, old))
         self.assertEqual(self.check(pane='w1:p2', session='host-2'), [])
+        self.state.write_bytes(b'not a database')
+        self.assertEqual(self.check(pane='w1:p2', session='host-2'), [])
+        self.state.with_name('orchestrator.json').write_text(json.dumps({'pane': None, 'sessions': ['host-2']}))
+        self.assertRegex(self.check(pane='w1:p2', session='host-2')[0], 'cannot be read')
+        self.assertEqual(self.check(pane='w1:p3', session='host-3'), [])
+        self.state.with_name('orchestrator.json').unlink()
         self.state.write_bytes(b'not a database ' + b'"orchestrator": "w1:p1"')
-        os.utime(self.state, (old, old))
         self.assertRegex(self.check(session='host-1')[0], 'cannot be read')
 
     def test_a_launch_is_cleared_by_its_hosts_registration_under_an_inherited_outer_session(self):
@@ -1048,11 +1275,12 @@ console.log('null');
         self.write_rows(dict(self.ownerless(), session='host-A', sessions=42))
         self.assertEqual(self.check(pane='w1:p2', session='host-B'), [])
 
-    def test_an_unreadable_ownerless_state_with_herdr_placement_still_holds_while_recent(self):
-        # Rule: a Herdr server's session name in a row is no host session; recording no owner, the state is named.
+    def test_an_unreadable_ownerless_state_with_herdr_placement_holds_no_one(self):
+        # Rule: a Herdr server's session name in a row is no host session; recording no owner, the state is attributed
+        # to no one, so it is named to no session.
         self.write_rows(self.ownerless(herdr={'session': 'default', 'workspace_id': 'w1', 'tab_id': 'w1:t5'}),
                         events=False)
-        self.assertRegex(self.check(pane='w1:p2', session='host-A')[0], 'cannot be read')
+        self.assertEqual(self.check(pane='w1:p2', session='host-A'), [])
 
     def test_the_ownerless_fallback_never_holds_a_marked_worker(self):
         # Rule: a session launched as a worker (ZLOOP_WORKER) answers for its own launches only, wherever it runs.
@@ -1222,7 +1450,7 @@ console.log(JSON.stringify((await handlers.agent_before_settle(
         decision = self.stop()
         self.assertEqual(decision['decision'], 'block')
         self.assertIn(f'- {gap}\n', decision['reason'])
-        self.assertIsNone(self.stop(active=True))
+        self.assertIn('gave up holding the stop after 1 hold', self.stop(active=True)['systemMessage'])  # Held once.
         self.assertIsNone(self.stop(env={'ZLOOP_YIELD_HOOK': 'off'}))
         # A session outside Herdr has no workspace to check, so a broken Herdr is no gap there.
         self.assertEqual(self.check(pane=None, session='host-1'), [])
@@ -1254,32 +1482,34 @@ console.log(JSON.stringify((await handlers.agent_before_settle(
         gap = 'could not check workers: git rev-parse exited 128: fatal: unable to read index'
         self.assertEqual(self.check(env=env), [gap])
         self.assertIn(f'- {gap}\n', self.stop(env=env)['reason'])
-        self.assertIsNone(self.stop(env=env, active=True))
+        self.assertNotIn('decision', self.stop(env=env, active=True))  # Held once.
         outside = Path(self.tmp.name) / 'elsewhere'
         outside.mkdir()
         self.assertEqual(self.check(cwd=outside), [])
 
     @unittest.skipUnless(shutil.which('node'), 'Node.js runs the Pi extension')
     def test_pi_surfaces_a_check_that_could_not_run_and_continues_once(self):
-        # Rule 5 on Pi: when the yield gate itself cannot run, the settle hook names the failure, once per run.
+        # Rule 5 on Pi: when the yield gate itself cannot run, the settle hook names the failure and holds once, however
+        # often it settles after.
         broken = Path(self.tmp.name) / 'broken-python'
         broken.mkdir()
         (broken / 'python3').write_text('#!/bin/sh\necho "python3: simulated crash" >&2\nexit 1\n')
         (broken / 'python3').chmod(0o700)
-        first, repeated = self.pi("""
+        first, repeated, third = self.pi("""
 const settle = async () => (await handlers.agent_before_settle(
   { type: 'agent_before_settle', outcome: 'completed', entries: [], continue: false }, ctx)) ?? null;
-console.log(JSON.stringify([await settle(), await settle()]));
+console.log(JSON.stringify([await settle(), await settle(), await settle()]));
 """, pane='w1:p1', env={'PATH': f"{broken}{os.pathsep}{self.env()['PATH']}"})
         self.assertTrue(first['continue'])
         self.assertRegex(first['entries'][0]['content'],
-                         r'\n- could not check workers: Command failed: python3 \S+/hooks/yield_gate\.py check .+ pi-1\n'
+                         r'\n- could not check workers: Command failed: python3 \S+/hooks/yield_gate\.py stop .+ pi-1\n'
                          r'python3: simulated crash\n')
         self.assertIsNone(repeated)
+        self.assertIsNone(third)
 
 
 class DeliveryHold(GateRepo):
-    """Dispatch binds the session that orchestrates a workstream; that session alone is held once when it stops with the
+    """Dispatch binds the session that orchestrates a workstream; that session alone is held when it stops with the
     workstream's delivery failing under autofix. The fixture is the Pi run: every ticket done, a repair committed after
     review left review_head stale, and E2E never ran."""
 
@@ -1338,11 +1568,11 @@ class DeliveryHold(GateRepo):
         self.bind(pane='w1:p1')
         self.assertEqual(self.check(pane='w1:p1'), [self.gap()])
         for host in ('claude', 'codex'):
-            decision = self.stop(pane='w1:p1', host=host)
+            decision = self.stop(pane='w1:p1', host=host, session=host)
             self.assertEqual(decision['decision'], 'block')
             # Review 6: a delivery-only hold carries its gap and command, without the worker-registration advice.
             self.assertEqual(decision['reason'], f'Stopping now leaves these gaps:\n- {self.gap()}\n')
-            self.assertIsNone(self.stop(pane='w1:p1', host=host, active=True))
+            self.assertEqual(self.stop(pane='w1:p1', host=host, session=host, active=True)['decision'], 'block')
         self.assertIsNone(self.stop(pane='w1:p1', env={'ZLOOP_YIELD_HOOK': 'off'}))
         self.review(delivered=True)
         self.assertEqual(self.check(pane='w1:p1'), [])
@@ -1562,25 +1792,24 @@ class DeliveryHold(GateRepo):
         gap = f"could not check delivery of fix: {bad}: invalid ticket id 'Fix 2'"
         self.assertEqual(self.check(pane='w1:p1'), [gap])
         self.assertIn(f'- {gap}\n', self.stop(pane='w1:p1')['reason'])
-        self.assertIsNone(self.stop(pane='w1:p1', active=True))
+        self.assertNotIn('decision', self.stop(pane='w1:p1', active=True))  # Held once.
         self.assertEqual(self.check(pane='w1:p9'), [])
 
     @unittest.skipUnless(shutil.which('node'), 'Node.js runs the Pi extension')
-    def test_pi_holds_the_bound_orchestrator_once_per_run(self):
-        # Rules 3 and 4 on Pi: its bash tool exports PI_SESSION_ID; the settle check holds that session once per run,
-        # with the same message, and not another Pi session.
+    def test_pi_holds_the_bound_orchestrator_while_the_gate_holds_and_not_another_session(self):
+        # Rules 3 and 4 on Pi: its bash tool exports PI_SESSION_ID; the settle check holds that session with the same
+        # message for as long as the check says to, and not another Pi session.
         self.bind(pane=None, PI_SESSION_ID='pi-1')
-        first, repeated, other = self.pi("""
+        decisions, other = self.pi("""
 const settle = async (use) => (await handlers.agent_before_settle(
   { type: 'agent_before_settle', outcome: 'completed', entries: [], continue: false }, use)) ?? null;
-const first = await settle(ctx), repeated = await settle(ctx);
-handlers.agent_settled({ type: 'agent_settled', aborted: false });
-console.log(JSON.stringify([first, repeated,
+console.log(JSON.stringify([[await settle(ctx), await settle(ctx), await settle(ctx), await settle(ctx)],
   await settle({ ...ctx, sessionManager: { getSessionId: () => 'pi-2' } })]));
 """)
-        self.assertTrue(first['continue'])
-        self.assertEqual(first['entries'][0]['content'], f'Stopping now leaves these gaps:\n- {self.gap()}\n')
-        self.assertIsNone(repeated)
+        for decision in decisions[:3]:
+            self.assertTrue(decision['continue'])
+            self.assertEqual(decision['entries'][0]['content'], f'Stopping now leaves these gaps:\n- {self.gap()}\n')
+        self.assertFalse(decisions[3]['continue'])
         self.assertIsNone(other)
 
 
@@ -1724,7 +1953,8 @@ class StaleTabs(GateRepo):
                '{"error": {"code": "server_unavailable", "message": "connection refused"}}')
         self.assertEqual(self.check(pane='w1:p1'), [f'{self.state}: ticket-2/1: no armed wait', gap])
         self.assertIn(f'- {gap}\n', self.stop(pane='w1:p1')['reason'])
-        self.assertIsNone(self.stop(pane='w1:p1', active=True))
+        # The live worker's gap stands beside the failed check, so the hold is repeated, not given up after one.
+        self.assertEqual(self.stop(pane='w1:p1', active=True)['decision'], 'block')
         self.serve(hang=True)
         self.assertRegex(self.check(pane='w1:p1')[-1],
                          r"^could not check worker tabs: .*'tab', 'list'.* timed out after 5 seconds$")

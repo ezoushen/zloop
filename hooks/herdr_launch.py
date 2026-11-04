@@ -5,12 +5,13 @@ It finds launches behind assignments, wrappers (`timeout`, `env` and their optio
 inside heredocs or backticks.
 
 Appends one JSON line per launch to the main checkout's .scratch/herdr-launches.jsonl: the time, agent name and
-pane, the orchestrator (its HERDR_PANE_ID and host session ID) and the pane's cwd when Herdr reports it. Claude and
-Codex run it before Bash; Pi's extension passes its bash and bg_run calls. It never blocks the command.
+pane, the Herdr server session it ran in (None for the default server), the orchestrator (its HERDR_PANE_ID and host
+session ID) and the pane's cwd when Herdr reports it. Claude and Codex run it before Bash; Pi's extension passes its bash and bg_run calls. It never blocks the command.
 
-`herdr_launch.py dismiss --pane <pane> | --name <agent> [--session <host session>] --reason <text>`, run in the
-checkout, appends a dismissal by this orchestrator (HERDR_PANE_ID and the session given) that accounts for its own
-launches of that pane or agent name logged before it, such as one that failed or a probe.
+`herdr_launch.py dismiss --pane <pane> | --name <agent> [--session <host session>] --reason <text> | --keep <text>`,
+run in the checkout, appends a dismissal by this orchestrator (HERDR_PANE_ID and the session given) that accounts for
+its own launches of that pane or agent name logged before it, such as one that failed or a probe. Such a pane left open
+holds the stop until it is closed, unless dismissed with `--keep`, which records why it stays open on purpose.
 """
 import argparse
 import json
@@ -84,9 +85,11 @@ def starts(command):
                 else:
                     names.append(words[at])
                 at += 1
-            # Herdr refuses a start without a name or pane, and --help only prints the usage: none starts an agent.
-            if names and options.get('--pane') and '--help' not in options and '-h' not in names:
-                yield session, names[0] if names else None, options.get('--pane')
+            # Herdr refuses a start without a name or pane, and --help only prints the usage: none starts an agent. A
+            # name or pane the shell expands is no real one: the live agent it starts is found by the stop check's scan.
+            if (names and options.get('--pane') and '--help' not in options and '-h' not in names
+                    and not any(char in value for value in (names[0], options['--pane']) for char in '$`')):
+                yield session, names[0], options['--pane']
 
 
 def pane_cwd(session, pane, deadline):
@@ -118,7 +121,7 @@ def main():
         deadline = time.monotonic() + LOOKUP_SECONDS
         for session, agent, pane in launches:
             record = {'time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'agent': agent, 'pane': pane,
-                      'orchestrator': orchestrator}
+                      'herdr_session': session, 'orchestrator': orchestrator}
             cwd = pane and pane_cwd(session, pane, deadline)
             with log.open('a') as stream:
                 stream.write(json.dumps(dict(record, **({'cwd': cwd} if cwd else {}))) + '\n')
@@ -133,10 +136,14 @@ def dismiss(argv):
     target.add_argument('--pane')
     target.add_argument('--name')
     parser.add_argument('--session', help="this orchestrator's host session ID, as the stop message names it")
-    parser.add_argument('--reason', required=True)
+    why = parser.add_mutually_exclusive_group(required=True)
+    why.add_argument('--reason')
+    why.add_argument('--keep', help='why the pane stays open on purpose: it is then never held for being open')
     args = parser.parse_args(argv)
-    if not args.reason.strip():
+    if args.reason is not None and not args.reason.strip():
         parser.error('--reason must say why the launch needs no registered attempt')
+    if args.keep is not None and not args.keep.strip():
+        parser.error('--keep must say why the pane stays open on purpose')
     by = {'pane': os.environ.get('HERDR_PANE_ID'), 'session': args.session}
     if not any(by.values()):
         parser.error('outside Herdr, pass --session with the host session ID the stop message names')
@@ -144,7 +151,8 @@ def dismiss(argv):
     if root is None:
         parser.error('run it inside the checkout whose launches it dismisses')
     record = {'time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-              'dismissed': {'pane': args.pane} if args.pane else {'agent': args.name}, 'by': by, 'reason': args.reason}
+              'dismissed': {'pane': args.pane} if args.pane else {'agent': args.name}, 'by': by,
+              'reason': args.keep if args.keep is not None else args.reason, **({'keep': True} if args.keep else {})}
     with (root / yield_gate.LAUNCHES).open('a') as stream:
         stream.write(json.dumps(record) + '\n')
 

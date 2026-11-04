@@ -2,13 +2,13 @@
 """Stop hook: keep the host working while a lifecycle worker could finish without waking it.
 
 Reads every run's workers.sqlite under the main checkout's .scratch/*/reports/ and .scratch/reviews/*/ without
-writing to it. For states changed in the last day, applies the lifecycle's yield
-gate to the workers this session registered (by host session, else pane), or, for one that
-recorded neither, to the session bound to orchestrate its workstream (with none bound, to every
-session). Sessions share the checkout: another session's workers and launches never hold this
-one, and a row or state that cannot be read is named to the sessions it could hide a gap
-from. Every session is also held for each Herdr launch it logged (hooks/herdr_launch.py)
-into a ticket worktree that no attempt accounts for and it did not dismiss; one without
+writing to it. Applies the lifecycle's yield gate to the workers this session registered (by host session, else
+pane), whatever the age of the state, or, for one that recorded neither and whose state changed in the last day, to
+the session bound to orchestrate its workstream (with none bound, to every session). Sessions share the checkout:
+another session's workers and launches never hold this one, and a row, state or launch log line that cannot be read is named only to a session it can be attributed to (a
+binding beside it, or its pane or host session in its text). Every session is also held for each Herdr launch it logged
+(hooks/herdr_launch.py) into a ticket worktree that no attempt accounts for and it did not dismiss, and for each pane of a
+launch it dismissed that is still open unless kept (`dismiss --keep`); one without
 ZLOOP_WORKER, the marker every worker is launched with, also for each other such live
 agent of its Herdr workspace that no other session logged. The session bound to orchestrate a workstream
 (next_tickets.py --orchestrate; without one, the pane that registered the attempt) is held for each collected
@@ -22,10 +22,12 @@ completed collected diff-review attempt at review_head, names local review with 
 records a blocker with a launched diff-review attempt in its state at review_head settled failed, blocked or cancelled,
 or a recorded no-route result. Launch evidence is a Herdr placement, verified startup or recorded submission.
 The review, delivery and card holds do not apply while a live worker of that state holds a running
-wait that will wake the host. A
-check that cannot run, and a launch log line that is unreadable or malformed, are named gaps,
-never a pass. `claude` and `codex` speak their shared Stop
-hook protocol; `check <cwd> [session]` prints the gaps and the hold's message as JSON for other hosts. Set
+wait that will wake the host. A stop
+is held while its gaps stand, up to three times in a row for an identical set (a count per session under
+.scratch/holds/); then the stop passes and the gate says it gave up. A check that cannot run is a named gap, never a
+pass, and holds one stop. `claude` and `codex` speak their shared Stop
+hook protocol; `check <cwd> [session]` prints the gaps and the hold's message as JSON, and `stop <cwd> [session]`, which
+other hosts call at each stop, also counts the stop and says whether to hold it. Set
 ZLOOP_YIELD_HOOK=off to disable the check.
 """
 import calendar
@@ -38,6 +40,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parent.parent
 RECENT_SECONDS = 24 * 3600
@@ -47,6 +50,10 @@ COLLECT = ROOT / 'runtime/workers/collect.md'
 HANDOFF = ROOT / 'skills/dispatch/handoff.md'
 # hooks/herdr_launch.py appends each `herdr agent start` here, one JSON object per line.
 LAUNCHES = '.scratch/herdr-launches.jsonl'
+# A session's stop is held while its gaps stand, this many consecutive times for an identical set; its count of them
+# is kept in a file per session here.
+HOLDS = '.scratch/holds'
+MAX_HOLDS = 3
 # scripts/next_tickets.py --orchestrate records here, in a workstream's reports/, the session that orchestrates it.
 BINDING = 'orchestrator.json'
 # The states skills/autopilot/run-card.md lets a run end in.
@@ -96,12 +103,10 @@ def gaps(cwd, session=None):
             saved_attempts, malformed, _ = read_state(state)
         except Exception as error:
             missing += [f'{state}: cannot be read ({error}); fix or remove it'] if unreadable_holds(
-                state, pane, session, bound, recent and state.parent.parent.name != 'reviews') else []
+                state, pane, session, bound) else []
             continue
         missing += [f'{state}: attempt row {key} is malformed; fix or remove it' for key, saved in malformed
                     if bound or (isinstance(saved, dict) and attributed(saved) and owns(saved, pane, session))]
-        if not recent:
-            continue
         module = module or lifecycle()
         # A session inside a worker's own worktree is that worker, not its orchestrator.
         worker = any(Path(saved['worktree']) != root and cwd.is_relative_to(saved['worktree'])
@@ -109,14 +114,14 @@ def gaps(cwd, session=None):
 
         def orchestrated(saved):
             # A session launched as a worker (ZLOOP_WORKER) answers for no worker it did not register.
+            # A row nobody can be attributed to holds only while its state is recent.
             fallback = bound or unbound and not os.environ.get('ZLOOP_WORKER')
-            return owns(saved, pane, session) if attributed(saved) else fallback and not worker
+            return owns(saved, pane, session) if attributed(saved) else recent and fallback and not worker
         db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
         try:
             missing += [f'{state}: {gap}' for gap in module.yield_gaps(db, orchestrated, saved_attempts)]
         except Exception as error:  # Named to whoever it could hide a gap from: its orchestrator and its workers' own.
-            if any(orchestrated(saved) for saved in saved_attempts) or unreadable_holds(state, pane, session, bound,
-                                                                                       recent):
+            if any(orchestrated(saved) for saved in saved_attempts) or unreadable_holds(state, pane, session, bound):
                 missing.append(f'{state}: cannot be read ({error}); fix or remove it')
         finally:
             db.close()
@@ -170,17 +175,20 @@ def states(root):
     return sorted(set(root.glob('.scratch/*/reports/workers.sqlite')) | set(root.glob('.scratch/reviews/*/workers.sqlite')))
 
 
-def unreadable_holds(state, pane, session, bound, recent):
-    """Whether a run state that cannot be read is named to this session: it hides its owners' gaps, and a worker that
-    recorded no owner may be among them, so it is named to every session that is not a worker while it is recent, and
-    always to the session bound to its workstream and each pane or host session its bytes still record."""
+def names(text, pane, session):
+    """Whether raw text holds this pane or host session as a whole ID, bounded by characters no pane or session ID
+    holds, so w1:p1 is not found in w1:p12."""
+    return any(value and re.search(rf'(?<![\w:.-]){re.escape(value)}(?![\w:.-])', text) for value in (pane, session))
+
+
+def unreadable_holds(state, pane, session, bound):
+    """Whether a run state that cannot be read is named to this session: it hides its owners' gaps, so it is named to
+    the session bound to its workstream and each pane or host session its bytes still record, and to no one else."""
     try:
         raw = state.read_bytes().decode(errors='replace')
     except OSError:
         raw = ''
-    if bound or any(value and re.search(rf'(?<![\w:.-]){re.escape(value)}(?![\w:.-])', raw) for value in (pane, session)):
-        return True
-    return recent and not os.environ.get('ZLOOP_WORKER')
+    return bool(bound) or names(raw, pane, session)
 
 
 def read_state(state):
@@ -409,9 +417,7 @@ def read_binding(path, pane, session):
             and isinstance(binding.get('sessions'), list)
             and all(isinstance(known, str) for known in binding['sessions'])):
         return binding, orchestrates(binding, pane, session)
-    # A whole ID only, bounded by characters no pane or session ID holds, so w1:p1 is not found in w1:p12.
-    return None, any(value and re.search(rf'(?<![\w:.-]){re.escape(value)}(?![\w:.-])', text)
-                     for value in (pane, session))
+    return None, names(text, pane, session)
 
 
 def orchestrates(binding, pane, session):
@@ -438,19 +444,25 @@ def same_orchestrator(theirs, pane, session):
     return bool(pane) and theirs['pane'] == pane
 
 
-def handles(worker):
-    """What a registered worker matches: itself, and the pane and name of a `<session>/<pane>/<name>` handle."""
+def named(worker):
+    """What a registered worker names: the pane of a `<server session>/<pane>/<name>` handle, whatever name it carries
+    now; else the worker itself, a pane or an agent name."""
     parts = worker.rsplit('/', 2)
-    return {worker, *parts[1:]} if len(parts) == 3 else {worker}
+    return parts[1] if len(parts) == 3 else worker
 
 
 def clears(saved, launch):
-    """Whether an attempt accounts for a logged launch: it names the launch's pane or agent, and a host session
+    """Whether an attempt accounts for a logged launch: it names the launch's pane (a handle only its pane) or agent,
+    in the launch's Herdr server when both know one, and a host session
     recorded at registration, or one whose launches it was recorded to clear, is the one that launched it when both
     know one; else the orchestrator recorded at
     registration is the pane that launched it, and only a launch made outside Herdr can instead be cleared by an
     attempt with no recorded orchestrator, registered no earlier."""
-    if not handles(saved['worker']) & {launch['agent'], launch['pane']}:
+    parts = saved['worker'].rsplit('/', 2)
+    server = parts[0] if len(parts) == 3 else (saved.get('herdr') or {}).get('session')
+    if server and launch.get('herdr_session') and server != launch['herdr_session']:
+        return False
+    if named(saved['worker']) not in (launch['agent'], launch['pane']):
         return False
     if recorded_sessions(saved) and launch['orchestrator']['session']:
         return launch['orchestrator']['session'] in recorded_sessions(saved) + saved.get('launch_sessions', [])
@@ -471,20 +483,33 @@ def readable(record):
     if 'dismissed' in record:
         target = record['dismissed']
         return (isinstance(target, dict) and len(target) == 1 and set(target) <= {'pane', 'agent'}
-                and all(text(value, False) for value in target.values()) and identity(record.get('by')))
+                and all(text(value, False) for value in target.values()) and identity(record.get('by'))
+                and isinstance(record.get('keep', False), bool))
     try:
         time.strptime(record.get('time'), '%Y-%m-%dT%H:%M:%SZ')
     except (TypeError, ValueError):
         return False
     return ({'agent', 'pane'} <= set(record) and text(record['agent']) and text(record['pane'])
-            and identity(record.get('orchestrator')) and text(record.get('cwd')))
+            and identity(record.get('orchestrator')) and text(record.get('cwd')) and text(record.get('herdr_session')))
+
+
+def pane_open(server, pane):
+    """Whether a Herdr server still lists the pane; one that is not running lists none."""
+    result = subprocess.run(['herdr', *(['--session', server] if server else []), 'pane', 'get', pane],
+                            capture_output=True, text=True, timeout=5)
+    if result.returncode and herdr_error(result) in ('pane_not_found', 'workspace_not_found', 'server_not_running'):
+        return False
+    if result.returncode:
+        raise RuntimeError(f'herdr pane get exited {result.returncode}: {(result.stderr or result.stdout).strip()}')
+    return True
 
 
 def unregistered(root, pane, session, siblings=True):
     """Name each Herdr worker that no attempt in any run and no dismissal of this orchestrator accounts for: each
     launch it logged into a ticket worktree or an unknown cwd (an attempt of another host session never accounts for
     it when both know one), with `siblings` each other live agent in a ticket worktree of its Herdr workspace; and
-    each unreadable log line."""
+    each unreadable log line it names; and each pane of a launch it dismissed that is still open, unless dismissed
+    with `--keep`."""
     attempts = []
     for state in states(root):
         try:
@@ -492,7 +517,11 @@ def unregistered(root, pane, session, siblings=True):
         except Exception:  # gaps() names a state that cannot be read to its workstream's orchestrator.
             continue
         attempts += [dict(saved, registered_at=registered.get(saved['attempt'])) for saved in saved_attempts]
-    workers = {handle for saved in attempts for handle in handles(saved['worker'])}
+    index = {}  # The attempts by what their worker names: a launch looks up its own pane and name.
+    for saved in attempts:
+        index.setdefault(named(saved['worker']), []).append(saved)
+    mine = {saved['worker'] for saved in attempts if attributed(saved) and owns(saved, pane, session)}
+    workers = set()
     log, worktrees = root / LAUNCHES, (root / '.worktrees').resolve()
     records, unreadable = [], []
     for number, line in enumerate(log.read_text().splitlines() if log.is_file() else [], 1):
@@ -507,14 +536,18 @@ def unregistered(root, pane, session, siblings=True):
                            'clear it; remove it'] if same_orchestrator(record['orchestrator'], pane, session) else []
         elif readable(record):
             records.append(record)
-        else:  # Named, and ignored for matching, so one bad line hides no other gap.
+        elif names(line, pane, session):  # Named to a session its text names, and ignored for matching.
             unreadable.append(f'{log}: launch log line {number} is unreadable; fix or remove it')
-    launches = []
+    launches, dismissed = [], []
     for record in records:
         if 'dismissed' in record:  # Accounts for its orchestrator's launches of that pane or name logged before it.
-            launches = [launch for launch in launches
-                        if any(launch.get(key) != value for key, value in record['dismissed'].items())
-                        or not same_orchestrator(launch['orchestrator'], record['by']['pane'], record['by']['session'])]
+            def covered(launch):
+                return (all(launch.get(key) == value for key, value in record['dismissed'].items())
+                        and same_orchestrator(launch['orchestrator'], record['by']['pane'], record['by']['session']))
+            dismissed = [launch for launch in dismissed if not record.get('keep') or not covered(launch)]
+            if not record.get('keep'):
+                dismissed += [launch for launch in launches if covered(launch)]
+            launches = [launch for launch in launches if not covered(launch)]
         else:
             launches.append(record)
     # Another orchestrator's logged launch, dismissed or not, is that session's worker, never a live sibling of this one.
@@ -522,24 +555,38 @@ def unregistered(root, pane, session, siblings=True):
     workers |= {record['pane'] for record in records if 'dismissed' not in record
                 and not same_orchestrator(record['orchestrator'], pane, session)}
     launches = [launch for launch in launches if same_orchestrator(launch['orchestrator'], pane, session)
-                and not any(clears(saved, launch) for saved in attempts)
+                and not any(clears(saved, launch) for key in (launch['agent'], launch['pane'])
+                            for saved in index.get(key, []))
                 and ('cwd' not in launch or Path(launch['cwd']).resolve().is_relative_to(worktrees))]
     workers |= {handle for launch in launches for handle in (launch['agent'], launch['pane'])}  # Named once.
     workers |= {value for record in records if 'dismissed' in record  # This orchestrator's dismissals cover live agents.
                 and same_orchestrator(record['by'], pane, session) for value in record['dismissed'].values()}
-    workspace, failed = os.environ.get('HERDR_WORKSPACE_ID'), []
+    workspace, failed, still_open, asked = os.environ.get('HERDR_WORKSPACE_ID'), [], [], {}
+    for launch in dismissed:  # Each pane a dismissal of this orchestrator left open, named once.
+        where = (launch.get('herdr_session'), launch['pane'])
+        if launch['pane'] and where not in asked and same_orchestrator(launch['orchestrator'], pane, session):
+            try:
+                asked[where] = pane_open(*where)
+            except Exception as error:  # A check that cannot run is a named gap, never a pass.
+                asked[where], gap = False, f'could not check Herdr workers: {error}'
+                failed += [gap] if gap not in failed else []
+            still_open += [f"{launch['pane']}: dismissed launch is still open; close it, or dismiss with --keep <reason>"
+                           ] if asked[where] else []
     try:
         agents = herdr_agents() if siblings and workspace and worktrees.is_dir() else []  # No worktrees, no workers.
     except Exception as error:  # A check that cannot run is a named gap, never a pass.
-        agents, failed = [], [f'could not check Herdr workers: {error}']
+        agents, failed = [], failed + [f'could not check Herdr workers: {error}']
+    # A name is reused freely, so an attempt accounts for a live agent by its pane, or by its name only when this session
+    # registered it (another session's launch is told by its pane, above).
     live = [agent for agent in agents
             if agent.get('workspace_id') == workspace and agent['pane_id'] != pane and agent.get('cwd')
             and Path(agent['cwd']).resolve().is_relative_to(worktrees)
-            and not workers & {agent.get('name'), agent['pane_id']}]
+            and not workers & {agent.get('name'), agent['pane_id']} and agent['pane_id'] not in index
+            and agent.get('name') not in mine]
     return ([f"{log}: {launch['agent']} (pane {launch['pane']}): launched without a registered attempt"
              for launch in launches]
             + [f"Herdr agent {agent.get('name')} (pane {agent['pane_id']}) runs in {agent['cwd']} "
-               'without a registered attempt' for agent in live] + unreadable + failed)
+               'without a registered attempt' for agent in live] + still_open + unreadable + failed)
 
 
 def checked(cwd, session=None):
@@ -551,11 +598,48 @@ def checked(cwd, session=None):
         return [f'could not check workers: {error}'], []
 
 
+def count_hold(cwd, session, missing):
+    """Record one more stop of this session with these gaps: (whether to hold it, the notice that the gate gave up or
+    None). An identical set holds up to MAX_HOLDS consecutive stops, one when every gap is a check that could not run;
+    a changed or cleared set starts the count again."""
+    try:
+        root = main_checkout(cwd)
+    except Exception:
+        root = Path(cwd)  # Git cannot place the checkout: the count lives in the session's own directory.
+    if root is None:
+        return False, None
+    pane = os.environ.get('HERDR_PANE_ID')
+    key = f'session-{session}' if session else f'pane-{pane}' if pane else 'anonymous'
+    path = root / HOLDS / f"{quote(key, safe='')}.json"
+    if not missing:
+        path.unlink(missing_ok=True)
+        return False, None
+    missing = sorted(missing)
+    try:
+        saved = json.loads(path.read_text())
+    except (OSError, ValueError):
+        saved = {}
+    held = saved.get('holds', 0) if saved.get('gaps') == missing else 0
+    if held >= (1 if all(map(failed_check, missing)) else MAX_HOLDS):
+        return False, (f"zloop yield gate gave up holding the stop after {held} {'hold' if held == 1 else 'holds'} "
+                       'of the same gaps; stopping with:\n' + ''.join(f'- {gap}\n' for gap in missing))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f'{path.name}.{os.getpid()}.tmp')
+    temporary.write_text(json.dumps({'gaps': missing, 'holds': held + 1}))
+    os.replace(temporary, path)
+    return True, None
+
+
+def failed_check(gap):
+    """Whether a gap says a check could not run, which registering or dismissing cannot clear."""
+    return gap.startswith('could not check')
+
+
 def reason(workers, own, session=None):
     """The hold's message: every gap, the worker advice only for a worker gap that is not a failed check, and the retry
     advice for a failed check, which registering or dismissing cannot clear."""
     message = 'Stopping now leaves these gaps:\n' + ''.join(f'- {gap}\n' for gap in workers + own)
-    failed = [gap for gap in workers + own if gap.startswith('could not check')]
+    failed = [gap for gap in workers + own if failed_check(gap)]
     advice = []
     if [gap for gap in workers if gap not in failed]:
         dismiss = f"python3 {ROOT}/hooks/herdr_launch.py dismiss --pane <pane>{f' --session {session}' if session else ''}"
@@ -573,18 +657,24 @@ def reason(workers, own, session=None):
 def main():
     if os.environ.get('ZLOOP_YIELD_HOOK') == 'off':
         return 0
-    if sys.argv[1:2] == ['check'] and len(sys.argv) in (3, 4):
+    if sys.argv[1:2] in (['check'], ['stop']) and len(sys.argv) in (3, 4):
         workers, own = checked(Path(sys.argv[2]), *sys.argv[3:])
-        print(json.dumps({'missing': workers + own, 'reason': reason(workers, own, *sys.argv[3:])}))
+        report = {'missing': workers + own, 'reason': reason(workers, own, *sys.argv[3:])}
+        if sys.argv[1] == 'stop':  # A host's stop, counted; `check` only reports.
+            hold, notice = count_hold(sys.argv[2], (sys.argv[3:] or [None])[0], workers + own)
+            report.update(hold=hold, notice=notice)
+        print(json.dumps(report))
         return 0
     if sys.argv[1:] not in (['claude'], ['codex']):
-        sys.exit('usage: yield_gate.py claude|codex < stop-hook-input, or yield_gate.py check <cwd> [session]')
+        sys.exit('usage: yield_gate.py claude|codex < stop-hook-input, or yield_gate.py check|stop <cwd> [session]')
     payload = json.load(sys.stdin)
-    if payload.get('stop_hook_active'):
-        return 0
-    workers, own = checked(Path(payload.get('cwd') or os.getcwd()), payload.get('session_id'))
-    if workers or own:
-        print(json.dumps({'decision': 'block', 'reason': reason(workers, own, payload.get('session_id'))}))
+    cwd, session = Path(payload.get('cwd') or os.getcwd()), payload.get('session_id')
+    workers, own = checked(cwd, session)
+    hold, notice = count_hold(cwd, session, workers + own)
+    if hold:
+        print(json.dumps({'decision': 'block', 'reason': reason(workers, own, session)}))
+    elif notice:
+        print(json.dumps({'systemMessage': notice}))
     return 0
 
 
