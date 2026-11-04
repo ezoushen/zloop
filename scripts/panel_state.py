@@ -208,7 +208,8 @@ def fmt_age(seconds):
 def live_attempts(workstream, now):
     """The workstream's registered attempts that have neither a closure nor a collected result, most recently active
     first, each with what it waits on: `result ready` for an unacknowledged result, `wait ended` for an unconsumed
-    wait receipt, no result and no wait running (nothing watches it), None while it runs."""
+    wait receipt, `retained` for a collected result kept open for its next use, no result and no wait running (nothing
+    watches it), None while it runs."""
     state = workstream / 'reports' / 'workers.sqlite'
     if not state.is_file():
         return []
@@ -232,9 +233,12 @@ def live_attempts(workstream, now):
         if not isinstance(data, dict) or data.get('closed'):
             continue
         if data.get('result'):
-            if (data['attempt'], 'result') not in pending:
+            if (data['attempt'], 'result') in pending:
+                label = 'result ready'
+            elif data.get('retained'):
+                label = 'retained'
+            else:
                 continue
-            label = 'result ready'
         else:
             ended = ((data['attempt'], 'wait-finished') in pending
                      and (data.get('monitor') or {}).get('state') != 'running')

@@ -259,6 +259,25 @@ class PanelState(unittest.TestCase):
         db.close()
         self.assertEqual(['▶ builder · zloop-panel/01 · sonnet · quiet 4d'], self.row_texts(self.snapshot(), 'run'))
 
+    def test_a_retained_unclosed_attempt_is_a_retained_wait_row(self):
+        # A retained attempt has its result collected and stays open for its next use: it is neither running nor done.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite',
+                 [dict(live('12/ticket-1', assignment='zloop-panel/01', quiet=2 * 3600), monitor={'state': 'settled'},
+                       result={'status': 'completed'}, retained={'reason': 'review', 'next_use': 'fix round'})])
+        found = self.snapshot()
+        self.assertEqual([], self.row_texts(found, 'run'))
+        self.assertEqual(['retained · zloop-panel/01 · quiet 2h'], self.row_texts(found, 'wait'))
+
+    def test_a_closed_retained_attempt_shows_no_row(self):
+        card(self.scratch / 'demo' / 'autopilot.md')
+        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite',
+                 [dict(live('12/ticket-1'), result={'status': 'completed'}, retained={'reason': 'r', 'next_use': 'n'},
+                       closed={'at': 1})])
+        found = self.snapshot()
+        self.assertEqual([], self.row_texts(found, 'run'))
+        self.assertEqual([], self.row_texts(found, 'wait'))
+
     def test_a_worker_with_a_new_wait_armed_runs_beside_an_old_unconsumed_receipt(self):
         # `reconciled` does not consume the receipt, so a re-armed worker can still hold its last wait's receipt.
         card(self.scratch / 'demo' / 'autopilot.md')
