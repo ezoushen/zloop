@@ -386,8 +386,8 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   await host.hooks["execute.before"](call("herdr agent start w9 --kind opencode --pane w1:p9"));
   await host.hooks["execute.before"](call("herdr agent \\\n  start w11 --kind opencode --pane w1:p11"));
   assert.deepEqual(logged().slice(before).map((record) => ({ ...record, time: undefined })), [
-    { time: undefined, agent: "w9", pane: "w1:p9", orchestrator: { pane: null, session: "ses_log" } },
-    { time: undefined, agent: "w11", pane: "w1:p11", orchestrator: { pane: null, session: "ses_log" } },
+    { time: undefined, agent: "w9", pane: "w1:p9", herdr_session: null, orchestrator: { pane: null, session: "ses_log" } },
+    { time: undefined, agent: "w11", pane: "w1:p11", herdr_session: null, orchestrator: { pane: null, session: "ses_log" } },
   ]);
 
   // Another tool's input that mentions such a command launches nothing and is not logged.

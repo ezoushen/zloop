@@ -667,8 +667,9 @@ class UnregisteredWorkers(GateRepo):
         return f'Herdr agent {name} (pane {pane}) runs in {cwd} without a registered attempt'
 
     def test_each_herdr_agent_start_is_logged_in_the_main_checkout_for_its_orchestrator(self):
-        # Rule 1: time, agent name, pane, orchestrator (its Herdr pane and host session, each when known) and the
-        # pane's cwd as the named Herdr server reports it; a command that only mentions a launch records nothing.
+        # Rule 1: time, agent name, pane, the Herdr server session it ran in (None for the default one), orchestrator
+        # (its Herdr pane and host session, each when known) and the pane's cwd as the named Herdr server reports it; a
+        # command that only mentions a launch records nothing.
         self.serve(panes={'s1': {'w1:p5': {'pane_id': 'w1:p5', 'cwd': str(self.worktree)}},
                           'default': {'w1:p5': {'pane_id': 'w1:p5', 'cwd': '/elsewhere'}}})
         before = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
@@ -680,9 +681,10 @@ class UnregisteredWorkers(GateRepo):
         for record in logged:
             self.assertTrue(before <= record.pop('time') <= after)
         self.assertEqual(logged, [
-            {'agent': 'builder-1', 'pane': 'w1:p5', 'orchestrator': {'pane': 'w1:p1', 'session': 'host-1'},
-             'cwd': str(self.worktree)},
-            {'agent': 'reviewer-2', 'pane': 'w1:p6', 'orchestrator': {'pane': None, 'session': 'host-1'}}])
+            {'agent': 'builder-1', 'pane': 'w1:p5', 'herdr_session': 's1',
+             'orchestrator': {'pane': 'w1:p1', 'session': 'host-1'}, 'cwd': str(self.worktree)},
+            {'agent': 'reviewer-2', 'pane': 'w1:p6', 'herdr_session': None,
+             'orchestrator': {'pane': None, 'session': 'host-1'}}])
 
     def test_one_command_with_many_launches_stays_inside_the_hook_timeout(self):
         # Review 7: the Herdr lookups of one hook run share a budget inside the hosts' hook timeout, so a hung
@@ -694,7 +696,7 @@ class UnregisteredWorkers(GateRepo):
         started = time.monotonic()
         self.launch(' && '.join(f'herdr agent start b-{index} --kind codex --pane w1:p{index}' for index in range(1, 6)))
         self.assertLess(time.monotonic() - started, limit - 2)
-        self.assertEqual([{key: value for key, value in record.items() if key not in ('time', 'orchestrator')}
+        self.assertEqual([{key: value for key, value in record.items() if key not in ('time', 'orchestrator', 'herdr_session')}
                           for record in self.logged()],
                          [{'agent': f'b-{index}', 'pane': f'w1:p{index}'} for index in range(1, 6)])
 
@@ -758,7 +760,8 @@ class UnregisteredWorkers(GateRepo):
         self.launch('herdr agent start builder-1 --kind codex --pane w1:p5')
         self.assertLess(time.monotonic() - started, 10)
         self.assertEqual([{key: value for key, value in record.items() if key != 'time'} for record in self.logged()],
-                         [{'agent': 'builder-1', 'pane': 'w1:p5', 'orchestrator': {'pane': 'w1:p1', 'session': 'host-1'}}])
+                         [{'agent': 'builder-1', 'pane': 'w1:p5', 'herdr_session': None,
+                           'orchestrator': {'pane': 'w1:p1', 'session': 'host-1'}}])
         (self.repo / '.scratch/herdr-launches.jsonl').unlink()
         (self.repo / '.scratch/herdr-launches.jsonl').mkdir()
         self.serve()
@@ -775,9 +778,10 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
 """)
         self.assertEqual(verdicts, [None, None])
         self.assertEqual([{key: value for key, value in record.items() if key != 'time'} for record in self.logged()], [
-            {'agent': 'builder-1', 'pane': 'w1:p5', 'orchestrator': {'pane': None, 'session': 'pi-1'},
-             'cwd': str(self.worktree)},
-            {'agent': 'builder-2', 'pane': 'w1:p6', 'orchestrator': {'pane': None, 'session': 'pi-1'}}])
+            {'agent': 'builder-1', 'pane': 'w1:p5', 'herdr_session': None,
+             'orchestrator': {'pane': None, 'session': 'pi-1'}, 'cwd': str(self.worktree)},
+            {'agent': 'builder-2', 'pane': 'w1:p6', 'herdr_session': None,
+             'orchestrator': {'pane': None, 'session': 'pi-1'}}])
 
     def test_an_unregistered_launch_into_a_worktree_holds_its_orchestrator_after_the_pane_closed(self):
         # Rule 2: the log outlives the panes; an attempt whose worker is the pane or the agent name clears the gap.

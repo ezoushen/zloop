@@ -4,10 +4,11 @@
 Reads every run's workers.sqlite under the main checkout's .scratch/*/reports/ and .scratch/reviews/*/ without
 writing to it. Applies the lifecycle's yield gate to the workers this session registered (by host session, else
 pane), whatever the age of the state, or, for one that recorded neither and whose state changed in the last day, to
-the session bound to orchestrate its workstream (with none bound, to every session). Sessions share the checkout: another session's workers and launches never hold this
-one, and a row or state that cannot be read is named to the sessions it could hide a gap
-from. Every session is also held for each Herdr launch it logged (hooks/herdr_launch.py)
-into a ticket worktree that no attempt accounts for and it did not dismiss; one without
+the session bound to orchestrate its workstream (with none bound, to every session). Sessions share the checkout:
+another session's workers and launches never hold this one, and a row, state or launch log line that cannot be read is named only to a session it can be attributed to (a
+binding beside it, or its pane or host session in its text). Every session is also held for each Herdr launch it logged
+(hooks/herdr_launch.py) into a ticket worktree that no attempt accounts for and it did not dismiss, and for each pane of a
+launch it dismissed that is still open unless kept (`dismiss --keep`); one without
 ZLOOP_WORKER, the marker every worker is launched with, also for each other such live
 agent of its Herdr workspace that no other session logged. The session bound to orchestrate a workstream
 (next_tickets.py --orchestrate; without one, the pane that registered the attempt) is held for each collected
@@ -21,9 +22,10 @@ completed collected diff-review attempt at review_head, names local review with 
 records a blocker with a launched diff-review attempt in its state at review_head settled failed, blocked or cancelled,
 or a recorded no-route result. Launch evidence is a Herdr placement, verified startup or recorded submission.
 The review, delivery and card holds do not apply while a live worker of that state holds a running
-wait that will wake the host. A
-check that cannot run, and a launch log line that is unreadable or malformed, are named gaps,
-never a pass. `claude` and `codex` speak their shared Stop
+wait that will wake the host. A stop
+is held while its gaps stand, up to three times in a row for an identical set (a count per session under
+.scratch/holds/); then the stop passes and the gate says it gave up. A check that cannot run is a named gap, never a
+pass, and holds one stop. `claude` and `codex` speak their shared Stop
 hook protocol; `check <cwd> [session]` prints the gaps and the hold's message as JSON, and `stop <cwd> [session]`, which
 other hosts call at each stop, also counts the stop and says whether to hold it. Set
 ZLOOP_YIELD_HOOK=off to disable the check.
