@@ -4,6 +4,11 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+if (!process.argv[2]) {
+  console.error("usage: node tests/test_pi_adapter.mjs <pi sdk dist/index.js>; "
+    + "run ZLOOP_NATIVE_PI=1 .venv/bin/python -B tests/test_cross_host.py to locate the SDK and run it");
+  process.exit(2);
+}
 // Use the installed SDK without loading the user's extensions or calling a model.
 const { DefaultResourceLoader, SettingsManager } = await import(pathToFileURL(process.argv[2]).href);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
