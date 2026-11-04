@@ -215,7 +215,8 @@ def yield_gaps(db, include=lambda saved: True, rows=None):
     closed = {(row['runtime'], row['native_session']) for row in rows if row.get('closed')}
     included = [saved for saved in rows if include(saved)]
     names = {saved['attempt'] for saved in included}
-    receipts = [row for row in pending(db) if row['kind'] in ('wait-finished', 'hold') and row['attempt'] in names]
+    unconsumed = [row for row in pending(db) if row['attempt'] in names]
+    receipts = [row for row in unconsumed if row['kind'] in ('wait-finished', 'hold')]
     for saved in included:
         monitor = saved.get('monitor', {})
         live = ((saved.get('submitted') or saved.get('submission_requested')) and not saved.get('result')
@@ -227,11 +228,20 @@ def yield_gaps(db, include=lambda saved: True, rows=None):
                 missing.append(f"{saved['attempt']}: wait process lost")
             elif not monitor.get('notify'):
                 missing.append(f"{saved['attempt']}: wait has no wake channel")
-        elif not (monitor.get('state') == 'finished' and any(
-                row['attempt'] == saved['attempt'] and row['kind'] == 'wait-finished'
-                and row['payload'].get('token') == monitor.get('token') for row in receipts)):
+        else:
             # Only the current wait's unconsumed receipt can still wake the host.
-            missing.append(f"{saved['attempt']}: no armed wait")
+            current = [row for row in receipts if monitor.get('state') == 'finished'
+                       and row['attempt'] == saved['attempt'] and row['kind'] == 'wait-finished'
+                       and row['payload'].get('token') == monitor.get('token')]
+            if not current:
+                missing.append(f"{saved['attempt']}: no armed wait")
+            # A delivered wake the host acted past without consuming it: the state holds a later event.
+            missing += [f"{row['attempt']}: receipt {row['id']} was delivered and not consumed; collect the result "
+                        'or ack it and arm the next wait' for row in current
+                        if row['payload'].get('delivery', {}).get('state') == 'sent'
+                        and db.execute('SELECT 1 FROM events WHERE id > ?', (row['id'],)).fetchone()]
+    missing += [f"{row['attempt']}: result receipt {row['id']} was not collected; collect it or ack it"
+                for row in unconsumed if row['kind'] == 'result']
     missing += [f"{row['attempt']}: receipt {row['id']} was not delivered" for row in receipts
                 if row['payload'].get('delivery', {}).get('state') != 'sent']
     return missing

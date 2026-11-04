@@ -83,6 +83,38 @@ class Waits(WorkerLifecycleCase):
         gate = self.cli('gate', '--stage', 'yield', code=1)
         self.assertEqual(gate['missing'], ['ticket-1/1: no armed wait'])
 
+    def test_yield_gate_names_a_delivered_receipt_the_host_acted_past_without_consuming(self):
+        # A delivered wake is a gap once the state holds a later event: the host moved on without consuming it.
+        self.register()
+        self.ready()
+        parent = self.root / 'parent.jsonl'
+        request = self.root / 'wait.json'
+        request.write_text(json.dumps({'argv': [sys.executable, '-c', 'print("idle")'], 'timeout': 2,
+            'notify': {'argv': [sys.executable, '-c',
+                                f'import sys; open({str(parent)!r}, "a").write(sys.argv[1] + "\\n")', '{receipt}'],
+                       'timeout': 2}}))
+        receipt = self.cli('watch', '--attempt', 'ticket-1/1', '--input', str(request))
+        self.assertEqual(self.cli('gate', '--stage', 'yield'), {'complete': True, 'missing': []})
+        self.register('ticket-2/1', 'ticket-2', 'native-2', 'pane-2')
+        gate = self.cli('gate', '--stage', 'yield', code=1)
+        self.assertEqual(gate['missing'], [f"ticket-1/1: receipt {receipt['event_id']} was delivered and not consumed; "
+                                           'collect the result or ack it and arm the next wait'])
+        self.cli('ack', '--event-id', str(receipt['event_id']))
+        self.assertEqual(self.cli('gate', '--stage', 'yield', code=1)['missing'], ['ticket-1/1: no armed wait'])
+
+    def test_yield_gate_names_a_recorded_result_nobody_collected(self):
+        # `record result` leaves a result receipt; the host must collect it or ack it.
+        self.register()
+        self.ready()
+        report = self.root / 'report.md'
+        report.write_text('## Implemented\n\nVerified assignment report at head-1\n')
+        result = self.completed(status='completed', head='head-1', report=str(report), evidence=['checks.log@head-1'])
+        gate = self.cli('gate', '--stage', 'yield', code=1)
+        self.assertEqual(gate['missing'], [f"ticket-1/1: result receipt {result['event_id']} was not collected; "
+                                           'collect it or ack it'])
+        self.cli('ack', '--event-id', str(result['event_id']))
+        self.assertEqual(self.cli('gate', '--stage', 'yield'), {'complete': True, 'missing': []})
+
     def test_yield_gate_rejects_waits_that_cannot_wake_the_host(self):
         self.register()
         self.ready()
