@@ -41,6 +41,25 @@ class HerdrTabs(WorkerLifecycleCase):
                          {'session': 'fixture-session', 'workspace_id': 'ws-1', 'tab_id': 'tab-1',
                           'pane_id': 'pane-1', 'name': 'builder-1'})
 
+    def test_a_placed_worker_retires_only_through_its_confirmed_pane(self):
+        # Rule: collect closes a worker on evidence alone only when it has no Herdr placement; a placed one still
+        # needs its session and pane, and nothing closes without them.
+        self.herdr_route()
+        self.herdr_fixture()
+        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
+        self.ready()
+        report = self.root / 'report.md'
+        report.write_text('Completed assignment at head-1\n')
+        request = self.root / 'collect.json'
+        request.write_text(json.dumps({'status': 'completed', 'head': 'head-1', 'report': str(report),
+            **self.completion_evidence(), 'evidence': ['current report checked'],
+            'disposition': {'kind': 'retire', 'evidence': ['subagent finished'],
+                            'acceptance': {'decision': 'deferred', 'reason': 'acceptance checks pending'}}}))
+        error = self.cli('collect', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+        self.assertIn('explicit Herdr session and pane', error)
+        self.assertNotIn('closed', self.cli('status')['attempts'][0])
+        self.assertFalse((self.root / 'native-closed').exists())
+
     def test_registration_splits_a_session_pane_name_handle_and_asks_that_session(self):
         # Rule: a `session/pane/name` handle needs no herdr.session; its pane is looked up in its own session,
         # and Herdr must confirm the agent name it gives.

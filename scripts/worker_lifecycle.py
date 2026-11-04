@@ -1537,8 +1537,14 @@ def collect(db, state, attempt, request):
     require(isinstance(disposition, dict), 'Collection disposition must be an object')
     require(disposition.get('kind') in ('retire', 'retain'), 'Collection requires retirement or explicit retention')
     saved = get(db, attempt)
+    paneless = (disposition['kind'] == 'retire' and not saved.get('herdr')
+                and not any(disposition.get(key) for key in ('session', 'pane')))
     if disposition['kind'] == 'retire':
         require(saved['owned'], 'Existing user worker is not a cleanup target')
+        require(not paneless or isinstance(disposition.get('evidence'), list) and disposition['evidence']
+                and all(text(x) for x in disposition['evidence']),
+                'A worker with no Herdr pane (a native subagent) retires on disposition evidence: pass evidence '
+                'naming how its closure was confirmed')
     else:
         require(text(disposition.get('reason')) and text(disposition.get('next_use'))
                 and isinstance(disposition.get('evidence'), list) and disposition['evidence']
@@ -1552,7 +1558,15 @@ def collect(db, state, attempt, request):
         result = record(db, dict(request, kind='result', attempt=attempt), refuse_changes=True)
     with db:
         db.execute("UPDATE events SET acknowledged = 1 WHERE attempt = ? AND kind IN ('wait-finished', 'result')", (attempt,))
-    if disposition['kind'] == 'retire':
+    if paneless:
+        # No pane to close: the closure rests on the evidence the request gives.
+        closure = closed_sessions(db).get((saved['runtime'], saved['native_session']))
+        if not closure:
+            record(db, dict(kind='closed', attempt=attempt, evidence=disposition['evidence'],
+                            **({'acceptance': disposition['acceptance']} if 'acceptance' in disposition else {})))
+        final = {'attempt': attempt, 'closed': True, 'evidence': disposition['evidence'],
+                 **({'native_closed_by': closure['attempt']} if closure else {})}
+    elif disposition['kind'] == 'retire':
         final = retire(db, state, attempt, disposition)
     else:
         final = record(db, dict(disposition, attempt=attempt))

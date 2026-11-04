@@ -59,6 +59,35 @@ class Retirement(WorkerLifecycleCase):
         self.assertEqual(status['pending'], [])
         self.assertTrue(report.is_file())
 
+    def collect_request(self, report, disposition):
+        request = self.root / 'collect.json'
+        request.write_text(json.dumps({'status': 'completed', 'head': 'head-1', 'report': str(report),
+                                       **self.completion_evidence(), 'evidence': ['current report checked'],
+                                       'disposition': disposition}))
+        return request
+
+    def test_a_native_subagent_with_no_herdr_pane_retires_on_its_evidence(self):
+        # A native subagent has no pane to close: collect records it closed with the request's evidence, and refuses
+        # before recording the result when that evidence is missing.
+        self.register()
+        self.ready()
+        report = self.root / 'report.md'
+        report.write_text('Completed assignment at head-1\n')
+        retire = {'kind': 'retire', 'acceptance': {'decision': 'deferred', 'reason': 'acceptance checks pending'}}
+        error = self.cli('collect', '--attempt', 'ticket-1/1', '--input', str(self.collect_request(report, retire)),
+                         code=2)
+        self.assertIn('no Herdr pane', error)
+        self.assertIn('disposition evidence', error)
+        self.assertNotIn('result', self.cli('status')['attempts'][0])
+        evidence = ['subagent finished; no pane to close']
+        self.cli('collect', '--attempt', 'ticket-1/1',
+                 '--input', str(self.collect_request(report, dict(retire, evidence=evidence))))
+        saved = self.cli('status')['attempts'][0]
+        self.assertEqual(saved['closed']['evidence'], evidence)
+        self.assertEqual(self.cli('status')['pending'], [])
+        self.cli('collect', '--attempt', 'ticket-1/1',
+                 '--input', str(self.collect_request(report, dict(retire, evidence=evidence))))
+
     def test_collect_rejects_missing_disposition_before_recording_result(self):
         self.register()
         self.ready()
