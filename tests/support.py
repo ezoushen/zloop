@@ -91,8 +91,9 @@ def collected_attempt(repo, slug, attempt, report, job='ticket', head='head-1', 
     def record(kind, **fields):
         event = work / 'event.json'
         event.write_text(json.dumps(dict(kind=kind, attempt=attempt, **fields)))
-        subprocess.run([sys.executable, '-B', str(script('worker_lifecycle.py')), 'record', '--state', str(state),
-                        '--input', str(event)], check=True, capture_output=True, text=True, env=env)
+        done = subprocess.run([sys.executable, '-B', str(script('worker_lifecycle.py')), 'record', '--state', str(state),
+                               '--input', str(event)], check=True, capture_output=True, text=True, env=env)
+        return json.loads(done.stdout)
 
     record('register', assignment=attempt.rpartition('/')[0] or attempt, repo=str(repo), worktree=str(repo),
            head=head, execution=str(execution), runtime='claude', worker=f'pane-{attempt}',
@@ -102,5 +103,8 @@ def collected_attempt(repo, slug, attempt, report, job='ticket', head='head-1', 
     record('submitted', evidence=['native.jsonl:2:accepted prompt'])
     user_message(native, 'claude', f'assignment: {attempt.rpartition("/")[0] or attempt}  attempt: {attempt}')
     assistant_turn(native, 'claude')
-    record('result', status=status, head=head, report=str(report), native=str(native), evidence=['checks.log'])
+    result = record('result', status=status, head=head, report=str(report), native=str(native), evidence=['checks.log'])
+    # Collection acknowledges the result receipt; a record that left it would be a yield gap of its own.
+    subprocess.run([sys.executable, '-B', str(script('worker_lifecycle.py')), 'ack', '--state', str(state),
+                    '--event-id', str(result['event_id'])], check=True, capture_output=True, text=True, env=env)
     return state

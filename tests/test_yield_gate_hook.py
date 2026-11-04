@@ -107,8 +107,12 @@ else:
             packet.write_text(f'attempt: {attempt}\n' + packet.read_text())
         event = self.state.parent / 'event.json'
         event.write_text(json.dumps(dict(kind=kind, attempt=attempt, **fields)))
-        subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'record', '--state', str(self.state),
-                        '--input', str(event)], check=True, capture_output=True, env=self.env(pane, **(env or {})))
+        done = subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'record', '--state', str(self.state),
+                               '--input', str(event)], check=True, capture_output=True, env=self.env(pane, **(env or {})))
+        if kind == 'result':
+            # Collection acknowledges the result receipt; one left unacknowledged is a yield gap of its own.
+            subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'ack', '--state', str(self.state), '--event-id',
+                            str(json.loads(done.stdout)['event_id'])], check=True, capture_output=True)
         if kind == 'register':
             self.registrations[attempt] = fields
 
