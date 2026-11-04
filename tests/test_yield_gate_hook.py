@@ -57,6 +57,7 @@ served = json.load(open({str(self.served)!r}))
 args, session = sys.argv[1:], 'default'
 if args[:1] == ['--session']:
     session, args = args[1], args[2:]
+open({str(self.bin / 'calls')!r}, 'a').write(session + ' ' + ' '.join(args) + '\\n')
 if served['hang']:
     time.sleep(30)
 if served['fail']:
@@ -85,6 +86,10 @@ elif args[:3] == ['tab', 'list', '--workspace']:
     print(json.dumps({{'result': {{'tabs': tabs, 'type': 'tab_list'}}}}))
 elif args[:2] == ['tab', 'get'] and any(tab['tab_id'] == args[2] for tab in served['tabs'].get(session, [])):
     print(json.dumps({{'result': {{'tab': {{'tab_id': args[2], 'pane_count': 1}}, 'type': 'tab_info'}}}}))
+elif args[:2] == ['tab', 'get']:
+    print(json.dumps({{'error': {{'code': 'tab_not_found' if session in served['tabs'] else 'server_not_running'}}}}),
+          file=sys.stderr)
+    sys.exit(1)
 else:
     sys.exit(3)
 ''')
@@ -1992,8 +1997,8 @@ console.log(JSON.stringify([[await settle(ctx), await settle(ctx), await settle(
         self.assertIsNone(other)
 
 
-class StaleTabs(GateRepo):
-    """A Herdr worker's tab outlives collection only when its attempt is retained; otherwise it is a gap at stop."""
+class HerdrWorkers(GateRepo):
+    """A worker placed in a Herdr tab (w1:t5 of the `default` server), registered and collected."""
 
     def setUp(self):
         super().setUp()
@@ -2003,12 +2008,15 @@ class StaleTabs(GateRepo):
         self.report = self.state.parent / 'ticket-1.md'
         self.report.write_text('## Implemented\n')
 
-    def register(self, pane='w1:p1'):
+    def register(self, pane='w1:p1', env=None, attempt='ticket-1/1', **fields):
         """Register builder-1 as Herdr places it (tab w1:t5 of session `default`) from Herdr pane `pane`."""
-        self.lifecycle('register', pane=pane, assignment='ticket-1', repo=str(self.repo), worktree=str(self.repo),
-                       head='head-1', execution=str(self.execution), runtime='claude', worker='builder-1',
-                       native_session='native-1', owned=True, herdr={'session': 'default'},
-                       packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        registration = dict(assignment='ticket-1', repo=str(self.repo), worktree=str(self.repo), head='head-1',
+                            execution=str(self.execution), runtime='claude', worker='builder-1',
+                            native_session='native-1', owned=True, herdr={'session': 'default'},
+                            packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        registration.update(fields)
+        self.lifecycle('register', attempt, pane=pane, env=env, **{key: value for key, value in registration.items()
+                                                          if value is not None})
 
     def collect(self, **disposition):
         """Collect the attempt's result; with a `disposition`, through `collect` (which records it)."""
@@ -2019,6 +2027,11 @@ class StaleTabs(GateRepo):
         request.write_text(json.dumps(dict(result, disposition=disposition)))
         subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'collect', '--state', str(self.state), '--attempt',
                         'ticket-1/1', '--input', str(request)], check=True, capture_output=True, env=self.env())
+
+
+
+class StaleTabs(HerdrWorkers):
+    """A Herdr worker's tab outlives collection only when its attempt is retained; otherwise it is a gap at stop."""
 
     def gap(self):
         return (f'{self.state}: ticket-1/1: Herdr tab w1:t5 is still open after collection; retire the worker or '
@@ -2137,6 +2150,147 @@ class StaleTabs(GateRepo):
         self.serve(hang=True)
         self.assertRegex(self.check(pane='w1:p1')[-1],
                          r"^could not check worker tabs: .*'tab', 'list'.* timed out after 5 seconds$")
+
+
+class StopReap(HerdrWorkers):
+    """At a stop the gate closes the attempts whose status is already decided (`worker_lifecycle.py reap`); `check`
+    only reports."""
+    GONE = {'default': [{'tab_id': 'w1:t6', 'workspace_id': 'w1', 'label': 'other', 'pane_count': 1}]}
+
+    def attempt(self, attempt='ticket-1/1'):
+        db = sqlite3.connect(self.state)
+        try:
+            return json.loads(db.execute('SELECT data FROM attempts WHERE id = ?', (attempt,)).fetchone()[0])
+        finally:
+            db.close()
+
+    def stop_command(self, pane='w1:p1', session=None):
+        """What `yield_gate.py stop <cwd> [session]` answers, as Pi's extension and other hosts call it."""
+        done = subprocess.run([sys.executable, str(HOOK), 'stop', str(self.repo), *filter(None, [session])],
+                              capture_output=True, text=True, timeout=20, env=self.env(pane))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def test_a_stop_closes_a_collected_attempt_whose_herdr_tab_is_confirmed_gone_and_a_check_does_not(self):
+        # Rule 1: the claude and codex hooks and the `stop` command close it, with Herdr's answer as the evidence;
+        # `check` stays a pure report. The tab Herdr still lists is left alone.
+        evidence = ['herdr --session default tab get w1:t5: tab_not_found']
+        for mode in ('claude', 'codex', 'command'):
+            with self.subTest(mode=mode):
+                self.setUp()
+                self.register()
+                self.collect()
+                self.assertEqual([self.stale_gap()], self.check(pane='w1:p1'))
+                self.serve(tabs=self.GONE)
+                self.assertEqual([], self.check(pane='w1:p1'))
+                self.assertNotIn('closed', self.attempt())
+                if mode == 'command':
+                    self.assertEqual([], self.stop_command()['missing'])
+                else:
+                    self.assertIsNone(self.stop(host=mode))
+                self.assertEqual(evidence, self.attempt()['closed']['evidence'])
+        self.setUp()
+        self.register()
+        self.collect()
+        self.assertIn(f'- {self.stale_gap()}\n', self.stop()['reason'])
+        self.assertNotIn('closed', self.attempt())
+
+    def stale_gap(self):
+        return (f'{self.state}: ticket-1/1: Herdr tab w1:t5 is still open after collection; retire the worker or '
+                f'record its retention ({ROOT}/runtime/workers/collect.md)')
+
+    def refusal(self):
+        return ('Collect all conversation attempts, each completed one with an intact report or declined, and '
+                'reconcile their receipts and waits before retirement')
+
+    def test_a_stop_closes_only_the_attempts_the_stopping_session_registered(self):
+        # Rule 1's attribution is the holds': the host session decides before the pane, so another session in the
+        # same pane, or a pane with no session, closes nothing.
+        self.register(env={'CLAUDE_CODE_SESSION_ID': 'host-A'})
+        self.collect()
+        self.serve(tabs=self.GONE)
+        self.stop(session='host-B')
+        self.stop(pane='w1:p9')
+        self.assertNotIn('closed', self.attempt())
+        self.stop(session='host-A')
+        self.assertIn('closed', self.attempt())
+
+    def test_a_stop_closes_a_retained_native_attempt_once_its_run_card_ended(self):
+        # Rule 2: no Herdr placement, retained, and the workstream's run card ended delivered, delivered-local or
+        # merged; a card still running keeps it.
+        self.register(herdr=None)
+        self.collect(kind='retain', reason='the repair round reuses this context', next_use='ticket-1 repair',
+                     evidence=['review finding F1'])
+        card = self.state.parent.parent / 'autopilot.md'
+        for terminal in ('', 'blocked', 'delivered'):
+            card.write_text(f'# workstream\n\n## State\nconfirmed: yes\nterminal: {terminal}\n')
+            self.assertIsNone(self.stop())
+            self.assertEqual(terminal == 'delivered', 'closed' in self.attempt())
+        self.assertEqual([f'{card}: terminal: delivered'], self.attempt()['closed']['evidence'])
+
+    def test_a_closure_the_lifecycle_refuses_is_a_named_stop_gap_and_no_other_closure_waits_on_it(self):
+        # Rule 3: a completed report that changed after collection cannot be closed over; the gap carries the
+        # lifecycle's refusal and the command to run once settled, the hook still exits cleanly, and the other
+        # attempt is closed. `check` names nothing: it settles nothing.
+        second = dict(self.tab, tab_id='w1:t6')
+        self.serve(agents=[{'agent': 'claude', 'agent_status': 'idle', 'name': name, 'pane_id': pane,
+                            'tab_id': tab, 'workspace_id': 'w1'} for name, pane, tab in
+                           (('builder-1', 'w1:p5', 'w1:t5'), ('builder-2', 'w1:p6', 'w1:t6'))],
+                   tabs={'default': [self.tab, second]})
+        self.register()
+        self.collect()
+        self.register(attempt='ticket-2/1', assignment='ticket-2', worker='builder-2', native_session='native-2')
+        self.lifecycle('result', 'ticket-2/1', status='failed', head='head-1', report=str(self.report),
+                       evidence=['worker.log'])
+        db = sqlite3.connect(self.state)
+        data = json.loads(db.execute("SELECT data FROM attempts WHERE id = 'ticket-1/1'").fetchone()[0])
+        data['result']['status'] = 'completed'
+        db.execute("UPDATE attempts SET data = ? WHERE id = 'ticket-1/1'", (json.dumps(data),))
+        db.commit()
+        db.close()
+        self.report.write_text('## Implemented\n\nrewritten after collection\n')
+        self.serve(tabs={'default': [dict(self.tab, tab_id='w1:t9')]})
+        gap = (f'{self.state}: ticket-1/1: not closed at stop: {self.refusal()}; settle it, then run '
+               f'`python3 {ROOT}/scripts/worker_lifecycle.py reap --state {self.state}`')
+        self.assertEqual([], self.check())
+        decision = self.stop()
+        self.assertEqual('block', decision['decision'])
+        self.assertIn(f'- {gap}\n', decision['reason'])
+        self.assertNotIn('closed', self.attempt('ticket-1/1'))
+        self.assertIn('closed', self.attempt('ticket-2/1'))
+        self.assertEqual([gap], self.stop_command()['missing'])
+
+    def test_a_state_reap_cannot_read_through_is_a_named_gap_not_a_crash(self):
+        self.register()
+        self.collect()
+        self.serve(tabs=self.GONE)
+        db = sqlite3.connect(self.state)
+        db.execute("DELETE FROM events WHERE kind = 'register'")
+        db.commit()
+        db.close()
+        self.assertEqual([f'could not check settled workers in {self.state}: StopIteration()'],
+                         self.stop_command()['missing'])
+
+    def test_a_herdr_server_that_does_not_answer_is_asked_once_so_the_stop_stays_inside_the_hook_timeout(self):
+        # Rule 1: no answer is no confirmation, and a server that hangs is not asked again for each of its other
+        # workers: the 20 s hook budget holds one wait of 5 s, not one per worker.
+        second = dict(self.tab, tab_id='w1:t6')
+        self.serve(agents=[{'agent': 'claude', 'agent_status': 'idle', 'name': name, 'pane_id': pane,
+                            'tab_id': tab, 'workspace_id': 'w1'} for name, pane, tab in
+                           (('builder-1', 'w1:p5', 'w1:t5'), ('builder-2', 'w1:p6', 'w1:t6'))],
+                   tabs={'default': [self.tab, second]})
+        for number in (1, 2):
+            self.register(attempt=f'ticket-{number}/1', assignment=f'ticket-{number}', worker=f'builder-{number}',
+                          native_session=f'native-{number}')
+            self.lifecycle('result', f'ticket-{number}/1', status='failed', head='head-1', report=str(self.report),
+                           evidence=['worker.log'])
+        self.serve(hang=True)
+        calls = self.bin / 'calls'
+        calls.write_text('')
+        self.stop_command()
+        self.assertEqual(1, calls.read_text().count(' tab get '))
+        self.assertNotIn('closed', self.attempt('ticket-1/1'))
+        self.assertNotIn('closed', self.attempt('ticket-2/1'))
 
 
 class AutopilotCardHold(GateRepo):

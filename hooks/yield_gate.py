@@ -2,8 +2,9 @@
 """Stop hook: keep the host working while a lifecycle worker could finish without waking it.
 
 Reads every run's workers.sqlite under the main checkout's .scratch/*/reports/ and .scratch/reviews/*/ without
-writing to it. Applies the lifecycle's yield gate to the workers this session registered (by host session, else
-pane), whatever the age of the state, or, for one that recorded neither and whose state changed in the last day, to
+writing to it, except that a stop (never `check`) first has the lifecycle's `reap` close the attempts this session
+answers for whose status is already decided, and names each closure the lifecycle refuses. Applies the lifecycle's
+yield gate to the workers this session registered (by host session, else pane), whatever the age of the state, or, for one that recorded neither and whose state changed in the last day, to
 the session bound to orchestrate its workstream (with none bound, to every session). Sessions share the checkout:
 another session's workers and launches never hold this one, and a row, state or launch log line that cannot be read is named only to a session it can be attributed to (a
 binding beside it, or its pane or host session in its text). Every session is also held for each Herdr launch it logged
@@ -97,10 +98,7 @@ def gaps(cwd, session=None):
         # Sessions share the folder: a worker holds only the session that registered it, by host session before pane;
         # one registered with neither recorded holds the session bound to orchestrate its workstream, or, with none
         # bound, every session that is not a worker, since nothing tells its owner apart.
-        owner = state.with_name('review.json' if state.parent.parent.name == 'reviews' else BINDING)
-        binding, bound = read_binding(owner, pane, session)
-        unbound = binding is None and not owner.exists()
-        recent = time.time() - state.stat().st_mtime <= RECENT_SECONDS
+        bound, unbound = binding_state(state, pane, session)
         try:
             saved_attempts, malformed, _ = read_state(state)
         except Exception as error:
@@ -110,15 +108,7 @@ def gaps(cwd, session=None):
         missing += [f'{state}: attempt row {key} is malformed; fix or remove it' for key, saved in malformed
                     if bound or (isinstance(saved, dict) and attributed(saved) and owns(saved, pane, session))]
         module = module or lifecycle()
-        # A session inside a worker's own worktree is that worker, not its orchestrator.
-        worker = any(Path(saved['worktree']) != root and cwd.is_relative_to(saved['worktree'])
-                     for saved in saved_attempts if 'worktree' in saved)
-
-        def orchestrated(saved):
-            # A session launched as a worker (ZLOOP_WORKER) answers for no worker it did not register.
-            # A row nobody can be attributed to holds only while its state is recent.
-            fallback = bound or unbound and not os.environ.get('ZLOOP_WORKER')
-            return owns(saved, pane, session) if attributed(saved) else recent and fallback and not worker
+        orchestrated = answering(state, saved_attempts, root, cwd, pane, session, bound, unbound)
         db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
         try:
             missing += [f'{state}: {gap}' for gap in module.yield_gaps(db, orchestrated, saved_attempts)]
@@ -131,6 +121,64 @@ def gaps(cwd, session=None):
     return (missing + unregistered(root, pane, session, siblings=not os.environ.get('ZLOOP_WORKER')),
             stale_tabs(root, pane, session) + undelivered(root, pane, session) + unfinished_runs(root, session)
             + unreviewed(root, pane, session))
+
+
+def binding_state(state, pane, session):
+    """(whether the binding of a run state's workstream names this session, whether it keeps none)."""
+    owner = state.with_name('review.json' if state.parent.parent.name == 'reviews' else BINDING)
+    binding, bound = read_binding(owner, pane, session)
+    return bound, binding is None and not owner.exists()
+
+
+def answering(state, saved_attempts, root, cwd, pane, session, bound, unbound):
+    """Whether this session answers for an attempt row of a run state: the one that registered it, or, for a row nobody
+    can be attributed to, the one bound to orchestrate the workstream (with none bound, any session that is not a
+    worker) while the state is recent. Returns that test as a function of the row."""
+    recent = time.time() - state.stat().st_mtime <= RECENT_SECONDS
+    # A session inside a worker's own worktree is that worker, not its orchestrator.
+    worker = any(Path(saved['worktree']) != root and cwd.is_relative_to(saved['worktree'])
+                 for saved in saved_attempts if 'worktree' in saved)
+
+    def orchestrated(saved):
+        # A session launched as a worker (ZLOOP_WORKER) answers for no worker it did not register.
+        # A row nobody can be attributed to holds only while its state is recent.
+        fallback = bound or unbound and not os.environ.get('ZLOOP_WORKER')
+        return owns(saved, pane, session) if attributed(saved) else recent and fallback and not worker
+    return orchestrated
+
+
+def reaped(cwd, session=None):
+    """Close, through the lifecycle's `reap`, each attempt this session answers for whose status is already decided; one
+    gap for each closure the lifecycle refuses, and for a run state it could not reap. Never raises."""
+    try:
+        root = main_checkout(cwd)
+    except Exception:  # checked() names a git that cannot tell.
+        return []
+    if root is None:
+        return []
+    cwd, pane = Path(cwd).resolve(), os.environ.get('HERDR_PANE_ID')
+    missing = []
+    for state in states(root):
+        mine = None
+        try:
+            saved_attempts = read_state(state)[0]
+            bound, unbound = binding_state(state, pane, session)
+            orchestrated = answering(state, saved_attempts, root, cwd, pane, session, bound, unbound)
+            mine = {saved['attempt'] for saved in saved_attempts if orchestrated(saved)}
+            if not mine:
+                continue
+            module = lifecycle()
+            db = sqlite3.connect(state, timeout=10)  # Not `connect`, which touches the state when nothing closes.
+            try:
+                found = module.reap(db, state, lambda saved: saved['attempt'] in mine)
+            finally:
+                db.close()
+        except Exception as error:  # A check that cannot run is a named gap, never a pass; gaps() names an unreadable state.
+            missing += [f'could not check settled workers in {state}: {error!r}'] if mine else []
+            continue
+        missing += [f"{state}: {row['attempt']}: not closed at stop: {row['reason']}; settle it, then run "
+                    f'`python3 {ROOT}/scripts/worker_lifecycle.py reap --state {state}`' for row in found['refused']]
+    return missing
 
 
 def unreviewed(root, pane, session):
@@ -704,9 +752,11 @@ def main():
     if os.environ.get('ZLOOP_YIELD_HOOK') == 'off':
         return 0
     if sys.argv[1:2] in (['check'], ['stop']) and len(sys.argv) in (3, 4):
+        closing = reaped(Path(sys.argv[2]), *sys.argv[3:]) if sys.argv[1] == 'stop' else []
         workers, own = checked(Path(sys.argv[2]), *sys.argv[3:])
+        own += closing
         report = {'missing': workers + own, 'reason': reason(workers, own, *sys.argv[3:])}
-        if sys.argv[1] == 'stop':  # A host's stop, counted; `check` only reports.
+        if sys.argv[1] == 'stop':  # A host's stop, counted and settling what it can; `check` only reports.
             hold, notice = count_hold(sys.argv[2], (sys.argv[3:] or [None])[0], workers + own)
             report.update(hold=hold, notice=notice)
         print(json.dumps(report))
@@ -715,7 +765,9 @@ def main():
         sys.exit('usage: yield_gate.py claude|codex < stop-hook-input, or yield_gate.py check|stop <cwd> [session]')
     payload = json.load(sys.stdin)
     cwd, session = Path(payload.get('cwd') or os.getcwd()), payload.get('session_id')
+    closing = reaped(cwd, session)
     workers, own = checked(cwd, session)
+    own += closing
     hold, notice = count_hold(cwd, session, workers + own)
     if hold:
         print(json.dumps({'decision': 'block', 'reason': reason(workers, own, session)}))

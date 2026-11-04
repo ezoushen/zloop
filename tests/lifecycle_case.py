@@ -179,7 +179,7 @@ class WorkerLifecycleCase(unittest.TestCase):
     def herdr_fixture(self, native_session='native-1', verify_error='pane_not_found', caller=None, tab_panes=1,
                       caller_tab='caller-tab', tab_survives=False, agent_tab='tab-1',
                       agent_delay=0, tab_delay=0, during_delay=None, lock_probe=None,
-                      agent_kind='claude', session_kind='id'):
+                      agent_kind='claude', session_kind='id', tab_gone_error='tab_not_found'):
         # during_delay: an argv the fixture runs while a delayed call waits, recording its exit code in
         # during-delay.json, so a test can act inside that wait without racing its own thread against it.
         # lock_probe: a state database the fixture tries to write-lock, in its own process and without waiting,
@@ -222,7 +222,7 @@ elif args[2:4]==['agent','get']:
 elif args[2:]==['tab','get','tab-1']:
     panes={tab_panes!r}
     if marker.exists() and not {tab_survives!r}:
-        print(json.dumps({{'error':{{'code':'tab_not_found'}}}}),file=sys.stderr);sys.exit(1)
+        print(json.dumps({{'error':{{'code':{tab_gone_error!r}}}}}),file=sys.stderr);sys.exit(1)
     if panes is None:
         print(json.dumps({{'error':{{'code':'server_unavailable'}}}}),file=sys.stderr);sys.exit(1)
     print(json.dumps({{'result':{{'tab':{{'tab_id':'tab-1','workspace_id':'ws-1','pane_count':panes}}}}}}))

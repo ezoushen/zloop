@@ -27,6 +27,7 @@ import front_matter  # noqa: E402
 import journal_store  # noqa: E402
 import native_settings  # noqa: E402
 import outcomes  # noqa: E402
+import panel_state  # noqa: E402
 
 DEFINITIONS = agent_defs.load()
 TAB_RECIPE = ('start the worker in a tab of its own: `herdr tab create --workspace <orchestrator workspace> '
@@ -34,6 +35,8 @@ TAB_RECIPE = ('start the worker in a tab of its own: `herdr tab create --workspa
               '--no-focus`, then `herdr agent start <name> --kind <kind> --pane <returned root pane> -- <launch args>`, '
               'then register it')
 LOOKUP_SECONDS = 5  # Registration's wait on each Herdr call.
+# The terminal states of a run card after which nothing of the run is used again.
+ENDED = ('delivered', 'delivered-local', 'merged')
 # Native write-scope controls: a launch requests them (its `verify`) and startup observes them.
 SCOPE = ('permission_mode', 'sandbox', 'approval', 'filesystem', 'tools', 'permissions')
 TOP_LEVEL = ('claude', 'codex', 'opencode', 'pi')  # Runtimes whose own process the resolver gives launch controls.
@@ -103,13 +106,19 @@ def report_owed(saved, declined=False):
     return saved['result']['status'] != 'completed' or report_intact(saved) or bool(declined)
 
 
-def final_retirement(db, saved, declined=False):
-    """Every attempt of the conversation is collected with its report settled (see report_owed), and nothing of it
-    is still waiting."""
+def conversation(db, saved):
+    """(the attempts of the saved attempt's native conversation by id, the id of the final registered one)."""
     siblings = {row['attempt']: row for row in attempts(db)
                 if (row['runtime'], row['native_session']) == (saved['runtime'], saved['native_session'])}
     latest = next(row[0] for row in db.execute("SELECT attempt FROM events WHERE kind = 'register' ORDER BY id DESC")
                   if row[0] in siblings)
+    return siblings, latest
+
+
+def final_retirement(db, saved, declined=False):
+    """Every attempt of the conversation is collected with its report settled (see report_owed), and nothing of it
+    is still waiting."""
+    siblings, latest = conversation(db, saved)
     require(latest == saved['attempt'], 'Retire the final registered attempt of the native conversation')
     require(all(row.get('result')
                 and report_owed(row, row.get('declined') or declined and row['attempt'] == saved['attempt'])
@@ -1528,6 +1537,67 @@ def retire(db, state, attempt, request):
     return {'attempt': attempt, 'closed': True, 'evidence': str(proof)}
 
 
+def herdr_answer(placed):
+    """(Herdr's answer for the worker's tab, else pane, as one line, whether that confirms it gone, None when the server
+    gave no answer): only a not-found answer for it, or a server that is not running, confirms it; a listing or any
+    other error does not."""
+    kind, target = ('tab', placed['tab_id']) if placed.get('tab_id') else ('pane', placed['pane_id'])
+    command = f"herdr --session {placed['session']} {kind} get {target}"
+    try:
+        code, response = herdr(placed['session'], kind, 'get', target, timeout=LOOKUP_SECONDS)
+    except (OSError, ValueError) as error:
+        return f'{command}: no answer ({error})', None
+    error = response.get('error')
+    answer = (error.get('code') if isinstance(error, dict) else None) if code else 'listed'
+    return f'{command}: {answer}', bool(code) and answer in (f'{kind}_not_found', 'server_not_running')
+
+
+def reap(db, state, include=lambda saved: True):
+    """Close, through `record`, each included attempt whose status is already decided: a collected worker whose Herdr
+    tab its server confirms gone, and a retained native subagent (no Herdr placement) of a run whose card ended
+    delivered. Returns what it closed, what it left open for want of Herdr's confirmation, and what the lifecycle
+    refused to close, with its refusal."""
+    card = state.parent.parent / 'autopilot.md'
+    terminal = panel_state.card_state(card).get('terminal')
+    closed, left, refused, done, silent = [], [], [], set(closed_sessions(db)), set()
+    for saved in attempts(db):
+        key = (saved['runtime'], saved['native_session'])
+        # Only the conversation's final attempt closes it, and only once collected: its receipts acknowledged and no
+        # wait running, which the host settles first. A user's own worker is no cleanup target.
+        if not (include(saved) and saved['owned'] and saved.get('result')) or key in done \
+                or conversation(db, saved)[1] != saved['attempt']:
+            continue
+        if watching(saved) or pending(db, saved['attempt']) or wait_running(saved):
+            continue
+        if saved.get('herdr'):
+            server = saved['herdr']['session']
+            if server in silent:  # Asked once: a server that does not answer is not asked for each of its workers.
+                left.append({'attempt': saved['attempt'], 'reason': f'herdr --session {server}: no answer earlier'})
+                continue
+            evidence, gone = herdr_answer(saved['herdr'])
+            if gone is None:
+                silent.add(server)
+            why = 'its Herdr tab is gone'
+        elif saved.get('retained') and terminal in ENDED:
+            evidence, gone, why = f'{card}: terminal: {terminal}', True, f'its run card ended {terminal}'
+        else:
+            continue
+        if not gone:
+            left.append({'attempt': saved['attempt'], 'reason': evidence})
+            continue
+        # A completed attempt of a job that needs acceptance is closed with it deferred, not decided here.
+        acceptance = ({'acceptance': {'decision': 'deferred', 'reason': f'closed by reap: {why}'}}
+                      if unsettled(saved) else {})
+        try:
+            record(db, dict(kind='closed', attempt=saved['attempt'], evidence=[evidence], **acceptance))
+        except ValueError as error:  # The lifecycle's own refusal, for the host to settle.
+            refused.append({'attempt': saved['attempt'], 'reason': str(error)})
+            continue
+        closed.append({'attempt': saved['attempt'], 'evidence': [evidence]})
+        done.add(key)
+    return {'closed': closed, 'open': left, 'refused': refused}
+
+
 def collect(db, state, attempt, request):
     """Persist a checked report and collect its receipts with a required final disposition."""
     disposition = request.get('disposition', {})
@@ -1622,7 +1692,7 @@ def status(db, attempt=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('record', 'watch', 'submit', 'collect', 'retire', 'deliver', 'escalate',
-                                           'status', 'ack', 'gate', 'attribute', 'plan'))
+                                           'status', 'ack', 'gate', 'attribute', 'plan', 'reap'))
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--input', type=Path, help='absolute lifecycle request JSON')
     parser.add_argument('--attempt')
@@ -1639,6 +1709,7 @@ def main():
     parser.add_argument('--job', help='plan: the job whose assignments are planned')
     parser.add_argument('--assignment', action='append', default=[], help='plan: one planned assignment, repeated')
     parser.add_argument('--replace', action='store_true', help='plan: the assignments are the whole plan')
+    parser.add_argument('--session', help='reap: only the attempts this host session registered')
     args = parser.parse_args()
     try:
         with connect(args.state) as db:
@@ -1669,6 +1740,9 @@ def main():
                     result, code = operation(db, args.state, args.attempt, data)
             elif args.action == 'status':
                 result = status(db, args.attempt)
+            elif args.action == 'reap':
+                result = reap(db, args.state, lambda saved: not args.session
+                              or args.session in panel_state.recorded_sessions(saved))
             elif args.action == 'plan':
                 result = plan(db, args.job, args.assignment, args.replace)
             elif args.action == 'attribute':

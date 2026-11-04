@@ -24,7 +24,11 @@ joined it, holds closure: close the remaining panes or the tab, then retire agai
 A transport error or replaced conversation never counts as closure. If a
 pane disappeared before any retirement intent, the host must inspect its native
 closure and reconcile owned jobs, then use the evidence-backed `record closed`
-path; absence alone does not establish ownership or safe cleanup. A
+path; absence alone does not establish ownership or safe cleanup. At a stop (and on demand with
+`worker_lifecycle.py reap --state ... [--session ...]`) the gate records `closed` itself for an owned attempt whose result is
+collected and whose recorded tab (else pane) its Herdr server confirms gone, with that answer as the evidence, and for a retained
+native subagent of a run whose card ended `delivered`, `delivered-local` or `merged`, deferring an acceptance still
+unsettled; a closure the lifecycle refuses is a stop gap carrying its refusal. A
 retirement intent survives interruption: retry the original target after its
 monitor is gone, and confirm absence without closing another pane or duplicating
 the result. Native pane IDs are not reused. Retirement closes the shared native
