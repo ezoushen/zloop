@@ -14,6 +14,7 @@ import agent_defs
 import allowance
 import capacity
 import decisions
+import front_matter
 import journal_store
 import outcomes
 from executor_config import (read_executors, read_session, reset_session, save_session, session_path,
@@ -945,8 +946,8 @@ def native_profile(result):
     if not settings:
         return None
     if host == 'claude':
-        _, header, body = (ROOT / 'agents' / f'{agent}.md').read_text().split('---', 2)
-        fields = dict(line.split(': ', 1) for line in header.strip().splitlines())
+        fields, body = front_matter.split((ROOT / 'agents' / f'{agent}.md').read_text())
+        body = '\n' + body
         for key in ('name', 'writes', 'core_skills'):
             fields.pop(key)  # Claude reads its own keys; these are zloop's.
         if 'maxTurns' in fields:

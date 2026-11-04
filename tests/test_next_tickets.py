@@ -177,6 +177,15 @@ class BoardCLI(unittest.TestCase):
         self.write_ticket('active/02', 'implementing', touches='unrelated')
         assert json.loads(self.cli('active').stdout) == []
 
+    def test_set_writes_into_the_front_matter_of_a_ticket_that_ends_at_its_closing_delimiter(self):
+        # Rule: a ticket with no body after the closing `---` takes new fields before it, not after it.
+        path = self.write_ticket('active/01', 'implementing')
+        path.write_text(path.read_text().rstrip('\n'))
+        self.cli('active', '--set', 'active/01', 'status=blocked', 'blocker=waiting')
+        fm = front_matter.parse(path.read_text())
+        assert (fm['status'], fm['blocker']) == ('blocked', 'waiting'), path.read_text()
+        assert path.read_text().endswith('\n---'), path.read_text()
+
     def test_board_reads_validates_and_repairs_ticket_state(self):
         write_ticket, cli = self.write_ticket, self.cli
         active = write_ticket('active/01')

@@ -104,6 +104,12 @@ class Definitions(unittest.TestCase):
         self.assertEqual(loaded['agents']['checker']['core_skills'], ['skills/craft/SKILL.md', 'host-skills:diagnose'])
         self.assertEqual(loaded['jobs']['inspect']['inputs'], ['worktree', 'head', 'report'])
 
+    def test_a_job_return_heading_holding_a_comma_is_one_valid_heading(self):
+        # Rule: a quoted item in a bracketed list is one item whatever it contains.
+        self.edit('skills/craft/jobs/inspect.md', 'returns: ["## Coverage"]', 'returns: ["## Coverage, limitations"]')
+        self.assertEqual(self.problems(), [])
+        self.assertEqual(agent_defs.load(self.root)['jobs']['inspect']['returns'], ['## Coverage, limitations'])
+
     def test_an_agent_holds_only_its_three_sections(self):
         self.edit('agents/checker.md', '## Core skills', '## Diff boundary\n\nOnly the changed range.\n\n## Core skills')
         self.assertProblem('sections must be Permissions, Principles, Core skills')

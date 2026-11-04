@@ -838,7 +838,9 @@ def write_fields(fm, fields):
     """Write each field to a ticket's front matter; None removes the field. Only status, blocker, start, accepted,
     accepted_report and lent may be added; another key must already be in the template."""
     path = ROOT / fm["path"]
-    head, sep, body = path.read_text().partition("\n---\n")
+    text = path.read_text()
+    head = re.match(r"---\n.*?(?=\n---(?:\n|$))", text, re.S)[0]  # What front_matter.parse reads as the block.
+    rest = text[len(head):]
     for key, value in fields.items():
         pattern = re.compile(rf"^({re.escape(key)}:).*$", re.M)
         if value is None:
@@ -849,7 +851,7 @@ def write_fields(fm, fields):
             head += f'\n{key}: {value}'
         else:
             sys.exit(f"{fm['ticket']}: no front-matter key {key!r}")
-    path.write_text(head + sep + body)
+    path.write_text(head + rest)
 
 
 def orchestrate(slug, autofix):

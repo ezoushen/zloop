@@ -43,6 +43,14 @@ class FrontMatter(unittest.TestCase):
         self.assertEqual(front_matter.split('---\nname: a\n---\n# a\n\ntext\n'), ({'name': 'a'}, '# a\n\ntext\n'))
         self.assertEqual(front_matter.split('# a\n'), (None, '# a\n'))
 
+    def test_a_bracketed_list_that_is_valid_json_is_read_as_json(self):
+        # Rule: `["## Coverage, limitations"]` is one item, and JSON escapes decode, as the agent and job readers
+        # always read their lists; a bracketed list that is not JSON splits on commas.
+        fields = front_matter.parse('---\nreturns: ["## Coverage, limitations", "a \\"q\\"", "caf\\u00e9"]\n'
+                                    'plain: [a, b c]\nmixed: ["a", b]\n---\n')
+        self.assertEqual(fields, {'returns': ['## Coverage, limitations', 'a "q"', 'caf\u00e9'],
+                                  'plain': ['a', 'b c'], 'mixed': ['a', 'b']})
+
 
 if __name__ == '__main__':
     unittest.main()
