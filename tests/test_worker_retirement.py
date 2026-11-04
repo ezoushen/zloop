@@ -210,6 +210,53 @@ class Retirement(WorkerLifecycleCase):
         self.assertEqual(json.loads((self.root / 'during-delay.json').read_text())['code'], 0)
         self.assertFalse((self.root / 'native-closed').exists())
 
+    def test_a_failed_attempts_changed_report_does_not_block_a_later_attempt_retiring(self):
+        # A failed, blocked or cancelled attempt owes no intact report: only a completed result does. A retry in the
+        # same conversation that rewrites the shared report must still retire.
+        self.register()
+        self.ready()
+        report = self.root / 'shared.md'
+        report.write_text('## Implemented\n\nnote from the failed attempt\n')
+        self.completed(status='failed', head='head-1', report=str(report), evidence=['provider outage'])
+        self.acknowledge()
+        self.record('retain', reason='retry', next_use='continue', evidence=['failed attempt kept'])
+        self.register('ticket-1/2')
+        self.ready('ticket-1/2')
+        report.write_text('## Implemented\n\nVerified assignment report at head-1\n')
+        self.completed('ticket-1/2', status='completed', head='head-1', report=str(report), evidence=['checks.log'])
+        self.acknowledge()
+        self.herdr_fixture()
+        request = self.root / 'retire.json'
+        request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1', 'jobs_evidence': ['jobs stopped'],
+                                       'acceptance': {'decision': 'deferred', 'reason': 'acceptance pending'}}))
+        self.cli('retire', '--attempt', 'ticket-1/2', '--input', str(request))
+        self.assertTrue(self.cli('status')['attempts'][1]['closed'])
+
+    def test_a_blocked_attempt_retires_after_its_report_changed(self):
+        self.register()
+        self.ready()
+        report = self.root / 'blocked.md'
+        report.write_text('blocked on a missing credential\n')
+        self.completed(status='blocked', head='head-1', report=str(report), evidence=['credential missing'])
+        self.acknowledge()
+        report.write_text('blocked report, edited later\n')
+        self.herdr_fixture()
+        request = self.root / 'retire.json'
+        request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1', 'jobs_evidence': ['jobs stopped']}))
+        self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request))
+        self.assertTrue(self.cli('status')['attempts'][0]['closed'])
+
+    def test_a_failed_attempt_is_retained_after_its_report_changed(self):
+        self.register()
+        self.ready()
+        report = self.root / 'failed.md'
+        report.write_text('provider outage\n')
+        self.completed(status='failed', head='head-1', report=str(report), evidence=['provider outage'])
+        self.acknowledge()
+        report.write_text('provider outage, edited later\n')
+        self.record('retain', reason='retry', next_use='continue', evidence=['failed attempt kept'])
+        self.assertIn('retained', self.cli('status')['attempts'][0])
+
     def test_existing_user_worker_cannot_be_recorded_as_closed(self):
         self.register(owned=False)
         self.ready()
