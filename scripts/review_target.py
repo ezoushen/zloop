@@ -154,8 +154,8 @@ def start(args):
     resolved = resolve(args)
     if not args.host:
         raise ValueError('starting a review requires --host from the SessionStart hint')
-    sessions = [os.environ[name] for name in ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID')
-                if os.environ.get(name)]
+    sessions = [os.environ[name] for name in ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID',
+                                              'OPENCODE_SESSION_ID') if os.environ.get(name)]
     pane = os.environ.get('HERDR_PANE_ID')
     if not sessions and not pane:
         raise ValueError('no host session ID or Herdr pane; the review stop hold cannot bind this session')

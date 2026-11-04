@@ -54,11 +54,11 @@ class ReviewTarget(unittest.TestCase):
         return rt.parser().parse_args(['--repo', self.directory, *extra])
 
     def launch(self, *extra, code=0, host='codex', target='feature', identified=True, session='review-session',
-               interrupted=False):
+               interrupted=False, **env_extra):
         env = {key: value for key, value in support.isolated_env(self.repo).items()
                if not key.startswith(('ZLOOP_', 'HERDR_')) and key not in
-               ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID')}
-        env.update(HOME=str(self.repo))
+               ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID', 'OPENCODE_SESSION_ID')}
+        env.update(HOME=str(self.repo), **env_extra)
         if identified:
             env.update(CODEX_SESSION_ID=session, HERDR_PANE_ID='w1:p9')
         # An interrupted start: every rename over a target fails, as when the process dies at that step.
@@ -359,6 +359,11 @@ class ReviewTarget(unittest.TestCase):
         refused = self.launch(identified=False, code=2)
         self.assertIn('no host session ID or Herdr pane; the review stop hold cannot bind this session', refused)
         self.assertFalse((self.repo / '.scratch/reviews').exists())
+
+    def test_an_opencode_session_is_held_by_its_exported_id(self):
+        # Gap 18: OpenCode exports OPENCODE_SESSION_ID to the reviewer's shell like the other hosts' variables.
+        result = self.launch(identified=False, host='opencode', OPENCODE_SESSION_ID='opencode-1')
+        self.assertEqual(json.loads(Path(result['binding']).read_text())['sessions'], ['opencode-1'])
 
     def test_resolve_for_walkthrough_needs_no_host_or_route_and_creates_no_hold(self):
         config = self.repo / '.zloop/executors.json'

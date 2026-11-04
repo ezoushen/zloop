@@ -120,7 +120,8 @@ class BoardCLI(unittest.TestCase):
 
     def orchestrate(self, **env):
         """Bind a session through the board in this process, as `--orchestrate` does from the host's shell."""
-        with patch.dict(os.environ, env):
+        hosts = ("CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "PI_SESSION_ID", "OPENCODE_SESSION_ID")
+        with patch.dict(os.environ, {**dict.fromkeys(hosts, ""), **env}):
             support.load_script("next_tickets.py", "next_tickets_bind").main(
                 ["--repo", str(self.root), "fx", "--orchestrate"])
 
@@ -135,6 +136,13 @@ class BoardCLI(unittest.TestCase):
         assert path.read_bytes() == before
         assert [p.name for p in path.parent.iterdir() if p.name != path.name and not p.name.endswith(".lock")] == []
 
+    def test_an_opencode_session_binds_the_orchestrator_by_its_exported_id(self):
+        # Gap 18: OpenCode exports OPENCODE_SESSION_ID to the orchestrator's shell like the other hosts' variables.
+        self.write_ticket("fx/01")
+        self.orchestrate(OPENCODE_SESSION_ID="opencode-1")
+        binding = json.loads((self.root / ".scratch/fx/reports/orchestrator.json").read_text())
+        assert binding["sessions"] == ["opencode-1"], binding
+
     def test_concurrent_orchestrate_binds_by_different_sessions_all_stay_bound(self):
         # Audit A6: a bind that succeeded holds its session at stop, whichever bind wrote the file last.
         self.write_ticket("fx/01")
@@ -144,7 +152,7 @@ class BoardCLI(unittest.TestCase):
                        "runpy.run_path(sys.argv[0], run_name='__main__')")
 
         def bind(session):
-            env = {k: v for k, v in os.environ.items() if k not in nt.SESSION_VARIABLES}
+            env = {k: v for k, v in os.environ.items() if not k.endswith("_SESSION_ID")}
             result = subprocess.run([sys.executable, "-c", slow_rename, str(SCRIPT), "--repo", str(self.root), "fx",
                                      "--orchestrate"], capture_output=True, text=True, env=dict(env, CODEX_SESSION_ID=session))
             assert result.returncode == 0, result.stdout + result.stderr

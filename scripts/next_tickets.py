@@ -55,9 +55,9 @@ except (ValueError, AssertionError):
 # Critical path first. TICKET_PRIORITY=spec-a,spec-b names the specs to drain first; default is name order.
 PRIORITY = [s for s in os.environ.get("TICKET_PRIORITY", "").split(",") if s]
 MEASURE_TIMEOUT = 600  # seconds a measurement command may run unless its entry sets timeout_seconds
-# The session ID Claude Code, Codex and Pi export to the orchestrator's shell; each equals the session_id their Stop
-# hook, or Pi's settle check, reports.
-SESSION_VARIABLES = ("CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "PI_SESSION_ID")
+# The session ID Claude Code, Codex, Pi and OpenCode export to the orchestrator's shell; each equals the session_id
+# their Stop hook, or the Pi and OpenCode settle check, reports.
+SESSION_VARIABLES = ("CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "PI_SESSION_ID", "OPENCODE_SESSION_ID")
 
 
 def parse_front_matter(text):
