@@ -7,6 +7,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import time
 import unittest
 
 from lifecycle_case import SCRIPT, WorkerLifecycleCase
@@ -159,6 +160,24 @@ sys.exit(process.returncode)
         # A job without a plan registers any assignment.
         self.use('builder', 'ticket')
         self.register('ticket-9/1', 'ticket-9', session='native-9', worker='pane-9')
+
+    def test_concurrent_plan_calls_do_not_lose_each_others_assignments(self):
+        # Two plan calls that wait behind the database's write lock both add theirs: each reads the plan it extends
+        # only once it holds the lock.
+        self.use('reviewer', 'audit')
+        self.cli('status')  # Creates the state's tables, so no plan call waits at connection.
+        lock = sqlite3.connect(self.state, timeout=10, isolation_level=None)
+        self.addCleanup(lock.close)
+        lock.execute('BEGIN IMMEDIATE')
+        calls = [subprocess.Popen([sys.executable, '-B', str(SCRIPT), 'plan', '--state', str(self.state),
+                                   '--job', 'audit', '--assignment', name], stdout=subprocess.DEVNULL)
+                 for name in ('p1', 'p2')]
+        time.sleep(2)  # Long enough for both to have started and reached the lock.
+        lock.execute('ROLLBACK')
+        for call in calls:
+            self.assertEqual(call.wait(timeout=20), 0)
+        self.assertEqual(sorted(self.cli('plan', '--job', 'audit', '--assignment', 'p3')['assignments']),
+                         ['p1', 'p2', 'p3'])
 
     def test_a_plan_names_a_known_job_and_at_least_one_assignment(self):
         self.assertIn('known job', self.cli('plan', '--job', 'audits', '--assignment', 'p1', code=2))

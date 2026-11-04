@@ -123,8 +123,10 @@ def plan(db, job, assignments, replace=False):
     require(text(job) and assignments and all(text(x) for x in assignments),
             'Plan requires --job and at least one --assignment')
     require(job in DEFINITIONS['jobs'], f'Plan requires a known job, not {job}')
-    planned = list(dict.fromkeys([*([] if replace else planned_of(db, job) or []), *assignments]))
-    db.execute('INSERT OR REPLACE INTO plans VALUES (?, ?)', (job, json.dumps(planned)))
+    db.execute('BEGIN IMMEDIATE')  # The plan extended is read under the lock, so concurrent additions add up.
+    with db:
+        planned = list(dict.fromkeys([*([] if replace else planned_of(db, job) or []), *assignments]))
+        db.execute('INSERT OR REPLACE INTO plans VALUES (?, ?)', (job, json.dumps(planned)))
     return {'job': job, 'assignments': planned}
 
 
