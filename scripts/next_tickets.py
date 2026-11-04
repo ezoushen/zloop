@@ -39,6 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import capability_probe  # noqa: E402
+import front_matter  # noqa: E402
 import state_files  # noqa: E402
 import worker_lifecycle  # noqa: E402
 
@@ -60,33 +61,10 @@ MEASURE_TIMEOUT = 600  # seconds a measurement command may run unless its entry 
 SESSION_VARIABLES = ("CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "PI_SESSION_ID", "OPENCODE_SESSION_ID")
 
 
-def parse_front_matter(text):
-    m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
-    if not m:
-        return None
-    fm = {}
-    key = None
-    for line in m.group(1).splitlines():
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        # A block list: `key:` alone, then one `- item` line each.
-        item = re.fullmatch(r"\s*-\s+(.+)", line)
-        if item and key is not None and (fm[key] == "" or isinstance(fm[key], list)):
-            fm[key] = (fm[key] or []) + [item.group(1).strip()]
-            continue
-        key, _, value = line.partition(":")
-        key, value = key.strip(), value.strip()
-        if value.startswith("[") and value.endswith("]"):
-            fm[key] = [v.strip() for v in value[1:-1].split(",") if v.strip()]
-        else:
-            fm[key] = value
-    return fm
-
-
 def load():
     tickets = {}
     for path in sorted(ISSUES.glob("*/issues/*.md")):
-        fm = parse_front_matter(path.read_text())
+        fm = front_matter.parse(path.read_text())
         if fm and "ticket" in fm:
             if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*/[0-9]+", fm["ticket"]):
                 sys.exit(f"{path}: invalid ticket id {fm['ticket']!r}")
@@ -158,7 +136,7 @@ def integrated(tickets, name, dependency):
 
 def review_front_matter(slug):
     report = ISSUES / slug / 'reports' / 'spec-review.md'
-    return (parse_front_matter(report.read_text()) or {}) if report.is_file() else None
+    return (front_matter.parse(report.read_text()) or {}) if report.is_file() else None
 
 
 def valid_branch_name(name):

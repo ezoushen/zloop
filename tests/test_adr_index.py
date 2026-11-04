@@ -254,6 +254,15 @@ class AdrIndex(unittest.TestCase):
         self.adr('0004-old-cache.md', status='"deprecated"')
         self.assertEqual(0, check(self.repo)[0])
 
+    def test_a_supersedes_list_names_the_adr_it_replaces_in_either_layout(self):
+        # Rule: `supersedes:` as a bracketed list or a block list names its ADRs, as `supersedes: ADR-0001` does.
+        for layout in ('[ADR-0001]', '\n  - ADR-0001'):
+            with self.subTest(layout=layout):
+                self.consistent()
+                self.adr('0003-async-api.md', status='accepted', supersedes=layout)
+                code, out = check(self.repo)
+                self.assertEqual(0, code, out)
+
     def test_a_supersede_link_to_a_missing_adr_says_so(self):
         self.consistent()
         self.adr('0002-cents.md', status='superseded by ADR-0007')

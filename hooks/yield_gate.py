@@ -148,7 +148,7 @@ def unreviewed(root, pane, session):
             if awaited(state):
                 continue
             board = script('next_tickets')
-            fields = board.parse_front_matter(report.read_text()) or {}
+            fields = script('front_matter').parse(report.read_text()) or {}
             blocker = fields.get('blocker') not in (None, '', 'none')
             if blocker and binding['route'].get('status') == 'no_route' and binding['route'].get('reason'):
                 continue

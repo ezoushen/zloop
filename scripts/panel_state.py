@@ -8,6 +8,9 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import front_matter  # noqa: E402
+
 SCRATCH = '.scratch'
 CARD = 'autopilot.md'
 ORCHESTRATOR = 'orchestrator.json'
@@ -67,21 +70,10 @@ def activity(workstream):
     return newest
 
 
-def front_matter(path):
-    """The `key: value` lines of a ticket's front matter."""
-    lines = path.read_text(errors='replace').split('---')
-    fields = {}
-    if len(lines) > 2:
-        for line in lines[1].splitlines():
-            key, _, value = line.partition(':')
-            if key.strip():
-                fields[key.strip()] = value.strip()
-    return fields
-
-
 def tickets(workstream):
     """The workstream's local tickets, in name order, with their front matter."""
-    return [(path, front_matter(path)) for path in sorted((workstream / 'issues').glob('*.md'))]
+    return [(path, front_matter.parse(path.read_text(errors='replace')) or {})
+            for path in sorted((workstream / 'issues').glob('*.md'))]
 
 
 def blocker_row(workstream, state, found_tickets):

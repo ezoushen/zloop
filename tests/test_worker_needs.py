@@ -112,6 +112,14 @@ class CollectionNeeds(WorkerLifecycleCase):
         refused = self.complete(self.ticket(['gpu']), code=2)
         self.assertIn('The ticket needs gpu: no probe of this worktree in the result evidence', refused)
 
+    def test_a_local_tickets_needs_written_as_a_block_list_hold_like_a_bracketed_list(self):
+        # Rule: `needs:` followed by `- item` lines declares those needs, so a ticket cannot drop one by its layout.
+        packet = self.ticket(['docker'])
+        (self.root / 'ticket.md').write_text('---\nticket: fx/01\nstatus: ready\nblocked_by: []\nneeds:\n'
+                                             '  - network\n  - docker\n---\n# 01: task\n')
+        refused = self.complete(packet, code=2)
+        self.assertIn('The ticket needs network, docker: no probe of this worktree in the result evidence', refused)
+
     def test_lines_of_the_ticket_context_that_start_with_needs_are_not_the_assignments_needs(self):
         packet = self.ticket(value='https://tracker.example/issue/7', assigned=['docker'])
         packet.write_text(packet.read_text().replace('ticket context: /fixture/ticket-context', '\n'.join((

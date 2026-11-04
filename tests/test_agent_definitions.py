@@ -93,6 +93,17 @@ class Definitions(unittest.TestCase):
             'returns': ['## Coverage'], 'independent_of': [], 'acceptance': False,
             'path': str(self.root / 'skills/craft/jobs/inspect.md')})
 
+    def test_list_fields_written_as_block_lists_load_like_bracketed_ones(self):
+        # Rule: a field's `- item` lines are the same list as its bracketed form, for agents and for jobs.
+        self.edit('agents/checker.md', 'core_skills: ["skills/craft/SKILL.md", "host-skills:diagnose"]',
+                  'core_skills:\n  - "skills/craft/SKILL.md"\n  - host-skills:diagnose')
+        self.edit('skills/craft/jobs/inspect.md', 'inputs: ["worktree", "head", "report"]',
+                  'inputs:\n  - worktree\n  - head\n  - report')
+        self.assertEqual(self.problems(), [])
+        loaded = agent_defs.load(self.root)
+        self.assertEqual(loaded['agents']['checker']['core_skills'], ['skills/craft/SKILL.md', 'host-skills:diagnose'])
+        self.assertEqual(loaded['jobs']['inspect']['inputs'], ['worktree', 'head', 'report'])
+
     def test_an_agent_holds_only_its_three_sections(self):
         self.edit('agents/checker.md', '## Core skills', '## Diff boundary\n\nOnly the changed range.\n\n## Core skills')
         self.assertProblem('sections must be Permissions, Principles, Core skills')

@@ -19,6 +19,9 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import front_matter  # noqa: E402
+
 NAME = re.compile(r'(\d{4})-.+\.md')
 # An index entry is a list line whose first link names the ADR file; later links annotate it.
 ENTRY = re.compile(r' {0,3}[-*+] +\[(?:[^\]\\]|\\.)*\]\(\s*(?:\./)?(\d{4}-[^)\s#]+\.md)(?:#[^)\s]*)?'
@@ -67,18 +70,15 @@ def read(repo, folder, ref, name):
     return shown.stdout
 
 
-def front_matter(text):
-    fields = {}
-    if text.startswith('---\n') and '\n---\n' in text[4:]:
-        for line in text[4:text.index('\n---\n', 4)].splitlines():
-            key, _, value = line.partition(':')
-            fields[key.strip()] = value.strip().strip('"\'')
-    return fields
+def adr_fields(text):
+    """An ADR's front matter as strings: a list reads as its items joined by commas."""
+    return {key: front_matter.unquoted(', '.join(value) if isinstance(value, list) else value)
+            for key, value in (front_matter.parse(text) or {}).items()}
 
 
 def index_problems(texts, folder):
     """Problems between the ADRs, their supersede links and the index; texts maps file name to content."""
-    adrs = {name: front_matter(text) for name, text in texts.items() if NAME.fullmatch(name)}
+    adrs = {name: adr_fields(text) for name, text in texts.items() if NAME.fullmatch(name)}
     status_of = {name: fields.get('status', 'accepted') for name, fields in adrs.items()}
     by_number = {}
     for name in adrs:

@@ -139,6 +139,18 @@ class Outcomes(WorkerLifecycleCase):
         saved = self.cli('status', '--attempt', 'ticket-1/repair-3')['attempts'][0]
         self.assertEqual((saved['premise'], saved['census']), (premise, census))
 
+    def test_collection_keeps_the_verdict_fields_a_report_gives_unquoted_and_nothing_else(self):
+        # Rule: a report's own review and E2E fields reach the collected result without their quotes or backticks;
+        # other front-matter fields stay out of it.
+        self.register()
+        self.ready()
+        report = self.root / 'report.md'
+        report.write_text('---\nreview_status: `clean`\nreview_head: "abc123"\ne2e_status: \'passed\'\n'
+                          'review_by: review/a/1\n---\n## Implemented\n\nVerified assignment report at head-1\n')
+        self.collect(report=report)
+        self.assertEqual(self.cli('status')['attempts'][0]['result']['verdict'],
+                         {'review_status': 'clean', 'review_head': 'abc123', 'e2e_status': 'passed'})
+
     def test_acceptance_is_recorded_once_on_a_completed_collected_attempt(self):
         self.register()
         self.ready()
