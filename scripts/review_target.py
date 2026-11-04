@@ -12,6 +12,8 @@ import subprocess
 import sys
 from urllib.parse import urlsplit
 
+import state_files
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -187,12 +189,12 @@ def start(args):
         body = body.replace(json.dumps(previous['resolution'], indent=2), json.dumps(resolved, indent=2), 1)
         content = front + '\n---\n' + body
     if not report.is_file() or not previous or previous['resolution'] != resolved:
-        report.write_text(content)
+        state_files.write_atomic(report, content)
     binding = dict(pane=pane, sessions=sessions, report=str(report), state=str(state),
                    repo=str(main), target=args.target, resolution=resolved, route=route, next_commands=commands)
-    binding_path.write_text(json.dumps(binding, indent=2) + '\n')
+    state_files.write_atomic(binding_path, json.dumps(binding, indent=2) + '\n')
     if 'result' in route:
-        (directory / 'execution.json').write_text(json.dumps(route['result'], indent=2) + '\n')
+        state_files.write_atomic(directory / 'execution.json', json.dumps(route['result'], indent=2) + '\n')
     return dict(resolved, report=str(report), state=str(state), binding=str(binding_path), route=route,
                 next_commands=commands)
 

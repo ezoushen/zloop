@@ -117,6 +117,23 @@ class BoardCLI(unittest.TestCase):
         assert result.returncode == code, result.stdout + result.stderr
         return result
 
+    def orchestrate(self, **env):
+        """Bind a session through the board in this process, as `--orchestrate` does from the host's shell."""
+        with patch.dict(os.environ, env):
+            support.load_script("next_tickets.py", "next_tickets_bind").main(
+                ["--repo", str(self.root), "fx", "--orchestrate"])
+
+    def test_an_interrupted_orchestrator_binding_write_leaves_the_old_binding_whole(self):
+        # Audit A1: the binding is what holds the orchestrator at stop; a write cut short must not leave it empty.
+        self.write_ticket("fx/01")
+        path = self.root / ".scratch/fx/reports/orchestrator.json"
+        self.orchestrate(CLAUDE_CODE_SESSION_ID="host-1")
+        before = path.read_bytes()
+        with patch("os.replace", side_effect=OSError("interrupted")), self.assertRaises(OSError):
+            self.orchestrate(CLAUDE_CODE_SESSION_ID="host-2")
+        assert path.read_bytes() == before
+        assert [p.name for p in path.parent.iterdir() if p.name != path.name and not p.name.endswith(".lock")] == []
+
     def test_check_refuses_a_need_outside_the_probe_vocabulary_naming_the_allowed_needs(self):
         allowed = 'network, docker, setuid, repo-write, dev-fd'
         self.write_ticket('fx/01', extra='needs: [docker, dev-fd]\n')

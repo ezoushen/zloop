@@ -6,10 +6,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import support
 
 COMMAND = support.script('autopilot_card.py')
+card = support.load_script('autopilot_card.py', 'autopilot_card')
 CARD = """# run — autopilot run card
 
 ## Goal
@@ -49,6 +51,18 @@ class TakeOver(unittest.TestCase):
                              .replace('terminal: merged', 'terminal:')
                              .replace('history: waiting-on-user 2026-10-24',
                                       f'history: waiting-on-user 2026-10-24; merged {today}'))
+
+    def test_an_interrupted_take_over_leaves_the_card_whole(self):
+        # Audit A1: the card holds the unfinished run at stop; a write cut short must not leave it empty.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / 'autopilot.md'
+        path.write_text(CARD)
+        with (patch.object(sys, 'argv', ['autopilot_card.py', 'take-over', str(path)]),
+              patch('os.replace', side_effect=OSError('interrupted')), self.assertRaises(OSError)):
+            card.main()
+        self.assertEqual(path.read_text(), CARD)
+        self.assertEqual([entry.name for entry in path.parent.iterdir()], [path.name])
 
     def test_a_take_over_without_level_flags_keeps_the_cards_levels(self):
         # Rule: a take-over leaves both confirmed levels as they are when no level flag is given.

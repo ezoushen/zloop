@@ -17,6 +17,8 @@ import re
 import sys
 from pathlib import Path
 
+import state_files
+
 LEVELS = ('low', 'medium', 'high', 'xhigh', 'max')
 
 
@@ -62,7 +64,8 @@ def main():
     parser.add_argument('--review-effort', choices=LEVELS, help="set the review's level")
     args = parser.parse_args()
     levels = (args.dispatch_effort or args.effort, args.review_effort or args.effort)
-    args.card.write_text(take_over(args.card.read_text(), args.auto_merge, *levels, datetime.date.today().isoformat()))
+    state_files.write_atomic(args.card, take_over(args.card.read_text(), args.auto_merge, *levels,
+                                                  datetime.date.today().isoformat()))
 
 
 if __name__ == '__main__':

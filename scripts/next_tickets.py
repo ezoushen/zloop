@@ -39,6 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import capability_probe  # noqa: E402
+import state_files  # noqa: E402
 import worker_lifecycle  # noqa: E402
 
 ROOT = Path.cwd()
@@ -881,7 +882,7 @@ def orchestrate(slug, autofix):
                "sessions": [os.environ[name] for name in SESSION_VARIABLES if os.environ.get(name)], "autofix": autofix}
     path = ISSUES / slug / "reports" / "orchestrator.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(binding) + "\n")
+    state_files.write_atomic(path, json.dumps(binding) + "\n")
     print(f"{slug}: orchestrated by Herdr pane {binding['pane']}, host sessions {binding['sessions']}, "
           f"autofix {str(autofix).lower()}")
 

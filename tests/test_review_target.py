@@ -13,6 +13,12 @@ import support
 
 SCRIPT = support.script('review_target.py')
 rt = support.load_script('review_target.py', 'review_target')
+INTERRUPTED = '''import os, runpy, sys
+def interrupted(*args): raise OSError('interrupted')
+os.replace = interrupted
+sys.argv = sys.argv[1:]
+sys.path.insert(0, os.path.dirname(sys.argv[0]))
+runpy.run_path(sys.argv[0], run_name='__main__')'''
 
 
 class ReviewTarget(unittest.TestCase):
@@ -45,14 +51,17 @@ class ReviewTarget(unittest.TestCase):
     def args(self, *extra):
         return rt.parser().parse_args(['--repo', self.directory, *extra])
 
-    def launch(self, *extra, code=0, host='codex', target='feature', identified=True, session='review-session'):
+    def launch(self, *extra, code=0, host='codex', target='feature', identified=True, session='review-session',
+               interrupted=False):
         env = {key: value for key, value in support.isolated_env(self.repo).items()
                if not key.startswith(('ZLOOP_', 'HERDR_')) and key not in
                ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID')}
         env.update(HOME=str(self.repo))
         if identified:
             env.update(CODEX_SESSION_ID=session, HERDR_PANE_ID='w1:p9')
-        result = subprocess.run([sys.executable, str(SCRIPT), '--repo', self.directory,
+        # An interrupted start: every rename over a target fails, as when the process dies at that step.
+        runner = [sys.executable, '-c', INTERRUPTED, str(SCRIPT)] if interrupted else [sys.executable, str(SCRIPT)]
+        result = subprocess.run([*runner, '--repo', self.directory,
                                  *(['--host', host] if host else []),
                                  target, '--base', 'trunk', *extra], capture_output=True, text=True, env=env)
         self.assertEqual(result.returncode, code, result.stdout + result.stderr)
@@ -179,6 +188,17 @@ class ReviewTarget(unittest.TestCase):
         second = self.launch(session='second-session')
         binding = json.loads(Path(second['binding']).read_text())
         self.assertEqual(binding['sessions'], ['review-session', 'second-session'])
+
+    def test_an_interrupted_start_leaves_the_report_and_binding_whole(self):
+        # Audit A1: the binding holds the unfinished review at stop; a write cut short must not truncate it or the report.
+        first = self.launch()
+        files = [Path(first['report']), Path(first['binding'])]
+        before = [path.read_bytes() for path in files]
+        self.git('commit', '--allow-empty', '-m', 'new head')
+        refused = self.launch(code=2, interrupted=True)
+        self.assertIn('interrupted', refused)
+        self.assertEqual([path.read_bytes() for path in files], before)
+        self.assertEqual(sorted(path.name for path in files[0].parent.iterdir() if path.name.startswith('.')), [])
 
     def test_a_new_workstream_head_reopens_the_verdict_and_retains_human_decisions(self):
         result = self.launch('--workstream', 'fx')
