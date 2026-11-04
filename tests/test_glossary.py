@@ -40,7 +40,7 @@ class ZloopGlossary(unittest.TestCase):
     def test_drifted_words_are_avoided_under_their_canonical_terms(self):
         text = (ROOT / 'GLOSSARY.md').read_text()
         entries = dict(re.findall(r'^\*\*([^*\n]+)\*\*:\n(.*?)(?=^\*\*|^#|\Z)', text, re.M | re.S))
-        for term, word in (('Workstream', 'effort'), ('Host', 'harness'), ('Attempt', 'run')):
+        for term, word in (('Workstream', 'effort'), ('Host', 'harness'), ('Attempt', 'run'), ('Orchestrator', 'coordinator')):
             with self.subTest(term=term):
                 avoided = entries[term].partition('_Avoid_:')[2].strip().split(', ')
                 self.assertIn(word, avoided)
@@ -123,6 +123,18 @@ class Glossary(unittest.TestCase):
         found = subprocess.run(
             ['git', 'grep', '-n', '-I', '-i', 'harness',
              '--', '.', ':!journals', ':!GLOSSARY.md', ':!tests/test_glossary.py', ':!tests/support.py'],
+            cwd=ROOT, capture_output=True, text=True)
+        self.assertIn(found.returncode, (0, 1), found.stderr)
+        self.assertEqual('', found.stdout)
+
+    def test_no_script_hook_or_test_uses_an_avoided_identifier_form(self):
+        # Rule: a term's avoided word must not survive as an identifier (effort_branch, effortBranch,
+        # coordinator_pane). Hyphenated and spaced phrases are the doc checker's; the glossary, this test, history
+        # and the one test that asserts a renamed module is gone are the places that name them.
+        forms = r'effort_(branch|worktree|slug|spend)|effort(Branch|Worktree|Slug|Spend)|coordinator[_A-Z]'
+        found = subprocess.run(
+            ['git', 'grep', '-n', '-I', '-E', forms,
+             '--', 'scripts', 'hooks', 'tests', ':!tests/test_glossary.py', ':!tests/test_workstream_spend.py'],
             cwd=ROOT, capture_output=True, text=True)
         self.assertIn(found.returncode, (0, 1), found.stderr)
         self.assertEqual('', found.stdout)

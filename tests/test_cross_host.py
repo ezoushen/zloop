@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -381,6 +382,15 @@ class CrossHost(unittest.TestCase):
                     holder.wait()
 
 
+class PiAdapterProbe(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('node'), 'node is needed to run the Pi probe')
+    def test_the_pi_probe_without_its_sdk_path_names_the_command_that_supplies_it(self):
+        # Rule: run alone, the probe refuses with a usage line naming the test that locates the SDK, not a stack trace.
+        found = run('node', str(PLUGIN / 'tests/test_pi_adapter.mjs'), ok=False)
+        self.assertEqual(found.returncode, 2, found.stderr)
+        self.assertIn('ZLOOP_NATIVE_PI=1 .venv/bin/python -B tests/test_cross_host.py', found.stderr)
+
+
 class NativeHosts(unittest.TestCase):
     """Installed Claude, Codex, Pi and OpenCode package readers, without model calls."""
 
@@ -449,7 +459,6 @@ class NativeHosts(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('ZLOOP_NATIVE') == '1', 'set ZLOOP_NATIVE=1 to check installed CLIs')
     def test_opencode_discovers_skills_and_their_invocation_policy(self):
         import re
-        import shutil
         import socket
         import time
         executable = shutil.which('opencode')
@@ -509,7 +518,6 @@ class NativeHosts(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get('ZLOOP_NATIVE_PI') == '1', 'set ZLOOP_NATIVE_PI=1 to check the installed Pi SDK')
     def test_pi_sdk_discovers_and_bootstraps(self):
-        import shutil
         executable = shutil.which('pi')
         assert executable, 'Pi must be installed for ZLOOP_NATIVE_PI=1'
         cli = Path(executable).resolve()
