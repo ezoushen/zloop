@@ -40,7 +40,7 @@ class ZloopGlossary(unittest.TestCase):
     def test_drifted_words_are_avoided_under_their_canonical_terms(self):
         text = (ROOT / 'GLOSSARY.md').read_text()
         entries = dict(re.findall(r'^\*\*([^*\n]+)\*\*:\n(.*?)(?=^\*\*|^#|\Z)', text, re.M | re.S))
-        for term, word in (('Workstream', 'effort'), ('Host', 'harness'), ('Attempt', 'run')):
+        for term, word in (('Workstream', 'effort'), ('Host', 'harness'), ('Attempt', 'run'), ('Orchestrator', 'coordinator')):
             with self.subTest(term=term):
                 avoided = entries[term].partition('_Avoid_:')[2].strip().split(', ')
                 self.assertIn(word, avoided)
