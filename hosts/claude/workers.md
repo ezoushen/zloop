@@ -21,7 +21,7 @@ start a replacement with the surviving report and worktree. Inspect the actual
 tool schema; do not treat an ordinary message to an idle agent as a guaranteed
 restart. Use native completion notifications or wait tools for background work.
 For a native subagent with no wait process of its own, `watch` can run `scripts/native_wait.py claude <session record>`,
-which ends once the record has grown and its last assistant turn ended.
+armed after the assignment is sent, it ends once the record's last assistant turn ended with no user row after it.
 Use an existing task's native wait/output mechanism or the selected executor's
 wait operation. A background Bash task completing proves only that its command
 ended: inspect the executor result before accepting worker completion. If the user
