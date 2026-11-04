@@ -2,10 +2,9 @@
 """Stop hook: keep the host working while a lifecycle worker could finish without waking it.
 
 Reads every run's workers.sqlite under the main checkout's .scratch/*/reports/ and .scratch/reviews/*/ without
-writing to it. For states changed in the last day, applies the lifecycle's yield
-gate to the workers this session registered (by host session, else pane), or, for one that
-recorded neither, to the session bound to orchestrate its workstream (with none bound, to every
-session). Sessions share the checkout: another session's workers and launches never hold this
+writing to it. Applies the lifecycle's yield gate to the workers this session registered (by host session, else
+pane), whatever the age of the state, or, for one that recorded neither and whose state changed in the last day, to
+the session bound to orchestrate its workstream (with none bound, to every session). Sessions share the checkout: another session's workers and launches never hold this
 one, and a row or state that cannot be read is named to the sessions it could hide a gap
 from. Every session is also held for each Herdr launch it logged (hooks/herdr_launch.py)
 into a ticket worktree that no attempt accounts for and it did not dismiss; one without
@@ -106,8 +105,6 @@ def gaps(cwd, session=None):
             continue
         missing += [f'{state}: attempt row {key} is malformed; fix or remove it' for key, saved in malformed
                     if bound or (isinstance(saved, dict) and attributed(saved) and owns(saved, pane, session))]
-        if not recent:
-            continue
         module = module or lifecycle()
         # A session inside a worker's own worktree is that worker, not its orchestrator.
         worker = any(Path(saved['worktree']) != root and cwd.is_relative_to(saved['worktree'])
@@ -115,8 +112,9 @@ def gaps(cwd, session=None):
 
         def orchestrated(saved):
             # A session launched as a worker (ZLOOP_WORKER) answers for no worker it did not register.
+            # A row nobody can be attributed to holds only while its state is recent.
             fallback = bound or unbound and not os.environ.get('ZLOOP_WORKER')
-            return owns(saved, pane, session) if attributed(saved) else fallback and not worker
+            return owns(saved, pane, session) if attributed(saved) else recent and fallback and not worker
         db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
         try:
             missing += [f'{state}: {gap}' for gap in module.yield_gaps(db, orchestrated, saved_attempts)]

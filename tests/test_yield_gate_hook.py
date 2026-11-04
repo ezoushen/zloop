@@ -484,17 +484,31 @@ class YieldGateHook(GateRepo):
         self.assertEqual(self.stop()['decision'], 'block')
         self.assertIsNone(self.stop(pane=None))
 
-    def test_runs_idle_for_a_day_and_other_directories_are_not_checked(self):
-        before = self.state.stat().st_mtime
+    def test_a_worker_this_session_registered_is_judged_however_old_its_state(self):
+        # Gap 22 (gate half), audit A8: attribution, not the state's age, decides for an attributed attempt.
         stale = time.time() - 2 * 24 * 3600
         os.utime(self.state, (stale, stale))
-        self.assertIsNone(self.stop())
+        self.assertEqual(self.stop()['decision'], 'block')
         # Checking reads the state without touching it.
         self.assertEqual(self.state.stat().st_mtime, stale)
-        self.assertGreater(before, stale)
+        self.assertIsNone(self.stop(pane='w1:p9'))
         outside = Path(self.tmp.name) / 'elsewhere'
         outside.mkdir()
         self.assertIsNone(self.stop(cwd=outside))
+
+    def test_a_worker_registered_without_session_or_pane_holds_only_while_its_state_is_recent(self):
+        # The 24-hour cutoff keeps only the rows nobody can be attributed to: one that ran outside any host.
+        self.lifecycle('register', 'ticket-2/1', None, assignment='ticket-2', repo=str(self.repo),
+                       worktree=str(self.repo), head='head-1', execution=str(self.execution), runtime='claude',
+                       worker='pane-2', native_session='native-2', owned=True,
+                       packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        self.lifecycle('startup', 'ticket-2/1', native=str(self.native('ticket-2/1')))
+        self.lifecycle('submitted', 'ticket-2/1', evidence=['native.jsonl:2:accepted prompt'])
+        self.assertEqual(self.check(pane='w1:p9'), [f'{self.state}: ticket-2/1: no armed wait'])
+        stale = time.time() - 2 * 24 * 3600
+        os.utime(self.state, (stale, stale))
+        self.assertEqual(self.check(pane='w1:p9'), [])
+        self.assertEqual(self.check(pane='w1:p1'), [f'{self.state}: ticket-1/1: no armed wait'])
 
     def test_check_mode_reports_gaps_for_other_hosts(self):
         result = subprocess.run([sys.executable, str(HOOK), 'check', str(self.repo)],
