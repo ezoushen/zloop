@@ -490,14 +490,11 @@ def named(worker):
 
 def clears(saved, launch):
     """Whether an attempt accounts for a logged launch: it names the launch's pane (a handle only its pane) or agent,
-    in the launch's Herdr server (the default one when it names none) unless it names no server, and a host session
+    in its Herdr server (candidates() finds it there), and a host session
     recorded at registration, or one whose launches it was recorded to clear, is the one that launched it when both
     know one; else the orchestrator recorded at
     registration is the pane that launched it, and only a launch made outside Herdr can instead be cleared by an
     attempt with no recorded orchestrator, registered no earlier."""
-    server = server_of(saved)
-    if server and server != (launch.get('herdr_session') or DEFAULT_SERVER):
-        return False
     if named(saved['worker']) not in (launch['agent'], launch['pane']):
         return False
     if recorded_sessions(saved) and launch['orchestrator']['session']:
