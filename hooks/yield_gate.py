@@ -166,7 +166,7 @@ def reaped(cwd, session=None):
             deadline = deadline or time.monotonic() + module.REAP_SECONDS
             if time.monotonic() >= deadline:
                 break
-            db = sqlite3.connect(state, timeout=10)
+            db = sqlite3.connect(state, timeout=max(0.1, deadline - time.monotonic()))
             try:
                 # The attempts the lifecycle itself reads, not only those the gate's validation accepts.
                 saved_attempts = module.attempts(db)
@@ -383,7 +383,7 @@ def stale_tabs(root, pane, session):
 def herdr_tabs(session, workspace):
     """The IDs of the tabs a Herdr session lists in a workspace; none when the workspace is closed or the session
     stopped, which close its tabs."""
-    named = [] if 'HERDR_SOCKET_PATH' in os.environ and session == own_server() else ['--session', session]
+    named = [] if session == socket_server() else ['--session', session]
     result = subprocess.run(['herdr', *named, 'tab', 'list', '--workspace', workspace],
                             capture_output=True, text=True, timeout=5)
     if result.returncode and herdr_error(result) in ('workspace_not_found', 'server_not_running'):
@@ -501,6 +501,18 @@ def same_orchestrator(theirs, pane, session):
     return bool(pane) and theirs['pane'] == pane
 
 
+def socket_server(environ=os.environ):
+    """The Herdr server HERDR_SOCKET_PATH is the socket of by Herdr's layout, else None: a lookup of that server goes
+    through the socket rather than by name (as worker_lifecycle.socket_server)."""
+    socket = Path(environ.get('HERDR_SOCKET_PATH') or '')
+    if socket.name != 'herdr.sock':
+        return None
+    if socket.parent.name == 'herdr':
+        return DEFAULT_SERVER
+    return socket.parent.name if socket.parent.parent.name == 'sessions' and socket.parent.parent.parent.name == 'herdr' \
+        else None
+
+
 def own_server(environ=os.environ):
     """The Herdr server session the process talks to: the name in its HERDR_SOCKET_PATH
     (`.../sessions/<name>/herdr.sock`), else the default server."""
@@ -583,7 +595,7 @@ def readable(record):
 
 def pane_open(server, pane):
     """Whether a Herdr server still lists the pane; one that is not running lists none."""
-    named = ['--session', server] if server and not ('HERDR_SOCKET_PATH' in os.environ and server == own_server()) else []
+    named = ['--session', server] if server and server != socket_server() else []
     result = subprocess.run(['herdr', *named, 'pane', 'get', pane],
                             capture_output=True, text=True, timeout=5)
     if result.returncode and herdr_error(result) in ('pane_not_found', 'workspace_not_found', 'server_not_running'):

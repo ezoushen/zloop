@@ -2061,7 +2061,9 @@ class StaleTabs(HerdrWorkers):
         self.register()
         self.collect()
         for socket, expected in ((str(self.repo / '.config' / 'herdr' / 'herdr.sock'), 'tab list --workspace w1'),
-                                 (str(self.repo / 'sessions' / 's2' / 'herdr.sock'), '--session default tab list --workspace w1')):
+                                 (str(self.repo / '.config' / 'herdr' / 'sessions' / 's2' / 'herdr.sock'),
+                                  '--session default tab list --workspace w1'),
+                                 (str(self.repo / 'custom.sock'), '--session default tab list --workspace w1')):
             with self.subTest(socket=socket):
                 (self.bin / 'argv').write_text('')
                 done = subprocess.run([sys.executable, str(HOOK), 'check', str(self.repo)], capture_output=True, text=True,

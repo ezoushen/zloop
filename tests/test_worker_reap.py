@@ -63,10 +63,20 @@ class Reap(WorkerLifecycleCase):
         self.placed()
         self.tab_closed()
         self.native_env = dict(self.native_env or os.environ,
-                               HERDR_SOCKET_PATH=str(self.root / 'sessions' / 'fixture-session' / 'herdr.sock'))
+                               HERDR_SOCKET_PATH=str(self.root / 'herdr' / 'sessions' / 'fixture-session' / 'herdr.sock'))
         (self.root / 'herdr-argv.log').write_text('')
         self.assertEqual(['ticket-1/1'], [row['attempt'] for row in self.cli('reap')['closed']])
         self.assertEqual(['tab get tab-1'], (self.root / 'herdr-argv.log').read_text().splitlines())
+        # A socket outside Herdr's layout names no server: the recorded one is asked by name.
+        self.setUp()
+        self.placed()
+        self.tab_closed()
+        self.native_env = dict(self.native_env or os.environ,
+                               HERDR_SOCKET_PATH=str(self.root / 'sessions' / 'fixture-session' / 'herdr.sock'))
+        (self.root / 'herdr-argv.log').write_text('')
+        self.cli('reap')
+        self.assertEqual(['--session fixture-session tab get tab-1'],
+                         (self.root / 'herdr-argv.log').read_text().splitlines())
 
     def test_a_herdr_server_that_is_not_running_confirms_the_tab_gone(self):
         self.placed(tab_gone_error='server_not_running')

@@ -1414,17 +1414,22 @@ def submit(db, state, attempt, request):
     return watch(db, state, attempt, request, productive=True)
 
 
-def own_server(environ=os.environ):
-    """The Herdr server session this process's HERDR_SOCKET_PATH names (`.../sessions/<name>/herdr.sock`), else the
-    default server, as yield_gate.own_server reads it."""
+def socket_server(environ=os.environ):
+    """The Herdr server session HERDR_SOCKET_PATH is the socket of, by Herdr's own layout (`<config>/herdr/herdr.sock`
+    for the default server, `<config>/herdr/sessions/<name>/herdr.sock` for a named one), or None for any other path."""
     socket = Path(environ.get('HERDR_SOCKET_PATH') or '')
-    return socket.parent.name if socket.parent.parent.name == 'sessions' else 'default'
+    if socket.name != 'herdr.sock':
+        return None
+    if socket.parent.name == 'herdr':
+        return 'default'
+    return socket.parent.name if socket.parent.parent.name == 'sessions' and socket.parent.parent.parent.name == 'herdr' \
+        else None
 
 
 def herdr(session, *args, timeout=15):
-    # The server this process's socket names is asked through that socket: `--session` looks the name up under the
+    # The server this process's socket is the socket of is asked through it: `--session` looks the name up under the
     # caller's config directory, which an isolated one (OpenCode's private server) does not hold.
-    named = [] if 'HERDR_SOCKET_PATH' in os.environ and session == own_server() else ['--session', session]
+    named = [] if session == socket_server() else ['--session', session]
     try:
         process = subprocess.run(['herdr', *named, *args], capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
