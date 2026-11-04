@@ -6,10 +6,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import support
 
 COMMAND = support.script('autopilot_card.py')
+card = support.load_script('autopilot_card.py', 'autopilot_card')
 CARD = """# run — autopilot run card
 
 ## Goal
@@ -49,6 +51,40 @@ class TakeOver(unittest.TestCase):
                              .replace('terminal: merged', 'terminal:')
                              .replace('history: waiting-on-user 2026-10-24',
                                       f'history: waiting-on-user 2026-10-24; merged {today}'))
+
+    def test_an_interrupted_take_over_leaves_the_card_whole(self):
+        # Audit A1: the card holds the unfinished run at stop; a write cut short must not leave it empty.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / 'autopilot.md'
+        path.write_text(CARD)
+        with (patch.object(sys, 'argv', ['autopilot_card.py', 'take-over', str(path)]),
+              patch('os.replace', side_effect=OSError('interrupted')), self.assertRaises(OSError)):
+            card.main()
+        self.assertEqual(path.read_text(), CARD)
+        self.assertEqual([entry.name for entry in path.parent.iterdir()], [path.name])
+
+    def test_a_goal_that_quotes_state_lines_is_left_alone(self):
+        # Audit A10: the State section is the card's state; the same words in the Goal are prose, never edited.
+        example = ('Ship it. A take-over sets:\n```\nterminal: merged\nhistory: none\nauto-merge: yes\n'
+                   'dispatch-effort: low\nreview-effort: high\n```\n')
+        goal = CARD.replace('Ship it.\n', example)
+        text = self.take_over(card=goal)
+        self.assertEqual(text.split('## State')[0], goal.split('## State')[0])
+        self.assertIn('\nauto-merge: no\n', text.split('## State')[1])
+
+    def test_a_card_with_state_lines_only_outside_the_state_section_is_refused(self):
+        # Audit A10: a line the State section lacks is not found in the Goal either.
+        without = CARD.replace('## State', '## Notes')
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / 'autopilot.md'
+        path.write_text(without)
+        result = subprocess.run([sys.executable, '-B', str(COMMAND), 'take-over', str(path)],
+                                capture_output=True, text=True, timeout=20)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('## State', result.stderr)
+        self.assertEqual(path.read_text(), without)
 
     def test_a_take_over_without_level_flags_keeps_the_cards_levels(self):
         # Rule: a take-over leaves both confirmed levels as they are when no level flag is given.

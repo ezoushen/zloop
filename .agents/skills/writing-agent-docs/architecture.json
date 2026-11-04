@@ -210,7 +210,8 @@
     "scripts/executor_config.py",
     "scripts/journal_store.py",
     "scripts/decision_images.py",
-    "scripts/native_settings.py"
+    "scripts/native_settings.py",
+    "scripts/state_files.py"
    ]
   },
   "explain": {

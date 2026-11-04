@@ -39,6 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import capability_probe  # noqa: E402
+import state_files  # noqa: E402
 import worker_lifecycle  # noqa: E402
 
 ROOT = Path.cwd()
@@ -54,9 +55,9 @@ except (ValueError, AssertionError):
 # Critical path first. TICKET_PRIORITY=spec-a,spec-b names the specs to drain first; default is name order.
 PRIORITY = [s for s in os.environ.get("TICKET_PRIORITY", "").split(",") if s]
 MEASURE_TIMEOUT = 600  # seconds a measurement command may run unless its entry sets timeout_seconds
-# The session ID Claude Code, Codex and Pi export to the orchestrator's shell; each equals the session_id their Stop
-# hook, or Pi's settle check, reports.
-SESSION_VARIABLES = ("CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "PI_SESSION_ID")
+# The session ID Claude Code, Codex, Pi and OpenCode export to the orchestrator's shell; each equals the session_id
+# their Stop hook, or the Pi and OpenCode settle check, reports.
+SESSION_VARIABLES = ("CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "PI_SESSION_ID", "OPENCODE_SESSION_ID")
 
 
 def parse_front_matter(text):
@@ -876,12 +877,18 @@ def write_fields(fm, fields):
 def orchestrate(slug, autofix):
     """Record the session running this command as the workstream's orchestrator, which the stop hooks hold: its Herdr
     pane, the session IDs its hosts export (a host started inside another's shell inherits the outer one's), and
-    whether repairs are authorized until the review report records its own `autofix`."""
+    whether repairs are authorized until the review report records its own `autofix`. Sessions that bound the
+    workstream before stay bound, so concurrent binds keep each one."""
     binding = {"pane": os.environ.get("HERDR_PANE_ID"),
                "sessions": [os.environ[name] for name in SESSION_VARIABLES if os.environ.get(name)], "autofix": autofix}
     path = ISSUES / slug / "reports" / "orchestrator.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(binding) + "\n")
+    with state_files.locked(path):
+        try:
+            binding["sessions"] = list(dict.fromkeys(json.loads(path.read_text())["sessions"] + binding["sessions"]))
+        except (OSError, ValueError, KeyError, TypeError):  # No earlier binding that can be read.
+            pass
+        state_files.write_atomic(path, json.dumps(binding) + "\n")
     print(f"{slug}: orchestrated by Herdr pane {binding['pane']}, host sessions {binding['sessions']}, "
           f"autofix {str(autofix).lower()}")
 

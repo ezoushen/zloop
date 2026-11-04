@@ -2,7 +2,8 @@
 """Take over an autopilot run card: `autopilot_card.py take-over <card> [--auto-merge]
 [--effort <level>] [--dispatch-effort <level>] [--review-effort <level>]`.
 
-Rewrites the card's State in place. `auto-merge:` becomes `yes` only with `--auto-merge`, so a grant from the run that
+Rewrites the lines of the card's `## State` section in place and nothing else, so a Goal quoting `auto-merge:` is
+left alone. `auto-merge:` becomes `yes` only with `--auto-merge`, so a grant from the run that
 ended never carries into the next. The ended run's `terminal:` state moves, with today's date, to the end of
 `history:`, and `terminal:` is left empty. A card that has not ended keeps its history. `phase:` is left as
 recorded: a run that ends keeps the phase it stopped in.
@@ -16,6 +17,8 @@ import datetime
 import re
 import sys
 from pathlib import Path
+
+import state_files
 
 LEVELS = ('low', 'medium', 'high', 'xhigh', 'max')
 
@@ -41,7 +44,14 @@ def level(text, key):
 
 
 def take_over(text, auto_merge, dispatch_effort, review_effort, today):
-    """The card's text after a take-over."""
+    """The card's text after a take-over; only the lines of its `## State` section change."""
+    state = re.search(r'^## State[ \t]*\n.*?(?=^## |\Z)', text, re.M | re.S)
+    if not state:
+        sys.exit('the card has no `## State` section')
+    return text[:state.start()] + take_over_state(state[0], auto_merge, dispatch_effort, review_effort, today) + text[state.end():]
+
+
+def take_over_state(text, auto_merge, dispatch_effort, review_effort, today):
     ended, history = field(text, 'terminal'), field(text, 'history')
     field(text, 'auto-merge')
     dispatch, review = level(text, 'dispatch-effort'), level(text, 'review-effort')
@@ -62,7 +72,8 @@ def main():
     parser.add_argument('--review-effort', choices=LEVELS, help="set the review's level")
     args = parser.parse_args()
     levels = (args.dispatch_effort or args.effort, args.review_effort or args.effort)
-    args.card.write_text(take_over(args.card.read_text(), args.auto_merge, *levels, datetime.date.today().isoformat()))
+    state_files.write_atomic(args.card, take_over(args.card.read_text(), args.auto_merge, *levels,
+                                                  datetime.date.today().isoformat()))
 
 
 if __name__ == '__main__':

@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -116,6 +117,52 @@ class BoardCLI(unittest.TestCase):
                                 capture_output=True, text=True, input=input)
         assert result.returncode == code, result.stdout + result.stderr
         return result
+
+    def orchestrate(self, **env):
+        """Bind a session through the board in this process, as `--orchestrate` does from the host's shell."""
+        hosts = ("CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "PI_SESSION_ID", "OPENCODE_SESSION_ID")
+        with patch.dict(os.environ, {**dict.fromkeys(hosts, ""), **env}):
+            support.load_script("next_tickets.py", "next_tickets_bind").main(
+                ["--repo", str(self.root), "fx", "--orchestrate"])
+
+    def test_an_interrupted_orchestrator_binding_write_leaves_the_old_binding_whole(self):
+        # Audit A1: the binding is what holds the orchestrator at stop; a write cut short must not leave it empty.
+        self.write_ticket("fx/01")
+        path = self.root / ".scratch/fx/reports/orchestrator.json"
+        self.orchestrate(CLAUDE_CODE_SESSION_ID="host-1")
+        before = path.read_bytes()
+        with patch("os.replace", side_effect=OSError("interrupted")), self.assertRaises(OSError):
+            self.orchestrate(CLAUDE_CODE_SESSION_ID="host-2")
+        assert path.read_bytes() == before
+        assert [p.name for p in path.parent.iterdir() if p.name != path.name and not p.name.endswith(".lock")] == []
+
+    def test_an_opencode_session_binds_the_orchestrator_by_its_exported_id(self):
+        # Gap 18: OpenCode exports OPENCODE_SESSION_ID to the orchestrator's shell like the other hosts' variables.
+        self.write_ticket("fx/01")
+        self.orchestrate(OPENCODE_SESSION_ID="opencode-1")
+        binding = json.loads((self.root / ".scratch/fx/reports/orchestrator.json").read_text())
+        assert binding["sessions"] == ["opencode-1"], binding
+
+    def test_concurrent_orchestrate_binds_by_different_sessions_all_stay_bound(self):
+        # Audit A6: a bind that succeeded holds its session at stop, whichever bind wrote the file last.
+        self.write_ticket("fx/01")
+        slow_rename = ("import os, runpy, sys, time\nreal = os.replace\n"
+                       "def slow(*args): time.sleep(0.5); real(*args)\nos.replace = slow\n"
+                       "sys.argv = sys.argv[1:]\nsys.path.insert(0, os.path.dirname(sys.argv[0]))\n"
+                       "runpy.run_path(sys.argv[0], run_name='__main__')")
+
+        def bind(session):
+            env = {k: v for k, v in os.environ.items() if not k.endswith("_SESSION_ID")}
+            result = subprocess.run([sys.executable, "-c", slow_rename, str(SCRIPT), "--repo", str(self.root), "fx",
+                                     "--orchestrate"], capture_output=True, text=True, env=dict(env, CODEX_SESSION_ID=session))
+            assert result.returncode == 0, result.stdout + result.stderr
+
+        sessions = [f"session-{number}" for number in range(3)]
+        with ThreadPoolExecutor(len(sessions)) as pool:
+            for future in [pool.submit(bind, name) for name in sessions]:
+                future.result()
+        binding = json.loads((self.root / ".scratch/fx/reports/orchestrator.json").read_text())
+        assert sorted(binding["sessions"]) == sessions, binding
 
     def test_check_refuses_a_need_outside_the_probe_vocabulary_naming_the_allowed_needs(self):
         allowed = 'network, docker, setuid, repo-write, dev-fd'

@@ -1374,8 +1374,8 @@ class DeliveryHold(GateRepo):
         # binding refuses, saying the stop hold cannot bind, and records nothing.
         refused = self.bind(pane=None, code=1)
         self.assertEqual(refused.stderr, 'no Herdr pane (HERDR_PANE_ID) or host session ID (CLAUDE_CODE_SESSION_ID, '
-                                         'CODEX_SESSION_ID, PI_SESSION_ID) here: the stop hold cannot bind this '
-                                         'session\n')
+                                         'CODEX_SESSION_ID, PI_SESSION_ID, OPENCODE_SESSION_ID) here: the stop hold '
+                                         'cannot bind this session\n')
         self.assertFalse((self.repo / '.scratch/fix/reports/orchestrator.json').exists())
 
     def test_no_other_session_is_held(self):

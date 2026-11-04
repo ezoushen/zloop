@@ -3,9 +3,11 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 from unittest.mock import patch
 
@@ -13,6 +15,12 @@ import support
 
 SCRIPT = support.script('review_target.py')
 rt = support.load_script('review_target.py', 'review_target')
+INTERRUPTED = '''import os, runpy, sys
+def interrupted(*args): raise OSError('interrupted')
+os.replace = interrupted
+sys.argv = sys.argv[1:]
+sys.path.insert(0, os.path.dirname(sys.argv[0]))
+runpy.run_path(sys.argv[0], run_name='__main__')'''
 
 
 class ReviewTarget(unittest.TestCase):
@@ -45,14 +53,17 @@ class ReviewTarget(unittest.TestCase):
     def args(self, *extra):
         return rt.parser().parse_args(['--repo', self.directory, *extra])
 
-    def launch(self, *extra, code=0, host='codex', target='feature', identified=True, session='review-session'):
+    def launch(self, *extra, code=0, host='codex', target='feature', identified=True, session='review-session',
+               interrupted=False, **env_extra):
         env = {key: value for key, value in support.isolated_env(self.repo).items()
                if not key.startswith(('ZLOOP_', 'HERDR_')) and key not in
-               ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID')}
-        env.update(HOME=str(self.repo))
+               ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID', 'OPENCODE_SESSION_ID')}
+        env.update(HOME=str(self.repo), **env_extra)
         if identified:
             env.update(CODEX_SESSION_ID=session, HERDR_PANE_ID='w1:p9')
-        result = subprocess.run([sys.executable, str(SCRIPT), '--repo', self.directory,
+        # An interrupted start: every rename over a target fails, as when the process dies at that step.
+        runner = [sys.executable, '-c', INTERRUPTED, str(SCRIPT)] if interrupted else [sys.executable, str(SCRIPT)]
+        result = subprocess.run([*runner, '--repo', self.directory,
                                  *(['--host', host] if host else []),
                                  target, '--base', 'trunk', *extra], capture_output=True, text=True, env=env)
         self.assertEqual(result.returncode, code, result.stdout + result.stderr)
@@ -180,6 +191,79 @@ class ReviewTarget(unittest.TestCase):
         binding = json.loads(Path(second['binding']).read_text())
         self.assertEqual(binding['sessions'], ['review-session', 'second-session'])
 
+    def test_an_interrupted_start_leaves_the_report_and_binding_whole(self):
+        # Audit A1: the binding holds the unfinished review at stop; a write cut short must not truncate it or the report.
+        first = self.launch()
+        files = [Path(first['report']), Path(first['binding'])]
+        before = [path.read_bytes() for path in files]
+        self.git('commit', '--allow-empty', '-m', 'new head')
+        refused = self.launch(code=2, interrupted=True)
+        self.assertIn('interrupted', refused)
+        self.assertEqual([path.read_bytes() for path in files], before)
+        self.assertEqual(sorted(path.name for path in files[0].parent.iterdir() if path.name.startswith('.')), [])
+
+    def test_concurrent_starts_by_different_sessions_all_stay_bound(self):
+        # Audit A6: a start that succeeded holds its session at stop, whichever start wrote the binding last.
+        sessions = [f'session-{number}' for number in range(4)]
+        with ThreadPoolExecutor(len(sessions)) as pool:
+            results = [future.result() for future in [pool.submit(self.launch, session=name) for name in sessions]]
+        binding = json.loads(Path(results[0]['binding']).read_text())
+        self.assertEqual(sorted(binding['sessions']), sessions)
+
+    def test_rerunning_a_start_that_stopped_after_the_report_repairs_the_binding(self):
+        # Audit A5: the stop hook advises the same start command, so it must finish a start that wrote only the report.
+        for workstream in ((), ('--workstream', 'fx')):
+            with self.subTest(workstream=workstream):
+                first = self.launch(*workstream, session='first-session')
+                report, binding = Path(first['report']), Path(first['binding'])
+                text = report.read_text() + '\nUser decision: retain scope.\n'
+                report.write_text(text)
+                binding.unlink()
+                again = self.launch(*workstream, session='second-session')
+                self.assertEqual(again['report'], str(report))
+                self.assertEqual(report.read_text(), text)
+                self.assertEqual(json.loads(binding.read_text())['sessions'], ['second-session'])
+                shutil.rmtree(report.parent)
+
+    def test_a_report_left_by_another_target_is_not_adopted_without_its_binding(self):
+        # Audit A5: repairing a missing binding must not hand one target's report to another.
+        self.git('branch', 'other-target')
+        report = Path(self.launch('--workstream', 'fx')['report'])
+        report.with_name('review.json').unlink()
+        before = report.read_bytes()
+        refused = self.launch('--workstream', 'fx', target='other-target', code=2)
+        self.assertIn('different target', refused)
+        self.assertEqual(report.read_bytes(), before)
+        self.assertFalse(report.with_name('review.json').exists())
+
+    def test_a_truncated_binding_or_report_is_refused_naming_what_to_remove_and_the_rerun_repairs_it(self):
+        # Audit A5: a file cut short is never a traceback; the refusal names the file, and the same start then repairs.
+        for cut in ('review.json', 'report'):
+            with self.subTest(cut=cut):
+                first = self.launch()
+                report, binding = Path(first['report']), Path(first['binding'])
+                broken = binding if cut == 'review.json' else report
+                broken.write_text(broken.read_text()[:30])
+                refused = self.launch(code=2)
+                self.assertIn(str(broken), refused)
+                self.assertIn('remove it and rerun the same start command', refused)
+                self.assertNotIn('Traceback', refused)
+                broken.unlink()
+                again = self.launch(session='second-session')
+                self.assertEqual(Path(again['report']).read_text().count('## Review round 1'), 1)
+                self.assertTrue(binding.is_file() and report.is_file())
+                shutil.rmtree(report.parent)
+
+    def test_a_truncated_report_without_its_binding_is_refused_naming_the_report(self):
+        # Audit A5: the report alone cannot say which target it belongs to when it is cut short.
+        first = self.launch()
+        report = Path(first['report'])
+        Path(first['binding']).unlink()
+        report.write_text(report.read_text()[:30])
+        refused = self.launch(code=2)
+        self.assertIn(f'{report}: not a whole review report', refused)
+        self.assertNotIn('Traceback', refused)
+
     def test_a_new_workstream_head_reopens_the_verdict_and_retains_human_decisions(self):
         result = self.launch('--workstream', 'fx')
         report = Path(result['report'])
@@ -275,6 +359,11 @@ class ReviewTarget(unittest.TestCase):
         refused = self.launch(identified=False, code=2)
         self.assertIn('no host session ID or Herdr pane; the review stop hold cannot bind this session', refused)
         self.assertFalse((self.repo / '.scratch/reviews').exists())
+
+    def test_an_opencode_session_is_held_by_its_exported_id(self):
+        # Gap 18: OpenCode exports OPENCODE_SESSION_ID to the reviewer's shell like the other hosts' variables.
+        result = self.launch(identified=False, host='opencode', OPENCODE_SESSION_ID='opencode-1')
+        self.assertEqual(json.loads(Path(result['binding']).read_text())['sessions'], ['opencode-1'])
 
     def test_resolve_for_walkthrough_needs_no_host_or_route_and_creates_no_hold(self):
         config = self.repo / '.zloop/executors.json'
