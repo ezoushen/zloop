@@ -284,7 +284,8 @@
     "runtime/domain/**/*.md"
    ],
    "code": [
-    "scripts/adr_numbers.py"
+    "scripts/adr_numbers.py",
+    "scripts/front_matter.py"
    ]
   },
   "prototype": {

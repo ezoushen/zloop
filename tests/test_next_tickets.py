@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import support
+import front_matter
 
 os.environ.pop("TICKET_PRIORITY", None)
 os.environ.pop("MAX_LIVE", None)
@@ -162,6 +163,20 @@ class BoardCLI(unittest.TestCase):
         refused = self.cli('--check', code=1).stderr
         assert refused == f"fx/01: needs must be a bracketed list of {allowed}\n", refused
 
+    def test_a_ticket_with_block_lists_is_scheduled_like_one_with_bracketed_lists(self):
+        # Rule: `touches:`, `devices:` and `blocked_by:` written as `- item` lines hold the same areas, devices and
+        # dependencies as the bracketed form.
+        path = self.write_ticket('active/01')
+        path.write_text('---\nticket: active/01\nstatus: ready\nblocked_by:\n  - active/02\ntouches:\n  - docs\n'
+                        '  - runtime\ndevices:\n  - ios\n---\n')
+        self.write_ticket('active/02', 'done', touches='unrelated')
+        assert [t['ticket'] for t in json.loads(self.cli('active').stdout)] == ['active/01']
+        self.write_ticket('other/02', 'implementing', touches='runtime')
+        assert json.loads(self.cli('active').stdout) == []
+        self.write_ticket('other/02', 'implementing', touches='unrelated')
+        self.write_ticket('active/02', 'implementing', touches='unrelated')
+        assert json.loads(self.cli('active').stdout) == []
+
     def test_board_reads_validates_and_repairs_ticket_state(self):
         write_ticket, cli = self.write_ticket, self.cli
         active = write_ticket('active/01')
@@ -214,7 +229,7 @@ class BoardCLI(unittest.TestCase):
         self.cli('active', '--set', 'active/01', 'status=blocked', 'blocker=  ', code=1)
         assert path.read_text() == before
         self.cli('active', '--set', 'active/01', 'status=blocked', 'blocker=recall is 50, worse than baseline 100')
-        fm = nt.parse_front_matter(path.read_text())
+        fm = front_matter.parse(path.read_text())
         assert (fm['status'], fm['blocker']) == ('blocked', 'recall is 50, worse than baseline 100'), fm
 
     def test_a_stored_blocker_is_cleared_on_unblocking_and_never_reused(self):
@@ -225,13 +240,13 @@ class BoardCLI(unittest.TestCase):
         assert refused.stderr == ('active/01: status=blocked needs the reason too, even with one stored '
                                   "('device offline'): --set active/01 status=blocked blocker=<reason>\n"), refused.stderr
         self.cli('active', '--set', 'active/01', 'status=ready')
-        fm = nt.parse_front_matter(path.read_text())
+        fm = front_matter.parse(path.read_text())
         assert (fm['status'], 'blocker' in fm) == ('ready', False), fm
 
     def test_a_ticket_moved_into_implementing_records_the_workstream_head_it_starts_from(self):
         # Rule (T12.2): the first move into implementing records `start:`, the workstream branch head (main when the workstream
         # has none); a recorded start never changes, and a ticket already live is not given one.
-        start = lambda path: nt.parse_front_matter(path.read_text()).get('start')
+        start = lambda path: front_matter.parse(path.read_text()).get('start')
         first = self.write_ticket('active/01')
         before = first.read_text()
         refused = self.cli('active', '--set', 'active/01', 'status=implementing', code=1).stderr
@@ -271,7 +286,7 @@ class BoardCLI(unittest.TestCase):
             assert refused == f'active/01: start={value} is not a 40-hex commit of this repository\n', (value, refused)
         self.cli('active', '--set', 'active/01', f'start={first}')
         recorded = path.read_text()
-        assert nt.parse_front_matter(recorded)['start'] == first, recorded
+        assert front_matter.parse(recorded)['start'] == first, recorded
         for value in (second, first):
             refused = self.cli('active', '--set', 'active/01', f'start={value}', code=1).stderr
             assert refused == f'active/01: start is {first} already and never changes\n', (value, refused)
