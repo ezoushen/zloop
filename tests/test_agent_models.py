@@ -112,6 +112,20 @@ class Preferences(unittest.TestCase):
         with self.assertRaises(ValueError, msg='Claude accepted ultra'):
             models.native_profile(self.resolve('claude', effort='ultra'))
 
+    def test_a_claude_profile_is_generated_from_an_agent_whose_list_fields_are_block_lists(self):
+        # Rule: an agent definition the validator accepts with `core_skills:` as a block list also yields its profile,
+        # with zloop's own keys left out and the other fields kept.
+        agents = self.root / 'plugin/agents'
+        agents.mkdir(parents=True)
+        source = (models.ROOT / 'agents/builder.md').read_text()
+        skills = [line for line in source.splitlines() if line.startswith('core_skills:')][0]
+        block = 'core_skills:\n' + ''.join(f'  - {name}\n' for name in json.loads(skills.split(': ', 1)[1]))
+        (agents / 'builder.md').write_text(source.replace(skills + '\n', block))
+        with patch.object(models, 'ROOT', self.root / 'plugin'):
+            text = models.native_profile(self.resolve('claude', 'builder', model='opus'))['content']
+        assert 'model: "opus"' in text and '\ntools: "Read, Edit, Write' in text, text
+        assert '\ncore_skills:' not in text and '  - ' not in text.split('\n---\n')[0], text
+
     def test_opencode_profile_maps_effort_to_variant(self):
         profile = models.native_profile(self.resolve('opencode', model='openai/gpt-5', effort='high'))
         assert 'mode: "subagent"' in profile['content'] and 'variant: "high"' in profile['content']
