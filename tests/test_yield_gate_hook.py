@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -2200,8 +2201,9 @@ class StopReap(HerdrWorkers):
                 f'record its retention ({ROOT}/runtime/workers/collect.md)')
 
     def refusal(self):
-        return ('Collect all conversation attempts, each completed one with an intact report or declined, and '
-                'reconcile their receipts and waits before retirement')
+        return ('Settle each attempt of the conversation before closing it: ticket-1/1 lacks an intact report (record '
+                f'it declined: `python3 {ROOT}/scripts/worker_lifecycle.py record --state {shlex.quote(str(self.state))} --input '
+                '<JSON {"kind": "declined", "attempt": "ticket-1/1", "reason", "evidence"}>`)')
 
     def test_a_stop_closes_only_the_attempts_the_stopping_session_registered(self):
         # Rule 1's attribution is the holds': the host session decides before the pane, so another session in the
@@ -2268,7 +2270,7 @@ class StopReap(HerdrWorkers):
         db.execute("DELETE FROM events WHERE kind = 'register'")
         db.commit()
         db.close()
-        self.assertEqual([f'could not check settled workers in {self.state}: StopIteration()'],
+        self.assertEqual([f'could not check settled workers in {self.state}: IndexError(\'list index out of range\')'],
                          self.stop_command()['missing'])
 
     def test_a_herdr_server_that_does_not_answer_is_asked_once_so_the_stop_stays_inside_the_hook_timeout(self):
@@ -2291,6 +2293,21 @@ class StopReap(HerdrWorkers):
         self.assertEqual(1, calls.read_text().count(' tab get '))
         self.assertNotIn('closed', self.attempt('ticket-1/1'))
         self.assertNotIn('closed', self.attempt('ticket-2/1'))
+
+    def test_a_stop_reaps_the_rows_the_lifecycle_reads_not_only_those_the_gate_validates(self):
+        # The gate calls a placement without tab_id malformed and names it; the lifecycle still judges it by its pane,
+        # so the stop reap does too.
+        self.register()
+        self.collect()
+        db = sqlite3.connect(self.state)
+        data = self.attempt()
+        del data['herdr']['tab_id']
+        db.execute("UPDATE attempts SET data = ? WHERE id = 'ticket-1/1'", (json.dumps(data),))
+        db.commit()
+        db.close()
+        self.stop_command()
+        self.assertEqual(['herdr --session default pane get w1:p5: pane_not_found'],
+                         self.attempt()['closed']['evidence'])
 
 
 class AutopilotCardHold(GateRepo):

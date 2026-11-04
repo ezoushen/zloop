@@ -28,10 +28,10 @@ def ledger_path():
     return state / 'zloop/capacity.sqlite'
 
 
-def connect():
+def connect(timeout=30):
     path = ledger_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(path, timeout=30, isolation_level=None)
+    db = sqlite3.connect(path, timeout=timeout, isolation_level=None)
     db.execute('PRAGMA journal_mode=WAL')
     db.execute('CREATE TABLE IF NOT EXISTS leases (state TEXT NOT NULL, attempt TEXT NOT NULL, '
                'backend TEXT NOT NULL, acquired_at REAL NOT NULL, PRIMARY KEY (state, attempt))')
@@ -129,11 +129,11 @@ def acquire(backend, config, state, attempt, now=None):
         db.close()
 
 
-def release(state, attempt):
+def release(state, attempt, timeout=30):
     path = ledger_path()
     if not path.is_file():
         return
-    db = connect()
+    db = connect(timeout)
     try:
         db.execute('DELETE FROM leases WHERE state = ? AND attempt = ?', (state, attempt))
     finally:

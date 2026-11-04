@@ -4,10 +4,14 @@ is confirmed gone, and a retained native subagent whose run ended."""
 
 import json
 import os
+from pathlib import Path
+import shlex
 import sqlite3
+import sys
+import time
 import unittest
 
-from lifecycle_case import WorkerLifecycleCase
+from lifecycle_case import SCRIPT, WorkerLifecycleCase
 
 
 NOTHING = {'closed': [], 'open': [], 'refused': []}
@@ -25,6 +29,17 @@ class Reap(WorkerLifecycleCase):
     def tab_closed(self):
         """The fixture's Herdr now answers that the worker's pane and tab are gone."""
         (self.root / 'native-closed').write_text('closed\n')
+
+    def refusal(self, attempt, lacks):
+        """What the lifecycle says of a conversation it cannot close: each unsettled attempt, what it lacks."""
+        return f'Settle each attempt of the conversation before closing it: {attempt} lacks {lacks}'
+
+    def quoted(self):
+        return shlex.quote(str(self.state.resolve()))
+
+    def declining(self, attempt):
+        return (f'an intact report (record it declined: `python3 {SCRIPT} record --state {self.quoted()} --input '
+                f'<JSON {{"kind": "declined", "attempt": "{attempt}", "reason", "evidence"}}>`)')
 
     def closed(self, attempt='ticket-1/1'):
         return self.cli('status', '--attempt', attempt)['attempts'][0].get('closed')
@@ -217,9 +232,8 @@ class Reap(WorkerLifecycleCase):
         (self.root / 'ticket-1-1.md').write_text('## Implemented\n\nrewritten after collection\n')
         self.assertEqual({
             'closed': [{'attempt': 'ticket-2/1', 'evidence': [f'{card}: terminal: delivered']}], 'open': [],
-            'refused': [{'attempt': 'ticket-1/1', 'reason': 'Collect all conversation attempts, each completed one '
-                         'with an intact report or declined, and reconcile their receipts and waits before '
-                         'retirement'}]}, self.cli('reap'))
+            'refused': [{'attempt': 'ticket-1/1', 'reason': self.refusal('ticket-1/1', self.declining('ticket-1/1'))}]},
+            self.cli('reap'))
         self.assertIsNone(self.closed('ticket-1/1'))
 
     def test_a_worker_the_orchestrator_does_not_own_is_no_cleanup_target(self):
@@ -232,6 +246,143 @@ class Reap(WorkerLifecycleCase):
         self.acknowledge()
         self.record('retain', reason='the user keeps it', next_use='their own', evidence=['report'])
         self.assertEqual(NOTHING, self.cli('reap'))
+
+    def test_a_reap_that_closes_nothing_writes_nothing(self):
+        # A state's age decides whether the gate still attributes its unattributed rows, so looking at it must not
+        # make an old state recent again.
+        self.placed()
+        stale = time.time() - 3 * 24 * 3600
+        os.utime(self.state, (stale, stale))
+        self.assertEqual([], self.cli('reap')['closed'])
+        self.assertEqual(stale, self.state.stat().st_mtime)
+
+    def test_an_attempt_whose_report_a_later_attempt_of_its_conversation_rewrote_owes_no_intact_report(self):
+        # A conversation's attempts may all write one report path; each later attempt rewrites it, so the earlier
+        # completed attempts can never match their digest again, and the later report is the conversation's.
+        self.placed()
+        self.record('retain', reason='the repair round', next_use='fix round', evidence=['report'])
+        report = self.root / 'ticket-1-1.md'
+        report.write_text('## Implemented\n\nThe repair round rewrote the report\n')
+        self.register('ticket-1/2', worker='builder-1', herdr={'session': 'fixture-session'})
+        self.ready('ticket-1/2')
+        self.collect('ticket-1/2', report=report)
+        self.acknowledge()
+        self.tab_closed()
+        self.assertEqual(['ticket-1/2'], [row['attempt'] for row in self.cli('reap')['closed']])
+
+    def test_an_accepted_attempt_owes_no_intact_report_because_acceptance_consumed_it(self):
+        self.placed()
+        self.record('accepted', commit='abc123', evidence=['merged'])
+        self.record('retain', reason='the repair round', next_use='fix round', evidence=['report'])
+        (self.root / 'ticket-1-1.md').write_text('## Implemented\n\nRewritten after acceptance\n')
+        self.register('ticket-1/2', worker='builder-1', herdr={'session': 'fixture-session'})
+        self.ready('ticket-1/2')
+        self.collect('ticket-1/2')
+        self.acknowledge()
+        self.tab_closed()
+        self.assertEqual(['ticket-1/2'], [row['attempt'] for row in self.cli('reap')['closed']])
+
+    def test_a_refusal_names_each_unsettled_attempt_with_what_it_lacks_and_the_command_that_settles_it(self):
+        self.placed()
+        self.record('retain', reason='the repair round', next_use='fix round', evidence=['report'])
+        self.register('ticket-1/2', worker='builder-1', herdr={'session': 'fixture-session'})
+        self.ready('ticket-1/2')
+        self.collect('ticket-1/2')
+        self.acknowledge()
+        db = sqlite3.connect(self.state)
+        data = json.loads(db.execute("SELECT data FROM attempts WHERE id = 'ticket-1/1'").fetchone()[0])
+        result = data.pop('result')
+        db.execute("UPDATE attempts SET data = ? WHERE id = 'ticket-1/1'", (json.dumps(data),))
+        db.commit()
+        request = self.root / 'closing.json'
+        request.write_text(json.dumps({'kind': 'closed', 'attempt': 'ticket-1/2', 'evidence': ['tab gone'],
+                                       'acceptance': {'decision': 'deferred', 'reason': 'later'}}))
+        error = self.cli('record', '--input', str(request), code=2)
+        self.assertIn(self.refusal('ticket-1/1', f'a collected result (`python3 {SCRIPT} collect --state {self.quoted()} '
+                                                 '--attempt ticket-1/1 --input <request>`)'), error)
+        data['result'] = result
+        db.execute("UPDATE attempts SET data = ? WHERE id = 'ticket-1/1'", (json.dumps(data),))
+        receipt = db.execute("INSERT INTO events (attempt, kind, payload, acknowledged) VALUES "
+                             "('ticket-1/1', 'result', '{}', 0)").lastrowid
+        db.commit()
+        db.close()
+        error = self.cli('record', '--input', str(request), code=2)
+        self.assertIn(self.refusal('ticket-1/1', f'receipt {receipt} acknowledged (`python3 {SCRIPT} ack --state '
+                                                 f'{self.quoted()} --event-id {receipt}`)'), error)
+
+    def slow_herdr(self, delay):
+        """A `herdr` that answers every tab of the `slow` server `tab_not_found`, `delay` seconds after it is asked."""
+        directory = self.root / 'slow-bin'
+        directory.mkdir()
+        (directory / 'herdr').write_text('#!' + sys.executable + f'''
+import json, sys, time
+time.sleep({delay!r})
+print(json.dumps({{'error': {{'code': 'tab_not_found'}}}}), file=sys.stderr)
+sys.exit(1)
+''')
+        (directory / 'herdr').chmod(0o700)
+        self.native_env = dict(os.environ, PATH=str(directory) + os.pathsep + os.environ['PATH'])
+
+    def collected_on_slow_server(self, count):
+        """`count` collected attempts, each in its own conversation, placed in tabs of the `slow` Herdr server."""
+        db = sqlite3.connect(self.state)
+        for number in range(1, count + 1):
+            attempt = f'ticket-{number}/1'
+            self.register(attempt, f'ticket-{number}', f'native-{number}', f'pane-{number}')
+            self.ready(attempt)
+            self.collect(attempt)
+            self.acknowledge()
+            data = json.loads(db.execute('SELECT data FROM attempts WHERE id = ?', (attempt,)).fetchone()[0])
+            data['herdr'] = {'session': 'slow', 'workspace_id': 'w', 'tab_id': f'tab-{number}',
+                             'pane_id': f'pane-{number}', 'name': f'builder-{number}'}
+            db.execute('UPDATE attempts SET data = ? WHERE id = ?', (json.dumps(data), attempt))
+            db.commit()
+        db.close()
+
+    def timed_reap(self, *args):
+        began = time.monotonic()
+        found = self.cli('reap', *args)
+        return found, time.monotonic() - began
+
+    def test_one_reap_stays_inside_a_total_budget_and_leaves_the_rest_for_the_next_stop(self):
+        # A stop has 20 s: five lookups that each answer after 2.5 s would take 12.5 s, so the reap spends a few
+        # seconds in all, closes what it confirmed, and the next stop takes up the rest.
+        self.slow_herdr(2.5)
+        self.collected_on_slow_server(5)
+        found, seconds = self.timed_reap()
+        self.assertLess(seconds, 8)
+        self.assertEqual((5, True), (len(found['closed']) + len(found['open']), 0 < len(found['closed']) < 5))
+        again, seconds = self.timed_reap()
+        self.assertLess(seconds, 8)
+        self.assertGreater(len(again['closed']), 0)
+
+    def test_a_closure_does_not_wait_on_a_locked_state_beyond_the_budget(self):
+        self.placed()
+        self.tab_closed()
+        writer = sqlite3.connect(self.state, isolation_level=None)
+        writer.execute('BEGIN IMMEDIATE')
+        self.addCleanup(writer.close)
+        found, seconds = self.timed_reap()
+        self.assertLess(seconds, 8)
+        self.assertEqual(([], ['ticket-1/1']), (found['closed'], [row['attempt'] for row in found['open']]))
+        writer.execute('ROLLBACK')
+        self.assertEqual(['ticket-1/1'], [row['attempt'] for row in self.cli('reap')['closed']])
+
+    def test_a_closure_does_not_wait_on_a_locked_outcomes_ledger_beyond_the_budget(self):
+        # The ledger is machine-wide and its writers wait up to 30 s; the closure is already in the state by then.
+        self.placed()
+        self.tab_closed()
+        path = Path(os.environ['XDG_STATE_HOME']) / 'zloop' / 'outcomes.sqlite'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        writer = sqlite3.connect(path, isolation_level=None)
+        writer.execute('PRAGMA journal_mode=WAL')
+        writer.execute('CREATE TABLE IF NOT EXISTS outcomes (key TEXT PRIMARY KEY, data TEXT NOT NULL)')
+        writer.execute('BEGIN IMMEDIATE')
+        self.addCleanup(writer.close)
+        found, seconds = self.timed_reap()
+        self.assertLess(seconds, 8)
+        self.assertEqual(['ticket-1/1'], [row['attempt'] for row in found['closed']])
+        self.assertIn('closed', self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0])
 
 
 if __name__ == '__main__':

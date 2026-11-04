@@ -35,6 +35,7 @@ TAB_RECIPE = ('start the worker in a tab of its own: `herdr tab create --workspa
               '--no-focus`, then `herdr agent start <name> --kind <kind> --pane <returned root pane> -- <launch args>`, '
               'then register it')
 LOOKUP_SECONDS = 5  # Registration's wait on each Herdr call.
+REAP_SECONDS = 5  # All a stop's reap may spend, inside the hosts' 20 s hook timeout, which the gate's other checks share.
 # The terminal states of a run card after which nothing of the run is used again.
 ENDED = ('delivered', 'delivered-local', 'merged')
 # Native write-scope controls: a launch requests them (its `verify`) and startup observes them.
@@ -75,7 +76,8 @@ def read_object(path):
 def connect(path):
     require(path.is_absolute(), '--state must be absolute')
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.touch(mode=0o600, exist_ok=True)
+    if not path.exists():  # An existing state is not touched: its age is a fact the stop gate reads.
+        path.touch(mode=0o600)
     db = sqlite3.connect(path, timeout=10)
     db.execute('CREATE TABLE IF NOT EXISTS attempts (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS holds (assignment TEXT PRIMARY KEY, data TEXT NOT NULL)')
@@ -102,30 +104,48 @@ def closed_sessions(db):
 
 def report_owed(saved, declined=False):
     """Whether the attempt's report is settled: only a completed result owes an intact report, or its decline (a
-    changed report can never be accepted, and its attempt still closes)."""
-    return saved['result']['status'] != 'completed' or report_intact(saved) or bool(declined)
+    changed report can never be accepted, and its attempt still closes); an accepted attempt owes none, since
+    acceptance consumed its report."""
+    return (saved['result']['status'] != 'completed' or report_intact(saved) or bool(declined)
+            or bool(saved.get('accepted')))
 
 
 def conversation(db, saved):
-    """(the attempts of the saved attempt's native conversation by id, the id of the final registered one)."""
+    """(the attempts of the saved attempt's native conversation by id, in registration order; the id of the final
+    registered one)."""
     siblings = {row['attempt']: row for row in attempts(db)
                 if (row['runtime'], row['native_session']) == (saved['runtime'], saved['native_session'])}
-    latest = next(row[0] for row in db.execute("SELECT attempt FROM events WHERE kind = 'register' ORDER BY id DESC")
-                  if row[0] in siblings)
-    return siblings, latest
+    order = [row[0] for row in db.execute("SELECT attempt FROM events WHERE kind = 'register' ORDER BY id")
+             if row[0] in siblings]
+    return {name: siblings[name] for name in order}, order[-1]
 
 
 def final_retirement(db, saved, declined=False):
     """Every attempt of the conversation is collected with its report settled (see report_owed), and nothing of it
-    is still waiting."""
+    is still waiting. A completed attempt whose report path a later attempt of the conversation also recorded owes no
+    intact report: the later one is the conversation's."""
     siblings, latest = conversation(db, saved)
     require(latest == saved['attempt'], 'Retire the final registered attempt of the native conversation')
-    require(all(row.get('result')
-                and report_owed(row, row.get('declined') or declined and row['attempt'] == saved['attempt'])
-                and not watching(row)
-                and not pending(db, row['attempt']) and not wait_running(row) for row in siblings.values()),
-            'Collect all conversation attempts, each completed one with an intact report or declined, and reconcile '
-            'their receipts and waits before retirement')
+    state, script = shlex.quote(state_path(db)), shlex.quote(str(Path(__file__).resolve()))
+    reports = [(row.get('result') or {}).get('report') for row in siblings.values()]
+    problems = []
+    for number, row in enumerate(siblings.values()):
+        name, lacks = row['attempt'], []
+        if not row.get('result'):
+            lacks.append(f'a collected result (`python3 {script} collect --state {state} --attempt {name} '
+                         '--input <request>`)')
+        elif not (report_owed(row, row.get('declined') or declined and name == saved['attempt'])
+                  or reports[number] in reports[number + 1:]):
+            lacks.append(f'an intact report (record it declined: `python3 {script} record --state {state} --input '
+                         f'<JSON {{"kind": "declined", "attempt": "{name}", "reason", "evidence"}}>`)')
+        lacks += [f'receipt {receipt["id"]} acknowledged (`python3 {script} ack --state {state} --event-id '
+                  f'{receipt["id"]}`)' for receipt in pending(db, name)]
+        if watching(row) or wait_running(row):
+            lacks.append(f'its wait stopped (`python3 {script} status --state {state} --attempt {name}`, then '
+                         'reconcile it)')
+        if lacks:
+            problems.append(f'{name} lacks ' + ', and '.join(lacks))
+    require(not problems, 'Settle each attempt of the conversation before closing it: ' + '; '.join(problems))
 
 
 def plan(db, job, assignments, replace=False):
@@ -363,13 +383,14 @@ def state_path(db):
     return str(Path(db.execute('PRAGMA database_list').fetchone()[2]).resolve())
 
 
-def ledger(db, saved):
-    """Write a collected attempt's outcome to the machine-wide ledger; a failed write is reported, never fatal."""
+def ledger(db, saved, waiting=30):
+    """Write a collected attempt's outcome to the machine-wide ledger, waiting up to `waiting` seconds for it; a failed
+    write is reported, never fatal."""
     if not saved.get('result'):
         return None
     state = state_path(db)
     try:
-        outcomes.put(f"{state}#{saved['attempt']}", outcomes.attempt_row(db, saved, state))
+        outcomes.put(f"{state}#{saved['attempt']}", outcomes.attempt_row(db, saved, state), waiting)
     except (OSError, ValueError, sqlite3.Error) as error:
         return f'not recorded: {error}'
     return None
@@ -722,7 +743,7 @@ def unmet_needs(saved, evidence):
     return capability_probe.unmet(needs, reports, saved['worktree'])
 
 
-def record(db, data, refuse_changes=False, submitting=False):
+def record(db, data, refuse_changes=False, submitting=False, waiting=30):
     kind, attempt = data.get('kind'), data.get('attempt')
     require(text(attempt), 'Event requires attempt')
     # A read-only worktree is read before the write lock is taken; the result check and any refusal use that one read.
@@ -1083,10 +1104,10 @@ def record(db, data, refuse_changes=False, submitting=False):
             journal = dict(journal or {}, **assessed)
     repaired = (attribute(db, data['repairs'], 'repair-round', 1, [f'repair attempt {attempt}'])
                 if kind == 'register' and 'repairs' in data else None)
-    unrecorded = ledger(db, saved) if kind in ('result', 'accepted', 'declined', 'closed') else None
+    unrecorded = ledger(db, saved, waiting) if kind in ('result', 'accepted', 'declined', 'closed') else None
     if kind in ('result', 'closed') and saved.get('execution_snapshot', {}).get('backend'):
         try:
-            capacity.release(state_path(db), attempt)
+            capacity.release(state_path(db), attempt, waiting)
         except (OSError, ValueError, sqlite3.Error):
             pass  # A lease of a finished attempt is reclaimed by the next acquisition.
     # A directory held only to what can be read of it is named even when nothing changed.
@@ -1537,14 +1558,14 @@ def retire(db, state, attempt, request):
     return {'attempt': attempt, 'closed': True, 'evidence': str(proof)}
 
 
-def herdr_answer(placed):
+def herdr_answer(placed, timeout=LOOKUP_SECONDS):
     """(Herdr's answer for the worker's tab, else pane, as one line, whether that confirms it gone, None when the server
     gave no answer): only a not-found answer for it, or a server that is not running, confirms it; a listing or any
     other error does not."""
     kind, target = ('tab', placed['tab_id']) if placed.get('tab_id') else ('pane', placed['pane_id'])
     command = f"herdr --session {placed['session']} {kind} get {target}"
     try:
-        code, response = herdr(placed['session'], kind, 'get', target, timeout=LOOKUP_SECONDS)
+        code, response = herdr(placed['session'], kind, 'get', target, timeout=timeout)
     except (OSError, ValueError) as error:
         return f'{command}: no answer ({error})', None
     error = response.get('error')
@@ -1552,11 +1573,13 @@ def herdr_answer(placed):
     return f'{command}: {answer}', bool(code) and answer in (f'{kind}_not_found', 'server_not_running')
 
 
-def reap(db, state, include=lambda saved: True):
+def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
     """Close, through `record`, each included attempt whose status is already decided: a collected worker whose Herdr
     tab its server confirms gone, and a retained native subagent (no Herdr placement) of a run whose card ended
     delivered. Returns what it closed, what it left open for want of Herdr's confirmation, and what the lifecycle
-    refused to close, with its refusal."""
+    refused to close, with its refusal. It spends `budget` seconds in all, on Herdr's answers and on any lock, and leaves
+    the attempts it did not reach for the next stop."""
+    deadline = time.monotonic() + budget
     card = state.parent.parent / 'autopilot.md'
     terminal = panel_state.card_state(card).get('terminal')
     closed, left, refused, done, silent = [], [], [], set(closed_sessions(db)), set()
@@ -1569,12 +1592,15 @@ def reap(db, state, include=lambda saved: True):
             continue
         if watching(saved) or pending(db, saved['attempt']) or wait_running(saved):
             continue
+        if time.monotonic() >= deadline:
+            left.append({'attempt': saved['attempt'], 'reason': 'out of time for this stop; left for the next'})
+            continue
         if saved.get('herdr'):
             server = saved['herdr']['session']
             if server in silent:  # Asked once: a server that does not answer is not asked for each of its workers.
                 left.append({'attempt': saved['attempt'], 'reason': f'herdr --session {server}: no answer earlier'})
                 continue
-            evidence, gone = herdr_answer(saved['herdr'])
+            evidence, gone = herdr_answer(saved['herdr'], min(LOOKUP_SECONDS, deadline - time.monotonic()))
             if gone is None:
                 silent.add(server)
             why = 'its Herdr tab is gone'
@@ -1588,10 +1614,23 @@ def reap(db, state, include=lambda saved: True):
         # A completed attempt of a job that needs acceptance is closed with it deferred, not decided here.
         acceptance = ({'acceptance': {'decision': 'deferred', 'reason': f'closed by reap: {why}'}}
                       if unsettled(saved) else {})
-        try:
-            record(db, dict(kind='closed', attempt=saved['attempt'], evidence=[evidence], **acceptance))
-        except ValueError as error:  # The lifecycle's own refusal, for the host to settle.
-            refused.append({'attempt': saved['attempt'], 'reason': str(error)})
+        # SQLite's own wait for a lock sleeps in whole seconds and overshoots the budget, so no closure waits on one: a
+        # locked state is polled until the deadline, and the machine-wide ledgers are left for the next write.
+        db.execute('PRAGMA busy_timeout = 0')
+        done_now = None
+        while done_now is None:
+            try:
+                done_now = record(db, dict(kind='closed', attempt=saved['attempt'], evidence=[evidence], **acceptance),
+                                  waiting=0)
+            except ValueError as error:  # The lifecycle's own refusal, for the host to settle.
+                refused.append({'attempt': saved['attempt'], 'reason': str(error)})
+                break
+            except sqlite3.OperationalError as error:
+                if time.monotonic() >= deadline:  # Still locked for the whole budget: the next stop.
+                    left.append({'attempt': saved['attempt'], 'reason': str(error)})
+                    break
+                time.sleep(0.1)
+        if done_now is None:
             continue
         closed.append({'attempt': saved['attempt'], 'evidence': [evidence]})
         done.add(key)

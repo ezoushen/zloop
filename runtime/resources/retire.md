@@ -28,7 +28,8 @@ path; absence alone does not establish ownership or safe cleanup. At a stop (and
 `worker_lifecycle.py reap --state ... [--session ...]`) the gate records `closed` itself for an owned attempt whose result is
 collected and whose recorded tab (else pane) its Herdr server confirms gone, with that answer as the evidence, and for a retained
 native subagent of a run whose card ended `delivered`, `delivered-local` or `merged`, deferring an acceptance still
-unsettled; a closure the lifecycle refuses is a stop gap carrying its refusal. A
+unsettled, within a few seconds in all (the rest waits for the next stop); a closure the lifecycle refuses is a stop
+gap carrying its refusal. A
 retirement intent survives interruption: retry the original target after its
 monitor is gone, and confirm absence without closing another pane or duplicating
 the result. Native pane IDs are not reused. Retirement closes the shared native
@@ -37,8 +38,8 @@ on each historical attempt to identify that final attempt. Earlier retained
 attempts no longer reserve its live handle,
 but the retired conversation cannot be registered again; later work starts with
 a fresh native session and a compact handoff. Only the final registered attempt may
-retire a conversation, after all its attempts have intact results, consumed receipts
-and stopped waits. A retirement intent blocks registration of a continuation;
+retire a conversation, after all its attempts have intact results (not one an accepted attempt or a later attempt
+recording the same report path owes), consumed receipts and stopped waits. A retirement intent blocks registration of a continuation;
 work gates reject the retired conversation across its history. Retain incomplete/active/blocked
 workers with their concrete next use or capability limitation. For other native
 transports, close through the installed lifecycle tool, confirm closure, then

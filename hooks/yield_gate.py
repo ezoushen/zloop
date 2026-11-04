@@ -161,15 +161,16 @@ def reaped(cwd, session=None):
     for state in states(root):
         mine = None
         try:
-            saved_attempts = read_state(state)[0]
-            bound, unbound = binding_state(state, pane, session)
-            orchestrated = answering(state, saved_attempts, root, cwd, pane, session, bound, unbound)
-            mine = {saved['attempt'] for saved in saved_attempts if orchestrated(saved)}
-            if not mine:
-                continue
             module = lifecycle()
-            db = sqlite3.connect(state, timeout=10)  # Not `connect`, which touches the state when nothing closes.
+            db = sqlite3.connect(state, timeout=10)
             try:
+                # The attempts the lifecycle itself reads, not only those the gate's validation accepts.
+                saved_attempts = module.attempts(db)
+                bound, unbound = binding_state(state, pane, session)
+                orchestrated = answering(state, saved_attempts, root, cwd, pane, session, bound, unbound)
+                mine = {saved['attempt'] for saved in saved_attempts if orchestrated(saved)}
+                if not mine:
+                    continue
                 found = module.reap(db, state, lambda saved: saved['attempt'] in mine)
             finally:
                 db.close()

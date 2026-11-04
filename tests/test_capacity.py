@@ -6,9 +6,11 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sqlite3
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -99,6 +101,26 @@ class Capacity(unittest.TestCase):
         self.register('t1/1', health=base + '/health')
         if sys.platform == 'darwin':
             self.assertIn('free memory', self.register('t2/1', min_free_memory_percent=100.5, code=2))
+
+    def test_a_reaped_closure_does_not_wait_on_a_locked_capacity_ledger(self):
+        # `reap` spends a few seconds in all inside a stop; the lease was released at collection, so a ledger that
+        # stays locked costs the closure nothing.
+        state = self.root / 'ws' / 'reports' / 'workers.sqlite'
+        state.parent.mkdir(parents=True)
+        (state.parent.parent / 'autopilot.md').write_text('# ws\n\n## State\nterminal: delivered\n')
+        self.register('t1/1', state)
+        self.collect('t1/1', state)
+        for receipt in self.run_script('status', '--state', str(state))['pending']:
+            self.run_script('ack', '--state', str(state), '--event-id', str(receipt['id']))
+        self.record(state, 'retain', 't1/1', reason='next round', next_use='fix', evidence=['report'])
+        ledger = Path(os.environ['XDG_STATE_HOME']) / 'zloop' / 'capacity.sqlite'
+        writer = sqlite3.connect(ledger, isolation_level=None)
+        writer.execute('BEGIN IMMEDIATE')
+        self.addCleanup(writer.close)
+        began = time.monotonic()
+        found = self.run_script('reap', '--state', str(state))
+        self.assertLess(time.monotonic() - began, 8)
+        self.assertEqual(['t1/1'], [row['attempt'] for row in found['closed']])
 
 
 if __name__ == '__main__':

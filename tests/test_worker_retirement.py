@@ -220,7 +220,7 @@ class Retirement(WorkerLifecycleCase):
 
     def test_retirement_rechecks_the_decline_once_its_herdr_wait_is_over(self):
         # Review: an attempt accepted, and its report changed, while retirement waited on Herdr is not declined by
-        # the request; its pane must not close.
+        # the request; it owes no intact report any more, so it retires, still accepted.
         self.register()
         self.ready()
         report = self.collect()
@@ -235,9 +235,10 @@ class Retirement(WorkerLifecycleCase):
         request = self.root / 'retire.json'
         request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1', 'jobs_evidence': ['stopped'],
                                        'acceptance': {'decision': 'declined', 'reason': 'discard attempt'}}))
-        self.assertIn('intact report', self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2))
+        self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request))
         self.assertEqual(json.loads((self.root / 'during-delay.json').read_text())['code'], 0)
-        self.assertFalse((self.root / 'native-closed').exists())
+        retired = self.cli('status')['attempts'][0]
+        self.assertEqual(('merge-1', False), (retired['accepted']['commit'], 'declined' in retired))
 
     def test_a_failed_attempts_changed_report_does_not_block_a_later_attempt_retiring(self):
         # A failed, blocked or cancelled attempt owes no intact report: only a completed result does. A retry in the

@@ -35,19 +35,19 @@ def ledger_path():
     return state / 'zloop/outcomes.sqlite'
 
 
-def connect():
+def connect(timeout=30):
     path = ledger_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(path, timeout=30, isolation_level=None)
+    db = sqlite3.connect(path, timeout=timeout, isolation_level=None)
     db.execute('PRAGMA journal_mode=WAL')
     db.execute('CREATE TABLE IF NOT EXISTS outcomes (key TEXT PRIMARY KEY, data TEXT NOT NULL)')
     return db
 
 
-def put(key, row):
-    """Write one attempt's current outcome; the latest write for a key wins. A lifecycle attempt replaces
-    the copy of its routing decision imported from a journal."""
-    db = connect()
+def put(key, row, timeout=30):
+    """Write one attempt's current outcome, waiting up to `timeout` seconds for the ledger; the latest write for a key
+    wins. A lifecycle attempt replaces the copy of its routing decision imported from a journal."""
+    db = connect(timeout)
     try:
         with db:
             db.execute('BEGIN IMMEDIATE')
