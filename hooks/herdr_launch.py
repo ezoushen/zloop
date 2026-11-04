@@ -5,8 +5,8 @@ It finds launches behind assignments, wrappers (`timeout`, `env` and their optio
 inside heredocs or backticks.
 
 Appends one JSON line per launch to the main checkout's .scratch/herdr-launches.jsonl: the time, agent name and
-pane, the orchestrator (its HERDR_PANE_ID and host session ID) and the pane's cwd when Herdr reports it. Claude and
-Codex run it before Bash; Pi's extension passes its bash and bg_run calls. It never blocks the command.
+pane, the Herdr server session it ran in (None for the default server), the orchestrator (its HERDR_PANE_ID and host
+session ID) and the pane's cwd when Herdr reports it. Claude and Codex run it before Bash; Pi's extension passes its bash and bg_run calls. It never blocks the command.
 
 `herdr_launch.py dismiss --pane <pane> | --name <agent> [--session <host session>] --reason <text> | --keep <text>`,
 run in the checkout, appends a dismissal by this orchestrator (HERDR_PANE_ID and the session given) that accounts for
@@ -121,7 +121,7 @@ def main():
         deadline = time.monotonic() + LOOKUP_SECONDS
         for session, agent, pane in launches:
             record = {'time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'agent': agent, 'pane': pane,
-                      'orchestrator': orchestrator}
+                      'herdr_session': session, 'orchestrator': orchestrator}
             cwd = pane and pane_cwd(session, pane, deadline)
             with log.open('a') as stream:
                 stream.write(json.dumps(dict(record, **({'cwd': cwd} if cwd else {}))) + '\n')

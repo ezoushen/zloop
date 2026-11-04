@@ -442,19 +442,25 @@ def same_orchestrator(theirs, pane, session):
     return bool(pane) and theirs['pane'] == pane
 
 
-def handles(worker):
-    """What a registered worker matches: itself, and the pane and name of a `<session>/<pane>/<name>` handle."""
+def named(worker):
+    """What a registered worker names: the pane of a `<server session>/<pane>/<name>` handle, whatever name it carries
+    now; else the worker itself, a pane or an agent name."""
     parts = worker.rsplit('/', 2)
-    return {worker, *parts[1:]} if len(parts) == 3 else {worker}
+    return parts[1] if len(parts) == 3 else worker
 
 
 def clears(saved, launch):
-    """Whether an attempt accounts for a logged launch: it names the launch's pane or agent, and a host session
+    """Whether an attempt accounts for a logged launch: it names the launch's pane (a handle only its pane) or agent,
+    in the launch's Herdr server when both know one, and a host session
     recorded at registration, or one whose launches it was recorded to clear, is the one that launched it when both
     know one; else the orchestrator recorded at
     registration is the pane that launched it, and only a launch made outside Herdr can instead be cleared by an
     attempt with no recorded orchestrator, registered no earlier."""
-    if not handles(saved['worker']) & {launch['agent'], launch['pane']}:
+    parts = saved['worker'].rsplit('/', 2)
+    server = parts[0] if len(parts) == 3 else (saved.get('herdr') or {}).get('session')
+    if server and launch.get('herdr_session') and server != launch['herdr_session']:
+        return False
+    if named(saved['worker']) not in (launch['agent'], launch['pane']):
         return False
     if recorded_sessions(saved) and launch['orchestrator']['session']:
         return launch['orchestrator']['session'] in recorded_sessions(saved) + saved.get('launch_sessions', [])
@@ -482,7 +488,7 @@ def readable(record):
     except (TypeError, ValueError):
         return False
     return ({'agent', 'pane'} <= set(record) and text(record['agent']) and text(record['pane'])
-            and identity(record.get('orchestrator')) and text(record.get('cwd')))
+            and identity(record.get('orchestrator')) and text(record.get('cwd')) and text(record.get('herdr_session')))
 
 
 def pane_open(server, pane):
@@ -509,7 +515,11 @@ def unregistered(root, pane, session, siblings=True):
         except Exception:  # gaps() names a state that cannot be read to its workstream's orchestrator.
             continue
         attempts += [dict(saved, registered_at=registered.get(saved['attempt'])) for saved in saved_attempts]
-    workers = {handle for saved in attempts for handle in handles(saved['worker'])}
+    index = {}  # The attempts by what their worker names: a launch looks up its own pane and name.
+    for saved in attempts:
+        index.setdefault(named(saved['worker']), []).append(saved)
+    mine = {saved['worker'] for saved in attempts if attributed(saved) and owns(saved, pane, session)}
+    workers = set()
     log, worktrees = root / LAUNCHES, (root / '.worktrees').resolve()
     records, unreadable = [], []
     for number, line in enumerate(log.read_text().splitlines() if log.is_file() else [], 1):
@@ -543,7 +553,8 @@ def unregistered(root, pane, session, siblings=True):
     workers |= {record['pane'] for record in records if 'dismissed' not in record
                 and not same_orchestrator(record['orchestrator'], pane, session)}
     launches = [launch for launch in launches if same_orchestrator(launch['orchestrator'], pane, session)
-                and not any(clears(saved, launch) for saved in attempts)
+                and not any(clears(saved, launch) for key in (launch['agent'], launch['pane'])
+                            for saved in index.get(key, []))
                 and ('cwd' not in launch or Path(launch['cwd']).resolve().is_relative_to(worktrees))]
     workers |= {handle for launch in launches for handle in (launch['agent'], launch['pane'])}  # Named once.
     workers |= {value for record in records if 'dismissed' in record  # This orchestrator's dismissals cover live agents.
@@ -563,10 +574,13 @@ def unregistered(root, pane, session, siblings=True):
         agents = herdr_agents() if siblings and workspace and worktrees.is_dir() else []  # No worktrees, no workers.
     except Exception as error:  # A check that cannot run is a named gap, never a pass.
         agents, failed = [], failed + [f'could not check Herdr workers: {error}']
+    # A name is reused freely, so an attempt accounts for a live agent by its pane, or by its name only when this session
+    # registered it (another session's launch is told by its pane, above).
     live = [agent for agent in agents
             if agent.get('workspace_id') == workspace and agent['pane_id'] != pane and agent.get('cwd')
             and Path(agent['cwd']).resolve().is_relative_to(worktrees)
-            and not workers & {agent.get('name'), agent['pane_id']}]
+            and not workers & {agent.get('name'), agent['pane_id']} and agent['pane_id'] not in index
+            and agent.get('name') not in mine]
     return ([f"{log}: {launch['agent']} (pane {launch['pane']}): launched without a registered attempt"
              for launch in launches]
             + [f"Herdr agent {agent.get('name')} (pane {agent['pane_id']}) runs in {agent['cwd']} "

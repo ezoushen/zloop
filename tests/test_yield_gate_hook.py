@@ -845,6 +845,40 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.launch('herdr agent start builder-1 --kind codex --pane w1:p5', pane=None)
         self.assertEqual(self.check(pane=None, session='host-1'), [self.gap('builder-1', 'w1:p5')])
 
+    def test_an_opencode_launch_logged_with_its_session_and_no_pane_is_cleared_by_that_sessions_registration(self):
+        # Gap 20: OpenCode exports no Herdr pane, so its launches are logged under the host session alone; the attempt
+        # its OPENCODE_SESSION_ID registration records (session and sessions, no orchestrator pane) clears them, and
+        # only that session's. Written against the record's shape, which T1's registration produces.
+        self.launch('herdr agent start oc-builder --kind codex --pane w1:p5', pane=None, session='oc-1')
+        self.launch('herdr agent start oc-other --kind codex --pane w1:p6', pane=None, session='oc-2')
+        self.assertEqual(self.logged()[0]['orchestrator'], {'pane': None, 'session': 'oc-1'})
+        self.serve()
+        self.assertEqual(self.check(pane=None, session='oc-1'), [self.gap('oc-builder', 'w1:p5')])
+        self.write_rows(dict(attempt='ticket-1/1', assignment='ticket-1', repo=str(self.repo), runtime='opencode',
+                             native_session='n-1', worker='oc-builder', session='oc-1', sessions=['oc-1'], owned=True,
+                             result={'status': 'completed'}))
+        self.assertEqual(self.check(pane=None, session='oc-1'), [])
+        self.assertEqual(self.check(pane=None, session='oc-2'), [self.gap('oc-other', 'w1:p6')])
+
+    def test_matching_launches_to_attempts_stays_well_inside_the_hook_timeout_for_a_long_history(self):
+        # Audit A11: sixteen thousand registered launches took about 29 s to match against as many attempts; the
+        # hook's timeout is 20 s, so a long-lived checkout stopped without a check. Matching is by identity, not a scan.
+        count = 16000
+        self.write_rows(*(dict(attempt=f'run/{number}', assignment='run/01', repo=str(self.repo), runtime='claude',
+                               native_session=f'n-{number}', worker=f'builder-{number}', session='host-1',
+                               orchestrator='w1:p1', owned=True, result={'status': 'completed'})
+                          for number in range(count)))
+        log = self.repo / '.scratch/herdr-launches.jsonl'
+        log.write_text(''.join(json.dumps({
+            'time': '2026-10-20T10:00:00Z', 'agent': f'builder-{number}', 'pane': f'w1:p{number}', 'herdr_session': None,
+            'orchestrator': {'pane': 'w1:p1', 'session': 'host-1'}, 'cwd': str(self.worktree)}) + '\n'
+            for number in range(count)) + json.dumps({
+                'time': '2026-10-20T10:00:00Z', 'agent': 'unregistered', 'pane': 'w1:p99999', 'herdr_session': None,
+                'orchestrator': {'pane': 'w1:p1', 'session': 'host-1'}, 'cwd': str(self.worktree)}) + '\n')
+        started = time.monotonic()
+        self.assertEqual(self.check(session='host-1'), [self.gap('unregistered', 'w1:p99999')])
+        self.assertLess(time.monotonic() - started, 10)
+
     def test_a_dismissed_launch_whose_pane_is_still_open_holds_its_session_until_it_is_closed_or_kept(self):
         # Gap 15: a probe or failed launch dismissed but left open is still a worker nobody accounts for; closing the
         # pane or recording it kept on purpose (`--keep <reason>`) ends the hold, and only the dismissing session is held.
@@ -936,8 +970,9 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.assertEqual(self.check(session='host-1'), missing)
         self.assertEqual(self.check(pane=None, session='host-1'), missing)
 
-    def test_a_session_pane_name_handle_clears_a_launch_matching_its_pane_or_its_name(self):
-        # Decision 2: the lifecycle also accepts `<session>/<pane>/<name>` as a worker handle.
+    def test_a_session_pane_name_handle_clears_only_the_launch_of_its_pane_and_server(self):
+        # Decision 2, audit A3: the lifecycle also accepts `<session>/<pane>/<name>` as a worker handle, and it names
+        # one pane of one Herdr server: a name another handle shares, or a pane of another server, clears nothing.
         self.serve(panes={'default': {pane: {'pane_id': pane, 'cwd': str(self.worktree)}
                                       for pane in ('w1:p5', 'w1:p6', 'w1:p7')}})
         for agent, pane in (('builder-1', 'w1:p5'), ('builder-2', 'w1:p6'), ('builder-3', 'w1:p7')):
@@ -946,7 +981,39 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.register('default/w1:p5/renamed-1', 'ticket-1/1', pane=None)
         self.register('s2/w1:p9/builder-2', 'ticket-2/1', pane=None)
         self.register('default/w1:p8/builder-9', 'ticket-3/1', pane=None)
-        self.assertEqual(self.check(pane=None, session='host-1'), [self.gap('builder-3', 'w1:p7')])
+        self.assertEqual(self.check(pane=None, session='host-1'),
+                         [self.gap('builder-2', 'w1:p6'), self.gap('builder-3', 'w1:p7')])
+
+    def test_a_handle_clears_only_the_launch_in_its_own_herdr_server(self):
+        # Audit A3: the launch log keeps the Herdr server a launch ran in, so `s1/w1:p5/alpha` does not also clear an
+        # unrelated launch in pane w1:p5 of server s2.
+        panes = {server: {'w1:p5': {'pane_id': 'w1:p5', 'cwd': str(self.worktree)}} for server in ('s1', 's2')}
+        self.serve(panes=panes)
+        self.launch('herdr --session s1 agent start alpha --kind codex --pane w1:p5', pane=None)
+        self.launch('herdr --session=s2 agent start beta --kind codex --pane w1:p5', pane=None)
+        self.launch('herdr agent start gamma --kind codex --pane w1:p6', pane=None)
+        self.assertEqual([record['herdr_session'] for record in self.logged()], ['s1', 's2', None])
+        self.serve()
+        self.register('s1/w1:p5/alpha', 'ticket-1/1', pane=None)
+        self.assertEqual(self.check(pane=None, session='host-1'),
+                         [self.gap('beta', 'w1:p5'), self.gap('gamma', 'w1:p6')])
+        self.register('s2/w1:p5/beta', 'ticket-2/1', pane=None)
+        self.assertEqual(self.check(pane=None, session='host-1'), [self.gap('gamma', 'w1:p6')])
+
+    def test_another_sessions_attempt_hides_a_live_agent_only_by_its_pane_or_its_logged_name_and_pane(self):
+        # Audit A3: a name is reused freely, so another session's registered `build-1` does not account for a different
+        # pane's `build-1`; this session's own attempt does by name, and the pane or the launch log ties a name to its pane.
+        agents = [self.agent('build-1', 'w1:p9', self.worktree), self.agent('build-2', 'w1:p8', self.worktree),
+                  self.agent('build-3', 'w1:p7', self.worktree), self.agent('build-4', 'w1:p6', self.worktree)]
+        self.serve(agents=agents)
+        self.register('build-1', 'ticket-1/1', pane='w1:p3', session='host-2')  # Another session's, name only.
+        self.assertEqual(self.check(session='host-1'), [self.live(agent['name'], agent['pane_id'], self.worktree)
+                                                        for agent in agents])
+        self.register('build-2', 'ticket-2/1', pane='w1:p1', session='host-1')  # Its own.
+        self.register('w1:p7', 'ticket-3/1', pane='w1:p3', session='host-2')  # Another's, by pane.
+        self.launch('herdr agent start build-4 --kind codex --pane w1:p6', pane='w1:p3', session='host-2')
+        self.register('build-4', 'ticket-4/1', pane='w1:p3', session='host-2')  # Another's, with a logged pane.
+        self.assertEqual(self.check(session='host-1'), [self.live('build-1', 'w1:p9', self.worktree)])
 
     def test_launches_outside_worktrees_are_not_gaps_but_an_unknown_cwd_is(self):
         # Rule 2: E2E subjects and demos run in panes outside .worktrees/; a cwd Herdr did not report still counts.

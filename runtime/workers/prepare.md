@@ -15,14 +15,15 @@ The hooks also append each `herdr agent start` a session runs, including behind 
 when Herdr reports it). A launch is named at stop, even after its pane closed, until an
 attempt names its pane or agent and, as [wait](wait.md) says, comes from its orchestrator:
 registration records the registering Herdr pane and host session. A launch inside a
-heredoc or backticks is not logged, and a pane or name from a loop variable is logged as
-typed; the live-agent check still names such a worker.
+heredoc or backticks is not logged, nor one whose pane or name a shell expands (`$pane`); the
+live-agent check still names such a worker.
 A launch or live agent that needs no attempt (it failed, its pane was closed at a trust
 dialog, a probe) is accounted for by running the command the stop message prints,
 `python3 <plugin root>/hooks/herdr_launch.py dismiss --pane <pane> --session <host session>
 --reason "<why>"` (or `--name <agent>`), in the checkout. The reason is required, and so is
 `--session` outside Herdr; the dismissal covers only this orchestrator's launches logged
-before it.
+before it. A dismissed pane still open holds the stop; close it, or dismiss with `--keep "<why>"`
+in place of `--reason` to keep it on purpose.
 
 Launch every worker with `ZLOOP_WORKER=<slug>/<assignment>` in its environment (in
 Herdr, the Herdr guide's tab recipe sets it). For the Herdr
