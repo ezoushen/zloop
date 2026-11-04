@@ -66,10 +66,10 @@ For a paths or whole-project scan, first count the items the kind checks one by 
 every test for tautological-tests, every comment block or docstring for
 misleading-comments, the units its signal names for a free-form goal. Use the
 project's own listing where it has one, and size the audit partitions by that count.
-Record the partitions as the audit plan, one `--assignment <slug>/<partition>` each, and again
-with every partition when they change: `python3 "<plugin_root>/scripts/worker_lifecycle.py" plan
---state <reports>/workers.sqlite --job audit --assignment ...`. Registration refuses an audit
-outside the plan, and the panel counts audits done against it.
+Record each audit partition in the plan: `python3 "<plugin_root>/scripts/worker_lifecycle.py"
+plan --state <reports>/workers.sqlite --job audit --assignment <slug>/<partition>`, one or more
+`--assignment` per call, calls adding up; partitions cut again are recorded whole with `--replace`.
+Registration refuses an audit outside the plan, and the panel counts audits done against it.
 If those per-item checks (the Proof checklist for each test, the reading of each
 comment block against its code) cannot be completed for every counted item with the
 available workers and allowance, [ask the user](../../runtime/ask/ask.md) before

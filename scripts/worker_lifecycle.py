@@ -112,17 +112,17 @@ def final_retirement(db, saved, declined=False):
             'receipts and waits before retirement')
 
 
-def plan(db, job, assignments):
-    """Record the assignments a job is planned to cover, replacing its previous plan."""
+def plan(db, job, assignments, replace=False):
+    """Add assignments to a job's plan, or with replace make them the whole plan (partitions cut again)."""
     require(text(job) and assignments and all(text(x) for x in assignments),
             'Plan requires --job and at least one --assignment')
     require(job in DEFINITIONS['jobs'], f'Plan requires a known job, not {job}')
-    planned = list(dict.fromkeys(assignments))
+    planned = list(dict.fromkeys([*([] if replace else planned_of(db, job) or []), *assignments]))
     db.execute('INSERT OR REPLACE INTO plans VALUES (?, ?)', (job, json.dumps(planned)))
     return {'job': job, 'assignments': planned}
 
 
-def planned(db, job):
+def planned_of(db, job):
     """The assignments a job's plan holds, or None when it has no plan."""
     row = db.execute('SELECT assignments FROM plans WHERE job = ?', (job,)).fetchone()
     return json.loads(row[0]) if row else None
@@ -795,12 +795,11 @@ def record(db, data, refuse_changes=False, submitting=False):
                     'Resolved execution requires its agent and a known job (resolve with --job)')
             job = DEFINITIONS['jobs'][execution['job']]
             require(job['agent'] == execution['agent'], f'Job {execution["job"]} is done by {job["agent"]}')
-            plan_of = planned(db, execution['job'])
+            plan_of = planned_of(db, execution['job'])
             command = shlex.join(['python3', str(Path(__file__).resolve()), 'plan', '--state', state_path(db),
-                                  '--job', execution['job']])
+                                  '--job', execution['job'], '--assignment', data['assignment']])
             require(plan_of is None or data['assignment'] in plan_of,
-                    f'{data["assignment"]} is not in the {execution["job"]} plan; record the plan with every assignment '
-                    f'it holds: `{command} --assignment <each>`')
+                    f'{data["assignment"]} is not in the {execution["job"]} plan; add it: `{command}`')
             packet = Path(data.get('packet') or '')
             require(packet.is_absolute() and packet.is_file(),
                     'Registration requires packet: the absolute path of the assignment text sent to the worker')
@@ -1601,6 +1600,7 @@ def main():
     parser.add_argument('--count', type=int, default=1, help='attribute: how many of that signal')
     parser.add_argument('--job', help='plan: the job whose assignments are planned')
     parser.add_argument('--assignment', action='append', default=[], help='plan: one planned assignment, repeated')
+    parser.add_argument('--replace', action='store_true', help='plan: the assignments are the whole plan')
     args = parser.parse_args()
     try:
         with connect(args.state) as db:
@@ -1632,7 +1632,7 @@ def main():
             elif args.action == 'status':
                 result = status(db, args.attempt)
             elif args.action == 'plan':
-                result = plan(db, args.job, args.assignment)
+                result = plan(db, args.job, args.assignment, args.replace)
             elif args.action == 'attribute':
                 require(text(args.attempt) and args.kind, 'Attribution requires --attempt and --kind')
                 result = attribute(db, args.attempt, args.kind, args.count, args.evidence)

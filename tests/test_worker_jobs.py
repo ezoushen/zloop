@@ -143,14 +143,17 @@ sys.exit(process.returncode)
                          {'job': 'audit', 'assignments': ['p1', 'p2']})
         refused = self.register('p3/1', 'p3', code=2)
         # The fixture's path holds a space: the command it names must still run as pasted.
-        command = shlex.join(['python3', str(SCRIPT), 'plan', '--state', str(self.state.resolve()), '--job', 'audit'])
-        self.assertIn(f'p3 is not in the audit plan; record the plan with every assignment it holds: '
-                      f'`{command} --assignment <each>`', refused)
+        command = shlex.join(['python3', str(SCRIPT), 'plan', '--state', str(self.state.resolve()), '--job', 'audit',
+                              '--assignment', 'p3'])
+        self.assertIn(f'p3 is not in the audit plan; add it: `{command}`', refused)
         self.register('p1/1', 'p1')
-        self.cli('plan', '--job', 'audit', '--assignment', 'p1', '--assignment', 'p2', '--assignment', 'p3')
+        # Plans add up: an orchestrator may record one partition per call (a live Codex host did).
+        self.assertEqual(self.cli('plan', '--job', 'audit', '--assignment', 'p3'),
+                         {'job': 'audit', 'assignments': ['p1', 'p2', 'p3']})
         self.register('p3/1', 'p3', session='native-3', worker='pane-3')
-        # A new plan replaces the old one: partitions cut again drop the ones they no longer hold.
-        self.cli('plan', '--job', 'audit', '--assignment', 'p1')
+        # Partitions cut again replace the plan: --replace drops the ones the new set no longer holds.
+        self.assertEqual(self.cli('plan', '--job', 'audit', '--replace', '--assignment', 'p1'),
+                         {'job': 'audit', 'assignments': ['p1']})
         self.assertIn('p2 is not in the audit plan', self.register('p2/1', 'p2', session='native-2', worker='pane-2',
                                                                   code=2))
         # A job without a plan registers any assignment.
