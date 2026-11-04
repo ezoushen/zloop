@@ -39,7 +39,7 @@ work gates reject the retired conversation across its history. Retain incomplete
 workers with their concrete next use or capability limitation. For other native
 transports, close through the installed lifecycle tool, confirm closure, then
 record `closed` with native evidence. The helper requires a
-collected intact report and acknowledged receipts. Retain only a stated next use
+collected report (intact when the result is completed) and acknowledged receipts. Retain only a stated next use
 or a concrete runtime/ownership limitation, with `retain`, `reason`, `next_use` and
 evidence. An unsupported close operation leaves capacity unavailable until the
 runtime confirms release. Existing user panes stay with their owner.
