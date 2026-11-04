@@ -3,8 +3,10 @@
 
 usage: native_wait.py claude <session record> [--timeout SECONDS] [--interval SECONDS]
 
-Exits 0 once the session record has grown past its size when this script started and its last assistant turn ended
-(`stop_reason` is `end_turn`), and 124 when the timeout passes first. Exits 2 for any other runtime or a missing record.
+Exits 0 once the record's last assistant row ended its turn (`stop_reason` is `end_turn`) with no user row after it (tool
+results are user rows, so a turn in progress always has one), and 124 when the timeout passes first, a missing record
+included. Exits 2 for any other runtime. Arm it after the assignment is sent: an end_turn already followed by no user
+row counts as finished.
 """
 import argparse
 import json
@@ -14,12 +16,14 @@ import time
 
 
 def turn_ended(path):
-    """Whether the record's last assistant row ended its turn; a half-written last line is ignored."""
+    """Whether the record's last assistant row ended its turn with no user row after it; a half-written line is ignored."""
     for line in reversed(path.read_bytes().splitlines()):
         try:
             row = json.loads(line)
         except ValueError:
             continue
+        if row.get('type') == 'user':
+            return False
         if row.get('type') == 'assistant':
             return row.get('message', {}).get('stop_reason') == 'end_turn'
     return False
@@ -34,12 +38,9 @@ def main():
     args = parser.parse_args()
     if args.runtime != 'claude':
         parser.exit(2, f'native_wait.py reads a claude session record only, not {args.runtime}\n')
-    if not args.record.is_file():
-        parser.exit(2, f'No session record at {args.record}\n')
-    start = args.record.stat().st_size
     deadline = time.monotonic() + args.timeout
     while time.monotonic() < deadline:
-        if args.record.stat().st_size > start and turn_ended(args.record):
+        if args.record.is_file() and turn_ended(args.record):
             return 0
         time.sleep(args.interval)
     print(f'The worker did not end a turn within {args.timeout:g} seconds', file=sys.stderr)
