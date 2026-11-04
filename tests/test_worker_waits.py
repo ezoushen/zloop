@@ -76,15 +76,16 @@ class Waits(WorkerLifecycleCase):
             'notify': {'argv': [sys.executable, '-c',
                                 f'import sys; open({str(parent)!r}, "a").write(sys.argv[1] + "\\n")', '{receipt}'],
                        'timeout': 2}}))
-        self.cli('watch', '--attempt', 'ticket-1/1', '--input', str(request))
-        # A delivered wake will reach the host: no gap yet.
-        self.assertEqual(self.cli('gate', '--stage', 'yield'), {'complete': True, 'missing': []})
+        receipt = self.cli('watch', '--attempt', 'ticket-1/1', '--input', str(request))
+        self.assertIn(f"ticket-1/1: receipt {receipt['event_id']} was delivered and not consumed",
+                      self.cli('gate', '--stage', 'yield', code=1)['missing'][0])
         self.record('reconciled', evidence=['native worker still running tests'])
         gate = self.cli('gate', '--stage', 'yield', code=1)
         self.assertEqual(gate['missing'], ['ticket-1/1: no armed wait'])
 
-    def test_yield_gate_names_a_delivered_receipt_the_host_acted_past_without_consuming(self):
-        # A delivered wake is a gap once the state holds a later event: the host moved on without consuming it.
+    def test_yield_gate_names_a_delivered_receipt_the_host_has_not_consumed(self):
+        # The wake reached the host, which must consume it before it stops: it would otherwise never be told again
+        # (the stforestkit review-pr920 receipts sat four days with nothing after them).
         self.register()
         self.ready()
         parent = self.root / 'parent.jsonl'
@@ -94,8 +95,6 @@ class Waits(WorkerLifecycleCase):
                                 f'import sys; open({str(parent)!r}, "a").write(sys.argv[1] + "\\n")', '{receipt}'],
                        'timeout': 2}}))
         receipt = self.cli('watch', '--attempt', 'ticket-1/1', '--input', str(request))
-        self.assertEqual(self.cli('gate', '--stage', 'yield'), {'complete': True, 'missing': []})
-        self.register('ticket-2/1', 'ticket-2', 'native-2', 'pane-2')
         gate = self.cli('gate', '--stage', 'yield', code=1)
         self.assertEqual(gate['missing'], [f"ticket-1/1: receipt {receipt['event_id']} was delivered and not consumed; "
                                            'collect the result or ack it and arm the next wait'])

@@ -238,11 +238,10 @@ def yield_gaps(db, include=lambda saved: True, rows=None):
                        and row['payload'].get('token') == monitor.get('token')]
             if not current:
                 missing.append(f"{saved['attempt']}: no armed wait")
-            # A delivered wake the host acted past without consuming it: the state holds a later event.
+            # A delivered wake the host has not consumed: stopping now, it would never be told again.
             missing += [f"{row['attempt']}: receipt {row['id']} was delivered and not consumed; collect the result "
                         'or ack it and arm the next wait' for row in current
-                        if row['payload'].get('delivery', {}).get('state') == 'sent'
-                        and db.execute('SELECT 1 FROM events WHERE id > ?', (row['id'],)).fetchone()]
+                        if row['payload'].get('delivery', {}).get('state') == 'sent']
     missing += [f"{row['attempt']}: result receipt {row['id']} was not collected; collect it or ack it"
                 for row in unconsumed if row['kind'] == 'result']
     missing += [f"{row['attempt']}: receipt {row['id']} was not delivered" for row in receipts
