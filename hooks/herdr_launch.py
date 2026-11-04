@@ -57,22 +57,36 @@ def runs(words, assigned=None):
     return words
 
 
+def changes_socket(tokens):
+    """Whether a statement may change HERDR_SOCKET_PATH for the statements beside it: it names the variable other than
+    in the prefix of a command it runs, or runs no command (assignments, `export`, an `env` that only prints); a shell
+    it starts keeps its own changes."""
+    if not any('HERDR_SOCKET_PATH' in token for token in tokens):
+        return False
+    words = runs(list(tokens))
+    return not words or (Path(words[0]).name not in SHELLS and any('HERDR_SOCKET_PATH' in word for word in words))
+
+
 def starts(command, assigned=None):
     """Yield (Herdr session or None, agent name, pane) for each `herdr [--session S] agent start` the command runs;
-    `assigned` is the HERDR_SOCKET_PATH an enclosing command gave it; a statement of the command's own that assigns,
-    exports or unsets it changes it for the launches after it."""
-    shell = dict(assigned or {})
+    `assigned` is the HERDR_SOCKET_PATH an enclosing command gave it. Beside a statement that may change it, no launch
+    is yielded: which server it runs in cannot be read from the text, and the stop check's scan finds the agent."""
+    statements = []
+    for tokens, _ in pr_body.logical_lines(command):
+        start = 0
+        for index, token in enumerate(tokens + [';']):
+            if token in pr_body.SEPARATORS or index == len(tokens):
+                statements.append(tokens[start:index])
+                start = index + 1
+    if any(changes_socket(statement) for statement in statements):
+        return
     for tokens, _ in pr_body.logical_lines(command):
         start = 0
         for index, token in enumerate(tokens + [';']):
             if token not in pr_body.SEPARATORS and index < len(tokens):
                 continue
-            environ = dict(shell)
+            environ = dict(assigned or {})
             words, start = runs(tokens[start:index], environ), index + 1
-            if not words:  # Assignments alone (`export` is a wrapper here) set the shell's variable.
-                shell = environ
-            elif words[0] == 'unset' and 'HERDR_SOCKET_PATH' in words[1:]:
-                shell['HERDR_SOCKET_PATH'] = ''
             if words and Path(words[0]).name in SHELLS:
                 for at, word in enumerate(words[1:], 1):  # The string a shell's `-c` runs.
                     if not word.startswith('-'):

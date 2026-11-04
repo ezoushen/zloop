@@ -932,14 +932,32 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
                  (f"env -i HERDR_SOCKET_PATH={sock('s2')} herdr agent start a%d --pane w1:p%d", 's2'),
                  (f"HERDR_SOCKET_PATH={sock('s2')} sh -c 'env -u HERDR_SOCKET_PATH herdr agent start a%d --pane w1:p%d'", 'default'),
                  (f"HERDR_SOCKET_PATH={sock('s2')} env -u OTHER herdr agent start a%d --pane w1:p%d", 's2'),
-                 # Review 4: what a shell body's own statements do to the variable reaches its later launches.
-                 (f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'unset HERDR_SOCKET_PATH; herdr agent start a%d --pane w1:p%d'",
-                  'default'),
-                 (f"bash -c 'export HERDR_SOCKET_PATH={sock('s3')}; herdr agent start a%d --pane w1:p%d'", 's3'),
-                 (f"HERDR_SOCKET_PATH={sock('s2')}; herdr agent start a%d --pane w1:p%d", 's2')]
+                 (f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'herdr agent start x%d --pane w1:p8'; "
+                  "herdr agent start a%d --pane w1:p%d", 's4'),
+                 # A shell the command starts keeps its own changes: the launch beside it runs on the logger's server.
+                 ("bash -c 'unset HERDR_SOCKET_PATH'; herdr agent start a%d --pane w1:p%d", 's4')]
         for number, (command, _) in enumerate(cases):
             self.launch(command.replace('%d', str(number)), pane=None, env={'HERDR_SOCKET_PATH': sock('s4')})
-        self.assertEqual([record['herdr_session'] for record in self.logged()], [server for _, server in cases])
+        self.assertEqual([record['herdr_session'] for record in self.logged() if not record['agent'].startswith('x')],
+                         [server for _, server in cases])
+
+    def test_a_launch_beside_a_statement_that_changes_the_socket_is_not_logged(self):
+        # Review 4 and 5: a body's own assignments, exports, unsets or bare `env` may change the server for the launches
+        # beside it in ways a reading of the text cannot settle (subshells, loops that never run, unexported variables),
+        # so those launches are not logged; the stop check's live-agent scan still names a real one.
+        sock = lambda name: f'/home/u/.config/herdr/sessions/{name}/herdr.sock'
+        for command in (f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'unset HERDR_SOCKET_PATH; herdr agent start a --pane w1:p5'",
+                        f"bash -c 'export HERDR_SOCKET_PATH={sock('s3')}; herdr agent start a --pane w1:p5'",
+                        f"HERDR_SOCKET_PATH={sock('s2')}; herdr agent start a --pane w1:p5",
+                        f"HERDR_SOCKET_PATH={sock('s2')} bash -c '(\n  unset HERDR_SOCKET_PATH\n)\nherdr agent start a --pane w1:p5'",
+                        f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'while false; do unset HERDR_SOCKET_PATH; done\n"
+                        "herdr agent start a --pane w1:p5'",
+                        f"env -u HERDR_SOCKET_PATH bash -c 'HERDR_SOCKET_PATH={sock('s3')}\nherdr agent start a --pane w1:p5'",
+                        f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'env -u HERDR_SOCKET_PATH\nherdr agent start a --pane w1:p5'"):
+            with self.subTest(command=command):
+                before = len(self.logged())
+                self.launch(command, pane=None, env={'HERDR_SOCKET_PATH': sock('s4')})
+                self.assertEqual(before, len(self.logged()))
 
     def test_matching_stays_linear_when_one_name_is_registered_by_many_sessions(self):
         # Review 1: sixteen thousand `builder` registrations from other sessions all landed in one bucket that every
