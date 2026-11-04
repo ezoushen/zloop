@@ -8,7 +8,7 @@ Named scripts run alone, a focused run while editing; with none, every script ru
 Uses the plugin environment's .venv (the main checkout's, from a worktree) unless
 PYTHON names another interpreter. Concurrent runs on the machine share one budget of
 ZLOOP_TEST_SLOTS units (default: the CPU count), held as file locks in ZLOOP_TEST_SLOT_DIR
-(default: /tmp/zloop-test-slots-<uid>); a lock vanishes with its run, so a killed run frees its slots.
+(default: zloop-test-slots-<uid> under the temporary directory, $TMPDIR); a lock vanishes with its run, so a killed run frees its slots.
 A run started by one of those scripts (ZLOOP_TEST_SLOT_HELD is set) counts its own units against a private
 budget, so it never waits on the slot its parent script already holds. A unittest script is split into one unit per
 test class, and a class of more than MAX_UNIT_TESTS tests into balanced shards of at most that many, so a script's
@@ -116,7 +116,7 @@ def main(paths=()):
         if os.environ.get('ZLOOP_TEST_SLOT_HELD'):
             directory = Path(logs) / 'slots'
         else:
-            directory = Path(os.environ.get('ZLOOP_TEST_SLOT_DIR') or f'/tmp/zloop-test-slots-{os.getuid()}')
+            directory = Path(os.environ.get('ZLOOP_TEST_SLOT_DIR') or Path(tempfile.gettempdir()) / f'zloop-test-slots-{os.getuid()}')
         directory.mkdir(parents=True, exist_ok=True)
         env['ZLOOP_TEST_SLOT_HELD'] = '1'
         held = []

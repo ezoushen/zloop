@@ -112,6 +112,21 @@ class RunAll(unittest.TestCase):
         self.assertIn('FAIL test_bytes', result.stdout)
         self.assertIn('second failure', result.stdout)
 
+    def test_the_default_slot_directory_is_under_the_temporary_directory(self):
+        # Rule: a sandbox that writes only $TMPDIR must still get its slot locks, so they default beside the logs.
+        root = Path(tempfile.mkdtemp(prefix='run all tmpdir '))
+        self.addCleanup(shutil.rmtree, root)
+        (root / 'tests').mkdir()
+        (root / 'tmp').mkdir()
+        shutil.copy(RUNNER, root / 'tests/run_all.py')
+        (root / 'tests/test_one.py').write_text('pass\n')
+        subprocess.run(['git', 'init', '-q', str(root)], check=True)
+        env = {key: value for key, value in os.environ.items() if not key.startswith('ZLOOP_TEST_SLOT')}
+        result = subprocess.run([sys.executable, str(root / 'tests/run_all.py')], cwd=root, capture_output=True,
+                                text=True, timeout=60, env={**env, 'PYTHON': sys.executable, 'TMPDIR': str(root / 'tmp')})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((root / 'tmp' / f'zloop-test-slots-{os.getuid()}' / 'slot-0').exists())
+
     def test_a_terminated_run_removes_its_logs(self):
         root = Path(tempfile.mkdtemp(prefix='run all term '))
         self.addCleanup(shutil.rmtree, root)
