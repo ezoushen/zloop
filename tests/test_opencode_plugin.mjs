@@ -140,9 +140,15 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   await host.holding("ses_a", 2);
   host.push("succeeded", "ses_a");
   await host.holding("ses_a", 3);
+  // The fourth turn end is let through, and the gate's notice that it gave up reaches the session as a last prompt
+  // (OpenCode's prompt call has no `noReply`), once: the turn it starts is not held, nor are later ones.
+  host.push("succeeded", "ses_a");
+  await host.holding("ses_a", 4);
+  assert.match(host.sent[3].text, /^zloop yield gate gave up holding the stop after 3 holds of the same gaps; stopping with:\n- .*w-ses_a/);
+  host.push("succeeded", "ses_a");  // The turn the notice started.
   host.push("succeeded", "ses_a");
   await host.settle();
-  assert.equal(host.holds("ses_a"), 3, "the fourth turn end of the same gaps is let through");
+  assert.equal(host.holds("ses_a"), 4, "the notice is sent once and starts no further hold");
   await host.cleanup();
 }
 

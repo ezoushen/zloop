@@ -6,7 +6,7 @@ explicit invocation policy.
 
 The plugin `plugin.js` runs the yield gate and logs each `herdr agent start`. OpenCode
 cannot refuse a stop, so when a root session's turn succeeds with a gap, the plugin prompts
-that session with the hold's message while the gate holds (it bounds the repeats). When the gate gives up it says nothing: the plugin context offers no toast or log call. Child sessions, one-shot
+that session with the hold's message while the gate holds (it bounds the repeats). When the gate gives up after three holds, it sends its notice once as a last prompt (the prompt call has no `noReply`), and the turn that starts is not held. Child sessions, one-shot
 `opencode run` sessions and workers on Herdr's private server are not held; a child
 session's launches count as its root session's.
 

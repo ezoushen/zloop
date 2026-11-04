@@ -553,9 +553,15 @@ def unregistered(root, pane, session, siblings=True):
     index = {}  # The attempts by server, name and session or pane: a launch looks up its own, never scanning the rest.
     for saved in attempts:
         for key in attempt_keys(saved):
-            index.setdefault(key, []).append(saved)
+            if key[2] == 'orchestrator' and key[3] is None and key in index:
+                # With no orchestrator pane, only registration time tells attempts apart: the latest one decides.
+                index[key] = [max(index[key][0], saved, key=lambda other: other['registered_at'] or 0)]
+            else:
+                index.setdefault(key, []).append(saved)
     placed = {(server_of(saved), named(saved['worker'])) for saved in attempts}
-    mine = {saved['worker'] for saved in attempts if attributed(saved) and owns(saved, pane, session)}
+    # What this session registered by name: in the Herdr server and tab it recorded, when it recorded them.
+    mine = {(server_of(saved), saved['worker'], (saved.get('herdr') or {}).get('tab_id'))
+            for saved in attempts if attributed(saved) and owns(saved, pane, session)}
     workers = set()
     log, worktrees = root / LAUNCHES, (root / '.worktrees').resolve()
     records, unreadable = [], []
@@ -616,7 +622,8 @@ def unregistered(root, pane, session, siblings=True):
             if agent.get('workspace_id') == workspace and agent['pane_id'] != pane and agent.get('cwd')
             and Path(agent['cwd']).resolve().is_relative_to(worktrees)
             and not workers & {agent.get('name'), agent['pane_id']} and not placed & {(server, agent['pane_id']) for server in (None, own_server())}
-            and agent.get('name') not in mine]
+            and not {(server, agent.get('name'), tab) for server in (None, own_server())
+                     for tab in (None, agent.get('tab_id'))} & mine]
     return ([f"{log}: {launch['agent']} (pane {launch['pane']}): launched without a registered attempt"
              for launch in launches]
             + [f"Herdr agent {agent.get('name')} (pane {agent['pane_id']}) runs in {agent['cwd']} "
@@ -634,8 +641,8 @@ def checked(cwd, session=None):
 
 def count_hold(cwd, session, missing):
     """Record one more stop of this session with these gaps: (whether to hold it, the notice that the gate gave up or
-    None). An identical set holds up to MAX_HOLDS consecutive stops, one when every gap is a check that could not run;
-    a changed or cleared set starts the count again."""
+    None, said once). An identical set holds up to MAX_HOLDS consecutive stops, one when every gap is a check that could
+    not run; a changed or cleared set starts the count again."""
     try:
         root = main_checkout(cwd)
     except Exception:
@@ -660,6 +667,9 @@ def count_hold(cwd, session, missing):
             saved = {}
         held = saved.get('holds', 0) if saved.get('gaps') == missing else 0
         if held >= (1 if all(map(failed_check, missing)) else MAX_HOLDS):
+            if saved.get('told'):
+                return False, None  # Said once; later stops of the same gaps pass quietly.
+            files.write_atomic(path, json.dumps({'gaps': missing, 'holds': held, 'told': True}))
             return False, (f"zloop yield gate gave up holding the stop after {held} {'hold' if held == 1 else 'holds'} "
                            'of the same gaps; stopping with:\n' + ''.join(f'- {gap}\n' for gap in missing))
         files.write_atomic(path, json.dumps({'gaps': missing, 'holds': held + 1}))

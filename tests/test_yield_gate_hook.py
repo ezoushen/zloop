@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """The Stop hook keeps a host working while a lifecycle worker could finish unseen."""
+import calendar
 import json
 import os
 from pathlib import Path
@@ -548,7 +549,7 @@ console.log(JSON.stringify([await settle('completed'), await settle('completed')
         self.assertIsNone(aborted)
         self.assertFalse(notice['continue'])
         self.assertIn('gave up holding the stop after 3 holds of the same gaps', notice['entries'][0]['content'])
-        self.assertFalse(after['continue'])
+        self.assertIsNone(after, 'the notice is said once')
         self.assertFalse(has_settled_handler)
 
 
@@ -592,7 +593,7 @@ class StopHolds(GateRepo):
             self.assertNotIn('decision', given_up)
             self.assertIn('gave up holding the stop after 3 holds of the same gaps', given_up['systemMessage'])
             self.assertIn(self.gap('builder-1', 'w1:p5'), given_up['systemMessage'])
-            self.assertFalse(self.held(session=session, host=host), 'a later stop of the same gaps stays through')
+            self.assertIsNone(self.stop(session=session, host=host), 'a later stop passes without saying it again')
 
     def test_a_changed_gap_set_restarts_the_count(self):
         self.launch_gap()
@@ -639,10 +640,11 @@ class StopHolds(GateRepo):
         self.launch_gap()
         for _ in range(4):  # Reporting the gaps with `check` counts no stop.
             self.assertEqual(self.check(session='host-1'), [self.gap('builder-1', 'w1:p5')])
-        self.assertEqual([self.verdict()['hold'] for _ in range(4)], [True, True, True, False])
-        verdict = self.verdict()
-        self.assertEqual(verdict['missing'], [self.gap('builder-1', 'w1:p5')], 'the gaps are reported whatever the count')
-        self.assertIn('gave up holding the stop after 3 holds of the same gaps', verdict['notice'])
+        verdicts = [self.verdict() for _ in range(5)]
+        self.assertEqual([verdict['hold'] for verdict in verdicts], [True, True, True, False, False])
+        self.assertEqual(verdicts[4]['missing'], [self.gap('builder-1', 'w1:p5')], 'the gaps are reported whatever the count')
+        self.assertIn('gave up holding the stop after 3 holds of the same gaps', verdicts[3]['notice'])
+        self.assertEqual([verdict['notice'] for verdict in verdicts[:3] + verdicts[4:]], [None] * 4, 'said once')
         self.launch_gap('builder-2', 'w1:p6')
         self.assertEqual((self.verdict()['hold'], self.verdict()['notice']), (True, None))
 
@@ -767,7 +769,9 @@ class UnregisteredWorkers(GateRepo):
                         'herdr agent start $name --pane $pane', 'herdr agent start w1 --pane "${PANE}"',
                         'herdr agent start w1 --pane `herdr pane current`', 'herdr agent start "$(name)" --pane w1:p5',
                         'herdr --session "$server" agent start w1 --pane w1:p5',
-                        'herdr --session=$server agent start w1 --pane w1:p5'):
+                        'herdr --session=$server agent start w1 --pane w1:p5',
+                        'HERDR_SOCKET_PATH="$sock" herdr agent start w1 --pane w1:p5',
+                        'env HERDR_SOCKET_PATH=`pwd`/herdr.sock herdr agent start w1 --pane w1:p5'):
             self.launch(command)
             self.assertEqual(self.logged(), [], command)
         self.launch('herdr agent start w1 --kind codex --pane w1:p5')
@@ -900,6 +904,21 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.register('default/w1:p9/other', 'ticket-6/1', pane='w1:p3', session='host-2')
         self.assertEqual(self.check(session='host-1'), [])
 
+    def test_a_command_local_socket_path_names_the_server_a_launch_ran_in(self):
+        # Review 2: `HERDR_SOCKET_PATH=<s2 socket> herdr agent start ...` from a default-server shell runs in s2, so
+        # that is the server logged, and an s2 registration clears it; an explicit --session still wins.
+        s2 = '/home/u/.config/herdr/sessions/s2/herdr.sock'
+        self.launch(f'HERDR_SOCKET_PATH={s2} herdr agent start alpha --kind codex --pane w1:p5', pane=None)
+        self.launch(f'env -u X HERDR_SOCKET_PATH={s2} herdr agent start beta --kind codex --pane w1:p6', pane=None)
+        self.launch(f'HERDR_SOCKET_PATH={s2} herdr --session s3 agent start gamma --kind codex --pane w1:p7', pane=None)
+        self.launch('herdr agent start delta --kind codex --pane w1:p8', pane=None)
+        self.assertEqual([record['herdr_session'] for record in self.logged()], ['s2', 's2', 's3', 'default'])
+        self.serve()
+        self.register('s2/w1:p5/alpha', 'ticket-1/1', pane=None)
+        self.register('s2/w1:p6/beta', 'ticket-2/1', pane=None)
+        self.assertEqual(self.check(pane=None, session='host-1'),
+                         [self.gap('gamma', 'w1:p7'), self.gap('delta', 'w1:p8')])
+
     def test_matching_stays_linear_when_one_name_is_registered_by_many_sessions(self):
         # Review 1: sixteen thousand `builder` registrations from other sessions all landed in one bucket that every
         # `builder` launch scanned; attempts are indexed by server, pane or name, and session.
@@ -917,6 +936,50 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
             for number in range(count)))
         started = time.monotonic()
         self.assertEqual(self.check(session='host-1'), [])
+        self.assertLess(time.monotonic() - started, 10)
+
+    def test_a_registration_with_a_placement_hides_a_live_agent_only_in_its_server_and_tab(self):
+        # Review 2: a bare name registered on another Herdr server (or in another tab) is not the default server's
+        # live agent of that name.
+        live = self.agent('builder', 'w1:p9', self.worktree)  # Tab w1:t9 of the stopping session's server.
+        self.serve(agents=[live])
+        def row(server, tab):
+            return dict(attempt='run/1', assignment='run/01', repo=str(self.repo), runtime='claude',
+                        native_session='n-1', worker='builder', session='host-1', orchestrator='w1:p1', owned=True,
+                        result={'status': 'completed'},
+                        herdr={'session': server, 'workspace_id': 'w1', 'tab_id': tab})
+        expected = [self.live('builder', 'w1:p9', self.worktree)]
+        for server, tab in (('s2', 'w1:t9'), ('default', 'w1:t3')):
+            self.write_rows(row(server, tab))
+            self.assertEqual(self.check(session='host-1'), expected, (server, tab))
+        self.write_rows(row('default', 'w1:t9'))
+        self.assertEqual(self.check(session='host-1'), [])
+
+    def test_matching_stays_linear_for_ownerless_registrations_of_one_name(self):
+        # Review 2: ownerless rows (no host session, no orchestrator pane) of one name shared a bucket that every later
+        # launch scanned before rejecting it by time; one registered after the launch clears it, however many are older.
+        count = 12000
+        rows = [dict(attempt=f'run/{number}', assignment='run/01', repo=str(self.repo), runtime='claude',
+                     native_session=f'n-{number}', worker='builder', owned=True, result={'status': 'completed'})
+                for number in range(count)]
+        rows.append(dict(rows[0], attempt='run/other', native_session='n-o', worker='other'))
+        self.write_rows(*rows)
+        db = sqlite3.connect(self.state)
+        # Every row registered a day before the launches, except the last `builder`, a day after.
+        before, after = calendar.timegm((2026, 10, 19, 10, 0, 0)), calendar.timegm((2026, 10, 21, 10, 0, 0))
+        db.executemany('INSERT INTO events (attempt, kind, payload, acknowledged) VALUES (?, ?, ?, 0)',
+                       [(row['attempt'], 'register',
+                         json.dumps({'recorded_at': after if row['attempt'] == f'run/{count - 1}' else before}))
+                        for row in rows])
+        db.commit()
+        db.close()
+        launch = lambda agent, pane: json.dumps({
+            'time': '2026-10-20T10:00:00Z', 'agent': agent, 'pane': pane, 'herdr_session': 'default',
+            'orchestrator': {'pane': None, 'session': 'host-1'}, 'cwd': str(self.worktree)}) + '\n'
+        (self.repo / '.scratch/herdr-launches.jsonl').write_text(
+            ''.join(launch('builder', f'w1:p{number}') for number in range(count)) + launch('other', 'w1:p99999'))
+        started = time.monotonic()
+        self.assertEqual(self.check(pane=None, session='host-1'), [self.gap('other', 'w1:p99999')])
         self.assertLess(time.monotonic() - started, 10)
 
     def test_an_opencode_launch_logged_with_its_session_and_no_pane_is_cleared_by_that_sessions_registration(self):

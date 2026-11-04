@@ -33,11 +33,14 @@ LOOKUP_SECONDS = 4
 VALUED = {'-u', '-C', '-s', '-k'}
 
 
-def runs(words):
-    """The words of the command a simple command runs, past assignments and wrappers with their options."""
+def runs(words, assigned=None):
+    """The words of the command a simple command runs, past assignments and wrappers with their options; the
+    HERDR_SOCKET_PATH assignment among them is recorded in `assigned`."""
     while words:
         head = words[0]
         if pr_body.ASSIGNMENT.match(head) or head in pr_body.WRAPPERS - {'env'}:
+            if head.startswith('HERDR_SOCKET_PATH=') and assigned is not None:
+                assigned['HERDR_SOCKET_PATH'] = head.partition('=')[2]
             words = words[1:]
         elif head in ('env', 'timeout'):
             words = words[1:]
@@ -57,7 +60,8 @@ def starts(command):
         for index, token in enumerate(tokens + [';']):
             if token not in pr_body.SEPARATORS and index < len(tokens):
                 continue
-            words, start = runs(tokens[start:index]), index + 1
+            assigned = {}
+            words, start = runs(tokens[start:index], assigned), index + 1
             if words and Path(words[0]).name in SHELLS:
                 for at, word in enumerate(words[1:], 1):  # The string a shell's `-c` runs.
                     if not word.startswith('-'):
@@ -75,6 +79,10 @@ def starts(command):
                 session, words = words[0].split('=', 1)[1], words[1:]
             if words[:2] != ['agent', 'start']:
                 continue
+            if session is None and 'HERDR_SOCKET_PATH' in assigned:  # The server the command's own socket path names.
+                session = assigned['HERDR_SOCKET_PATH']
+                session = session if any(char in session for char in '$`') else yield_gate.own_server(
+                    {'HERDR_SOCKET_PATH': session})
             words = words[2:words.index('--')] if '--' in words else words[2:]
             names, options, at = [], {}, 0
             while at < len(words):

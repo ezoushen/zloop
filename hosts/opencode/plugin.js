@@ -18,7 +18,8 @@ async function check(cwd, session) {
 const ENDS = new Set(["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"]);
 
 // OpenCode has no hook that can refuse a stop, so the gate acts once a root session's turn has succeeded: while the check
-// says to hold, it sends the hold's message as a new prompt in that session. The check bounds its own repeats.
+// says to hold, it sends the hold's message as a new prompt in that session. The check bounds its own repeats and, when it
+// gives up, says so once, which is sent the same way.
 export default {
   id: "zloop",
   setup: async (ctx) => {
@@ -73,13 +74,16 @@ export default {
           };
           failed.add(sessionID);
         }
-        if (stop.signal.aborted || !gate.hold) {
+        // On a hold, the reason; once the gate gives up, its notice of that as a last prompt (the prompt call has no
+        // `noReply`), whose turn the check then lets through.
+        const text = gate.hold ? gate.reason : gate.notice;
+        if (stop.signal.aborted || !text) {
           release(sessionID);
           continue;
         }
         try {
           const sent = Date.now();
-          const message = await ctx.session.prompt({ sessionID, text: gate.reason });
+          const message = await ctx.session.prompt({ sessionID, text });
           // A setup replaced meanwhile records nothing: its replacement checks the held turn again.
           if (stop.signal.aborted) release(sessionID);
           else hold(sessionID, message?.time?.created ?? sent);
