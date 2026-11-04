@@ -931,7 +931,12 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
                  (f"HERDR_SOCKET_PATH={sock('s2')} env HERDR_SOCKET_PATH= herdr agent start a%d --pane w1:p%d", 'default'),
                  (f"env -i HERDR_SOCKET_PATH={sock('s2')} herdr agent start a%d --pane w1:p%d", 's2'),
                  (f"HERDR_SOCKET_PATH={sock('s2')} sh -c 'env -u HERDR_SOCKET_PATH herdr agent start a%d --pane w1:p%d'", 'default'),
-                 (f"HERDR_SOCKET_PATH={sock('s2')} env -u OTHER herdr agent start a%d --pane w1:p%d", 's2')]
+                 (f"HERDR_SOCKET_PATH={sock('s2')} env -u OTHER herdr agent start a%d --pane w1:p%d", 's2'),
+                 # Review 4: what a shell body's own statements do to the variable reaches its later launches.
+                 (f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'unset HERDR_SOCKET_PATH; herdr agent start a%d --pane w1:p%d'",
+                  'default'),
+                 (f"bash -c 'export HERDR_SOCKET_PATH={sock('s3')}; herdr agent start a%d --pane w1:p%d'", 's3'),
+                 (f"HERDR_SOCKET_PATH={sock('s2')}; herdr agent start a%d --pane w1:p%d", 's2')]
         for number, (command, _) in enumerate(cases):
             self.launch(command.replace('%d', str(number)), pane=None, env={'HERDR_SOCKET_PATH': sock('s4')})
         self.assertEqual([record['herdr_session'] for record in self.logged()], [server for _, server in cases])

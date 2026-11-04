@@ -59,14 +59,20 @@ def runs(words, assigned=None):
 
 def starts(command, assigned=None):
     """Yield (Herdr session or None, agent name, pane) for each `herdr [--session S] agent start` the command runs;
-    `assigned` is the HERDR_SOCKET_PATH an enclosing command gave it."""
+    `assigned` is the HERDR_SOCKET_PATH an enclosing command gave it; a statement of the command's own that assigns,
+    exports or unsets it changes it for the launches after it."""
+    shell = dict(assigned or {})
     for tokens, _ in pr_body.logical_lines(command):
         start = 0
         for index, token in enumerate(tokens + [';']):
             if token not in pr_body.SEPARATORS and index < len(tokens):
                 continue
-            environ = dict(assigned or {})
+            environ = dict(shell)
             words, start = runs(tokens[start:index], environ), index + 1
+            if not words:  # Assignments alone (`export` is a wrapper here) set the shell's variable.
+                shell = environ
+            elif words[0] == 'unset' and 'HERDR_SOCKET_PATH' in words[1:]:
+                shell['HERDR_SOCKET_PATH'] = ''
             if words and Path(words[0]).name in SHELLS:
                 for at, word in enumerate(words[1:], 1):  # The string a shell's `-c` runs.
                     if not word.startswith('-'):
