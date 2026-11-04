@@ -391,18 +391,23 @@ class YieldGateHook(GateRepo):
         self.assertEqual(self.stop(active=True)['decision'], 'block')
         self.assertIsNone(self.stop(env={'ZLOOP_YIELD_HOOK': 'off'}))
 
-    def test_an_unreadable_launch_log_line_is_named_and_hides_no_other_gap(self):
-        # Review 6: a torn or hand-broken line is reported by number and ignored for matching; the lifecycle gaps and
-        # the readable launches still show.
+    def test_an_unreadable_launch_log_line_is_named_to_the_session_it_names_and_hides_no_other_gap(self):
+        # Review 6, gap 10: a torn or hand-broken line is reported by number to a session its raw text names, and
+        # ignored for matching; the lifecycle gaps and the readable launches still show. One that names no session or
+        # pane holds no one.
         log = self.repo / '.scratch/herdr-launches.jsonl'
         self.launch('herdr agent start builder-1 --kind codex --pane w1:p5')
         with log.open('a') as stream:
             stream.write('{"time": "2026-10-2\n{"agent": "builder-9"}\n')
         self.launch('herdr agent start builder-2 --kind codex --pane w1:p6')
+        with log.open('a') as stream:
+            stream.write('{"time": "2026-10-2", "orchestrator": {"pane": null, "session": "host-1"\n')
         self.assertEqual(self.check(), [f'{self.state}: ticket-1/1: no armed wait', self.gap('builder-1', 'w1:p5'),
-                                        self.gap('builder-2', 'w1:p6'),
-                                        f'{log}: launch log line 2 is unreadable; fix or remove it',
-                                        f'{log}: launch log line 3 is unreadable; fix or remove it'])
+                                        self.gap('builder-2', 'w1:p6')])
+        self.assertEqual(self.check(pane=None, session='host-1'), [
+            self.gap('builder-1', 'w1:p5'), self.gap('builder-2', 'w1:p6'),
+            f'{log}: launch log line 5 is unreadable; fix or remove it'])
+        self.assertEqual(self.check(pane=None, session='host-2'), [])
 
     def test_a_line_with_malformed_fields_is_named_like_an_unreadable_one(self):
         # Re-review 3: valid JSON whose fields have the wrong shape (the probe's empty orchestrator, a bad time, a
@@ -417,9 +422,14 @@ class YieldGateHook(GateRepo):
                {'time': at, 'dismissed': {'pane': 'w1:p5'}, 'by': {'pane': 'w1:p1'}, 'reason': 'probe'}]
         with log.open('a') as stream:
             stream.writelines(json.dumps(record) + '\n' for record in bad)
+        # The line with the empty orchestrator, like the other three of pane w1:p9, names no session or pane that
+        # launched it, so only the session in the pane its text names is held.
         self.assertEqual(self.check(session='host-1'), [
             f'{self.state}: ticket-1/1: no armed wait', self.gap('builder-1', 'w1:p5'),
-            *(f'{log}: launch log line {number} is unreadable; fix or remove it' for number in range(2, 7))])
+            *(f'{log}: launch log line {number} is unreadable; fix or remove it' for number in range(3, 7))])
+        self.assertEqual(self.check(pane='w1:p9', session='host-3'),
+                         [f'{log}: launch log line {number} is unreadable; fix or remove it' for number in range(2, 6)])
+        self.assertEqual(self.check(pane='w1:p7', session='host-4'), [])
 
     def test_a_checkout_without_worktrees_never_asks_herdr(self):
         # Review 4: a Herdr session in a repository with no .worktrees/ has no ticket worker to look for, so a broken
@@ -1092,10 +1102,9 @@ console.log('null');
         db.close()
         self.assertEqual(self.check(session='host-1'), [f'{self.state}: ticket-1/1: no armed wait'])
 
-    def test_a_state_that_cannot_be_read_is_named_to_all_while_recent_then_to_the_sessions_it_records(self):
-        # Rule: an unreadable state hides its owners' gaps, and a worker that recorded no owner may be among them, so it
-        # is named to every session while recent; once old, to its workstream's bound orchestrator and each pane or session
-        # its bytes still record.
+    def test_a_state_that_cannot_be_read_is_named_only_to_the_sessions_it_can_be_attributed_to(self):
+        # Gap 10, audit A9: an unreadable state hides its owners' gaps, so it holds a session whose binding sits beside
+        # it or whose pane or host session its bytes still record, however recent; any other session is not held.
         self.live_attempt('ticket-1/1', 'w1:p1', 'host-1')
         db = sqlite3.connect(self.state)
         db.execute('DROP TABLE events')
@@ -1104,15 +1113,14 @@ console.log('null');
         unreadable = self.check(session='host-1')
         self.assertEqual(len(unreadable), 1, unreadable)
         self.assertRegex(unreadable[0], rf'^{re.escape(str(self.state))}: cannot be read \(.+\); fix or remove it$')
-        # Recent, it may hide a worker that recorded no owner, so every session is told.
-        self.assertRegex(self.check(pane='w1:p2', session='host-2')[0], 'cannot be read')
-        self.state.write_bytes(b'not a database')
-        self.assertRegex(self.check(pane='w1:p2', session='host-2')[0], 'cannot be read')
-        old = time.time() - 3 * 24 * 3600
-        os.utime(self.state, (old, old))
         self.assertEqual(self.check(pane='w1:p2', session='host-2'), [])
+        self.state.write_bytes(b'not a database')
+        self.assertEqual(self.check(pane='w1:p2', session='host-2'), [])
+        self.state.with_name('orchestrator.json').write_text(json.dumps({'pane': None, 'sessions': ['host-2']}))
+        self.assertRegex(self.check(pane='w1:p2', session='host-2')[0], 'cannot be read')
+        self.assertEqual(self.check(pane='w1:p3', session='host-3'), [])
+        self.state.with_name('orchestrator.json').unlink()
         self.state.write_bytes(b'not a database ' + b'"orchestrator": "w1:p1"')
-        os.utime(self.state, (old, old))
         self.assertRegex(self.check(session='host-1')[0], 'cannot be read')
 
     def test_a_launch_is_cleared_by_its_hosts_registration_under_an_inherited_outer_session(self):
@@ -1146,11 +1154,12 @@ console.log('null');
         self.write_rows(dict(self.ownerless(), session='host-A', sessions=42))
         self.assertEqual(self.check(pane='w1:p2', session='host-B'), [])
 
-    def test_an_unreadable_ownerless_state_with_herdr_placement_still_holds_while_recent(self):
-        # Rule: a Herdr server's session name in a row is no host session; recording no owner, the state is named.
+    def test_an_unreadable_ownerless_state_with_herdr_placement_holds_no_one(self):
+        # Rule: a Herdr server's session name in a row is no host session; recording no owner, the state is attributed
+        # to no one, so it is named to no session.
         self.write_rows(self.ownerless(herdr={'session': 'default', 'workspace_id': 'w1', 'tab_id': 'w1:t5'}),
                         events=False)
-        self.assertRegex(self.check(pane='w1:p2', session='host-A')[0], 'cannot be read')
+        self.assertEqual(self.check(pane='w1:p2', session='host-A'), [])
 
     def test_the_ownerless_fallback_never_holds_a_marked_worker(self):
         # Rule: a session launched as a worker (ZLOOP_WORKER) answers for its own launches only, wherever it runs.

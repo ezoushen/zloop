@@ -101,7 +101,7 @@ def gaps(cwd, session=None):
             saved_attempts, malformed, _ = read_state(state)
         except Exception as error:
             missing += [f'{state}: cannot be read ({error}); fix or remove it'] if unreadable_holds(
-                state, pane, session, bound, recent and state.parent.parent.name != 'reviews') else []
+                state, pane, session, bound) else []
             continue
         missing += [f'{state}: attempt row {key} is malformed; fix or remove it' for key, saved in malformed
                     if bound or (isinstance(saved, dict) and attributed(saved) and owns(saved, pane, session))]
@@ -119,8 +119,7 @@ def gaps(cwd, session=None):
         try:
             missing += [f'{state}: {gap}' for gap in module.yield_gaps(db, orchestrated, saved_attempts)]
         except Exception as error:  # Named to whoever it could hide a gap from: its orchestrator and its workers' own.
-            if any(orchestrated(saved) for saved in saved_attempts) or unreadable_holds(state, pane, session, bound,
-                                                                                       recent):
+            if any(orchestrated(saved) for saved in saved_attempts) or unreadable_holds(state, pane, session, bound):
                 missing.append(f'{state}: cannot be read ({error}); fix or remove it')
         finally:
             db.close()
@@ -174,17 +173,20 @@ def states(root):
     return sorted(set(root.glob('.scratch/*/reports/workers.sqlite')) | set(root.glob('.scratch/reviews/*/workers.sqlite')))
 
 
-def unreadable_holds(state, pane, session, bound, recent):
-    """Whether a run state that cannot be read is named to this session: it hides its owners' gaps, and a worker that
-    recorded no owner may be among them, so it is named to every session that is not a worker while it is recent, and
-    always to the session bound to its workstream and each pane or host session its bytes still record."""
+def names(text, pane, session):
+    """Whether raw text holds this pane or host session as a whole ID, bounded by characters no pane or session ID
+    holds, so w1:p1 is not found in w1:p12."""
+    return any(value and re.search(rf'(?<![\w:.-]){re.escape(value)}(?![\w:.-])', text) for value in (pane, session))
+
+
+def unreadable_holds(state, pane, session, bound):
+    """Whether a run state that cannot be read is named to this session: it hides its owners' gaps, so it is named to
+    the session bound to its workstream and each pane or host session its bytes still record, and to no one else."""
     try:
         raw = state.read_bytes().decode(errors='replace')
     except OSError:
         raw = ''
-    if bound or any(value and re.search(rf'(?<![\w:.-]){re.escape(value)}(?![\w:.-])', raw) for value in (pane, session)):
-        return True
-    return recent and not os.environ.get('ZLOOP_WORKER')
+    return bool(bound) or names(raw, pane, session)
 
 
 def read_state(state):
@@ -413,9 +415,7 @@ def read_binding(path, pane, session):
             and isinstance(binding.get('sessions'), list)
             and all(isinstance(known, str) for known in binding['sessions'])):
         return binding, orchestrates(binding, pane, session)
-    # A whole ID only, bounded by characters no pane or session ID holds, so w1:p1 is not found in w1:p12.
-    return None, any(value and re.search(rf'(?<![\w:.-]){re.escape(value)}(?![\w:.-])', text)
-                     for value in (pane, session))
+    return None, names(text, pane, session)
 
 
 def orchestrates(binding, pane, session):
@@ -511,7 +511,7 @@ def unregistered(root, pane, session, siblings=True):
                            'clear it; remove it'] if same_orchestrator(record['orchestrator'], pane, session) else []
         elif readable(record):
             records.append(record)
-        else:  # Named, and ignored for matching, so one bad line hides no other gap.
+        elif names(line, pane, session):  # Named to a session its text names, and ignored for matching.
             unreadable.append(f'{log}: launch log line {number} is unreadable; fix or remove it')
     launches = []
     for record in records:
