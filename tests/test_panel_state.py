@@ -65,7 +65,7 @@ def attempts(state, rows):
 def live(attempt, assignment='zloop-panel/01', agent='builder', model='sonnet', quiet=30):
     return {'attempt': attempt, 'assignment': assignment, 'repo': '/repo', 'runtime': 'claude',
             'native_session': f'native-{attempt}', 'worker': f'w-{attempt}', 'agent': agent, 'job': 'ticket',
-            'owned': True, 'requested': {'model': model}, '_quiet_seconds': quiet}
+            'owned': True, 'requested': {'model': model}, '_quiet_seconds': quiet, 'session': 'S', 'sessions': ['S']}
 
 
 class PanelState(unittest.TestCase):
@@ -278,6 +278,41 @@ class PanelState(unittest.TestCase):
         self.assertEqual([], self.row_texts(found, 'run'))
         self.assertEqual([], self.row_texts(found, 'wait'))
 
+    def test_with_a_binding_only_attempts_of_its_sessions_are_shown(self):
+        # Two sessions share one workstream: T's worker is not S's, but a session the binding names also counts.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        orchestrator(self.scratch / 'demo', ['S', 'U'])
+        other = dict(live('12/ticket-2', assignment='zloop-panel/02'), session='T', sessions=['T'])
+        bound = dict(live('12/ticket-3', assignment='zloop-panel/03', quiet=90), session='U', sessions=['U'])
+        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite',
+                 [live('12/ticket-1', assignment='zloop-panel/01'), other, bound])
+        found = self.snapshot()
+        self.assertEqual(['▶ builder · zloop-panel/01 · sonnet · quiet 30s',
+                          '▶ builder · zloop-panel/03 · sonnet · quiet 1m'], self.row_texts(found, 'run'))
+
+    def test_without_a_binding_only_this_sessions_attempts_are_shown(self):
+        card(self.scratch / 'demo' / 'autopilot.md', session='S')
+        other = dict(live('12/ticket-2', assignment='zloop-panel/02'), session='T', sessions=['T'],
+                     result={'status': 'completed'}, retained={'reason': 'r', 'next_use': 'n'})
+        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite',
+                 [live('12/ticket-1', assignment='zloop-panel/01'), other])
+        found = self.snapshot()
+        self.assertEqual(['▶ builder · zloop-panel/01 · sonnet · quiet 30s'], self.row_texts(found, 'run'))
+        self.assertEqual([], self.row_texts(found, 'wait'))
+
+    def test_a_binding_that_does_not_name_this_session_hides_its_own_attempts(self):
+        # The card ties S to the workstream, but its binding names U: the binding decides whose workers are shown.
+        card(self.scratch / 'demo' / 'autopilot.md', session='S')
+        orchestrator(self.scratch / 'demo', ['U'])
+        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [live('12/ticket-1')])
+        self.assertEqual([], self.row_texts(self.snapshot(), 'run'))
+
+    def test_another_sessions_worker_alone_does_not_keep_a_workstream_live(self):
+        card(self.scratch / 'demo' / 'autopilot.md', session='S', phase='ended', terminal='delivered')
+        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite',
+                 [dict(live('12/ticket-2'), session='T', sessions=['T'])])
+        self.assertFalse(self.snapshot()['active'])
+
     def test_a_worker_with_a_new_wait_armed_runs_beside_an_old_unconsumed_receipt(self):
         # `reconciled` does not consume the receipt, so a re-armed worker can still hold its last wait's receipt.
         card(self.scratch / 'demo' / 'autopilot.md')
@@ -332,6 +367,19 @@ class PanelState(unittest.TestCase):
         self.assertEqual({'active': False, 'workstream': None, 'phase': None, 'draft': False, 'rows': [], 'more': [],
                           'strip': None},
                          found)
+
+    def test_another_checkouts_state_is_not_read(self):
+        # The panel shows this workstream's attempts only: a fixture checkout beside it, even one this session
+        # registered workers in, adds no rows.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [live('12/ticket-1')])
+        with tempfile.TemporaryDirectory(prefix='fixture checkout ') as fixture:
+            card(Path(fixture) / '.scratch' / 'fixture-run' / 'autopilot.md')
+            attempts(Path(fixture) / '.scratch' / 'fixture-run' / 'reports' / 'workers.sqlite',
+                     [live('9/ticket-9', assignment='fixture/09')])
+            found = self.snapshot()
+        self.assertEqual('demo', found['workstream'])
+        self.assertEqual(['▶ builder · zloop-panel/01 · sonnet · quiet 30s'], self.row_texts(found, 'run'))
 
     def test_a_worktree_checkout_reads_the_main_checkouts_scratch(self):
         card(self.scratch / 'demo' / 'autopilot.md')
@@ -416,7 +464,7 @@ class PanelState(unittest.TestCase):
 
     def test_a_hand_written_attempt_that_is_not_a_session_record_ties_nothing(self):
         # A `sessions` string that contains this session's id, and a row that is not an object, are skipped as data.
-        attempts(self.scratch / 'odd' / 'reports' / 'workers.sqlite', [dict(live('1/ticket-1'), sessions='xSx')])
+        attempts(self.scratch / 'odd' / 'reports' / 'workers.sqlite', [dict(live('1/ticket-1'), session=None, sessions='xSx')])
         db = sqlite3.connect(attempts(self.scratch / 'odder' / 'reports' / 'workers.sqlite', []))
         db.execute('INSERT INTO attempts VALUES (?, ?)', ('1/ticket-2', json.dumps(['S'])))
         db.commit()

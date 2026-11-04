@@ -71,7 +71,9 @@ card is worse than none.
 ## Scope
 
 The panel only shows: its one control expands `+N more`, and it has no control of the run; pausing, taking over and
-resuming stay the user's own acts. It reports the workstream the session runs, not other sessions' work. Allowance, spend
+resuming stay the user's own acts. It reports the workstream the session runs, not other sessions' work: its run and wait rows come only from attempts
+registered by a session the workstream's binding names (this session when it keeps none), and it reads no other
+checkout's state. Allowance, spend
 and context figures are not part of it.
 
 Tests: `tests/test_panel_state.py` (the fact source's rules), `tests/test_pi_panel.py` (the Pi widget) and

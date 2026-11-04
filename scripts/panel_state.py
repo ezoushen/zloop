@@ -205,8 +205,8 @@ def fmt_age(seconds):
     return f'{seconds // 86400}d'
 
 
-def live_attempts(workstream, now):
-    """The workstream's registered attempts that have neither a closure nor a collected result, most recently active
+def live_attempts(workstream, now, sessions):
+    """The workstream's attempts, registered by one of these host sessions, that have no closure, most recently active
     first, each with what it waits on: `result ready` for an unacknowledged result, `wait ended` for an unconsumed
     wait receipt, `retained` for a collected result kept open for its next use, no result and no wait running (nothing
     watches it), None while it runs."""
@@ -230,7 +230,7 @@ def live_attempts(workstream, now):
     pending = {(attempt, kind) for attempt, kind in unconsumed}
     shown = []
     for data in rows:
-        if not isinstance(data, dict) or data.get('closed'):
+        if not isinstance(data, dict) or data.get('closed') or not sessions.intersection(recorded_sessions(data)):
             continue
         if data.get('result'):
             if (data['attempt'], 'result') in pending:
@@ -328,7 +328,8 @@ def snapshot(repo, session_id, now):
         found_tickets = tickets(workstream)
         draft = is_draft(state) if state else False
         blocker = blocker_row(workstream, state, found_tickets)
-        attempts = live_attempts(workstream, now)
+        bound = bound_sessions(workstream)
+        attempts = live_attempts(workstream, now, set(bound) if bound is not None else {session_id})
         live = live_workstream(state, attempts, blocker, draft, found_tickets)
         if chosen is None or live:
             chosen = workstream, state, found_tickets, draft, blocker, attempts, live
