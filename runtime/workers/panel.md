@@ -13,7 +13,7 @@ python3 -B scripts/panel_state.py --repo <main checkout> --session-id <host sess
 
 Text mode prints one row per line and nothing when the workstream is not live. `--json` prints
 `{"active", "workstream", "phase", "draft", "rows": [{"kind", "text"}], "more", "strip"}`, with `kind` one of `headline`,
-`run`, `wait`, `blocker`, `next`, `counts`, `more`, and `more` the run rows a `+N more` row stands for. Hosts render
+`run`, `wait`, `blocker`, `next`, `counts`, `more`, and `more` every run and wait row a `+N more` row stands for. Hosts render
 only these words; they never re-derive a fact.
 
 It reads, read-only: the workstream's run card (`.scratch/<slug>/autopilot.md`), its worker attempt state
@@ -31,9 +31,10 @@ Live means the card is unconfirmed, or an attempt is live, or a blocker is recor
 stopped on `waiting-on-user`, `paused-allowance`, `paused-by-user` or `blocked`. A run that reached `delivered`,
 `delivered-local` or `merged`, or set `phase: ended`, is quiet only while nothing is live or blocked beneath it.
 
-Rows are ordered by what the person needs first: the headline, then running workers (three, then `+N more`), a
-worker whose result is ready to collect or whose wait ended with nothing collected and no new wait (`wait ended`:
-nothing watches it), one blocker by precedence (the run's own stop first, then a blocked ticket), the next step, and
+Rows are ordered by what the person needs first: the headline, then running workers and waiting ones (three each, the
+rest of both under one `+N more`), a waiting one being a worker whose result is ready to collect, whose wait ended with
+nothing collected and no new wait (`wait ended`: nothing watches it) or that is `retained` open; an attempt whose
+conversation any attempt closed shows no row. Then one blocker by precedence (the run's own stop first, then a blocked ticket), the next step, and
 the counts: the tickets' tally, or for a workstream without tickets `done:` and, per job of its workers, the
 assignments whose result completed; a job with a plan (`worker_lifecycle.py plan`) counts only its planned
 assignments, over the plan's size, even before its first worker.

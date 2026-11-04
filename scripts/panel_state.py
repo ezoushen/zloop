@@ -220,9 +220,13 @@ def live_attempts(workstream, now, sessions):
         print(f'panel_state: workers.sqlite unreadable ({error}): {state}', file=sys.stderr)
         return []
     pending = {(attempt, kind) for attempt, kind in unconsumed}
+    # A closure of the conversation, through whichever of its attempts recorded it, closes them all.
+    closed = {(data.get('runtime'), data.get('native_session')) for data in rows
+              if isinstance(data, dict) and data.get('closed')}
     shown = []
     for data in rows:
-        if not isinstance(data, dict) or data.get('closed') or not sessions.intersection(recorded_sessions(data)):
+        if (not isinstance(data, dict) or (data.get('runtime'), data.get('native_session')) in closed
+                or not sessions.intersection(recorded_sessions(data))):
             continue
         if data.get('result'):
             if (data['attempt'], 'result') in pending:
@@ -344,10 +348,10 @@ def snapshot(repo, session_id, now):
         else:
             running.append({'kind': 'run', 'text': f"▶ {data.get('agent', 'worker')} · {data.get('assignment', '')} · "
                                                    f'{model_of(data)} · quiet {fmt_age(age)}'})
-    rows += running[:RUN_CAP]
-    if len(running) > RUN_CAP:
-        rows.append({'kind': 'more', 'text': f'+{len(running) - RUN_CAP} more'})
-    rows += waiting
+    rows += running[:RUN_CAP] + waiting[:RUN_CAP]
+    hidden = running[RUN_CAP:] + waiting[RUN_CAP:]
+    if hidden:
+        rows.append({'kind': 'more', 'text': f'+{len(hidden)} more'})
     if blocker:
         rows.append(blocker)
     step = next_row(state, found_tickets, draft)
@@ -360,7 +364,7 @@ def snapshot(repo, session_id, now):
     strip = ' · '.join(part for part in (f'{workstream.name} · {phase}' if phase else workstream.name,
                                          f'{len(running)} running' if running else '', closer) if part)
     return {'active': True, 'workstream': workstream.name, 'phase': phase, 'draft': draft, 'rows': rows,
-            'more': running[RUN_CAP:], 'strip': strip or None}
+            'more': hidden, 'strip': strip or None}
 
 
 def render_text(found):

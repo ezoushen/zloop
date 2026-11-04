@@ -136,6 +136,26 @@ class PanelState(unittest.TestCase):
         self.assertEqual([], self.snapshot()['more'])
         self.assertEqual([], self.snapshot('nobody')['more'])
 
+    def test_wait_rows_are_capped_like_run_rows_and_more_holds_every_hidden_row(self):
+        # Five running workers and five retained ones: three of each show, and one `+N more` stands for the other
+        # four, which come with the snapshot (run rows first, then wait rows), each group in rank order.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        retained = {'reason': 'r', 'next_use': 'n'}
+        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite',
+                 [live(f'12/run-{n}', assignment=f'zloop-panel/run{n}', quiet=60 * n) for n in range(1, 6)]
+                 + [dict(live(f'12/kept-{n}', assignment=f'zloop-panel/kept{n}', quiet=3600 * n),
+                         result={'status': 'completed'}, retained=retained) for n in range(1, 6)])
+        found = self.snapshot()
+        self.assertEqual(['+4 more'], self.row_texts(found, 'more'))
+        self.assertEqual(3, len(self.row_texts(found, 'run')))
+        self.assertEqual(['retained · zloop-panel/kept1 · quiet 1h', 'retained · zloop-panel/kept2 · quiet 2h',
+                          'retained · zloop-panel/kept3 · quiet 3h'], self.row_texts(found, 'wait'))
+        self.assertEqual([('run', '▶ builder · zloop-panel/run4 · sonnet · quiet 4m'),
+                          ('run', '▶ builder · zloop-panel/run5 · sonnet · quiet 5m'),
+                          ('wait', 'retained · zloop-panel/kept4 · quiet 4h'),
+                          ('wait', 'retained · zloop-panel/kept5 · quiet 5h')],
+                         [(row['kind'], row['text']) for row in found['more']])
+
     def test_a_blocker_reason_holding_dashes_is_shown_whole(self):
         # Rule: the front matter ends at the closing `---` line only, so `---` inside a reason cuts nothing off it.
         card(self.scratch / 'demo' / 'autopilot.md')
@@ -291,6 +311,23 @@ class PanelState(unittest.TestCase):
         found = self.snapshot()
         self.assertEqual([], self.row_texts(found, 'run'))
         self.assertEqual([], self.row_texts(found, 'wait'))
+
+    def test_an_attempt_whose_conversation_was_closed_through_another_attempt_shows_no_row(self):
+        # Retirement closes the shared conversation through its final attempt; the earlier retained attempts of that
+        # conversation (same runtime and native session) are closed with it, while another conversation's stays.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        retained = {'reason': 'r', 'next_use': 'n'}
+        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite',
+                 [dict(live('12/ticket-1', assignment='zloop-panel/01'), native_session='shared',
+                       result={'status': 'completed'}, retained=retained),
+                  dict(live('12/ticket-2', assignment='zloop-panel/01'), native_session='shared',
+                       result={'status': 'completed'}, closed={'at': 1}),
+                  dict(live('12/ticket-3', assignment='zloop-panel/02'), native_session='other',
+                       result={'status': 'completed'}, retained=retained),
+                  dict(live('12/ticket-4', assignment='zloop-panel/03'), native_session='shared', runtime='codex',
+                       result={'status': 'completed'}, retained=retained)])
+        self.assertEqual(['retained · zloop-panel/02 · quiet 30s', 'retained · zloop-panel/03 · quiet 30s'],
+                         sorted(self.row_texts(self.snapshot(), 'wait')))
 
     def test_with_a_binding_only_attempts_of_its_sessions_are_shown(self):
         # Two sessions share one workstream: T's worker is not S's, but a session the binding names also counts.
