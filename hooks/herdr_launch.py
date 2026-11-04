@@ -5,8 +5,9 @@ It finds launches behind assignments, wrappers (`timeout`, `env` and their optio
 inside heredocs or backticks.
 
 Appends one JSON line per launch to the main checkout's .scratch/herdr-launches.jsonl: the time, agent name and
-pane, the Herdr server session it ran in (None for the default server), the orchestrator (its HERDR_PANE_ID and host
-session ID) and the pane's cwd when Herdr reports it. Claude and Codex run it before Bash; Pi's extension passes its bash and bg_run calls. It never blocks the command.
+pane, the Herdr server session it ran in (`--session`, else the one its shell's HERDR_SOCKET_PATH names, else
+`default`), the orchestrator (its HERDR_PANE_ID and host session ID) and the pane's cwd when Herdr reports it.
+Claude and Codex run it before Bash; Pi's extension passes its bash and bg_run calls. It never blocks the command.
 
 `herdr_launch.py dismiss --pane <pane> | --name <agent> [--session <host session>] --reason <text> | --keep <text>`,
 run in the checkout, appends a dismissal by this orchestrator (HERDR_PANE_ID and the session given) that accounts for
@@ -86,9 +87,10 @@ def starts(command):
                     names.append(words[at])
                 at += 1
             # Herdr refuses a start without a name or pane, and --help only prints the usage: none starts an agent. A
-            # name or pane the shell expands is no real one: the live agent it starts is found by the stop check's scan.
+            # name, pane or server the shell expands is no real one: the live agent it starts is found by the stop check's scan.
             if (names and options.get('--pane') and '--help' not in options and '-h' not in names
-                    and not any(char in value for value in (names[0], options['--pane']) for char in '$`')):
+                    and not any(char in value for value in (session or '', names[0], options['--pane'])
+                                for char in '$`')):
                 yield session, names[0], options['--pane']
 
 
@@ -121,7 +123,7 @@ def main():
         deadline = time.monotonic() + LOOKUP_SECONDS
         for session, agent, pane in launches:
             record = {'time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'agent': agent, 'pane': pane,
-                      'herdr_session': session, 'orchestrator': orchestrator}
+                      'herdr_session': session or yield_gate.own_server(), 'orchestrator': orchestrator}
             cwd = pane and pane_cwd(session, pane, deadline)
             with log.open('a') as stream:
                 stream.write(json.dumps(dict(record, **({'cwd': cwd} if cwd else {}))) + '\n')

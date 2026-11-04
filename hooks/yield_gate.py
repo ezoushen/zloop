@@ -44,6 +44,8 @@ from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parent.parent
 RECENT_SECONDS = 24 * 3600
+# The name Herdr gives the server a shell reaches without `--session`.
+DEFAULT_SERVER = 'default'
 GUIDE = ROOT / 'runtime/workers/wait.md'
 PREPARE = ROOT / 'runtime/workers/prepare.md'
 COLLECT = ROOT / 'runtime/workers/collect.md'
@@ -444,6 +446,41 @@ def same_orchestrator(theirs, pane, session):
     return bool(pane) and theirs['pane'] == pane
 
 
+def own_server(environ=os.environ):
+    """The Herdr server session the process talks to: the name in its HERDR_SOCKET_PATH
+    (`.../sessions/<name>/herdr.sock`), else the default server."""
+    socket = Path(environ.get('HERDR_SOCKET_PATH') or '')
+    return socket.parent.name if socket.parent.parent.name == 'sessions' else DEFAULT_SERVER
+
+
+def server_of(saved):
+    """The Herdr server session an attempt's worker runs in, when it recorded one: its handle's or its placement's."""
+    parts = saved['worker'].rsplit('/', 2)
+    return parts[0] if len(parts) == 3 else (saved.get('herdr') or {}).get('session')
+
+
+def attempt_keys(saved):
+    """Where an attempt is indexed: by the server it names (None: any), what its worker names, and, for a launch to
+    find it without a scan, the host session that registered or cleared it, else its orchestrator pane. A launch with
+    a host session and an attempt with sessions are matched by session alone (see clears), every other pair by pane."""
+    server, name = server_of(saved), named(saved['worker'])
+    sessions = recorded_sessions(saved) + saved.get('launch_sessions', [])
+    keys = [(server, name, 'orchestrator', saved.get('orchestrator'), bool(recorded_sessions(saved)))]
+    return keys + [(server, name, 'session', known) for known in sessions] if sessions else keys
+
+
+def candidates(index, launch):
+    """The attempts that could account for a launch: its pane or agent, in its server or one that names none, by its
+    host session, or by its pane when either side has no session."""
+    server = launch.get('herdr_session') or DEFAULT_SERVER
+    session, pane = launch['orchestrator']['session'], launch['orchestrator']['pane']
+    for name in (launch['agent'], launch['pane']):
+        for where in (server, None):
+            yield from index.get((where, name, 'orchestrator', pane, False), [])
+            yield from index.get((where, name, 'session', session) if session else
+                                 (where, name, 'orchestrator', pane, True), [])
+
+
 def named(worker):
     """What a registered worker names: the pane of a `<server session>/<pane>/<name>` handle, whatever name it carries
     now; else the worker itself, a pane or an agent name."""
@@ -453,15 +490,11 @@ def named(worker):
 
 def clears(saved, launch):
     """Whether an attempt accounts for a logged launch: it names the launch's pane (a handle only its pane) or agent,
-    in the launch's Herdr server when both know one, and a host session
+    in its Herdr server (candidates() finds it there), and a host session
     recorded at registration, or one whose launches it was recorded to clear, is the one that launched it when both
     know one; else the orchestrator recorded at
     registration is the pane that launched it, and only a launch made outside Herdr can instead be cleared by an
     attempt with no recorded orchestrator, registered no earlier."""
-    parts = saved['worker'].rsplit('/', 2)
-    server = parts[0] if len(parts) == 3 else (saved.get('herdr') or {}).get('session')
-    if server and launch.get('herdr_session') and server != launch['herdr_session']:
-        return False
     if named(saved['worker']) not in (launch['agent'], launch['pane']):
         return False
     if recorded_sessions(saved) and launch['orchestrator']['session']:
@@ -517,9 +550,11 @@ def unregistered(root, pane, session, siblings=True):
         except Exception:  # gaps() names a state that cannot be read to its workstream's orchestrator.
             continue
         attempts += [dict(saved, registered_at=registered.get(saved['attempt'])) for saved in saved_attempts]
-    index = {}  # The attempts by what their worker names: a launch looks up its own pane and name.
+    index = {}  # The attempts by server, name and session or pane: a launch looks up its own, never scanning the rest.
     for saved in attempts:
-        index.setdefault(named(saved['worker']), []).append(saved)
+        for key in attempt_keys(saved):
+            index.setdefault(key, []).append(saved)
+    placed = {(server_of(saved), named(saved['worker'])) for saved in attempts}
     mine = {saved['worker'] for saved in attempts if attributed(saved) and owns(saved, pane, session)}
     workers = set()
     log, worktrees = root / LAUNCHES, (root / '.worktrees').resolve()
@@ -555,8 +590,7 @@ def unregistered(root, pane, session, siblings=True):
     workers |= {record['pane'] for record in records if 'dismissed' not in record
                 and not same_orchestrator(record['orchestrator'], pane, session)}
     launches = [launch for launch in launches if same_orchestrator(launch['orchestrator'], pane, session)
-                and not any(clears(saved, launch) for key in (launch['agent'], launch['pane'])
-                            for saved in index.get(key, []))
+                and not any(clears(saved, launch) for saved in candidates(index, launch))
                 and ('cwd' not in launch or Path(launch['cwd']).resolve().is_relative_to(worktrees))]
     workers |= {handle for launch in launches for handle in (launch['agent'], launch['pane'])}  # Named once.
     workers |= {value for record in records if 'dismissed' in record  # This orchestrator's dismissals cover live agents.
@@ -581,7 +615,7 @@ def unregistered(root, pane, session, siblings=True):
     live = [agent for agent in agents
             if agent.get('workspace_id') == workspace and agent['pane_id'] != pane and agent.get('cwd')
             and Path(agent['cwd']).resolve().is_relative_to(worktrees)
-            and not workers & {agent.get('name'), agent['pane_id']} and agent['pane_id'] not in index
+            and not workers & {agent.get('name'), agent['pane_id']} and not placed & {(server, agent['pane_id']) for server in (None, own_server())}
             and agent.get('name') not in mine]
     return ([f"{log}: {launch['agent']} (pane {launch['pane']}): launched without a registered attempt"
              for launch in launches]
@@ -611,23 +645,25 @@ def count_hold(cwd, session, missing):
     pane = os.environ.get('HERDR_PANE_ID')
     key = f'session-{session}' if session else f'pane-{pane}' if pane else 'anonymous'
     path = root / HOLDS / f"{quote(key, safe='')}.json"
-    if not missing:
-        path.unlink(missing_ok=True)
+    if not missing and not path.parent.is_dir():
         return False, None
-    missing = sorted(missing)
-    try:
-        saved = json.loads(path.read_text())
-    except (OSError, ValueError):
-        saved = {}
-    held = saved.get('holds', 0) if saved.get('gaps') == missing else 0
-    if held >= (1 if all(map(failed_check, missing)) else MAX_HOLDS):
-        return False, (f"zloop yield gate gave up holding the stop after {held} {'hold' if held == 1 else 'holds'} "
-                       'of the same gaps; stopping with:\n' + ''.join(f'- {gap}\n' for gap in missing))
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f'{path.name}.{os.getpid()}.tmp')
-    temporary.write_text(json.dumps({'gaps': missing, 'holds': held + 1}))
-    os.replace(temporary, path)
-    return True, None
+    files = script('state_files')
+    with files.locked(path):  # Concurrent stops of one session are counted one at a time.
+        if not missing:
+            path.unlink(missing_ok=True)
+            return False, None
+        missing = sorted(missing)
+        try:
+            saved = json.loads(path.read_text())
+        except (OSError, ValueError):
+            saved = {}
+        held = saved.get('holds', 0) if saved.get('gaps') == missing else 0
+        if held >= (1 if all(map(failed_check, missing)) else MAX_HOLDS):
+            return False, (f"zloop yield gate gave up holding the stop after {held} {'hold' if held == 1 else 'holds'} "
+                           'of the same gaps; stopping with:\n' + ''.join(f'- {gap}\n' for gap in missing))
+        files.write_atomic(path, json.dumps({'gaps': missing, 'holds': held + 1}))
+        return True, None
 
 
 def failed_check(gap):
