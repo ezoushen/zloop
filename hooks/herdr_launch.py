@@ -34,8 +34,9 @@ VALUED = {'-u', '-C', '-s', '-k'}
 
 
 def runs(words, assigned=None):
-    """The words of the command a simple command runs, past assignments and wrappers with their options; the
-    HERDR_SOCKET_PATH assignment among them is recorded in `assigned`."""
+    """The words of the command a simple command runs, past assignments and wrappers with their options. `assigned`
+    holds the command's HERDR_SOCKET_PATH, as the assignments and `env` options before it leave it: its value, or ''
+    once `env -u HERDR_SOCKET_PATH`, `env -i` or an empty assignment unsets it."""
     while words:
         head = words[0]
         if pr_body.ASSIGNMENT.match(head) or head in pr_body.WRAPPERS - {'env'}:
@@ -45,6 +46,9 @@ def runs(words, assigned=None):
         elif head in ('env', 'timeout'):
             words = words[1:]
             while words and words[0].startswith('-'):
+                if assigned is not None and head == 'env' and (words[0] in ('-i', '-', '--ignore-environment') or (
+                        words[0] == '-u' and words[1:2] == ['HERDR_SOCKET_PATH'] or words[0] == '-uHERDR_SOCKET_PATH')):
+                    assigned['HERDR_SOCKET_PATH'] = ''
                 words = words[2:] if words[0] in VALUED else words[1:]
             if head == 'timeout':
                 words = words[1:]  # The duration.
@@ -53,21 +57,22 @@ def runs(words, assigned=None):
     return words
 
 
-def starts(command):
-    """Yield (Herdr session or None, agent name, pane) for each `herdr [--session S] agent start` the command runs."""
+def starts(command, assigned=None):
+    """Yield (Herdr session or None, agent name, pane) for each `herdr [--session S] agent start` the command runs;
+    `assigned` is the HERDR_SOCKET_PATH an enclosing command gave it."""
     for tokens, _ in pr_body.logical_lines(command):
         start = 0
         for index, token in enumerate(tokens + [';']):
             if token not in pr_body.SEPARATORS and index < len(tokens):
                 continue
-            assigned = {}
-            words, start = runs(tokens[start:index], assigned), index + 1
+            environ = dict(assigned or {})
+            words, start = runs(tokens[start:index], environ), index + 1
             if words and Path(words[0]).name in SHELLS:
                 for at, word in enumerate(words[1:], 1):  # The string a shell's `-c` runs.
                     if not word.startswith('-'):
                         break
                     if re.fullmatch(r'-[A-Za-z]*c[A-Za-z]*', word) and at + 1 < len(words):
-                        yield from starts(words[at + 1])
+                        yield from starts(words[at + 1], environ)
                         break
                 continue
             if not words or Path(words[0]).name != 'herdr':
@@ -79,8 +84,8 @@ def starts(command):
                 session, words = words[0].split('=', 1)[1], words[1:]
             if words[:2] != ['agent', 'start']:
                 continue
-            if session is None and 'HERDR_SOCKET_PATH' in assigned:  # The server the command's own socket path names.
-                session = assigned['HERDR_SOCKET_PATH']
+            if session is None and 'HERDR_SOCKET_PATH' in environ:  # The server the command's own socket path names.
+                session = environ['HERDR_SOCKET_PATH']
                 session = session if any(char in session for char in '$`') else yield_gate.own_server(
                     {'HERDR_SOCKET_PATH': session})
             words = words[2:words.index('--')] if '--' in words else words[2:]

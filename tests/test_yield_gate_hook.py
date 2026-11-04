@@ -919,6 +919,23 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.assertEqual(self.check(pane=None, session='host-1'),
                          [self.gap('gamma', 'w1:p7'), self.gap('delta', 'w1:p8')])
 
+    def test_the_server_a_launch_ran_in_follows_assignments_into_shell_strings_and_env_resets(self):
+        # Review 3: an assignment before `bash -c '...'` reaches the launch inside it; `env -u HERDR_SOCKET_PATH`, `env -i`
+        # and an empty `HERDR_SOCKET_PATH=` run it on the default server whatever the logger's own environment names.
+        sock = lambda name: f'/home/u/.config/herdr/sessions/{name}/herdr.sock'
+        shell = f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'herdr agent start a%d --kind codex --pane w1:p%d'"
+        cases = [(shell, 's2'),
+                 (f"HERDR_SOCKET_PATH={sock('s2')} bash -c \"HERDR_SOCKET_PATH={sock('s3')} herdr agent start a%d --pane w1:p%d\"", 's3'),
+                 (f"HERDR_SOCKET_PATH={sock('s2')} env -u HERDR_SOCKET_PATH herdr agent start a%d --pane w1:p%d", 'default'),
+                 (f"HERDR_SOCKET_PATH={sock('s2')} env -i herdr agent start a%d --pane w1:p%d", 'default'),
+                 (f"HERDR_SOCKET_PATH={sock('s2')} env HERDR_SOCKET_PATH= herdr agent start a%d --pane w1:p%d", 'default'),
+                 (f"env -i HERDR_SOCKET_PATH={sock('s2')} herdr agent start a%d --pane w1:p%d", 's2'),
+                 (f"HERDR_SOCKET_PATH={sock('s2')} sh -c 'env -u HERDR_SOCKET_PATH herdr agent start a%d --pane w1:p%d'", 'default'),
+                 (f"HERDR_SOCKET_PATH={sock('s2')} env -u OTHER herdr agent start a%d --pane w1:p%d", 's2')]
+        for number, (command, _) in enumerate(cases):
+            self.launch(command.replace('%d', str(number)), pane=None, env={'HERDR_SOCKET_PATH': sock('s4')})
+        self.assertEqual([record['herdr_session'] for record in self.logged()], [server for _, server in cases])
+
     def test_matching_stays_linear_when_one_name_is_registered_by_many_sessions(self):
         # Review 1: sixteen thousand `builder` registrations from other sessions all landed in one bucket that every
         # `builder` launch scanned; attempts are indexed by server, pane or name, and session.
