@@ -84,9 +84,11 @@ def starts(command):
                 else:
                     names.append(words[at])
                 at += 1
-            # Herdr refuses a start without a name or pane, and --help only prints the usage: none starts an agent.
-            if names and options.get('--pane') and '--help' not in options and '-h' not in names:
-                yield session, names[0] if names else None, options.get('--pane')
+            # Herdr refuses a start without a name or pane, and --help only prints the usage: none starts an agent. A
+            # name or pane the shell expands is no real one: the live agent it starts is found by the stop check's scan.
+            if (names and options.get('--pane') and '--help' not in options and '-h' not in names
+                    and not any(char in value for value in (names[0], options['--pane']) for char in '$`')):
+                yield session, names[0], options['--pane']
 
 
 def pane_cwd(session, pane, deadline):

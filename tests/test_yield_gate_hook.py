@@ -736,6 +736,21 @@ class UnregisteredWorkers(GateRepo):
         self.assertEqual(self.check(session='host-1'), [self.gap('builder-1', 'w1:p5'), unnamed])
         self.assertNotIn(unnamed, self.check(pane='w1:p2', session='host-2'))
 
+    def test_a_start_whose_name_or_pane_is_a_shell_expansion_is_not_logged_but_the_live_agent_still_is_named(self):
+        # Gap 14: `herdr agent start $name --pane $pane` in a function or script names no real agent or pane, so
+        # logging its text would demand a registration for a pane that does not exist; the live agent it started is
+        # found by the live-agent scan.
+        for command in ('spawn() { herdr agent start "$1" --pane "$2"; }; spawn w1 p1',
+                        'herdr agent start $name --pane $pane', 'herdr agent start w1 --pane "${PANE}"',
+                        'herdr agent start w1 --pane `herdr pane current`', 'herdr agent start "$(name)" --pane w1:p5'):
+            self.launch(command)
+            self.assertEqual(self.logged(), [], command)
+        self.launch('herdr agent start w1 --kind codex --pane w1:p5')
+        self.assertEqual([record['agent'] for record in self.logged()], ['w1'])
+        self.serve(agents=[self.agent('real-1', 'w1:p6', self.worktree)])
+        self.assertEqual(self.check(session='host-1'), [self.gap('w1', 'w1:p5'),
+                                                        self.live('real-1', 'w1:p6', self.worktree)])
+
     def test_logging_never_blocks_the_command_even_when_herdr_or_the_log_fails(self):
         # Rule 1: a hung Herdr still leaves a record with the cwd unknown; an unwritable log only loses the record.
         self.serve(hang=True)
