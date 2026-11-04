@@ -790,10 +790,10 @@ def record(db, data, refuse_changes=False, submitting=False):
             require(execution, 'Registration requires execution, the resolved execution file')
             if data['runtime'] == 'codex' and execution.get('native_dispatch'):
                 task = native_settings.codex_task_name(attempt)
-                require(data['native_session'].startswith('/root/')
-                        and data['native_session'].rsplit('/', 1)[-1] == task,
+                # The read-only hook resolves a child only by /root/<task>, so no nested path is registered.
+                require(data['native_session'] == f'/root/{task}',
                         f'Codex native attempts need a fresh child; spawn with task_name: {task} '
-                        f'and register its agent_path (/root/.../{task}) as native_session')
+                        f'and register /root/{task} as native_session')
             settings = execution.get('settings')
             require(isinstance(settings, dict) and not set(settings) - {'model', 'effort'}
                     and all(text(value) for value in settings.values()), 'Invalid resolved settings')

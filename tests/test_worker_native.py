@@ -36,14 +36,17 @@ class NativeProof(WorkerLifecycleCase):
         self.execution.write_text(json.dumps({'host': 'codex', 'native_dispatch': True,
             'agent': 'builder', 'job': 'ticket', 'settings': {}}))
         session_record(self.root / 'sibling.jsonl', 'codex', '/root/attempt_c2c4324fdbeececdf6011f84', self.root, child=True)
+        # The hook resolves only /root/<task>: a nested agent_path is refused, and the refusal names the path to register.
         for session in ('/root/attempt_c2c4324fdbeececdf6011f84', 'attempt_773232abe9343f0e102f8248',
-                        '/root/attempt_773232abe9343f0e102f8248_extra'):
+                        '/root/attempt_773232abe9343f0e102f8248_extra',
+                        '/root/parent/attempt_773232abe9343f0e102f8248'):
             with self.subTest(session=session):
                 error = self.register('a/1', assignment='a', runtime='codex', session=session, code=2)
                 self.assertIn('fresh child', error)
                 self.assertIn('task_name: attempt_773232abe9343f0e102f8248', error)
+                self.assertIn('register /root/attempt_773232abe9343f0e102f8248 as native_session', error)
                 self.assertEqual(self.cli('status')['attempts'], [])
-        self.register('a/1', assignment='a', runtime='codex', session='/root/parent/attempt_773232abe9343f0e102f8248')
+        self.register('a/1', assignment='a', runtime='codex', session='/root/attempt_773232abe9343f0e102f8248')
 
     def test_codex_child_from_an_older_state_cannot_register_for_a_new_attempt(self):
         self.native_env = dict(os.environ, CODEX_SESSION_ID='codex-host')
