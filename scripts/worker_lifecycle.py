@@ -780,6 +780,11 @@ def record(db, data, refuse_changes=False, submitting=False):
                         f"native_session {data['native_session']} is not the session {named} the native record names")
             for key in ('assignment', 'repo', 'worktree', 'head', 'worker', 'native_session', 'runtime'):
                 require(text(data.get(key)), f'Registration requires {key}')
+            if (data['runtime'] in ('claude', 'codex', 'pi') and Path(data['native_session']).is_absolute()
+                    and not (data['runtime'] == 'codex' and data['native_session'].startswith('/root/'))):
+                # The path of the worker's session record stands for the session it names, and stays its record.
+                data['native'] = data['native_session']
+                data['native_session'] = native_settings.session_id(data['native'], data['runtime'])
             require(data['native_session'] not in host_sessions(),
                     'A host session cannot be its own worker; start a fresh worker and register its native_session')
             for key in ('repo', 'worktree'):
