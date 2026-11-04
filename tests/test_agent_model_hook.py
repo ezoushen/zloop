@@ -139,6 +139,20 @@ class AgentModelHook(unittest.TestCase):
             self.assertIn(word, decision['permissionDecisionReason'])
         self.assertIsNone(self.run_hook(dict(launch, subagent_type='zloop-builder-ba9876543210')))
 
+    def test_a_profile_listing_its_tools_as_a_block_list_is_compared_by_those_tools(self):
+        # Rule: `tools:` followed by `- item` lines is the same tool set as the comma form, so a matching profile
+        # launches and a drifted one is denied for the tools it lacks.
+        current = 'Read, Edit, Write, Bash, Grep, Glob, Skill, SendMessage, Monitor, TaskStop'.split(', ')
+        for name, tools in (('zloop-builder-0123456789ab', current[:-3]), ('zloop-builder-ba9876543210', current)):
+            items = ''.join(f'  - {tool}\n' for tool in tools)
+            (self.home / '.claude/agents' / f'{name}.md').write_text(
+                f'---\nname: {name}\ndescription: "x"\ntools:\n{items}model: "sonnet"\n---\nBody\n')
+        launch = {'subagent_type': 'zloop-builder-0123456789ab', 'prompt': assignment()}
+        decision = self.run_hook(launch)
+        self.assertEqual(decision['permissionDecision'], 'deny')
+        self.assertIn('missing: Monitor, SendMessage, TaskStop; extra: none', decision['permissionDecisionReason'])
+        self.assertIsNone(self.run_hook(dict(launch, subagent_type='zloop-builder-ba9876543210')))
+
     def test_opt_out_and_malformed_input_never_block(self):
         self.assertIsNone(self.run_hook({'subagent_type': 'Explore'}, env={'ZLOOP_AGENT_MODEL_HOOK': 'off'}))
         result = subprocess.run([sys.executable, str(HOOK)], input='not json', capture_output=True, text=True,

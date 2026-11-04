@@ -136,6 +136,20 @@ class PanelState(unittest.TestCase):
         self.assertEqual([], self.snapshot()['more'])
         self.assertEqual([], self.snapshot('nobody')['more'])
 
+    def test_a_blocker_reason_holding_dashes_is_shown_whole(self):
+        # Rule: the front matter ends at the closing `---` line only, so `---` inside a reason cuts nothing off it.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='blocked', blocker='stuck --- see report')
+        self.assertEqual(['blocked: demo/01 · stuck --- see report'], self.row_texts(self.snapshot(), 'blocker'))
+
+    def test_a_ticket_with_a_block_list_still_shows_the_fields_after_it(self):
+        # Rule: `- item` lines under a key belong to that key and hide none of the fields that follow.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        path = self.scratch / 'demo' / 'issues' / '01-a.md'
+        path.parent.mkdir(parents=True)
+        path.write_text('---\nticket: demo/01\nneeds:\n  - network\nstatus: blocked\nblocker: no approval\n---\n# 01\n')
+        self.assertEqual(['blocked: demo/01 · no approval'], self.row_texts(self.snapshot(), 'blocker'))
+
     def test_one_blocker_row_by_precedence(self):
         card(self.scratch / 'demo' / 'autopilot.md', terminal='paused-by-user')
         ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='blocked', blocker='no approval')

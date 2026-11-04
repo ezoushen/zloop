@@ -23,6 +23,7 @@ import agent_defs  # noqa: E402
 import capability_probe  # noqa: E402
 import capacity  # noqa: E402
 import decisions  # noqa: E402
+import front_matter  # noqa: E402
 import journal_store  # noqa: E402
 import native_settings  # noqa: E402
 import outcomes  # noqa: E402
@@ -256,13 +257,9 @@ VERDICT_FIELDS = ('review_status', 'documentation_status', 'review_head', 'revie
 
 def report_verdict(report):
     """The verdict fields a report's front matter gives."""
-    match = re.match(r'---\n(.*?)\n---(?:\n|$)', Path(report).read_text(errors='replace'), re.S)
-    fields = {}
-    for line in match.group(1).splitlines() if match else []:
-        key, colon, value = line.partition(':')
-        if colon and key.strip() in VERDICT_FIELDS:
-            fields[key.strip()] = value.strip().strip('`"\'')
-    return fields
+    fields = front_matter.parse(Path(report).read_text(errors='replace')) or {}
+    return {key: front_matter.unquoted(value) for key, value in fields.items()
+            if key in VERDICT_FIELDS and isinstance(value, str)}
 
 
 def report_intact(data):

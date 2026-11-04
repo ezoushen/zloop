@@ -13,6 +13,7 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'scripts'))
 import agent_defs  # noqa: E402
+import front_matter  # noqa: E402
 # Built-in agents that follow the session model when no model is passed.
 INHERITING_BUILTINS = {None, '', 'general-purpose', 'Explore', 'Plan', 'claude'}
 REASON = (
@@ -27,10 +28,9 @@ ASSIGNMENT_REASON = ('A zloop agent needs its assignment: write `job_file: <abso
 
 
 def field(path, name):
-    """Return a front-matter field of an agent definition, unquoted, or None."""
-    front = re.match(r'---\n(.*?)\n---', path.read_text(errors='replace'), re.S)
-    match = front and re.search(rf'^{name}:\s*(.+)$', front.group(1), re.M)
-    return match.group(1).strip().strip('"\'') if match else None
+    """Return a front-matter field of an agent definition, a list as listed and a string unquoted, or None."""
+    value = (front_matter.parse(path.read_text(errors='replace')) or {}).get(name)
+    return value if isinstance(value, list) else front_matter.unquoted(value or '') or None
 
 
 def pinned_model(path):
@@ -40,7 +40,9 @@ def pinned_model(path):
 
 def tools(path):
     value = field(path, 'tools')
-    return {tool.strip() for tool in value.split(',')} if value else None
+    if value is None:
+        return None
+    return {tool.strip() for tool in (value if isinstance(value, list) else value.split(','))}
 
 
 def assignment_problem(agent, prompt):

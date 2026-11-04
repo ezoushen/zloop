@@ -9,12 +9,15 @@ Prints one JSON object: capability name to {"status", "evidence"}, and `worktree
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import front_matter  # noqa: E402
 
 NEEDS = ('network', 'docker', 'setuid', 'repo-write', 'dev-fd')  # What a ticket's `needs:` may name.
 TIMEOUT = 15  # seconds one probe command may run
@@ -121,9 +124,8 @@ def ticket_needs(ticket):
     path = Path(ticket)
     if not path.is_file():
         raise ValueError(f'The assignment names a ticket file that does not exist: {ticket}')
-    front = re.match(r'---\n(.*?)\n---\n', path.read_text(errors='replace'), re.S)
-    declared = re.search(r'^needs:[ \t]*\[(.*)\]', front.group(1), re.M) if front else None
-    return [need.strip() for need in declared.group(1).split(',') if need.strip()] if declared else []
+    declared = (front_matter.parse(path.read_text(errors='replace')) or {}).get('needs')
+    return declared if isinstance(declared, list) else []
 
 
 def unmet(needs, reports, worktree):

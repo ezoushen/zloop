@@ -6,10 +6,12 @@ needs and returns. Code reads both from here, so no script needs an agent's name
 Run directly to print problems; exits 1 when any are found.
 """
 import ast
-import json
 from pathlib import Path
 import re
 import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import front_matter  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WRITES = ('none', 'worktree')
@@ -23,16 +25,12 @@ LINK = re.compile(r'\]\(([^)\s]+)\)')
 
 
 def frontmatter(path):
-    """Top-level `key: value` fields; JSON arrays and booleans are decoded, other values stay strings."""
-    match = re.match(r'---\n(.*?)\n---\n', path.read_text(), re.S)
-    if not match:
-        return None, path.read_text()
-    fields = {}
-    for line in match.group(1).splitlines():
-        key, _, value = line.partition(':')
-        value = value.strip()
-        fields[key.strip()] = json.loads(value) if value[:1] == '[' or value in ('true', 'false') else value
-    return fields, path.read_text()[match.end():]
+    """Top-level fields as front_matter reads them, with `true` and `false` decoded; the body follows."""
+    fields, body = front_matter.split(path.read_text())
+    if fields is None:
+        return None, body
+    return {key: {'true': True, 'false': False}.get(value, value) if isinstance(value, str) else value
+            for key, value in fields.items()}, body
 
 
 def headings(body, level='## '):
