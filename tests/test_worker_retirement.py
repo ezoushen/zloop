@@ -286,6 +286,23 @@ class Retirement(WorkerLifecycleCase):
         self.record('retain', reason='retry', next_use='continue', evidence=['failed attempt kept'])
         self.assertIn('retained', self.cli('status')['attempts'][0])
 
+    def test_a_failed_result_recorded_but_not_collected_is_collected_after_its_report_changed(self):
+        # The yield gate names an uncollected result and advises collecting it; a failed result owes no intact report.
+        self.register()
+        self.ready()
+        report = self.root / 'failed.md'
+        report.write_text('provider outage\n')
+        self.completed(status='failed', head='head-1', report=str(report), evidence=['provider outage'])
+        report.write_text('provider outage, edited by a later attempt\n')
+        request = self.root / 'collect.json'
+        request.write_text(json.dumps({'status': 'failed', 'head': 'head-1', 'report': str(report),
+                                       'evidence': ['provider outage'], **self.completion_evidence(),
+                                       'disposition': {'kind': 'retain', 'reason': 'retry', 'next_use': 'continue',
+                                                       'evidence': ['failed attempt kept']}}))
+        collected = self.cli('collect', '--attempt', 'ticket-1/1', '--input', str(request))
+        self.assertTrue(collected['result']['already_collected'])
+        self.assertEqual([], self.cli('status')['pending'])
+
     def test_existing_user_worker_cannot_be_recorded_as_closed(self):
         self.register(owned=False)
         self.ready()

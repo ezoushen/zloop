@@ -1552,7 +1552,8 @@ def collect(db, state, attempt, request):
     previous = saved.get('result')
     if previous:
         require(all(previous.get(key) == request.get(key) for key in ('status', 'head', 'report'))
-                and report_intact(saved), 'Resume collection with the same intact report and checked result')
+                and report_owed(saved), 'Resume collection with the same checked result and, for a completed one, '
+                'its intact report')
         result = {'attempt': attempt, 'already_collected': True}
     else:
         result = record(db, dict(request, kind='result', attempt=attempt), refuse_changes=True)
