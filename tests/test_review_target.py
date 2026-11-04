@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -208,6 +209,60 @@ class ReviewTarget(unittest.TestCase):
             results = [future.result() for future in [pool.submit(self.launch, session=name) for name in sessions]]
         binding = json.loads(Path(results[0]['binding']).read_text())
         self.assertEqual(sorted(binding['sessions']), sessions)
+
+    def test_rerunning_a_start_that_stopped_after_the_report_repairs_the_binding(self):
+        # Audit A5: the stop hook advises the same start command, so it must finish a start that wrote only the report.
+        for workstream in ((), ('--workstream', 'fx')):
+            with self.subTest(workstream=workstream):
+                first = self.launch(*workstream, session='first-session')
+                report, binding = Path(first['report']), Path(first['binding'])
+                text = report.read_text() + '\nUser decision: retain scope.\n'
+                report.write_text(text)
+                binding.unlink()
+                again = self.launch(*workstream, session='second-session')
+                self.assertEqual(again['report'], str(report))
+                self.assertEqual(report.read_text(), text)
+                self.assertEqual(json.loads(binding.read_text())['sessions'], ['second-session'])
+                shutil.rmtree(report.parent)
+
+    def test_a_report_left_by_another_target_is_not_adopted_without_its_binding(self):
+        # Audit A5: repairing a missing binding must not hand one target's report to another.
+        self.git('branch', 'other-target')
+        report = Path(self.launch('--workstream', 'fx')['report'])
+        report.with_name('review.json').unlink()
+        before = report.read_bytes()
+        refused = self.launch('--workstream', 'fx', target='other-target', code=2)
+        self.assertIn('different target', refused)
+        self.assertEqual(report.read_bytes(), before)
+        self.assertFalse(report.with_name('review.json').exists())
+
+    def test_a_truncated_binding_or_report_is_refused_naming_what_to_remove_and_the_rerun_repairs_it(self):
+        # Audit A5: a file cut short is never a traceback; the refusal names the file, and the same start then repairs.
+        for cut in ('review.json', 'report'):
+            with self.subTest(cut=cut):
+                first = self.launch()
+                report, binding = Path(first['report']), Path(first['binding'])
+                broken = binding if cut == 'review.json' else report
+                broken.write_text(broken.read_text()[:30])
+                refused = self.launch(code=2)
+                self.assertIn(str(broken), refused)
+                self.assertIn('remove it and rerun the same start command', refused)
+                self.assertNotIn('Traceback', refused)
+                broken.unlink()
+                again = self.launch(session='second-session')
+                self.assertEqual(Path(again['report']).read_text().count('## Review round 1'), 1)
+                self.assertTrue(binding.is_file() and report.is_file())
+                shutil.rmtree(report.parent)
+
+    def test_a_truncated_report_without_its_binding_is_refused_naming_the_report(self):
+        # Audit A5: the report alone cannot say which target it belongs to when it is cut short.
+        first = self.launch()
+        report = Path(first['report'])
+        Path(first['binding']).unlink()
+        report.write_text(report.read_text()[:30])
+        refused = self.launch(code=2)
+        self.assertIn(f'{report}: not a whole review report', refused)
+        self.assertNotIn('Traceback', refused)
 
     def test_a_new_workstream_head_reopens_the_verdict_and_retains_human_decisions(self):
         result = self.launch('--workstream', 'fx')

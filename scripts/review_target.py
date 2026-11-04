@@ -125,6 +125,30 @@ def resolve(args):
                 autofix=args.autofix, comments=args.comments, review_level=args.effort)
 
 
+def saved_binding(path):
+    """The binding saved at path, None when there is none; a file that is not a whole binding is refused."""
+    if not path.is_file():
+        return None
+    try:
+        binding = json.loads(path.read_text())
+        assert isinstance(binding['sessions'], list) and isinstance(binding['resolution'], dict)
+        assert 'repo' in binding and 'target' in binding
+    except (ValueError, KeyError, TypeError, AssertionError):
+        raise ValueError(f'{path}: not a whole review binding; remove it and rerun the same start command '
+                         '(the report is kept)') from None
+    return binding
+
+
+def orphaned_binding(report, main):
+    """The binding of a report left without one (its start stopped between the two writes), with no session bound
+    yet; a report that is not whole is refused."""
+    try:
+        resolution = json.loads(re.search(r'```json\n(.*?)\n```', report.read_text(), re.S)[1])
+        return dict(repo=str(main), target=resolution['target'], sessions=[], resolution=resolution)
+    except (TypeError, ValueError, KeyError):
+        raise ValueError(f'{report}: not a whole review report; remove it and rerun the same start command') from None
+
+
 def start(args):
     """Resolve and bind one review, returning its report, route and lifecycle commands."""
     resolved = resolve(args)
@@ -165,7 +189,9 @@ def start(args):
                                                   '--input', str(directory / f'{action}.json')])
     directory.mkdir(parents=True, exist_ok=True)
     with state_files.locked(binding_path):
-        previous = json.loads(binding_path.read_text()) if binding_path.is_file() else None
+        previous = saved_binding(binding_path)
+        if previous is None and report.is_file():
+            previous = orphaned_binding(report, main)
         if (report.exists() or previous) and (
                 not previous or previous.get('repo') != str(main) or previous.get('target') != args.target):
             raise ValueError(f'{report}: existing report belongs to a different target; choose another --workstream')
@@ -182,7 +208,10 @@ def start(args):
         content = content.replace('## Scope and priorities\n', '## Scope and priorities\n\n```json\n'
                                   + json.dumps(resolved, indent=2) + '\n```\n', 1)
         if previous and report.is_file():
-            front, body = report.read_text().split('\n---\n', 1)
+            parts = report.read_text().split('\n---\n', 1)
+            if len(parts) != 2:
+                raise ValueError(f'{report}: not a whole review report; remove it and rerun the same start command')
+            front, body = parts
             refresh = dict(fields, review_status='incomplete', documentation_status='incomplete', review_by='none',
                            blocker='none', e2e_status='not-run', e2e_head='none', e2e_by='none')
             for key, value in refresh.items():
