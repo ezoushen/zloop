@@ -36,14 +36,17 @@ class NativeProof(WorkerLifecycleCase):
         self.execution.write_text(json.dumps({'host': 'codex', 'native_dispatch': True,
             'agent': 'builder', 'job': 'ticket', 'settings': {}}))
         session_record(self.root / 'sibling.jsonl', 'codex', '/root/attempt_c2c4324fdbeececdf6011f84', self.root, child=True)
+        # The hook resolves only /root/<task>: a nested agent_path is refused, and the refusal names the path to register.
         for session in ('/root/attempt_c2c4324fdbeececdf6011f84', 'attempt_773232abe9343f0e102f8248',
-                        '/root/attempt_773232abe9343f0e102f8248_extra'):
+                        '/root/attempt_773232abe9343f0e102f8248_extra',
+                        '/root/parent/attempt_773232abe9343f0e102f8248'):
             with self.subTest(session=session):
                 error = self.register('a/1', assignment='a', runtime='codex', session=session, code=2)
                 self.assertIn('fresh child', error)
                 self.assertIn('task_name: attempt_773232abe9343f0e102f8248', error)
+                self.assertIn('register /root/attempt_773232abe9343f0e102f8248 as native_session', error)
                 self.assertEqual(self.cli('status')['attempts'], [])
-        self.register('a/1', assignment='a', runtime='codex', session='/root/parent/attempt_773232abe9343f0e102f8248')
+        self.register('a/1', assignment='a', runtime='codex', session='/root/attempt_773232abe9343f0e102f8248')
 
     def test_codex_child_from_an_older_state_cannot_register_for_a_new_attempt(self):
         self.native_env = dict(os.environ, CODEX_SESSION_ID='codex-host')
@@ -114,14 +117,43 @@ class NativeProof(WorkerLifecycleCase):
             self.execution.write_text(json.dumps({'host': runtime, 'native_dispatch': True,
                 'agent': 'builder', 'job': 'ticket', 'settings': {}}))
             self.native_env = dict(os.environ, CLAUDE_CODE_SESSION_ID='claude-host',
-                                   CODEX_SESSION_ID='codex-host', PI_SESSION_ID='pi-host')
-            for session in ('claude-host', 'codex-host', 'pi-host'):
+                                   CODEX_SESSION_ID='codex-host', PI_SESSION_ID='pi-host',
+                                   OPENCODE_SESSION_ID='opencode-host')
+            for session in ('claude-host', 'codex-host', 'pi-host', 'opencode-host'):
                 with self.subTest(runtime=runtime, session=session):
                     error = self.register(f'{runtime}/{session}', runtime=runtime, session=session,
                                           worker=session, code=2)
                     self.assertIn('host session', error)
                     self.assertIn('fresh worker', error)
             with self.subTest(runtime=runtime, persisted=True):
+                self.assertEqual(self.cli('status')['attempts'], [])
+
+    def test_registration_given_a_session_record_path_records_the_session_it_names(self):
+        # A path to the worker's own session record stands for the session id inside it (Claude, Codex child, Pi).
+        for runtime, session in (('claude', 'claude-session'), ('codex', codex_child_session('codex/1')),
+                                 ('pi', 'pi-session')):
+            with self.subTest(runtime=runtime):
+                self.state = self.root / f'{runtime}.sqlite'
+                self.execution.write_text(json.dumps({'host': runtime, 'native_dispatch': True,
+                    'agent': 'builder', 'job': 'ticket', 'settings': {'model': 'fixture/model', 'effort': 'high'}}))
+                path = session_record(self.root / f'{runtime}-record.jsonl', runtime, session, self.root,
+                                      model='fixture/model', child=runtime == 'codex')
+                attempt = f'{runtime}/1'
+                self.register(attempt, assignment=runtime, session=str(path), worker=runtime, runtime=runtime)
+                self.assertEqual(self.cli('status', '--attempt', attempt)['attempts'][0]['native_session'], session)
+                self.assertTrue(self.record('startup', attempt, native=str(path))['verified'])
+
+    def test_registration_refuses_a_session_record_path_that_names_no_session(self):
+        empty = self.root / 'empty.jsonl'
+        empty.write_text('')
+        for runtime, path in (('claude', empty), ('claude', self.root / 'absent.jsonl'), ('pi', empty),
+                              ('codex', empty)):
+            with self.subTest(runtime=runtime, path=path.name):
+                self.execution.write_text(json.dumps({'host': runtime, 'native_dispatch': True,
+                    'agent': 'builder', 'job': 'ticket', 'settings': {}}))
+                error = self.register('a/1', assignment='a', runtime=runtime, session=str(path), code=2)
+                self.assertIn(f'{path} names no readable {runtime} session', error)
+                self.assertIn('pass native_session: the session id, or the absolute path of its session record', error)
                 self.assertEqual(self.cli('status')['attempts'], [])
 
     def runtime_attempt(self, runtime, *, child=False):

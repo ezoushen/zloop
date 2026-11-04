@@ -36,8 +36,8 @@ LOOKUP_SECONDS = 5  # Registration's wait on each Herdr call.
 # Native write-scope controls: a launch requests them (its `verify`) and startup observes them.
 SCOPE = ('permission_mode', 'sandbox', 'approval', 'filesystem', 'tools', 'permissions')
 TOP_LEVEL = ('claude', 'codex', 'opencode', 'pi')  # Runtimes whose own process the resolver gives launch controls.
-# What Claude Code, Codex and Pi export to the orchestrator's shell as its host session ID.
-SESSION_VARIABLES = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID')
+# What Claude Code, Codex, Pi and OpenCode export to the orchestrator's shell as its host session ID.
+SESSION_VARIABLES = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID', 'OPENCODE_SESSION_ID')
 
 
 def host_sessions():
@@ -96,20 +96,26 @@ def closed_sessions(db):
     return {(row['runtime'], row['native_session']): row for row in attempts(db) if row.get('closed')}
 
 
+def report_owed(saved, declined=False):
+    """Whether the attempt's report is settled: only a completed result owes an intact report, or its decline (a
+    changed report can never be accepted, and its attempt still closes)."""
+    return saved['result']['status'] != 'completed' or report_intact(saved) or bool(declined)
+
+
 def final_retirement(db, saved, declined=False):
-    """Every attempt of the conversation is collected with its report intact, or declined (a changed report can
-    never be accepted, and its attempt still closes), and nothing of it is still waiting."""
+    """Every attempt of the conversation is collected with its report settled (see report_owed), and nothing of it
+    is still waiting."""
     siblings = {row['attempt']: row for row in attempts(db)
                 if (row['runtime'], row['native_session']) == (saved['runtime'], saved['native_session'])}
     latest = next(row[0] for row in db.execute("SELECT attempt FROM events WHERE kind = 'register' ORDER BY id DESC")
                   if row[0] in siblings)
     require(latest == saved['attempt'], 'Retire the final registered attempt of the native conversation')
     require(all(row.get('result')
-                and (report_intact(row) or row.get('declined') or declined and row['attempt'] == saved['attempt'])
+                and report_owed(row, row.get('declined') or declined and row['attempt'] == saved['attempt'])
                 and not watching(row)
                 and not pending(db, row['attempt']) and not wait_running(row) for row in siblings.values()),
-            'Collect all conversation attempts, each with an intact report or declined, and reconcile their '
-            'receipts and waits before retirement')
+            'Collect all conversation attempts, each completed one with an intact report or declined, and reconcile '
+            'their receipts and waits before retirement')
 
 
 def plan(db, job, assignments, replace=False):
@@ -117,8 +123,10 @@ def plan(db, job, assignments, replace=False):
     require(text(job) and assignments and all(text(x) for x in assignments),
             'Plan requires --job and at least one --assignment')
     require(job in DEFINITIONS['jobs'], f'Plan requires a known job, not {job}')
-    planned = list(dict.fromkeys([*([] if replace else planned_of(db, job) or []), *assignments]))
-    db.execute('INSERT OR REPLACE INTO plans VALUES (?, ?)', (job, json.dumps(planned)))
+    db.execute('BEGIN IMMEDIATE')  # The plan extended is read under the lock, so concurrent additions add up.
+    with db:
+        planned = list(dict.fromkeys([*([] if replace else planned_of(db, job) or []), *assignments]))
+        db.execute('INSERT OR REPLACE INTO plans VALUES (?, ?)', (job, json.dumps(planned)))
     return {'job': job, 'assignments': planned}
 
 
@@ -209,7 +217,8 @@ def yield_gaps(db, include=lambda saved: True, rows=None):
     closed = {(row['runtime'], row['native_session']) for row in rows if row.get('closed')}
     included = [saved for saved in rows if include(saved)]
     names = {saved['attempt'] for saved in included}
-    receipts = [row for row in pending(db) if row['kind'] in ('wait-finished', 'hold') and row['attempt'] in names]
+    unconsumed = [row for row in pending(db) if row['attempt'] in names]
+    receipts = [row for row in unconsumed if row['kind'] in ('wait-finished', 'hold')]
     for saved in included:
         monitor = saved.get('monitor', {})
         live = ((saved.get('submitted') or saved.get('submission_requested')) and not saved.get('result')
@@ -221,11 +230,20 @@ def yield_gaps(db, include=lambda saved: True, rows=None):
                 missing.append(f"{saved['attempt']}: wait process lost")
             elif not monitor.get('notify'):
                 missing.append(f"{saved['attempt']}: wait has no wake channel")
-        elif not (monitor.get('state') == 'finished' and any(
-                row['attempt'] == saved['attempt'] and row['kind'] == 'wait-finished'
-                and row['payload'].get('token') == monitor.get('token') for row in receipts)):
+        else:
             # Only the current wait's unconsumed receipt can still wake the host.
-            missing.append(f"{saved['attempt']}: no armed wait")
+            current = [row for row in receipts if monitor.get('state') == 'finished'
+                       and row['attempt'] == saved['attempt'] and row['kind'] == 'wait-finished'
+                       and row['payload'].get('token') == monitor.get('token')]
+            if not current:
+                missing.append(f"{saved['attempt']}: no armed wait")
+            # A delivered wake the host acted past without consuming it: the state holds a later event.
+            missing += [f"{row['attempt']}: receipt {row['id']} was delivered and not consumed; collect the result "
+                        'or ack it and arm the next wait' for row in current
+                        if row['payload'].get('delivery', {}).get('state') == 'sent'
+                        and db.execute('SELECT 1 FROM events WHERE id > ?', (row['id'],)).fetchone()]
+    missing += [f"{row['attempt']}: result receipt {row['id']} was not collected; collect it or ack it"
+                for row in unconsumed if row['kind'] == 'result']
     missing += [f"{row['attempt']}: receipt {row['id']} was not delivered" for row in receipts
                 if row['payload'].get('delivery', {}).get('state') != 'sent']
     return missing
@@ -774,6 +792,11 @@ def record(db, data, refuse_changes=False, submitting=False):
                         f"native_session {data['native_session']} is not the session {named} the native record names")
             for key in ('assignment', 'repo', 'worktree', 'head', 'worker', 'native_session', 'runtime'):
                 require(text(data.get(key)), f'Registration requires {key}')
+            if (data['runtime'] in ('claude', 'codex', 'pi') and Path(data['native_session']).is_absolute()
+                    and not (data['runtime'] == 'codex' and data['native_session'].startswith('/root/'))):
+                # The path of the worker's session record stands for the session it names, and stays its record.
+                data['native'] = data['native_session']
+                data['native_session'] = native_settings.session_id(data['native'], data['runtime'])
             require(data['native_session'] not in host_sessions(),
                     'A host session cannot be its own worker; start a fresh worker and register its native_session')
             for key in ('repo', 'worktree'):
@@ -784,10 +807,10 @@ def record(db, data, refuse_changes=False, submitting=False):
             require(execution, 'Registration requires execution, the resolved execution file')
             if data['runtime'] == 'codex' and execution.get('native_dispatch'):
                 task = native_settings.codex_task_name(attempt)
-                require(data['native_session'].startswith('/root/')
-                        and data['native_session'].rsplit('/', 1)[-1] == task,
+                # The read-only hook resolves a child only by /root/<task>, so no nested path is registered.
+                require(data['native_session'] == f'/root/{task}',
                         f'Codex native attempts need a fresh child; spawn with task_name: {task} '
-                        f'and register its agent_path (/root/.../{task}) as native_session')
+                        f'and register /root/{task} as native_session')
             settings = execution.get('settings')
             require(isinstance(settings, dict) and not set(settings) - {'model', 'effort'}
                     and all(text(value) for value in settings.values()), 'Invalid resolved settings')
@@ -958,6 +981,9 @@ def record(db, data, refuse_changes=False, submitting=False):
                 require(not saved.get('accepted'), 'Attempt already accepted')
                 require(not saved.get('declined'), 'Attempt was declined; accept a new attempt instead')
                 require(text(data.get('commit')), 'Acceptance requires the integrated commit')
+                require(report_intact(saved),
+                        'The report changed after collection, so the attempt cannot be accepted; record declined, '
+                        'or collect a new attempt')
                 require_returned(saved)
                 saved['accepted'] = data
             elif kind == 'declined':
@@ -975,7 +1001,7 @@ def record(db, data, refuse_changes=False, submitting=False):
                 require(saved.get('result') and not watching(saved)
                         and (not receipts or kind == 'retain' and all(r['kind'] == 'hold' for r in receipts)),
                         'Collect result and acknowledge receipts before retaining or closing')
-                require(report_intact(saved) or declined,
+                require(report_owed(saved, declined),
                         'Retain an intact report before retaining or closing, or decline the attempt')
                 if kind == 'closed':
                     require(saved['owned'], 'Existing user worker is not a cleanup target')
@@ -1430,7 +1456,7 @@ def retire(db, state, attempt, request):
     require(saved.get('result') and not watching(saved) and not pending(db, attempt)
             and not wait_running(saved), 'Collect result, acknowledge receipts and reconcile owned waits before retirement')
     declined = declining(saved, request.get('acceptance'))
-    require(report_intact(saved) or declined, 'Retain an intact report before retirement, or decline the attempt')
+    require(report_owed(saved, declined), 'Retain an intact report before retirement, or decline the attempt')
     session, pane = request.get('session'), request.get('pane')
     require(text(session) and text(pane), 'Retirement requires explicit Herdr session and pane')
     require(pane != os.environ.get('HERDR_PANE_ID'), 'Caller pane is not a cleanup target')
@@ -1467,7 +1493,7 @@ def retire(db, state, attempt, request):
             saved = get(db, attempt)
             # Another command may have accepted the attempt, or changed its report, while Herdr was asked.
             declined = declining(saved, request.get('acceptance'))
-            require(report_intact(saved) or declined,
+            require(report_owed(saved, declined),
                     'Retain an intact report before retirement, or decline the attempt')
             final_retirement(db, saved, declined)
             current = saved.get('retirement_requested')
@@ -1511,8 +1537,14 @@ def collect(db, state, attempt, request):
     require(isinstance(disposition, dict), 'Collection disposition must be an object')
     require(disposition.get('kind') in ('retire', 'retain'), 'Collection requires retirement or explicit retention')
     saved = get(db, attempt)
+    paneless = (disposition['kind'] == 'retire' and not saved.get('herdr')
+                and not any(disposition.get(key) for key in ('session', 'pane')))
     if disposition['kind'] == 'retire':
         require(saved['owned'], 'Existing user worker is not a cleanup target')
+        require(not paneless or isinstance(disposition.get('evidence'), list) and disposition['evidence']
+                and all(text(x) for x in disposition['evidence']),
+                'A worker with no Herdr pane (a native subagent) retires on disposition evidence: pass evidence '
+                'naming how its closure was confirmed')
     else:
         require(text(disposition.get('reason')) and text(disposition.get('next_use'))
                 and isinstance(disposition.get('evidence'), list) and disposition['evidence']
@@ -1526,7 +1558,15 @@ def collect(db, state, attempt, request):
         result = record(db, dict(request, kind='result', attempt=attempt), refuse_changes=True)
     with db:
         db.execute("UPDATE events SET acknowledged = 1 WHERE attempt = ? AND kind IN ('wait-finished', 'result')", (attempt,))
-    if disposition['kind'] == 'retire':
+    if paneless:
+        # No pane to close: the closure rests on the evidence the request gives.
+        closure = closed_sessions(db).get((saved['runtime'], saved['native_session']))
+        if not closure:
+            record(db, dict(kind='closed', attempt=attempt, evidence=disposition['evidence'],
+                            **({'acceptance': disposition['acceptance']} if 'acceptance' in disposition else {})))
+        final = {'attempt': attempt, 'closed': True, 'evidence': disposition['evidence'],
+                 **({'native_closed_by': closure['attempt']} if closure else {})}
+    elif disposition['kind'] == 'retire':
         final = retire(db, state, attempt, disposition)
     else:
         final = record(db, dict(disposition, attempt=attempt))

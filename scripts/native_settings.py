@@ -303,3 +303,23 @@ def pi_session_id(path):
             if isinstance(row, dict) and row.get('type') == 'session' and isinstance(row.get('id'), str):
                 return row['id']
     raise ValueError(f'{path} has no session header')
+
+
+def session_id(path, runtime):
+    """The session a Claude, Codex or Pi session record names: a Claude row's `agentId` or `sessionId`, a Codex
+    rollout's `agent_path` or `id`, a Pi header's `id`."""
+    path = Path(path)
+    try:
+        with path.open('rb') as stream:
+            for line in stream:
+                row = json.loads(line)
+                payload = row.get('payload') if isinstance(row.get('payload'), dict) else {}
+                named = (row.get('agentId') or row.get('sessionId') if runtime == 'claude'
+                         else payload.get('agent_path') or payload.get('id') if row.get('type') == 'session_meta'
+                         else row.get('id') if runtime == 'pi' and row.get('type') == 'session' else None)
+                if isinstance(named, str) and named.strip():
+                    return named
+    except (OSError, ValueError, AttributeError):
+        pass
+    raise ValueError(f'{path} names no readable {runtime} session; pass native_session: the session id, or the '
+                     'absolute path of its session record')
