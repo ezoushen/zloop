@@ -877,18 +877,13 @@ def write_fields(fm, fields):
 def orchestrate(slug, autofix):
     """Record the session running this command as the workstream's orchestrator, which the stop hooks hold: its Herdr
     pane, the session IDs its hosts export (a host started inside another's shell inherits the outer one's), and
-    whether repairs are authorized until the review report records its own `autofix`. Sessions that bound the
-    workstream before stay bound, so concurrent binds keep each one."""
+    whether repairs are authorized until the review report records its own `autofix`. A later bind takes the workstream
+    over."""
     binding = {"pane": os.environ.get("HERDR_PANE_ID"),
                "sessions": [os.environ[name] for name in SESSION_VARIABLES if os.environ.get(name)], "autofix": autofix}
     path = ISSUES / slug / "reports" / "orchestrator.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    with state_files.locked(path):
-        try:
-            binding["sessions"] = list(dict.fromkeys(json.loads(path.read_text())["sessions"] + binding["sessions"]))
-        except (OSError, ValueError, KeyError, TypeError):  # No earlier binding that can be read.
-            pass
-        state_files.write_atomic(path, json.dumps(binding) + "\n")
+    state_files.write_atomic(path, json.dumps(binding) + "\n")
     print(f"{slug}: orchestrated by Herdr pane {binding['pane']}, host sessions {binding['sessions']}, "
           f"autofix {str(autofix).lower()}")
 

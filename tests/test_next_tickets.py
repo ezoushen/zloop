@@ -143,26 +143,13 @@ class BoardCLI(unittest.TestCase):
         binding = json.loads((self.root / ".scratch/fx/reports/orchestrator.json").read_text())
         assert binding["sessions"] == ["opencode-1"], binding
 
-    def test_concurrent_orchestrate_binds_by_different_sessions_all_stay_bound(self):
-        # Audit A6: a bind that succeeded holds its session at stop, whichever bind wrote the file last.
+    def test_a_later_bind_takes_the_workstream_over_from_the_earlier_session(self):
+        # One orchestrator runs a workstream; the session that bound it before is no longer held at its stop.
         self.write_ticket("fx/01")
-        slow_rename = ("import os, runpy, sys, time\nreal = os.replace\n"
-                       "def slow(*args): time.sleep(0.5); real(*args)\nos.replace = slow\n"
-                       "sys.argv = sys.argv[1:]\nsys.path.insert(0, os.path.dirname(sys.argv[0]))\n"
-                       "runpy.run_path(sys.argv[0], run_name='__main__')")
-
-        def bind(session):
-            env = {k: v for k, v in os.environ.items() if not k.endswith("_SESSION_ID")}
-            result = subprocess.run([sys.executable, "-c", slow_rename, str(SCRIPT), "--repo", str(self.root), "fx",
-                                     "--orchestrate"], capture_output=True, text=True, env=dict(env, CODEX_SESSION_ID=session))
-            assert result.returncode == 0, result.stdout + result.stderr
-
-        sessions = [f"session-{number}" for number in range(3)]
-        with ThreadPoolExecutor(len(sessions)) as pool:
-            for future in [pool.submit(bind, name) for name in sessions]:
-                future.result()
+        self.orchestrate(CLAUDE_CODE_SESSION_ID="host-1")
+        self.orchestrate(CODEX_SESSION_ID="host-2")
         binding = json.loads((self.root / ".scratch/fx/reports/orchestrator.json").read_text())
-        assert sorted(binding["sessions"]) == sessions, binding
+        assert binding["sessions"] == ["host-2"], binding
 
     def test_check_refuses_a_need_outside_the_probe_vocabulary_naming_the_allowed_needs(self):
         allowed = 'network, docker, setuid, repo-write, dev-fd'
