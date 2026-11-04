@@ -155,6 +155,19 @@ class Outcomes(WorkerLifecycleCase):
         self.assertEqual((accepted['commit'], accepted['evidence']), ('merge-1', ['git log merge-1']))
         self.assertIn('already accepted', self.record('accepted', commit='merge-2', evidence=['log'], code=2))
 
+    def test_acceptance_refuses_an_attempt_whose_retained_report_changed(self):
+        # The accept gate already reports a changed report; recording acceptance must refuse it too, and decline passes.
+        self.register()
+        self.ready()
+        report = self.collect()
+        self.acknowledge()
+        report.write_text(report.read_text() + 'changed after collection\n')
+        error = self.record('accepted', commit='merge-1', evidence=['git log merge-1'], code=2)
+        self.assertIn('report changed after collection', error)
+        self.assertIn('declined', error)
+        self.assertNotIn('accepted', self.cli('status')['attempts'][0])
+        self.record('declined', reason='report changed', evidence=['gate: retained report integrity'])
+
     def test_an_attempt_whose_report_changed_after_collection_closes_only_declined(self):
         # Live E2E 2026-10-26: a worker's report changed after it returned; that attempt can never be accepted, and
         # it must still be closable, as declined, so it does not stay open with no process behind it.

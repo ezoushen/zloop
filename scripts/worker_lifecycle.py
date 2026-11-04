@@ -979,6 +979,9 @@ def record(db, data, refuse_changes=False, submitting=False):
                 require(not saved.get('accepted'), 'Attempt already accepted')
                 require(not saved.get('declined'), 'Attempt was declined; accept a new attempt instead')
                 require(text(data.get('commit')), 'Acceptance requires the integrated commit')
+                require(report_intact(saved),
+                        'The report changed after collection, so the attempt cannot be accepted; record declined, '
+                        'or collect a new attempt')
                 require_returned(saved)
                 saved['accepted'] = data
             elif kind == 'declined':
