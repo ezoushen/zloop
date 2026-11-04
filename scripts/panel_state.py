@@ -157,21 +157,26 @@ def attempt_rows(workstream):
         return []
 
 
-def planned_counts(path):
-    """The assignments an orchestrator plans per job, from `{"<job>": <count>}`; a missing or malformed file, and any
-    entry that is not a whole count, plan nothing."""
+def plans(workstream):
+    """The assignments each planned job of the workstream's worker state holds (`worker_lifecycle.py plan`); none when
+    it has no state, no plan or the state is unreadable."""
+    state = workstream / 'reports' / 'workers.sqlite'
+    if not state.is_file():
+        return {}
     try:
-        saved = json.loads(path.read_text())
-    except (OSError, ValueError):
+        db = sqlite3.connect(f'file:{state}?mode=ro', uri=True)
+        try:
+            return {job: set(json.loads(assignments))
+                    for job, assignments in db.execute('SELECT job, assignments FROM plans')}
+        finally:
+            db.close()
+    except (sqlite3.DatabaseError, OSError, ValueError, TypeError):
         return {}
-    if not isinstance(saved, dict):
-        return {}
-    return {job: count for job, count in saved.items()
-            if isinstance(count, int) and not isinstance(count, bool) and count >= 0}
 
 
 def done_row(workstream):
-    """The assignments each job of the workstream's workers completed, jobs in name order; None without workers."""
+    """The assignments each job of the workstream's workers completed, jobs in name order; a planned job counts only
+    its planned assignments, over its plan's size. None without workers or plans."""
     done = {}
     for data in attempt_rows(workstream):
         if not (isinstance(data, dict) and isinstance(data.get('job'), str)
@@ -180,11 +185,12 @@ def done_row(workstream):
         finished = done.setdefault(data['job'], set())
         if isinstance(data.get('result'), dict) and data['result'].get('status') == 'completed':
             finished.add(data['assignment'])
-    if not done:
+    planned = plans(workstream)
+    if not done and not planned:
         return None
-    planned = planned_counts(workstream / 'reports' / 'planned.json')
     return {'kind': 'counts', 'text': 'done: ' + ' · '.join(
-        f'{job} {len(done[job])}' + (f'/{planned[job]}' if job in planned else '') for job in sorted(done))}
+        f'{job} {len(done.get(job, set()) & planned[job])}/{len(planned[job])}' if job in planned
+        else f'{job} {len(done[job])}' for job in sorted(set(done) | set(planned)))}
 
 
 def fmt_age(seconds):
@@ -200,7 +206,9 @@ def fmt_age(seconds):
 
 
 def live_attempts(workstream, now):
-    """The workstream's registered attempts that have neither a result nor a closure, most recently active first."""
+    """The workstream's registered attempts that have neither a closure nor a collected result, most recently active
+    first, each with what it waits on: `result ready` for an unacknowledged result, `wait ended` for an unconsumed
+    wait receipt, no result and no wait running (nothing watches it), None while it runs."""
     state = workstream / 'reports' / 'workers.sqlite'
     if not state.is_file():
         return []
@@ -211,25 +219,29 @@ def live_attempts(workstream, now):
             seen = {}
             for attempt, payload in db.execute('SELECT attempt, payload FROM events ORDER BY id'):
                 seen[attempt] = json.loads(payload).get('recorded_at')
-            db_pending = [(attempt, acknowledged) for attempt, acknowledged in
-                          db.execute("SELECT attempt, acknowledged FROM events WHERE kind = 'result'")]
+            unconsumed = db.execute("SELECT attempt, kind FROM events WHERE acknowledged = 0 "
+                                    "AND kind IN ('result', 'wait-finished')").fetchall()
         finally:
             db.close()
     except (sqlite3.DatabaseError, OSError, ValueError) as error:
         print(f'panel_state: workers.sqlite unreadable ({error}): {state}', file=sys.stderr)
         return []
-    pending = {attempt for attempt, acknowledged in db_pending if not acknowledged}
+    pending = {(attempt, kind) for attempt, kind in unconsumed}
     shown = []
     for data in rows:
         if not isinstance(data, dict) or data.get('closed'):
             continue
-        has_result = bool(data.get('result'))
-        awaiting = has_result and data['attempt'] in pending
-        if has_result and not awaiting:
-            continue
-        shown.append((seen.get(data['attempt']) or now, data, awaiting))
+        if data.get('result'):
+            if (data['attempt'], 'result') not in pending:
+                continue
+            label = 'result ready'
+        else:
+            ended = ((data['attempt'], 'wait-finished') in pending
+                     and (data.get('monitor') or {}).get('state') != 'running')
+            label = 'wait ended' if ended else None
+        shown.append((seen.get(data['attempt']) or now, data, label))
     shown.sort(key=lambda row: row[0], reverse=True)
-    return [(now - when, data, awaiting) for when, data, awaiting in shown]
+    return [(now - when, data, label) for when, data, label in shown]
 
 
 def model_of(data):
@@ -329,9 +341,9 @@ def snapshot(repo, session_id, now):
     headline = f'{workstream.name} · {phase}' if phase else workstream.name
     rows = [{'kind': 'headline', 'text': headline + (' · draft' if draft else '')}]
     running, waiting = [], []
-    for age, data, awaiting in attempts:
-        if awaiting:
-            waiting.append({'kind': 'wait', 'text': f"result ready · {data.get('assignment', '')} · quiet {fmt_age(age)}"})
+    for age, data, label in attempts:
+        if label:
+            waiting.append({'kind': 'wait', 'text': f"{label} · {data.get('assignment', '')} · quiet {fmt_age(age)}"})
         else:
             running.append({'kind': 'run', 'text': f"▶ {data.get('agent', 'worker')} · {data.get('assignment', '')} · "
                                                    f'{model_of(data)} · quiet {fmt_age(age)}'})

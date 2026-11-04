@@ -2,13 +2,14 @@
 """A registered attempt carries its agent and job: independence, required report sections, read-only work."""
 import json
 import os
+import shlex
 import shutil
 import sqlite3
 import subprocess
 import sys
 import unittest
 
-from lifecycle_case import WorkerLifecycleCase
+from lifecycle_case import SCRIPT, WorkerLifecycleCase
 import support
 
 
@@ -134,6 +135,31 @@ sys.exit(process.returncode)
         self.assertIn('Job ticket is done by builder', self.register(code=2))
         self.use('builder', 'ticket')
         self.register()
+
+    def test_a_job_with_a_plan_registers_only_its_planned_assignments(self):
+        # The panel's total is the plan, so work outside it would count past the total (104 done of 77 planned).
+        self.use('reviewer', 'audit')
+        self.assertEqual(self.cli('plan', '--job', 'audit', '--assignment', 'p1', '--assignment', 'p2'),
+                         {'job': 'audit', 'assignments': ['p1', 'p2']})
+        refused = self.register('p3/1', 'p3', code=2)
+        # The fixture's path holds a space: the command it names must still run as pasted.
+        command = shlex.join(['python3', str(SCRIPT), 'plan', '--state', str(self.state.resolve()), '--job', 'audit'])
+        self.assertIn(f'p3 is not in the audit plan; record the plan with every assignment it holds: '
+                      f'`{command} --assignment <each>`', refused)
+        self.register('p1/1', 'p1')
+        self.cli('plan', '--job', 'audit', '--assignment', 'p1', '--assignment', 'p2', '--assignment', 'p3')
+        self.register('p3/1', 'p3', session='native-3', worker='pane-3')
+        # A new plan replaces the old one: partitions cut again drop the ones they no longer hold.
+        self.cli('plan', '--job', 'audit', '--assignment', 'p1')
+        self.assertIn('p2 is not in the audit plan', self.register('p2/1', 'p2', session='native-2', worker='pane-2',
+                                                                  code=2))
+        # A job without a plan registers any assignment.
+        self.use('builder', 'ticket')
+        self.register('ticket-9/1', 'ticket-9', session='native-9', worker='pane-9')
+
+    def test_a_plan_names_a_known_job_and_at_least_one_assignment(self):
+        self.assertIn('known job', self.cli('plan', '--job', 'audits', '--assignment', 'p1', code=2))
+        self.assertIn('Plan requires --job and at least one --assignment', self.cli('plan', '--job', 'audit', code=2))
 
     def test_registration_checks_the_assignment_sent_to_the_worker(self):
         self.assertIn('requires packet', self.register(packet=str(self.root / 'absent.txt'), code=2))

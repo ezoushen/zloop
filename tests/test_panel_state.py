@@ -236,6 +236,43 @@ class PanelState(unittest.TestCase):
         self.assertEqual([], self.row_texts(found, 'run'))
         self.assertEqual(1, len(self.row_texts(found, 'wait')))
 
+    def test_a_worker_whose_wait_ended_unconsumed_is_not_shown_running(self):
+        # Nothing watches it any more: its wait's receipt waits for the orchestrator, who never collected it (the
+        # stforestkit review-pr920 workers read `▶ … quiet 4d` with their panes long gone).
+        card(self.scratch / 'demo' / 'autopilot.md')
+        state = attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite',
+                         [dict(live('12/ticket-1', assignment='zloop-panel/01'), monitor={'state': 'finished'})])
+        db = sqlite3.connect(state)
+        db.execute("INSERT INTO events (attempt, kind, payload, acknowledged) VALUES (?, ?, ?, 0)",
+                   ('12/ticket-1', 'wait-finished', json.dumps({'recorded_at': time.time() - 4 * 86400,
+                                                                'reason': 'settled'})))
+        db.commit()
+        db.close()
+        found = self.snapshot()
+        self.assertEqual([], self.row_texts(found, 'run'))
+        self.assertEqual(['wait ended · zloop-panel/01 · quiet 4d'], self.row_texts(found, 'wait'))
+        self.assertNotIn('running', found['strip'])
+        # Once the orchestrator consumes the receipt and arms the next wait, the worker runs again.
+        db = sqlite3.connect(state)
+        db.execute("UPDATE events SET acknowledged = 1 WHERE kind = 'wait-finished'")
+        db.commit()
+        db.close()
+        self.assertEqual(['▶ builder · zloop-panel/01 · sonnet · quiet 4d'], self.row_texts(self.snapshot(), 'run'))
+
+    def test_a_worker_with_a_new_wait_armed_runs_beside_an_old_unconsumed_receipt(self):
+        # `reconciled` does not consume the receipt, so a re-armed worker can still hold its last wait's receipt.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        state = attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite',
+                         [dict(live('12/ticket-1', assignment='zloop-panel/01'), monitor={'state': 'running'})])
+        db = sqlite3.connect(state)
+        db.execute("INSERT INTO events (attempt, kind, payload, acknowledged) VALUES (?, ?, ?, 0)",
+                   ('12/ticket-1', 'wait-finished', json.dumps({'recorded_at': time.time() - 60, 'reason': 'timeout'})))
+        db.commit()
+        db.close()
+        found = self.snapshot()
+        self.assertEqual(['▶ builder · zloop-panel/01 · sonnet · quiet 1m'], self.row_texts(found, 'run'))
+        self.assertEqual([], self.row_texts(found, 'wait'))
+
     def test_a_live_worker_keeps_the_panel_up_after_the_card_ended(self):
         card(self.scratch / 'demo' / 'autopilot.md', phase='ended', terminal='delivered')
         attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [live('12/ticket-1')])
@@ -420,18 +457,30 @@ class PanelState(unittest.TestCase):
         ticket(self.scratch / 'remediate-x' / 'issues' / '01-a.md', 'remediate-x/01', status='ready')
         self.assertEqual(['0 done · 0 blocked · 1 ready · 0 live'], self.row_texts(self.snapshot('S'), 'counts'))
 
-    def test_a_recorded_plan_gives_its_job_a_total(self):
-        state = self.worker_run()
-        (state.parent / 'planned.json').write_text(json.dumps({'audit': 77}))
-        self.assertEqual(['done: audit 2/77 · repair 0 · reproduce 1'], self.row_texts(self.snapshot('S'), 'counts'))
+    def plan(self, state, job, *assignments):
+        """Record a job's plan the way an orchestrator does, through the lifecycle."""
+        subprocess.run([sys.executable, '-B', str(support.script('worker_lifecycle.py')), 'plan', '--state', str(state),
+                        '--job', job, *(arg for name in assignments for arg in ('--assignment', name))],
+                       check=True, capture_output=True)
 
-    def test_a_plan_that_is_not_a_count_per_job_is_ignored(self):
-        plan = self.worker_run().parent / 'planned.json'
-        for text in ('{"audit": ', '[77]', '{"audit": "77"}', '{"audit": true}', '{"audit": -1}', '{"audit": 7.5}'):
-            with self.subTest(plan=text):
-                plan.write_text(text)
-                self.assertEqual(['done: audit 2 · repair 0 · reproduce 1'],
-                                 self.row_texts(self.snapshot('S'), 'counts'))
+    def test_a_planned_job_counts_its_completed_planned_assignments_over_the_plan(self):
+        # Done never exceeds the total: p2 completed outside the plan counts toward neither (104 done of 77 planned).
+        state = self.worker_run()
+        self.plan(state, 'audit', 'remediate-x/p1', 'remediate-x/p3', 'remediate-x/p6')
+        self.assertEqual(['done: audit 1/3 · repair 0 · reproduce 1'], self.row_texts(self.snapshot('S'), 'counts'))
+
+    def test_a_planned_job_with_no_attempts_yet_shows_none_of_its_total_done(self):
+        state = self.worker_run()
+        self.plan(state, 'diff-review', 'remediate-x/review')
+        self.assertEqual(['done: audit 2 · diff-review 0/1 · repair 0 · reproduce 1'],
+                         self.row_texts(self.snapshot('S'), 'counts'))
+
+    def test_a_plan_recorded_before_any_worker_shows_its_total(self):
+        # Remediate records the audit plan before it launches the first audit.
+        card(self.scratch / 'remediate-x' / 'autopilot.md', session='S')
+        self.plan(self.scratch / 'remediate-x' / 'reports' / 'workers.sqlite', 'audit',
+                  'remediate-x/p1', 'remediate-x/p2')
+        self.assertEqual(['done: audit 0/2'], self.row_texts(self.snapshot('S'), 'counts'))
 
     def test_two_sessions_each_see_their_own_workstream(self):
         for slug, session in (('alpha', 'S'), ('beta', 'T')):
