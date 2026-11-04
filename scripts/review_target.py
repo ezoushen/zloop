@@ -216,7 +216,8 @@ def start(args):
                            blocker='none', e2e_status='not-run', e2e_head='none', e2e_by='none')
             for key, value in refresh.items():
                 front = re.sub(rf'(?m)^{key}:[^\n]*(?:\n[ \t]+-[^\n]*)*', f'{key}: {value}', front)
-            body = body.replace(json.dumps(previous['resolution'], indent=2), json.dumps(resolved, indent=2), 1)
+            body = re.sub(r'(## Scope and priorities\n\n```json\n).*?(\n```)',
+                          lambda match: match[1] + json.dumps(resolved, indent=2) + match[2], body, count=1, flags=re.S)
             content = front + '\n---\n' + body
         if not report.is_file() or not previous or previous['resolution'] != resolved:
             state_files.write_atomic(report, content)

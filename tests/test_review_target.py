@@ -236,6 +236,23 @@ class ReviewTarget(unittest.TestCase):
         self.assertEqual(report.read_bytes(), before)
         self.assertFalse(report.with_name('review.json').exists())
 
+    def test_a_start_interrupted_twice_still_leaves_the_report_resolution_at_the_current_head(self):
+        # Audit A5 round 1: the report's resolution is regenerated from the current one, not found by the binding's
+        # older copy, so a report ahead of its binding is not left naming a head the binding and front matter dropped.
+        first = self.launch('--workstream', 'fx')
+        report, binding = Path(first['report']), Path(first['binding'])
+        at_first_head = binding.read_bytes()
+        self.git('commit', '--allow-empty', '-m', 'second head')
+        self.launch('--workstream', 'fx')
+        binding.write_bytes(at_first_head)  # the second start died after the report, before the binding
+        self.git('commit', '--allow-empty', '-m', 'third head')
+        head = self.git('rev-parse', 'HEAD')
+        self.launch('--workstream', 'fx')
+        self.assertIn(f'review_head: {head}', report.read_text())
+        self.assertEqual(json.loads(binding.read_text())['resolution']['head'], head)
+        self.assertIn(f'"head": "{head}"', report.read_text())
+        self.assertNotIn(first['head'], report.read_text().split('## Scope and priorities', 1)[1].split('\n## ', 1)[0])
+
     def test_a_truncated_binding_or_report_is_refused_naming_what_to_remove_and_the_rerun_repairs_it(self):
         # Audit A5: a file cut short is never a traceback; the refusal names the file, and the same start then repairs.
         for cut in ('review.json', 'report'):
