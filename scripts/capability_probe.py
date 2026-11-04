@@ -125,7 +125,9 @@ def ticket_needs(ticket):
     if not path.is_file():
         raise ValueError(f'The assignment names a ticket file that does not exist: {ticket}')
     declared = (front_matter.parse(path.read_text(errors='replace')) or {}).get('needs')
-    return declared if isinstance(declared, list) else []
+    if declared is not None and not isinstance(declared, list):
+        raise ValueError(f'{ticket}: needs must be a bracketed list, such as `needs: [network]`')
+    return declared or []
 
 
 def unmet(needs, reports, worktree):

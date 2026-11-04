@@ -120,6 +120,14 @@ class CollectionNeeds(WorkerLifecycleCase):
         refused = self.complete(packet, code=2)
         self.assertIn('The ticket needs network, docker: no probe of this worktree in the result evidence', refused)
 
+    def test_a_local_tickets_needs_written_as_one_word_refuse_the_result_naming_the_list_form(self):
+        # A ticket that skipped `--check` must not drop its declared need by writing it unbracketed.
+        packet = self.ticket(['docker'])
+        (self.root / 'ticket.md').write_text('---\nticket: fx/01\nstatus: ready\nblocked_by: []\nneeds: network\n'
+                                             '---\n# 01: task\n')
+        refused = self.complete(packet, code=2)
+        self.assertIn(f'{self.root / "ticket.md"}: needs must be a bracketed list, such as `needs: [network]`', refused)
+
     def test_lines_of_the_ticket_context_that_start_with_needs_are_not_the_assignments_needs(self):
         packet = self.ticket(value='https://tracker.example/issue/7', assigned=['docker'])
         packet.write_text(packet.read_text().replace('ticket context: /fixture/ticket-context', '\n'.join((
