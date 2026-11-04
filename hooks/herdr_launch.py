@@ -29,8 +29,9 @@ import yield_gate
 SHELLS = {'sh', 'bash', 'zsh', 'dash'}
 # All Herdr lookups of one hook run, well inside the hosts' 10-second hook timeout.
 LOOKUP_SECONDS = 4
-# Options of `env` and `timeout` that take a separate value: env -u NAME, -C DIR; timeout -s SIGNAL, -k DURATION.
-VALUED = {'-u', '-C', '-s', '-k'}
+# Options of `env` and `timeout` that take a separate value: env -u/--unset NAME, -C/--chdir DIR, -P PATH, -S STRING;
+# timeout -s SIGNAL, -k DURATION.
+VALUED = {'-u', '--unset', '-C', '--chdir', '-P', '-S', '-s', '-k'}
 
 
 def runs(words, assigned=None):
@@ -46,8 +47,11 @@ def runs(words, assigned=None):
         elif head in ('env', 'timeout'):
             words = words[1:]
             while words and words[0].startswith('-'):
-                if assigned is not None and head == 'env' and (words[0] in ('-i', '-', '--ignore-environment') or (
-                        words[0] == '-u' and words[1:2] == ['HERDR_SOCKET_PATH'] or words[0] == '-uHERDR_SOCKET_PATH')):
+                option = words[0]
+                if assigned is not None and head == 'env' and (
+                        option in ('-', '--ignore-environment') or re.fullmatch(r'-[0iv]*i[0iv]*', option)
+                        or option in ('-uHERDR_SOCKET_PATH', '--unset=HERDR_SOCKET_PATH')
+                        or option in ('-u', '--unset') and words[1:2] == ['HERDR_SOCKET_PATH']):
                     assigned['HERDR_SOCKET_PATH'] = ''
                 words = words[2:] if words[0] in VALUED else words[1:]
             if head == 'timeout':
@@ -61,10 +65,10 @@ def changes_socket(tokens):
     """Whether a statement may change HERDR_SOCKET_PATH for the statements beside it: it names the variable other than
     in the prefix of a command it runs, or runs no command (assignments, `export`, an `env` that only prints); a shell
     it starts keeps its own changes."""
-    if not any('HERDR_SOCKET_PATH' in token for token in tokens):
+    if not any('HERDR_SOCKET' in token for token in tokens):  # Also a name the shell expands, as HERDR_SOCKET_{PATH,X}.
         return False
     words = runs(list(tokens))
-    return not words or (Path(words[0]).name not in SHELLS and any('HERDR_SOCKET_PATH' in word for word in words))
+    return not words or (Path(words[0]).name not in SHELLS and any('HERDR_SOCKET' in word for word in words))
 
 
 def starts(command, assigned=None):

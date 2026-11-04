@@ -935,7 +935,11 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
                  (f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'herdr agent start x%d --pane w1:p8'; "
                   "herdr agent start a%d --pane w1:p%d", 's4'),
                  # A shell the command starts keeps its own changes: the launch beside it runs on the logger's server.
-                 ("bash -c 'unset HERDR_SOCKET_PATH'; herdr agent start a%d --pane w1:p%d", 's4')]
+                 ("bash -c 'unset HERDR_SOCKET_PATH'; herdr agent start a%d --pane w1:p%d", 's4'),
+                 # Review 6: combined short options and the long unset form of env.
+                 (f"HERDR_SOCKET_PATH={sock('s2')} env -iv herdr agent start a%d --pane w1:p%d", 'default'),
+                 (f"HERDR_SOCKET_PATH={sock('s2')} env --unset=HERDR_SOCKET_PATH herdr agent start a%d --pane w1:p%d",
+                  'default')]
         for number, (command, _) in enumerate(cases):
             self.launch(command.replace('%d', str(number)), pane=None, env={'HERDR_SOCKET_PATH': sock('s4')})
         self.assertEqual([record['herdr_session'] for record in self.logged() if not record['agent'].startswith('x')],
@@ -953,7 +957,9 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
                         f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'while false; do unset HERDR_SOCKET_PATH; done\n"
                         "herdr agent start a --pane w1:p5'",
                         f"env -u HERDR_SOCKET_PATH bash -c 'HERDR_SOCKET_PATH={sock('s3')}\nherdr agent start a --pane w1:p5'",
-                        f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'env -u HERDR_SOCKET_PATH\nherdr agent start a --pane w1:p5'"):
+                        f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'env -u HERDR_SOCKET_PATH\nherdr agent start a --pane w1:p5'",
+                        # Review 6: a name the shell expands still names the variable.
+                        f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'unset HERDR_SOCKET_{{PATH,UNUSED}}; herdr agent start a --pane w1:p5'"):
             with self.subTest(command=command):
                 before = len(self.logged())
                 self.launch(command, pane=None, env={'HERDR_SOCKET_PATH': sock('s4')})
