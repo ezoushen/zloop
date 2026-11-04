@@ -475,7 +475,8 @@ def readable(record):
     if 'dismissed' in record:
         target = record['dismissed']
         return (isinstance(target, dict) and len(target) == 1 and set(target) <= {'pane', 'agent'}
-                and all(text(value, False) for value in target.values()) and identity(record.get('by')))
+                and all(text(value, False) for value in target.values()) and identity(record.get('by'))
+                and isinstance(record.get('keep', False), bool))
     try:
         time.strptime(record.get('time'), '%Y-%m-%dT%H:%M:%SZ')
     except (TypeError, ValueError):
@@ -484,11 +485,23 @@ def readable(record):
             and identity(record.get('orchestrator')) and text(record.get('cwd')))
 
 
+def pane_open(server, pane):
+    """Whether a Herdr server still lists the pane; one that is not running lists none."""
+    result = subprocess.run(['herdr', *(['--session', server] if server else []), 'pane', 'get', pane],
+                            capture_output=True, text=True, timeout=5)
+    if result.returncode and herdr_error(result) in ('pane_not_found', 'workspace_not_found', 'server_not_running'):
+        return False
+    if result.returncode:
+        raise RuntimeError(f'herdr pane get exited {result.returncode}: {(result.stderr or result.stdout).strip()}')
+    return True
+
+
 def unregistered(root, pane, session, siblings=True):
     """Name each Herdr worker that no attempt in any run and no dismissal of this orchestrator accounts for: each
     launch it logged into a ticket worktree or an unknown cwd (an attempt of another host session never accounts for
     it when both know one), with `siblings` each other live agent in a ticket worktree of its Herdr workspace; and
-    each unreadable log line."""
+    each unreadable log line it names; and each pane of a launch it dismissed that is still open, unless dismissed
+    with `--keep`."""
     attempts = []
     for state in states(root):
         try:
@@ -513,12 +526,16 @@ def unregistered(root, pane, session, siblings=True):
             records.append(record)
         elif names(line, pane, session):  # Named to a session its text names, and ignored for matching.
             unreadable.append(f'{log}: launch log line {number} is unreadable; fix or remove it')
-    launches = []
+    launches, dismissed = [], []
     for record in records:
         if 'dismissed' in record:  # Accounts for its orchestrator's launches of that pane or name logged before it.
-            launches = [launch for launch in launches
-                        if any(launch.get(key) != value for key, value in record['dismissed'].items())
-                        or not same_orchestrator(launch['orchestrator'], record['by']['pane'], record['by']['session'])]
+            def covered(launch):
+                return (all(launch.get(key) == value for key, value in record['dismissed'].items())
+                        and same_orchestrator(launch['orchestrator'], record['by']['pane'], record['by']['session']))
+            dismissed = [launch for launch in dismissed if not record.get('keep') or not covered(launch)]
+            if not record.get('keep'):
+                dismissed += [launch for launch in launches if covered(launch)]
+            launches = [launch for launch in launches if not covered(launch)]
         else:
             launches.append(record)
     # Another orchestrator's logged launch, dismissed or not, is that session's worker, never a live sibling of this one.
@@ -531,11 +548,21 @@ def unregistered(root, pane, session, siblings=True):
     workers |= {handle for launch in launches for handle in (launch['agent'], launch['pane'])}  # Named once.
     workers |= {value for record in records if 'dismissed' in record  # This orchestrator's dismissals cover live agents.
                 and same_orchestrator(record['by'], pane, session) for value in record['dismissed'].values()}
-    workspace, failed = os.environ.get('HERDR_WORKSPACE_ID'), []
+    workspace, failed, still_open, asked = os.environ.get('HERDR_WORKSPACE_ID'), [], [], {}
+    for launch in dismissed:  # Each pane a dismissal of this orchestrator left open, named once.
+        where = (launch.get('herdr_session'), launch['pane'])
+        if launch['pane'] and where not in asked and same_orchestrator(launch['orchestrator'], pane, session):
+            try:
+                asked[where] = pane_open(*where)
+            except Exception as error:  # A check that cannot run is a named gap, never a pass.
+                asked[where], gap = False, f'could not check Herdr workers: {error}'
+                failed += [gap] if gap not in failed else []
+            still_open += [f"{launch['pane']}: dismissed launch is still open; close it, or dismiss with --keep <reason>"
+                           ] if asked[where] else []
     try:
         agents = herdr_agents() if siblings and workspace and worktrees.is_dir() else []  # No worktrees, no workers.
     except Exception as error:  # A check that cannot run is a named gap, never a pass.
-        agents, failed = [], [f'could not check Herdr workers: {error}']
+        agents, failed = [], failed + [f'could not check Herdr workers: {error}']
     live = [agent for agent in agents
             if agent.get('workspace_id') == workspace and agent['pane_id'] != pane and agent.get('cwd')
             and Path(agent['cwd']).resolve().is_relative_to(worktrees)
@@ -543,7 +570,7 @@ def unregistered(root, pane, session, siblings=True):
     return ([f"{log}: {launch['agent']} (pane {launch['pane']}): launched without a registered attempt"
              for launch in launches]
             + [f"Herdr agent {agent.get('name')} (pane {agent['pane_id']}) runs in {agent['cwd']} "
-               'without a registered attempt' for agent in live] + unreadable + failed)
+               'without a registered attempt' for agent in live] + still_open + unreadable + failed)
 
 
 def checked(cwd, session=None):

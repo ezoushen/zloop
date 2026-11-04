@@ -845,6 +845,41 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.launch('herdr agent start builder-1 --kind codex --pane w1:p5', pane=None)
         self.assertEqual(self.check(pane=None, session='host-1'), [self.gap('builder-1', 'w1:p5')])
 
+    def test_a_dismissed_launch_whose_pane_is_still_open_holds_its_session_until_it_is_closed_or_kept(self):
+        # Gap 15: a probe or failed launch dismissed but left open is still a worker nobody accounts for; closing the
+        # pane or recording it kept on purpose (`--keep <reason>`) ends the hold, and only the dismissing session is held.
+        open_pane = 'w1:p5: dismissed launch is still open; close it, or dismiss with --keep <reason>'
+        self.launch('herdr agent start builder-1 --kind codex --pane w1:p5', pane=None, session='host-1')
+        self.launch('herdr agent start builder-2 --kind codex --pane w1:p6', pane=None, session='host-2')
+        self.serve(panes={'default': {pane: {'pane_id': pane, 'cwd': str(self.worktree)} for pane in ('w1:p5', 'w1:p6')}})
+        self.assertEqual(self.dismiss('--pane', 'w1:p5', '--session', 'host-1', '--reason', 'probe').returncode, 0)
+        self.assertEqual(self.check(pane=None, session='host-1'), [open_pane])
+        self.assertIn(open_pane, self.stop(pane=None, session='host-1')['reason'])
+        self.assertEqual(self.check(pane=None, session='host-2'), [self.gap('builder-2', 'w1:p6')],
+                         'the other session is held for its own launch only')
+        self.serve(panes={'default': {'w1:p6': {'pane_id': 'w1:p6', 'cwd': str(self.worktree)}}})  # p5 closed.
+        self.assertEqual(self.check(pane=None, session='host-1'), [])
+        self.serve(panes={'default': {'w1:p5': {'pane_id': 'w1:p5', 'cwd': str(self.worktree)}}})  # Open again.
+        self.assertEqual(self.check(pane=None, session='host-1'), [open_pane])
+        for reason in ('', '  '):
+            refused = self.dismiss('--pane', 'w1:p5', '--session', 'host-1', '--keep', reason)
+            self.assertEqual(refused.returncode, 2, reason)
+            self.assertIn('--keep', refused.stderr)
+        both = self.dismiss('--pane', 'w1:p5', '--session', 'host-1', '--reason', 'probe', '--keep', 'user asked')
+        self.assertEqual(both.returncode, 2)
+        kept = self.dismiss('--pane', 'w1:p5', '--session', 'host-1', '--keep', 'the user reads its output')
+        self.assertEqual((kept.returncode, kept.stderr), (0, ''))
+        self.assertEqual(self.check(pane=None, session='host-1'), [], 'a pane kept on purpose never holds')
+        self.launch('herdr agent start builder-4 --kind codex --pane w1:p8', pane=None, session='host-1')
+        self.serve(panes={'default': {pane: {'pane_id': pane, 'cwd': str(self.worktree)} for pane in ('w1:p5', 'w1:p8')}})
+        self.assertEqual(self.dismiss('--pane', 'w1:p8', '--session', 'host-1', '--keep', 'kept from the start').returncode, 0)
+        self.assertEqual(self.check(pane=None, session='host-1'), [], 'kept at its first dismissal, it never holds')
+        self.serve(fail='connection refused')  # Whether the pane is open cannot be told: named, never a pass.
+        self.launch('herdr agent start builder-3 --kind codex --pane w1:p7', pane=None, session='host-1')
+        self.assertEqual(self.dismiss('--pane', 'w1:p7', '--session', 'host-1', '--reason', 'probe').returncode, 0)
+        [failure] = self.check(pane=None, session='host-1')
+        self.assertRegex(failure, r'^could not check Herdr workers: herdr pane get exited 1: .*connection refused')
+
     def test_a_dismissal_without_a_reason_is_refused_and_changes_nothing(self):
         # Decision 1: accounting for a launch needs a stated reason.
         self.launch('herdr agent start builder-1 --kind codex --pane w1:p5', pane=None)
