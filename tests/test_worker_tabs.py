@@ -8,6 +8,7 @@ import time
 import unittest
 
 from lifecycle_case import WorkerLifecycleCase
+from native_records import session_record
 import support
 
 
@@ -59,6 +60,16 @@ class HerdrTabs(WorkerLifecycleCase):
         self.assertIn('explicit Herdr session and pane', error)
         self.assertNotIn('closed', self.cli('status')['attempts'][0])
         self.assertFalse((self.root / 'native-closed').exists())
+
+    def test_a_placed_worker_registers_with_its_session_record_path(self):
+        # Rule: the record path becomes the session id it names before Herdr is asked, so Herdr's own session id
+        # for the pane matches it.
+        self.herdr_route()
+        self.herdr_fixture(native_session='native-1')
+        path = session_record(self.root / 'claude-record.jsonl', 'claude', 'native-1', self.root)
+        self.register(worker='builder-1', herdr={'session': 'fixture-session'}, session=str(path))
+        saved = self.cli('status')['attempts'][0]
+        self.assertEqual((saved['native_session'], saved['herdr']['pane_id']), ('native-1', 'pane-1'))
 
     def test_registration_splits_a_session_pane_name_handle_and_asks_that_session(self):
         # Rule: a `session/pane/name` handle needs no herdr.session; its pane is looked up in its own session,

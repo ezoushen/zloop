@@ -773,6 +773,12 @@ def record(db, data, refuse_changes=False, submitting=False):
     # execution is read once, here, so the attempt keeps the route that decided whether to ask.
     placed = execution = None
     if kind == 'register':
+        session = data.get('native_session')
+        if (data.get('runtime') in ('claude', 'codex', 'pi') and text(session) and Path(session).is_absolute()
+                and (Path(session).is_file() or not (data['runtime'] == 'codex' and session.startswith('/root/')))):
+            # An existing file is a session record, and stands for the session it names; a Codex child's agent_path
+            # (/root/<task>) is no file. Herdr is asked about the session, so this comes first.
+            data['native_session'] = native_settings.session_id(session, data['runtime'])
         execution = read_object(data['execution']) if text(data.get('execution')) else None
         route = execution or {}
         # The resolver marks a Herdr route by its context or, under a caller key, by the built-in herdr type; a skill
@@ -792,11 +798,6 @@ def record(db, data, refuse_changes=False, submitting=False):
                         f"native_session {data['native_session']} is not the session {named} the native record names")
             for key in ('assignment', 'repo', 'worktree', 'head', 'worker', 'native_session', 'runtime'):
                 require(text(data.get(key)), f'Registration requires {key}')
-            if (data['runtime'] in ('claude', 'codex', 'pi') and Path(data['native_session']).is_absolute()
-                    and not (data['runtime'] == 'codex' and data['native_session'].startswith('/root/'))):
-                # The path of the worker's session record stands for the session it names, and stays its record.
-                data['native'] = data['native_session']
-                data['native_session'] = native_settings.session_id(data['native'], data['runtime'])
             require(data['native_session'] not in host_sessions(),
                     'A host session cannot be its own worker; start a fresh worker and register its native_session')
             for key in ('repo', 'worktree'):
