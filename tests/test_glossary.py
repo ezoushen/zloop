@@ -127,6 +127,18 @@ class Glossary(unittest.TestCase):
         self.assertIn(found.returncode, (0, 1), found.stderr)
         self.assertEqual('', found.stdout)
 
+    def test_no_script_hook_or_test_uses_an_avoided_identifier_form(self):
+        # Rule: a term's avoided word must not survive as an identifier (effort_branch, effortBranch,
+        # coordinator_pane). Hyphenated and spaced phrases are the doc checker's; the glossary, this test, history
+        # and the one test that asserts a renamed module is gone are the places that name them.
+        forms = r'effort_(branch|worktree|slug|spend)|effort(Branch|Worktree|Slug|Spend)|coordinator[_A-Z]'
+        found = subprocess.run(
+            ['git', 'grep', '-n', '-I', '-E', forms,
+             '--', 'scripts', 'hooks', 'tests', ':!tests/test_glossary.py', ':!tests/test_workstream_spend.py'],
+            cwd=ROOT, capture_output=True, text=True)
+        self.assertIn(found.returncode, (0, 1), found.stderr)
+        self.assertEqual('', found.stdout)
+
     def test_the_doc_checker_reads_the_glossary_and_avoids_the_words_it_lists(self):
         # Rule: the checker is configured with GLOSSARY.md; "effort" and "run" are terms too, so only the longer
         # phrases and "harness" are matched.
