@@ -117,8 +117,9 @@ class NativeProof(WorkerLifecycleCase):
             self.execution.write_text(json.dumps({'host': runtime, 'native_dispatch': True,
                 'agent': 'builder', 'job': 'ticket', 'settings': {}}))
             self.native_env = dict(os.environ, CLAUDE_CODE_SESSION_ID='claude-host',
-                                   CODEX_SESSION_ID='codex-host', PI_SESSION_ID='pi-host')
-            for session in ('claude-host', 'codex-host', 'pi-host'):
+                                   CODEX_SESSION_ID='codex-host', PI_SESSION_ID='pi-host',
+                                   OPENCODE_SESSION_ID='opencode-host')
+            for session in ('claude-host', 'codex-host', 'pi-host', 'opencode-host'):
                 with self.subTest(runtime=runtime, session=session):
                     error = self.register(f'{runtime}/{session}', runtime=runtime, session=session,
                                           worker=session, code=2)

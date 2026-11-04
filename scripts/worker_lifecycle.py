@@ -36,8 +36,8 @@ LOOKUP_SECONDS = 5  # Registration's wait on each Herdr call.
 # Native write-scope controls: a launch requests them (its `verify`) and startup observes them.
 SCOPE = ('permission_mode', 'sandbox', 'approval', 'filesystem', 'tools', 'permissions')
 TOP_LEVEL = ('claude', 'codex', 'opencode', 'pi')  # Runtimes whose own process the resolver gives launch controls.
-# What Claude Code, Codex and Pi export to the orchestrator's shell as its host session ID.
-SESSION_VARIABLES = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID')
+# What Claude Code, Codex, Pi and OpenCode export to the orchestrator's shell as its host session ID.
+SESSION_VARIABLES = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID', 'OPENCODE_SESSION_ID')
 
 
 def host_sessions():
