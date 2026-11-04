@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 from unittest.mock import patch
 
@@ -199,6 +200,14 @@ class ReviewTarget(unittest.TestCase):
         self.assertIn('interrupted', refused)
         self.assertEqual([path.read_bytes() for path in files], before)
         self.assertEqual(sorted(path.name for path in files[0].parent.iterdir() if path.name.startswith('.')), [])
+
+    def test_concurrent_starts_by_different_sessions_all_stay_bound(self):
+        # Audit A6: a start that succeeded holds its session at stop, whichever start wrote the binding last.
+        sessions = [f'session-{number}' for number in range(4)]
+        with ThreadPoolExecutor(len(sessions)) as pool:
+            results = [future.result() for future in [pool.submit(self.launch, session=name) for name in sessions]]
+        binding = json.loads(Path(results[0]['binding']).read_text())
+        self.assertEqual(sorted(binding['sessions']), sessions)
 
     def test_a_new_workstream_head_reopens_the_verdict_and_retains_human_decisions(self):
         result = self.launch('--workstream', 'fx')

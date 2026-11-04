@@ -144,12 +144,6 @@ def start(args):
                  else main / '.scratch/reviews' / identity)
     report = directory / ('spec-review.md' if args.workstream else 'review.md')
     state, binding_path = directory / 'workers.sqlite', directory / 'review.json'
-    previous = json.loads(binding_path.read_text()) if binding_path.is_file() else None
-    if (report.exists() or previous) and (
-            not previous or previous.get('repo') != str(main) or previous.get('target') != args.target):
-        raise ValueError(f'{report}: existing report belongs to a different target; choose another --workstream')
-    if previous:
-        sessions = list(dict.fromkeys(previous['sessions'] + sessions))
     route_argv = [sys.executable, str(ROOT / 'scripts/agent_models.py'), '--repo', str(main),
                   '--host', args.host, '--route', '--job', 'diff-review', '--reports', str(directory)]
     routed = subprocess.run(route_argv, cwd=repo, text=True, capture_output=True, timeout=30)
@@ -169,32 +163,39 @@ def start(args):
         commands[action] = shlex.join(lifecycle + [verb, '--state', str(state),
                                                   *([] if action == 'register' else ['--attempt', '<attempt>']),
                                                   '--input', str(directory / f'{action}.json')])
-    template = (ROOT / 'skills/review/report.md').read_text().split('```markdown\n', 1)[1].split('```', 1)[0]
-    front, body = template.split('\n---\n', 1)
-    fields = dict(review_head=resolved['head'], review_base=resolved['base'], review_diff_base=resolved['diff_base'],
-                  autofix=str(args.autofix).lower(), review_level=resolved['review_level'])
-    for key, value in fields.items():
-        front = re.sub(rf'(?m)^{key}: .*$', f'{key}: {value}', front)
-    headings = re.findall(r'(?m)^#{2,3} .+$', body)
-    content = front + '\n---\n\n' + '\n\n'.join(headings) + '\n'
-    content = content.replace('## Scope and priorities\n', '## Scope and priorities\n\n```json\n'
-                              + json.dumps(resolved, indent=2) + '\n```\n', 1)
     directory.mkdir(parents=True, exist_ok=True)
-    if previous and report.is_file():
-        front, body = report.read_text().split('\n---\n', 1)
-        refresh = dict(fields, review_status='incomplete', documentation_status='incomplete', review_by='none',
-                       blocker='none', e2e_status='not-run', e2e_head='none', e2e_by='none')
-        for key, value in refresh.items():
-            front = re.sub(rf'(?m)^{key}:[^\n]*(?:\n[ \t]+-[^\n]*)*', f'{key}: {value}', front)
-        body = body.replace(json.dumps(previous['resolution'], indent=2), json.dumps(resolved, indent=2), 1)
-        content = front + '\n---\n' + body
-    if not report.is_file() or not previous or previous['resolution'] != resolved:
-        state_files.write_atomic(report, content)
-    binding = dict(pane=pane, sessions=sessions, report=str(report), state=str(state),
-                   repo=str(main), target=args.target, resolution=resolved, route=route, next_commands=commands)
-    state_files.write_atomic(binding_path, json.dumps(binding, indent=2) + '\n')
-    if 'result' in route:
-        state_files.write_atomic(directory / 'execution.json', json.dumps(route['result'], indent=2) + '\n')
+    with state_files.locked(binding_path):
+        previous = json.loads(binding_path.read_text()) if binding_path.is_file() else None
+        if (report.exists() or previous) and (
+                not previous or previous.get('repo') != str(main) or previous.get('target') != args.target):
+            raise ValueError(f'{report}: existing report belongs to a different target; choose another --workstream')
+        if previous:
+            sessions = list(dict.fromkeys(previous['sessions'] + sessions))
+        template = (ROOT / 'skills/review/report.md').read_text().split('```markdown\n', 1)[1].split('```', 1)[0]
+        front, body = template.split('\n---\n', 1)
+        fields = dict(review_head=resolved['head'], review_base=resolved['base'], review_diff_base=resolved['diff_base'],
+                      autofix=str(args.autofix).lower(), review_level=resolved['review_level'])
+        for key, value in fields.items():
+            front = re.sub(rf'(?m)^{key}: .*$', f'{key}: {value}', front)
+        headings = re.findall(r'(?m)^#{2,3} .+$', body)
+        content = front + '\n---\n\n' + '\n\n'.join(headings) + '\n'
+        content = content.replace('## Scope and priorities\n', '## Scope and priorities\n\n```json\n'
+                                  + json.dumps(resolved, indent=2) + '\n```\n', 1)
+        if previous and report.is_file():
+            front, body = report.read_text().split('\n---\n', 1)
+            refresh = dict(fields, review_status='incomplete', documentation_status='incomplete', review_by='none',
+                           blocker='none', e2e_status='not-run', e2e_head='none', e2e_by='none')
+            for key, value in refresh.items():
+                front = re.sub(rf'(?m)^{key}:[^\n]*(?:\n[ \t]+-[^\n]*)*', f'{key}: {value}', front)
+            body = body.replace(json.dumps(previous['resolution'], indent=2), json.dumps(resolved, indent=2), 1)
+            content = front + '\n---\n' + body
+        if not report.is_file() or not previous or previous['resolution'] != resolved:
+            state_files.write_atomic(report, content)
+        binding = dict(pane=pane, sessions=sessions, report=str(report), state=str(state),
+                       repo=str(main), target=args.target, resolution=resolved, route=route, next_commands=commands)
+        state_files.write_atomic(binding_path, json.dumps(binding, indent=2) + '\n')
+        if 'result' in route:
+            state_files.write_atomic(directory / 'execution.json', json.dumps(route['result'], indent=2) + '\n')
     return dict(resolved, report=str(report), state=str(state), binding=str(binding_path), route=route,
                 next_commands=commands)
 
