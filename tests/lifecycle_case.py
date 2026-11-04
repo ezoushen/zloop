@@ -188,10 +188,14 @@ class WorkerLifecycleCase(unittest.TestCase):
         directory.mkdir(exist_ok=True)
         executable = directory / 'herdr'
         executable.write_text('#!' + sys.executable + '\n' + f'''
-import json,sys,time
+import json,os,sys,time
 from pathlib import Path
 marker=Path({str(self.root / 'native-closed')!r})
 args=sys.argv[1:]
+with open({str(self.root / 'herdr-argv.log')!r},'a') as log: log.write(' '.join(args)+'\\n')
+# A caller in the fixture's own server talks through its socket, without --session.
+if args[:1]!=['--session'] and os.environ.get('HERDR_SOCKET_PATH','').endswith('/sessions/fixture-session/herdr.sock'):
+    args=['--session','fixture-session']+args
 assert args[:2]==['--session','fixture-session']
 for command,delay in ((['agent','get'],{agent_delay!r}),(['tab','get'],{tab_delay!r})):
     if args[2:4]==command and delay:

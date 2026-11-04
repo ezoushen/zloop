@@ -57,6 +57,17 @@ class Reap(WorkerLifecycleCase):
         self.assertEqual(['herdr --session fixture-session tab get tab-1: tab_not_found'],
                          self.closed()['evidence'])
 
+    def test_the_server_the_callers_socket_names_is_asked_through_that_socket(self):
+        # Live (OpenCode on an isolated XDG_CONFIG_HOME): `--session default` found no socket there and answered with a
+        # non-JSON error, so nothing closed; the server HERDR_SOCKET_PATH names is reached through the socket itself.
+        self.placed()
+        self.tab_closed()
+        self.native_env = dict(self.native_env or os.environ,
+                               HERDR_SOCKET_PATH=str(self.root / 'sessions' / 'fixture-session' / 'herdr.sock'))
+        (self.root / 'herdr-argv.log').write_text('')
+        self.assertEqual(['ticket-1/1'], [row['attempt'] for row in self.cli('reap')['closed']])
+        self.assertEqual(['tab get tab-1'], (self.root / 'herdr-argv.log').read_text().splitlines())
+
     def test_a_herdr_server_that_is_not_running_confirms_the_tab_gone(self):
         self.placed(tab_gone_error='server_not_running')
         self.tab_closed()

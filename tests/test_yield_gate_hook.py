@@ -56,6 +56,7 @@ class GateRepo(unittest.TestCase):
 import json, sys, time
 served = json.load(open({str(self.served)!r}))
 args, session = sys.argv[1:], 'default'
+open({str(self.bin / 'argv')!r}, 'a').write(' '.join(args) + '\\n')
 if args[:1] == ['--session']:
     session, args = args[1], args[2:]
 open({str(self.bin / 'calls')!r}, 'a').write(session + ' ' + ' '.join(args) + '\\n')
@@ -2053,6 +2054,20 @@ class StaleTabs(HerdrWorkers):
         self.collect(kind='retain', reason='the repair round reuses this context', next_use='ticket-1 repair',
                      evidence=['review finding F1'])
         self.assertEqual(self.check(pane='w1:p1'), [])
+
+    def test_the_tabs_of_the_server_the_callers_socket_names_are_listed_through_that_socket(self):
+        # Live (OpenCode on an isolated XDG_CONFIG_HOME): `--session default` found no socket under that config; the
+        # server HERDR_SOCKET_PATH names is asked through the socket, any other server by name.
+        self.register()
+        self.collect()
+        for socket, expected in ((str(self.repo / '.config' / 'herdr' / 'herdr.sock'), 'tab list --workspace w1'),
+                                 (str(self.repo / 'sessions' / 's2' / 'herdr.sock'), '--session default tab list --workspace w1')):
+            with self.subTest(socket=socket):
+                (self.bin / 'argv').write_text('')
+                done = subprocess.run([sys.executable, str(HOOK), 'check', str(self.repo)], capture_output=True, text=True,
+                                      env=self.env('w1:p1', HERDR_SOCKET_PATH=socket))
+                self.assertIn(self.gap(), json.loads(done.stdout)['missing'])
+                self.assertIn(expected, (self.bin / 'argv').read_text().splitlines())
 
     def test_an_open_tab_holds_only_the_host_session_that_registered_it_in_a_shared_pane(self):
         # Rule (sessions sharing a folder): as for the gate's findings, the host session decides before the pane.

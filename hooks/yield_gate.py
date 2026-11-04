@@ -383,7 +383,8 @@ def stale_tabs(root, pane, session):
 def herdr_tabs(session, workspace):
     """The IDs of the tabs a Herdr session lists in a workspace; none when the workspace is closed or the session
     stopped, which close its tabs."""
-    result = subprocess.run(['herdr', '--session', session, 'tab', 'list', '--workspace', workspace],
+    named = [] if 'HERDR_SOCKET_PATH' in os.environ and session == own_server() else ['--session', session]
+    result = subprocess.run(['herdr', *named, 'tab', 'list', '--workspace', workspace],
                             capture_output=True, text=True, timeout=5)
     if result.returncode and herdr_error(result) in ('workspace_not_found', 'server_not_running'):
         return set()
@@ -582,7 +583,8 @@ def readable(record):
 
 def pane_open(server, pane):
     """Whether a Herdr server still lists the pane; one that is not running lists none."""
-    result = subprocess.run(['herdr', *(['--session', server] if server else []), 'pane', 'get', pane],
+    named = ['--session', server] if server and not ('HERDR_SOCKET_PATH' in os.environ and server == own_server()) else []
+    result = subprocess.run(['herdr', *named, 'pane', 'get', pane],
                             capture_output=True, text=True, timeout=5)
     if result.returncode and herdr_error(result) in ('pane_not_found', 'workspace_not_found', 'server_not_running'):
         return False
