@@ -21,7 +21,8 @@ Closure is recorded only after `pane get` returns the native `pane_not_found`
 error and, for an attempt that recorded its Herdr tab at registration, `tab get`
 returns `tab_not_found` for that tab. A tab that survives, because another pane
 joined it, holds closure: close the remaining panes or the tab, then retire again.
-A transport error or replaced conversation never counts as closure. If a
+A transport error or replaced conversation never counts as retirement's closure; retire refuses a
+recorded pane holding another conversation and names the reap, which closes the attempt. If a
 pane disappeared before any retirement intent, the host must inspect its native
 closure and reconcile owned jobs, then use the evidence-backed `record closed`
 path; absence alone does not establish ownership or safe cleanup. At a stop (and on demand with

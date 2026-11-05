@@ -1656,7 +1656,7 @@ def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
                 if replaced:
                     evidence, gone, why = answer, True, 'its Herdr pane holds another conversation'
                 elif replaced is None:
-                    gone = None
+                    evidence, gone = answer, None
             if gone is None:
                 silent.add(server)
         elif saved.get('retained') and terminal in ENDED:

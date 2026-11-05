@@ -75,12 +75,21 @@ class Reap(WorkerLifecycleCase):
 
     def test_a_pane_holding_its_own_conversation_or_none_herdr_identifies_leaves_the_attempt_open(self):
         # The worker may still be there (its conversation by ID, or by the record path its startup observed), or Herdr
-        # cannot say who is (no agent, an identity with no value): the tab's answer stays the reason it is open.
-        for kind, held in (('id', 'native-1'), ('path', 'ticket-1-1.jsonl'), ('path', 'alias/ticket-1-1.jsonl'),
-                           ('id', None), ('id', '')):
-            with self.subTest(kind=kind, held=held):
+        # cannot say who is (no agent, an identity with no value, a kind it names otherwise, or a record path when the
+        # startup observed none to compare): the tab's answer stays the reason it is open.
+        for kind, held, observed in (('id', 'native-1', True), ('path', 'ticket-1-1.jsonl', True),
+                                     ('path', 'alias/ticket-1-1.jsonl', True), ('id', None, True), ('id', '', True),
+                                     ('name', 'native-2', True), ('path', 'other-session.jsonl', False)):
+            with self.subTest(kind=kind, held=held, observed=observed):
                 self.setUp()
                 self.placed()
+                if not observed:
+                    db = sqlite3.connect(self.state)
+                    data = json.loads(db.execute("SELECT data FROM attempts WHERE id = 'ticket-1/1'").fetchone()[0])
+                    del data['startup_evidence']
+                    db.execute("UPDATE attempts SET data = ? WHERE id = 'ticket-1/1'", (json.dumps(data),))
+                    db.commit()
+                    db.close()
                 # The record path is the fixture worker's own native record under this case's root, also spelled
                 # through a link to that root, as Herdr may spell it.
                 (self.root / 'alias').symlink_to(self.root)
@@ -377,6 +386,20 @@ sys.exit(1)
         (directory / 'herdr').chmod(0o700)
         self.native_env = dict(os.environ, PATH=str(directory) + os.pathsep + os.environ['PATH'])
 
+    def listed_tabs(self, pane):
+        """A `herdr` that lists every tab of the `slow` server at once and answers each `pane get` by running `pane`."""
+        directory = self.root / 'listed-bin'
+        directory.mkdir()
+        (directory / 'herdr').write_text('#!' + sys.executable + f'''
+import json, sys, time
+if 'tab' in sys.argv:
+    print(json.dumps({{'result': {{'tab': {{'pane_count': 1}}}}}}))
+    sys.exit(0)
+{pane}
+''')
+        (directory / 'herdr').chmod(0o700)
+        self.native_env = dict(os.environ, PATH=str(directory) + os.pathsep + os.environ['PATH'])
+
     def collected_on_slow_server(self, count):
         """`count` collected attempts, each in its own conversation, placed in tabs of the `slow` Herdr server."""
         db = sqlite3.connect(self.state)
@@ -409,6 +432,25 @@ sys.exit(1)
         again, seconds = self.timed_reap()
         self.assertLess(seconds, 8)
         self.assertGreater(len(again['closed']), 0)
+
+    def test_the_pane_lookups_of_listed_tabs_stay_inside_the_budget(self):
+        # Review (Sonnet): each listed tab now also costs a pane lookup; one started late gets only the time left, so a
+        # pane answering after 4.5 s cannot carry the reap far past its 5 s.
+        self.listed_tabs("time.sleep(4.5); print(json.dumps({'result': {'pane': {}}}))")
+        self.collected_on_slow_server(3)
+        found, seconds = self.timed_reap()
+        self.assertLess(seconds, 8)
+        self.assertEqual(([], ['ticket-1/1', 'ticket-2/1', 'ticket-3/1']),
+                         (found['closed'], [row['attempt'] for row in found['open']]))
+
+    def test_a_pane_lookup_with_no_answer_leaves_the_attempt_open_with_that_answer_and_silences_its_server(self):
+        # Review (Sonnet): the reason must name the pane lookup that failed, not the tab that was listed.
+        self.listed_tabs("print('not json'); sys.exit(1)")
+        self.collected_on_slow_server(2)
+        self.assertEqual({'closed': [], 'refused': [], 'open': [
+            {'attempt': 'ticket-1/1',
+             'reason': 'herdr --session slow pane get pane-1: no answer (Expecting value: line 1 column 1 (char 0))'},
+            {'attempt': 'ticket-2/1', 'reason': 'herdr --session slow: no answer earlier'}]}, self.cli('reap'))
 
     def test_a_closure_does_not_wait_on_a_locked_state_beyond_the_budget(self):
         self.placed()

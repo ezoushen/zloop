@@ -161,6 +161,23 @@ class Retirement(WorkerLifecycleCase):
         self.assertFalse((self.root / 'native-closed').exists())
         self.assertEqual(['ticket-1/1'], [row['attempt'] for row in self.cli('reap')['closed']])
 
+    def test_retiring_a_worker_whose_pane_herdr_cannot_identify_does_not_send_it_to_the_reap(self):
+        # Review (Sonnet): the reap closes nothing Herdr cannot identify, so retire names it only for another
+        # conversation; an identity with no value keeps the refusal that the conversation no longer matches.
+        self.herdr_fixture()
+        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        self.herdr_fixture(native_session='', pane_session='')
+        request = self.root / 'retire.json'
+        request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1',
+                                       'jobs_evidence': ['owned jobs inspected'],
+                                       'acceptance': {'decision': 'deferred', 'reason': 'acceptance checks pending'}}))
+        error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+        self.assertEqual(('Native conversation no longer matches the attempt', False), (error.strip(), 'reap' in error))
+        self.assertFalse((self.root / 'native-closed').exists())
+
     def test_native_closure_recovery_preserves_report_and_does_not_close_twice(self):
         self.register()
         self.ready()
