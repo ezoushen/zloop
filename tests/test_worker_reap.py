@@ -78,8 +78,10 @@ class Reap(WorkerLifecycleCase):
         # cannot say who is (no agent, an identity with no value, a kind it names otherwise, or a record path when the
         # startup observed none to compare): the tab's answer stays the reason it is open.
         for kind, held, observed in (('id', 'native-1', True), ('path', 'ticket-1-1.jsonl', True),
-                                     ('path', 'alias/ticket-1-1.jsonl', True), ('id', None, True), ('id', '', True),
-                                     ('name', 'native-2', True), ('path', 'other-session.jsonl', False)):
+                                     ('path', 'alias/ticket-1-1.jsonl', True), ('path', 'linked.jsonl', True),
+                                     ('path', 'missing/../ticket-1-1.jsonl', True),
+                                     ('id', None, True), ('id', '', True), ('name', 'native-2', True),
+                                     ('path', 'other-session.jsonl', False)):
             with self.subTest(kind=kind, held=held, observed=observed):
                 self.setUp()
                 self.placed()
@@ -91,8 +93,10 @@ class Reap(WorkerLifecycleCase):
                     db.commit()
                     db.close()
                 # The record path is the fixture worker's own native record under this case's root, also spelled
-                # through a link to that root, as Herdr may spell it.
+                # through a link to that root, or another name of the same file (as a case alias is on a
+                # case-insensitive file system), or through a directory that does not exist, as Herdr may spell it.
                 (self.root / 'alias').symlink_to(self.root)
+                (self.root / 'linked.jsonl').hardlink_to(self.root / 'ticket-1-1.jsonl')
                 self.herdr_fixture(session_kind=kind, pane_session=str(self.root / held) if kind == 'path' else held)
                 self.assertEqual({'closed': [], 'refused': [], 'open': [{
                     'attempt': 'ticket-1/1', 'reason': 'herdr --session fixture-session tab get tab-1: listed'}]},

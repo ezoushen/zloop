@@ -1592,14 +1592,17 @@ def herdr_answer(placed, timeout=LOOKUP_SECONDS):
 
 def conversation_named(saved, identity):
     """Whether Herdr's session identity names the attempt's native conversation (True), another one (False), or none it
-    can tell apart (None): an ID is compared with the attempt's, a record path with the file its startup observed, however
-    either path is spelled."""
+    can tell apart (None): an ID is compared with the attempt's, a record path with the file its startup observed,
+    however either path names it."""
     value, kind = identity.get('value'), identity.get('kind')
     source = saved.get('startup_evidence', {}).get('native_observation', {}).get('source')
     if not value:
         return None
-    if value == saved['native_session'] or kind == 'path' and source \
-            and os.path.realpath(value) == os.path.realpath(source):
+    try:
+        same_file = kind == 'path' and source and os.path.samefile(value, source)
+    except OSError:  # A path that names no file is compared by its resolved spelling.
+        same_file = os.path.realpath(value) == os.path.realpath(source)
+    if value == saved['native_session'] or same_file:
         return True
     return False if kind == 'id' or kind == 'path' and source else None
 
