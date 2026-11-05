@@ -357,7 +357,7 @@ class PanelState(unittest.TestCase):
                  monitor={'state': 'running'}),
             dict(live('12/ticket-3', assignment='zloop-panel/03'), native_session='other', monitor={'state': 'running'}),
             dict(live('12/ticket-4', assignment='zloop-panel/04'), native_session='pending',
-                 result={'status': 'completed'}),
+                 result={'status': 'completed'}, retained=retained),
             dict(live('12/ticket-5', assignment='zloop-panel/05'), native_session='pending',
                  monitor={'state': 'running'})])
         db = sqlite3.connect(state)
@@ -366,6 +366,43 @@ class PanelState(unittest.TestCase):
         db.commit()
         db.close()
         self.assertEqual(['result ready · zloop-panel/04 · quiet 30s', 'retained · zloop-panel/01 · quiet 30s'],
+                         sorted(self.row_texts(self.snapshot(), 'wait')))
+
+    def test_the_latest_attempt_of_a_conversation_is_the_last_registered_one(self):
+        # Review (Codex, Sonnet): neither the name order (ticket-9 after ticket-10), nor the order of the stored rows
+        # (the lifecycle rewrites a row when it saves it), nor the newest event decides which attempt is the latest.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        retained = {'reason': 'r', 'next_use': 'n'}
+        earlier = dict(live('12/ticket-9'), native_session='shared', result={'status': 'blocked'}, retained=retained)
+        state = attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [
+            dict(earlier),
+            dict(live('12/ticket-10'), native_session='shared', result={'status': 'blocked'}, retained=retained)])
+        earlier.pop('_quiet_seconds')
+        db = sqlite3.connect(state)
+        db.execute("DELETE FROM attempts WHERE id = '12/ticket-9'")
+        db.execute('INSERT INTO attempts VALUES (?, ?)', ('12/ticket-9', json.dumps(dict(earlier, accepted=True))))
+        db.execute("INSERT INTO events (attempt, kind, payload, acknowledged) VALUES (?, ?, ?, 1)",
+                   ('12/ticket-9', 'accepted', json.dumps({'recorded_at': time.time() - 10})))
+        db.commit()
+        db.close()
+        self.assertEqual(['retained · zloop-panel/01 · quiet 30s'], self.row_texts(self.snapshot(), 'wait'))
+
+    def test_a_malformed_or_unregistered_row_neither_hides_a_retention_nor_clears_the_panel(self):
+        # Review (Codex, Sonnet): another session's row whose attempt is no name must not fail the snapshot, and a
+        # retained row with no register event (partial state) keeps its row.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        retained = {'reason': 'r', 'next_use': 'n'}
+        state = attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [
+            dict(live('12/ticket-1', assignment='zloop-panel/01'), result={'status': 'blocked'}, retained=retained)])
+        db = sqlite3.connect(state)
+        for row in (dict(live('12/ticket-2'), attempt=[], session='T', sessions=['T']),
+                    dict(live('12/ticket-3', assignment='zloop-panel/03'), result={'status': 'blocked'},
+                         retained=retained)):
+            row.pop('_quiet_seconds')
+            db.execute('INSERT INTO attempts VALUES (?, ?)', (str(row['attempt']), json.dumps(row)))
+        db.commit()
+        db.close()
+        self.assertEqual(['retained · zloop-panel/01 · quiet 30s', 'retained · zloop-panel/03 · quiet 0s'],
                          sorted(self.row_texts(self.snapshot(), 'wait')))
 
     def test_with_a_binding_only_attempts_of_its_sessions_are_shown(self):

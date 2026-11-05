@@ -226,18 +226,20 @@ def live_attempts(workstream, now, sessions):
     closed = {(data.get('runtime'), data.get('native_session')) for data in rows
               if isinstance(data, dict) and data.get('closed')}
     # Each conversation's latest registered attempt: a retention its earlier attempts kept was for it.
-    conversations = {data.get('attempt'): (data.get('runtime'), data.get('native_session'))
-                     for data in rows if isinstance(data, dict)}
+    conversations = {data['attempt']: (data.get('runtime'), data.get('native_session'))
+                     for data in rows if isinstance(data, dict) and isinstance(data.get('attempt'), str)}
     latest = {conversations[attempt]: attempt for attempt in registered if attempt in conversations}
     shown = []
     for data in rows:
-        if (not isinstance(data, dict) or (data.get('runtime'), data.get('native_session')) in closed
-                or not sessions.intersection(recorded_sessions(data))):
+        if not isinstance(data, dict):
+            continue
+        conversation = (data.get('runtime'), data.get('native_session'))
+        if conversation in closed or not sessions.intersection(recorded_sessions(data)):
             continue
         if data.get('result'):
             if (data['attempt'], 'result') in pending:
                 label = 'result ready'
-            elif data.get('retained') and latest.get(conversations[data['attempt']]) in (None, data['attempt']):
+            elif data.get('retained') and latest.get(conversation) in (None, data['attempt']):
                 label = 'retained'
             else:
                 continue
