@@ -60,11 +60,15 @@ class Reap(WorkerLifecycleCase):
     def test_a_collected_attempt_whose_pane_now_holds_another_conversation_is_closed_with_the_answer_as_evidence(self):
         # Live (stforestkit, remediate-taut-534): the orchestrator started the next attempt's worker in the retained
         # worker's pane, so the tab lived on and the retained rows never closed. Herdr's answer for the pane decides:
-        # another conversation there, by ID or by a record path other than the one the startup observed, closes it.
-        for kind, other in (('id', 'native-2'), ('path', '/elsewhere/other-session.jsonl')):
-            with self.subTest(kind=kind):
+        # another conversation there, by ID or by a record path other than the one the startup observed (an existing
+        # record or one that names no file), closes it.
+        for kind, other in (('id', 'native-2'), ('path', 'other-session.jsonl'), ('path', '/elsewhere/other.jsonl')):
+            with self.subTest(kind=kind, other=other):
                 self.setUp()
                 self.placed()
+                if other == 'other-session.jsonl':
+                    other = str(self.root / other)
+                    Path(other).write_text('{}\n')
                 self.herdr_fixture(session_kind=kind, pane_session=other)
                 evidence = [f'herdr --session fixture-session pane get pane-1: holds another conversation ({other})']
                 self.assertEqual({'closed': [{'attempt': 'ticket-1/1', 'evidence': evidence}], 'open': [],
