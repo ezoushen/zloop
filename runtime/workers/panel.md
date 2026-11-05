@@ -33,8 +33,8 @@ stopped on `waiting-on-user`, `paused-allowance`, `paused-by-user` or `blocked`.
 
 Rows are ordered by what the person needs first: the headline, then running workers and waiting ones (three each, the
 rest of both under one `+N more`), a waiting one being a worker whose result is ready to collect, whose wait ended with
-nothing collected and no new wait (`wait ended`: nothing watches it) or that is `retained` open; an attempt whose
-conversation any attempt closed shows no row. Then one blocker by precedence (the run's own stop first, then a blocked ticket), the next step, and
+nothing collected and no new wait (`wait ended`: nothing watches it) or that is `retained` open until a later
+attempt of its conversation uses it; an attempt whose conversation any attempt closed shows no row. Then one blocker by precedence (the run's own stop first, then a blocked ticket), the next step, and
 the counts: the tickets' tally, or for a workstream without tickets `done:` and, per job of its workers, the
 assignments whose result completed; a job with a plan (`worker_lifecycle.py plan`) counts only its planned
 assignments, over the plan's size, even before its first worker.

@@ -200,8 +200,8 @@ def fmt_age(seconds):
 def live_attempts(workstream, now, sessions):
     """The workstream's attempts, registered by one of these host sessions, that have no closure, most recently active
     first, each with what it waits on: `result ready` for an unacknowledged result, `wait ended` for an unconsumed
-    wait receipt, `retained` for a collected result kept open for its next use, no result and no wait running (nothing
-    watches it), None while it runs."""
+    wait receipt, `retained` for a collected result kept open for its next use (until a later attempt of its
+    conversation is that use), no result and no wait running (nothing watches it), None while it runs."""
     state = workstream / 'reports' / 'workers.sqlite'
     if not state.is_file():
         return []
@@ -209,9 +209,11 @@ def live_attempts(workstream, now, sessions):
         db = sqlite3.connect(f'file:{state}?mode=ro', uri=True)
         try:
             rows = [json.loads(row[0]) for row in db.execute('SELECT data FROM attempts')]
-            seen = {}
-            for attempt, payload in db.execute('SELECT attempt, payload FROM events ORDER BY id'):
+            seen, registered = {}, []
+            for attempt, kind, payload in db.execute('SELECT attempt, kind, payload FROM events ORDER BY id'):
                 seen[attempt] = json.loads(payload).get('recorded_at')
+                if kind == 'register':
+                    registered.append(attempt)
             unconsumed = db.execute("SELECT attempt, kind FROM events WHERE acknowledged = 0 "
                                     "AND kind IN ('result', 'wait-finished')").fetchall()
         finally:
@@ -223,6 +225,10 @@ def live_attempts(workstream, now, sessions):
     # A closure of the conversation, through whichever of its attempts recorded it, closes them all.
     closed = {(data.get('runtime'), data.get('native_session')) for data in rows
               if isinstance(data, dict) and data.get('closed')}
+    # Each conversation's latest registered attempt: a retention its earlier attempts kept was for it.
+    conversations = {data.get('attempt'): (data.get('runtime'), data.get('native_session'))
+                     for data in rows if isinstance(data, dict)}
+    latest = {conversations[attempt]: attempt for attempt in registered if attempt in conversations}
     shown = []
     for data in rows:
         if (not isinstance(data, dict) or (data.get('runtime'), data.get('native_session')) in closed
@@ -231,7 +237,7 @@ def live_attempts(workstream, now, sessions):
         if data.get('result'):
             if (data['attempt'], 'result') in pending:
                 label = 'result ready'
-            elif data.get('retained'):
+            elif data.get('retained') and latest.get(conversations[data['attempt']]) in (None, data['attempt']):
                 label = 'retained'
             else:
                 continue

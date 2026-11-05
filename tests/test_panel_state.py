@@ -329,6 +329,45 @@ class PanelState(unittest.TestCase):
         self.assertEqual(['retained · zloop-panel/02 · quiet 30s', 'retained · zloop-panel/03 · quiet 30s'],
                          sorted(self.row_texts(self.snapshot(), 'wait')))
 
+    def test_a_retained_attempt_whose_conversation_has_a_later_attempt_shows_no_row(self):
+        # Live (stforestkit, remediate-taut-534): audit-4 and audit-5 were retained, and the same Codex conversation
+        # then ran audit-6, the retention's next use; the panel listed both as retained beside the running worker.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        retained = {'reason': 'r', 'next_use': 'n'}
+        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite',
+                 [dict(live('12/ticket-1', quiet=3600), native_session='shared', monitor={'state': 'reconciled'},
+                       result={'status': 'blocked'}, retained=retained),
+                  dict(live('12/ticket-2', quiet=600), native_session='shared', monitor={'state': 'reconciled'},
+                       result={'status': 'blocked'}, retained=retained),
+                  dict(live('12/ticket-3'), native_session='shared', monitor={'state': 'running'})])
+        found = self.snapshot()
+        self.assertEqual((['▶ builder · zloop-panel/01 · sonnet · quiet 30s'], []),
+                         (self.row_texts(found, 'run'), self.row_texts(found, 'wait')))
+
+    def test_a_retention_stands_until_its_own_conversation_runs_again_and_a_pending_result_always_shows(self):
+        # A later attempt of another conversation (another session, or the same session ID under another runtime) is
+        # no use of this retention; a superseded attempt whose result is still unacknowledged is the orchestrator's to
+        # collect.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        retained = {'reason': 'r', 'next_use': 'n'}
+        state = attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [
+            dict(live('12/ticket-1', assignment='zloop-panel/01'), native_session='shared', result={'status': 'blocked'},
+                 retained=retained),
+            dict(live('12/ticket-2', assignment='zloop-panel/02'), native_session='shared', runtime='codex',
+                 monitor={'state': 'running'}),
+            dict(live('12/ticket-3', assignment='zloop-panel/03'), native_session='other', monitor={'state': 'running'}),
+            dict(live('12/ticket-4', assignment='zloop-panel/04'), native_session='pending',
+                 result={'status': 'completed'}),
+            dict(live('12/ticket-5', assignment='zloop-panel/05'), native_session='pending',
+                 monitor={'state': 'running'})])
+        db = sqlite3.connect(state)
+        db.execute("INSERT INTO events (attempt, kind, payload, acknowledged) VALUES (?, ?, ?, 0)",
+                   ('12/ticket-4', 'result', json.dumps({'recorded_at': time.time() - 30, 'status': 'completed'})))
+        db.commit()
+        db.close()
+        self.assertEqual(['result ready · zloop-panel/04 · quiet 30s', 'retained · zloop-panel/01 · quiet 30s'],
+                         sorted(self.row_texts(self.snapshot(), 'wait')))
+
     def test_with_a_binding_only_attempts_of_its_sessions_are_shown(self):
         # Two sessions share one workstream: T's worker is not S's, but a session the binding names also counts.
         card(self.scratch / 'demo' / 'autopilot.md')
