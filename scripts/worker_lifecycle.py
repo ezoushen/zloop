@@ -1519,15 +1519,18 @@ def retire(db, state, attempt, request):
     code, response = herdr(session, 'agent', 'get', pane)
     if code == 0:
         agent = response['result']['agent']
+        identity = agent.get('agent_session', {})
+        require(isinstance(identity, dict), 'Invalid native conversation identity')
+        # Another worker started in the recorded pane: closing the pane would close that one, and the reap closes this.
+        require(pane != (saved.get('herdr') or {}).get('pane_id') or conversation_named(saved, identity) is not False,
+                f"Pane {pane} now holds another conversation ({identity.get('value')}), so this attempt's worker is "
+                f"gone: close it with `python3 {shlex.quote(str(Path(__file__).resolve()))} reap --state "
+                f"{shlex.quote(state_path(db))}`")
         require(agent.get('pane_id') == pane and agent.get('agent') == saved['runtime'],
                 'Native pane no longer holds the registered runtime')
         require(saved['worker'] in (pane, agent.get('name'), f"{session}/{pane}/{agent.get('name')}"),
                 'Native target does not match the registered worker handle')
-        identity = agent.get('agent_session', {})
-        require(isinstance(identity, dict), 'Invalid native conversation identity')
-        source = saved.get('startup_evidence', {}).get('native_observation', {}).get('source')
-        require(identity.get('value') == saved['native_session'] or identity.get('kind') == 'path'
-                and source and identity.get('value') == source, 'Native conversation no longer matches the attempt')
+        require(conversation_named(saved, identity), 'Native conversation no longer matches the attempt')
         require(agent.get('agent_status') in ('idle', 'done'), 'Native worker is active or blocked; retain it for inspection')
         db.execute('BEGIN IMMEDIATE')
         with db:
@@ -1587,12 +1590,40 @@ def herdr_answer(placed, timeout=LOOKUP_SECONDS):
     return f'{command}: {answer}', bool(code) and answer in (f'{kind}_not_found', 'server_not_running')
 
 
+def conversation_named(saved, identity):
+    """Whether Herdr's session identity names the attempt's native conversation (True), another one (False), or none it
+    can tell apart (None): an ID is compared with the attempt's, a record path with the one its startup observed."""
+    value, kind = identity.get('value'), identity.get('kind')
+    source = saved.get('startup_evidence', {}).get('native_observation', {}).get('source')
+    if not value:
+        return None
+    if value == saved['native_session'] or kind == 'path' and source and value == source:
+        return True
+    return False if kind == 'id' or kind == 'path' and source else None
+
+
+def pane_answer(saved, timeout=LOOKUP_SECONDS):
+    """(Herdr's answer for the worker's pane, as one line, whether it shows the pane holding another conversation, which
+    confirms the worker gone though its tab lives on; None when the server gave no answer)."""
+    placed = saved['herdr']
+    command = f"herdr --session {placed['session']} pane get {placed['pane_id']}"
+    try:
+        code, response = herdr(placed['session'], 'pane', 'get', placed['pane_id'], timeout=timeout)
+    except (OSError, ValueError) as error:
+        return f'{command}: no answer ({error})', None
+    identity = ((response.get('result') or {}).get('pane') or {}).get('agent_session') if code == 0 else None
+    identity = identity if isinstance(identity, dict) else {}
+    if conversation_named(saved, identity) is False:
+        return f'{command}: holds another conversation ({identity["value"]})', True
+    return command, False
+
+
 def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
     """Close, through `record`, each included attempt whose status is already decided: a collected worker whose Herdr
-    tab its server confirms gone, and a retained native subagent (no Herdr placement) of a run whose card ended
-    delivered. Returns what it closed, what it left open for want of Herdr's confirmation, and what the lifecycle
-    refused to close, with its refusal. It spends `budget` seconds in all, on Herdr's answers and on any lock, and leaves
-    the attempts it did not reach for the next stop."""
+    tab its server confirms gone, or whose pane it shows holding another conversation, and a retained native subagent
+    (no Herdr placement) of a run whose card ended delivered. Returns what it closed, what it left open for want of
+    Herdr's confirmation, and what the lifecycle refused to close, with its refusal. It spends `budget` seconds in all,
+    on Herdr's answers and on any lock, and leaves the attempts it did not reach for the next stop."""
     deadline = time.monotonic() + budget
     card = state.parent.parent / 'autopilot.md'
     terminal = panel_state.card_state(card).get('terminal')
@@ -1615,9 +1646,17 @@ def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
                 left.append({'attempt': saved['attempt'], 'reason': f'herdr --session {server}: no answer earlier'})
                 continue
             evidence, gone = herdr_answer(saved['herdr'], min(LOOKUP_SECONDS, deadline - time.monotonic()))
+            why = 'its Herdr tab is gone'
+            if gone is False and time.monotonic() < deadline:
+                # The tab lives on, perhaps with another worker started in the pane: that one's conversation there
+                # confirms this worker gone.
+                answer, replaced = pane_answer(saved, min(LOOKUP_SECONDS, deadline - time.monotonic()))
+                if replaced:
+                    evidence, gone, why = answer, True, 'its Herdr pane holds another conversation'
+                elif replaced is None:
+                    gone = None
             if gone is None:
                 silent.add(server)
-            why = 'its Herdr tab is gone'
         elif saved.get('retained') and terminal in ENDED:
             evidence, gone, why = f'{card}: terminal: {terminal}', True, f'its run card ended {terminal}'
         else:

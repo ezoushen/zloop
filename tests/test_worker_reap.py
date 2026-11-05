@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """`worker_lifecycle.py reap` closes the attempts whose status is already decided: a collected worker whose Herdr tab
-is confirmed gone, and a retained native subagent whose run ended."""
+is confirmed gone or whose pane holds another conversation, and a retained native subagent whose run ended."""
 
 import json
 import os
@@ -56,6 +56,36 @@ class Reap(WorkerLifecycleCase):
                          found['closed'])
         self.assertEqual(['herdr --session fixture-session tab get tab-1: tab_not_found'],
                          self.closed()['evidence'])
+
+    def test_a_collected_attempt_whose_pane_now_holds_another_conversation_is_closed_with_the_answer_as_evidence(self):
+        # Live (stforestkit, remediate-taut-534): the orchestrator started the next attempt's worker in the retained
+        # worker's pane, so the tab lived on and the retained rows never closed. Herdr's answer for the pane decides:
+        # another conversation there, by ID or by a record path other than the one the startup observed, closes it.
+        for kind, other in (('id', 'native-2'), ('path', '/elsewhere/other-session.jsonl')):
+            with self.subTest(kind=kind):
+                self.setUp()
+                self.placed()
+                self.herdr_fixture(session_kind=kind, pane_session=other)
+                evidence = [f'herdr --session fixture-session pane get pane-1: holds another conversation ({other})']
+                self.assertEqual({'closed': [{'attempt': 'ticket-1/1', 'evidence': evidence}], 'open': [],
+                                  'refused': []}, self.cli('reap'))
+                self.assertEqual(evidence, self.closed()['evidence'])
+                self.assertEqual({'reason': 'closed by reap: its Herdr pane holds another conversation'},
+                                 self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0]['acceptance_deferred'])
+
+    def test_a_pane_holding_its_own_conversation_or_none_herdr_identifies_leaves_the_attempt_open(self):
+        # The worker may still be there (its conversation by ID, or by the record path its startup observed), or Herdr
+        # cannot say who is (no agent, an identity with no value): the tab's answer stays the reason it is open.
+        for kind, held in (('id', 'native-1'), ('path', 'ticket-1-1.jsonl'), ('id', None), ('id', '')):
+            with self.subTest(kind=kind, held=held):
+                self.setUp()
+                self.placed()
+                # The record path is the fixture worker's own native record, under this case's root.
+                self.herdr_fixture(session_kind=kind, pane_session=str(self.root / held) if kind == 'path' else held)
+                self.assertEqual({'closed': [], 'refused': [], 'open': [{
+                    'attempt': 'ticket-1/1', 'reason': 'herdr --session fixture-session tab get tab-1: listed'}]},
+                    self.cli('reap'))
+                self.assertIsNone(self.closed())
 
     def test_the_server_the_callers_socket_names_is_asked_through_that_socket(self):
         # Live (OpenCode on an isolated XDG_CONFIG_HOME): `--session default` found no socket there and answered with a

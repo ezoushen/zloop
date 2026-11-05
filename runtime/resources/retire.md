@@ -26,7 +26,8 @@ pane disappeared before any retirement intent, the host must inspect its native
 closure and reconcile owned jobs, then use the evidence-backed `record closed`
 path; absence alone does not establish ownership or safe cleanup. At a stop (and on demand with
 `worker_lifecycle.py reap --state ... [--session ...]`) the gate records `closed` itself for an owned attempt whose result is
-collected and whose recorded tab (else pane) its Herdr server confirms gone, with that answer as the evidence, and for a retained
+collected and whose recorded tab (else pane) its Herdr server confirms gone, or whose recorded pane it shows holding
+another conversation, with that answer as the evidence, and for a retained
 native subagent of a run whose card ended `delivered`, `delivered-local` or `merged`, deferring an acceptance still
 unsettled, within a few seconds in all (the rest waits for the next stop); a closure the lifecycle refuses is a stop
 gap carrying its refusal. A

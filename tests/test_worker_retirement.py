@@ -2,6 +2,7 @@
 """Collection and retirement of native workers."""
 
 import json
+import shlex
 import sys
 import unittest
 
@@ -140,6 +141,25 @@ class Retirement(WorkerLifecycleCase):
         error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
         self.assertIn('conversation no longer matches', error)
         self.assertFalse((self.root / 'native-closed').exists())
+
+    def test_retiring_a_worker_whose_pane_now_holds_another_conversation_names_the_command_that_closes_it(self):
+        # Live (stforestkit, remediate-taut-534): the next attempt's worker was started in this worker's pane. Retire
+        # leaves that pane alone and names the reap, which Herdr's answer for the pane lets close the attempt.
+        self.herdr_fixture()
+        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        self.herdr_fixture(native_session='native-2', agent_name='builder-2', pane_session='native-2')
+        request = self.root / 'retire.json'
+        request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1',
+                                       'jobs_evidence': ['owned jobs inspected'],
+                                       'acceptance': {'decision': 'deferred', 'reason': 'acceptance checks pending'}}))
+        error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+        self.assertIn(f"Pane pane-1 now holds another conversation (native-2), so this attempt's worker is gone: close "
+                      f"it with `python3 {SCRIPT} reap --state {shlex.quote(str(self.state.resolve()))}`", error)
+        self.assertFalse((self.root / 'native-closed').exists())
+        self.assertEqual(['ticket-1/1'], [row['attempt'] for row in self.cli('reap')['closed']])
 
     def test_native_closure_recovery_preserves_report_and_does_not_close_twice(self):
         self.register()
