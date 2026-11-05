@@ -345,17 +345,17 @@ class PanelState(unittest.TestCase):
                          (self.row_texts(found, 'run'), self.row_texts(found, 'wait')))
 
     def test_a_retention_stands_until_its_own_conversation_runs_again_and_a_pending_result_always_shows(self):
-        # A later attempt of another conversation (another session, or the same session ID under another runtime) is
-        # no use of this retention; a superseded attempt whose result is still unacknowledged is the orchestrator's to
-        # collect.
+        # A later attempt of another conversation (another session, or the same session ID under another runtime), even
+        # on the same assignment, is no use of this retention; a superseded attempt whose result is still
+        # unacknowledged is the orchestrator's to collect.
         card(self.scratch / 'demo' / 'autopilot.md')
         retained = {'reason': 'r', 'next_use': 'n'}
         state = attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [
             dict(live('12/ticket-1', assignment='zloop-panel/01'), native_session='shared', result={'status': 'blocked'},
                  retained=retained),
-            dict(live('12/ticket-2', assignment='zloop-panel/02'), native_session='shared', runtime='codex',
+            dict(live('12/ticket-2', assignment='zloop-panel/01'), native_session='shared', runtime='codex',
                  monitor={'state': 'running'}),
-            dict(live('12/ticket-3', assignment='zloop-panel/03'), native_session='other', monitor={'state': 'running'}),
+            dict(live('12/ticket-3', assignment='zloop-panel/01'), native_session='other', monitor={'state': 'running'}),
             dict(live('12/ticket-4', assignment='zloop-panel/04'), native_session='pending',
                  result={'status': 'completed'}, retained=retained),
             dict(live('12/ticket-5', assignment='zloop-panel/05'), native_session='pending',
@@ -370,10 +370,12 @@ class PanelState(unittest.TestCase):
 
     def test_the_latest_attempt_of_a_conversation_is_the_last_registered_one(self):
         # Review (Codex, Sonnet): neither the name order (ticket-9 after ticket-10), nor the order of the stored rows
-        # (the lifecycle rewrites a row when it saves it), nor the newest event decides which attempt is the latest.
+        # (the lifecycle rewrites a row when it saves it), nor the newest event, nor the clock of the register events
+        # decides which attempt is the latest: the order the lifecycle recorded them in does.
         card(self.scratch / 'demo' / 'autopilot.md')
         retained = {'reason': 'r', 'next_use': 'n'}
-        earlier = dict(live('12/ticket-9'), native_session='shared', result={'status': 'blocked'}, retained=retained)
+        earlier = dict(live('12/ticket-9', quiet=5), native_session='shared', result={'status': 'blocked'},
+                       retained=retained)
         state = attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [
             dict(earlier),
             dict(live('12/ticket-10'), native_session='shared', result={'status': 'blocked'}, retained=retained)])
