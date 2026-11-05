@@ -76,11 +76,14 @@ class Reap(WorkerLifecycleCase):
     def test_a_pane_holding_its_own_conversation_or_none_herdr_identifies_leaves_the_attempt_open(self):
         # The worker may still be there (its conversation by ID, or by the record path its startup observed), or Herdr
         # cannot say who is (no agent, an identity with no value): the tab's answer stays the reason it is open.
-        for kind, held in (('id', 'native-1'), ('path', 'ticket-1-1.jsonl'), ('id', None), ('id', '')):
+        for kind, held in (('id', 'native-1'), ('path', 'ticket-1-1.jsonl'), ('path', 'alias/ticket-1-1.jsonl'),
+                           ('id', None), ('id', '')):
             with self.subTest(kind=kind, held=held):
                 self.setUp()
                 self.placed()
-                # The record path is the fixture worker's own native record, under this case's root.
+                # The record path is the fixture worker's own native record under this case's root, also spelled
+                # through a link to that root, as Herdr may spell it.
+                (self.root / 'alias').symlink_to(self.root)
                 self.herdr_fixture(session_kind=kind, pane_session=str(self.root / held) if kind == 'path' else held)
                 self.assertEqual({'closed': [], 'refused': [], 'open': [{
                     'attempt': 'ticket-1/1', 'reason': 'herdr --session fixture-session tab get tab-1: listed'}]},
