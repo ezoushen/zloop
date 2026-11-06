@@ -109,6 +109,9 @@ class RepairFindings(WorkerLifecycleCase):
                                  'the findings it holds: settle each as open, not P01-001 as repaired, P04-001 as '
                                  'runtime-bug; or, if its worker started, record `startup` with native: its session '
                                  'record first')
+        refused = self.record('result', 'r1/1', code=2, status='cancelled', head='head-1', report=str(report),
+                              evidence=['no worker'], findings={'P01-001': 'open', 'P04-001': 'repaired'})
+        self.assertIn('settle each as open, not P04-001 as repaired;', refused)
         self.record('result', 'r1/1', status='cancelled', head='head-1', report=str(report), evidence=['no worker'],
                     findings={'P01-001': 'open', 'P04-001': 'open'})
         self.assertEqual(self.cli('findings')['counts'],
