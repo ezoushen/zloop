@@ -83,6 +83,7 @@ def connect(path):
     db.execute('CREATE TABLE IF NOT EXISTS holds (assignment TEXT PRIMARY KEY, data TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS criteria (assignment TEXT PRIMARY KEY, data TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS plans (job TEXT PRIMARY KEY, assignments TEXT NOT NULL)')
+    db.execute('CREATE TABLE IF NOT EXISTS findings (finding TEXT PRIMARY KEY)')  # The repair plan's, in plan order.
     db.execute('CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, attempt TEXT NOT NULL, '
                'kind TEXT NOT NULL, payload TEXT NOT NULL, acknowledged INTEGER NOT NULL)')
     return db
@@ -158,6 +159,26 @@ def plan(db, job, assignments, replace=False):
         planned = list(dict.fromkeys([*([] if replace else planned_of(db, job) or []), *assignments]))
         db.execute('INSERT OR REPLACE INTO plans VALUES (?, ?)', (job, json.dumps(planned)))
     return {'job': job, 'assignments': planned}
+
+
+def plan_findings(db, job, findings, replace=False):
+    """Add findings to the repair plan, or with replace make them its whole set: the confirmed findings to repair, each
+    of which one repair assignment holds."""
+    require(job == 'repair', 'Only the repair job takes --finding')
+    for finding in findings:
+        require(text(finding) and not re.search(r'[\s,]', finding),
+                f'A finding is one ID with no comma or space, not {finding!r}')
+    db.execute('BEGIN IMMEDIATE')
+    with db:
+        if replace:
+            db.execute('DELETE FROM findings')
+        db.executemany('INSERT OR IGNORE INTO findings VALUES (?)', [(finding,) for finding in findings])
+    return {'job': job, 'findings': planned_findings(db)}
+
+
+def planned_findings(db):
+    """The repair plan's findings, in the order first planned."""
+    return [row[0] for row in db.execute('SELECT finding FROM findings ORDER BY rowid')]
 
 
 def planned_of(db, job):
@@ -1858,7 +1879,9 @@ def main():
     parser.add_argument('--count', type=int, default=1, help='attribute: how many of that signal')
     parser.add_argument('--job', help='plan: the job whose assignments are planned')
     parser.add_argument('--assignment', action='append', default=[], help='plan: one planned assignment, repeated')
-    parser.add_argument('--replace', action='store_true', help='plan: the assignments are the whole plan')
+    parser.add_argument('--finding', action='append', default=[],
+                        help='plan: one confirmed finding the repair job must repair, repeated')
+    parser.add_argument('--replace', action='store_true', help='plan: the assignments or findings are the whole plan')
     parser.add_argument('--session', help='reap: only the attempts this host session registered')
     args = parser.parse_args()
     try:
@@ -1896,7 +1919,9 @@ def main():
                 result = reap(db, args.state, lambda saved: not args.session
                               or args.session in panel_state.recorded_sessions(saved))
             elif args.action == 'plan':
-                result = plan(db, args.job, args.assignment, args.replace)
+                require(not (args.assignment and args.finding), 'Plan takes --assignment or --finding, not both')
+                result = (plan_findings(db, args.job, args.finding, args.replace) if args.finding
+                          else plan(db, args.job, args.assignment, args.replace))
             elif args.action == 'attribute':
                 require(text(args.attempt) and args.kind, 'Attribution requires --attempt and --kind')
                 result = attribute(db, args.attempt, args.kind, args.count, args.evidence)

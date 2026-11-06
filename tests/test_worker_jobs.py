@@ -183,6 +183,25 @@ sys.exit(process.returncode)
         self.assertIn('known job', self.cli('plan', '--job', 'audits', '--assignment', 'p1', code=2))
         self.assertIn('Plan requires --job and at least one --assignment', self.cli('plan', '--job', 'audit', code=2))
 
+    def test_a_repair_plan_holds_the_findings_confirmed_for_repair(self):
+        # Live (stforestkit remediate-taut-534): nothing recorded which of 557 confirmed findings were to be repaired,
+        # so nothing could tell that 90 of them went to no repair worker. Calls add up; --replace narrows the set.
+        self.assertEqual(self.cli('plan', '--job', 'repair', '--finding', 'P01-001', '--finding', 'P01-002'),
+                         {'job': 'repair', 'findings': ['P01-001', 'P01-002']})
+        self.assertEqual(self.cli('plan', '--job', 'repair', '--finding', 'P04-007', '--finding', 'P01-002'),
+                         {'job': 'repair', 'findings': ['P01-001', 'P01-002', 'P04-007']})
+        self.assertEqual(self.cli('plan', '--job', 'repair', '--replace', '--finding', 'P04-007'),
+                         {'job': 'repair', 'findings': ['P04-007']})
+        # Only repair work holds findings, and an ID is one token, as a packet's findings: line separates them.
+        self.assertEqual(self.cli('plan', '--job', 'audit', '--finding', 'P01-001', code=2).strip(),
+                         'Only the repair job takes --finding')
+        for bad in ('P01-001,P01-002', 'P01 001', ''):
+            with self.subTest(finding=bad):
+                self.assertEqual(self.cli('plan', '--job', 'repair', '--finding', bad, code=2).strip(),
+                                 f'A finding is one ID with no comma or space, not {bad!r}')
+        self.assertEqual(self.cli('plan', '--job', 'repair', '--finding', 'P01-001', '--assignment', 'r1',
+                                  code=2).strip(), 'Plan takes --assignment or --finding, not both')
+
     def test_registration_checks_the_assignment_sent_to_the_worker(self):
         self.assertIn('requires packet', self.register(packet=str(self.root / 'absent.txt'), code=2))
         packet = self.root / 'partial.txt'
