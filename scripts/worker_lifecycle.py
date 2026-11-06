@@ -213,6 +213,23 @@ def require_settled(held, settled):
                           'or runtime-bug in findings: ' + '; '.join(problems))
 
 
+def finding_totals(db):
+    """Each planned finding in one bucket: as the latest collected result naming it settles it, pending while only
+    uncollected attempts hold it, or unassigned when none does; each bucket's count, and its IDs but the repaired."""
+    rows = {row['attempt']: row for row in attempts(db)}
+    found = {}
+    for (name,) in db.execute("SELECT attempt FROM events WHERE kind = 'register' ORDER BY id"):
+        for finding in rows.get(name, {}).get('findings', []):
+            settled = ((rows[name].get('result') or {}).get('findings') or {}).get(finding)
+            found[finding] = settled or found.get(finding, 'pending')
+    buckets = {bucket: [] for bucket in (*SETTLED, 'pending', 'unassigned')}
+    planned = planned_findings(db)
+    for finding in planned:
+        buckets[found.get(finding, 'unassigned')].append(finding)
+    return {'planned': len(planned), 'counts': {bucket: len(ids) for bucket, ids in buckets.items()},
+            **{bucket: ids for bucket, ids in buckets.items() if bucket != 'repaired'}}
+
+
 def planned_of(db, job):
     """The assignments a job's plan holds, or None when it has no plan."""
     row = db.execute('SELECT assignments FROM plans WHERE job = ?', (job,)).fetchone()
@@ -1901,7 +1918,7 @@ def status(db, attempt=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('record', 'watch', 'submit', 'collect', 'retire', 'deliver', 'escalate',
-                                           'status', 'ack', 'gate', 'attribute', 'plan', 'reap'))
+                                           'status', 'ack', 'gate', 'attribute', 'plan', 'reap', 'findings'))
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--input', type=Path, help='absolute lifecycle request JSON')
     parser.add_argument('--attempt')
@@ -1953,6 +1970,8 @@ def main():
                     result, code = operation(db, args.state, args.attempt, data)
             elif args.action == 'status':
                 result = status(db, args.attempt)
+            elif args.action == 'findings':
+                result = finding_totals(db)
             elif args.action == 'reap':
                 result = reap(db, args.state, lambda saved: not args.session
                               or args.session in panel_state.recorded_sessions(saved))

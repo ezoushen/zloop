@@ -80,6 +80,34 @@ class RepairFindings(WorkerLifecycleCase):
         self.assertIn('missing P05-001', self.settle('r2/1', code=2, status='blocked'))
         self.settle('r2/1', status='blocked', findings={'P05-001': 'open'})
 
+    def test_the_totals_put_each_planned_finding_in_one_bucket_from_the_recorded_results(self):
+        # Pi's ledger for 558 findings went 551 + 6 + 2 = 559, then 453 repaired with P05-F18-001 wrongly open: here
+        # the lifecycle counts, from the plan and the latest collected result naming each finding.
+        self.cli('plan', '--job', 'repair', *[part for finding in ('P01-001', 'P01-002', 'P04-001', 'P05-001',
+                                                                   'P05-002', 'P05-003') for part in ('--finding', finding)])
+        self.repair('r1/9', 'P01-001 P01-002')
+        self.repair('r2/1', 'P05-001')
+        self.repair('r3/1', 'P05-002, P05-003')
+        for attempt in ('r1/9', 'r3/1'):
+            self.ready(attempt)
+        self.settle('r1/9', findings={'P01-001': 'repaired', 'P01-002': 'open'})
+        self.settle('r3/1', findings={'P05-002': 'runtime-bug', 'P05-003': 'repaired'})
+        # A retry in flight leaves the last collected result standing; once collected, its result is the finding's,
+        # by registration order (r1/10 after r1/9).
+        self.repair('r1/10', 'P01-002')
+        expected = {'planned': 6, 'counts': {'repaired': 2, 'open': 1, 'runtime-bug': 1, 'pending': 1, 'unassigned': 1},
+                    'open': ['P01-002'], 'runtime-bug': ['P05-002'], 'pending': ['P05-001'], 'unassigned': ['P04-001']}
+        self.assertEqual(self.cli('findings'), expected)
+        self.ready('r1/10')
+        self.settle('r1/10', findings={'P01-002': 'repaired'})
+        expected.update(counts={'repaired': 3, 'open': 0, 'runtime-bug': 1, 'pending': 1, 'unassigned': 1}, open=[])
+        self.assertEqual(self.cli('findings'), expected)
+        # Narrowing the plan narrows the totals.
+        self.cli('plan', '--job', 'repair', '--replace', '--finding', 'P01-001', '--finding', 'P04-001')
+        self.assertEqual(self.cli('findings'), {
+            'planned': 2, 'counts': {'repaired': 1, 'open': 0, 'runtime-bug': 0, 'pending': 0, 'unassigned': 1},
+            'open': [], 'runtime-bug': [], 'pending': [], 'unassigned': ['P04-001']})
+
 
 if __name__ == '__main__':
     unittest.main()
