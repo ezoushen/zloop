@@ -17,7 +17,7 @@ instruction on how a ticket runs wins. Record the mode and its reason in the dis
 ## Inline
 
 The orchestrator follows the [ticket job](jobs/ticket.md) itself: its inputs, finish line
-and return bind it as they bind a builder. Set `worker=inline` on a local ticket, write
+and return bind it as they bind a builder. Start a local ticket with `--set <ticket> status=implementing worker=inline`, write
 `base:` and `branch: <workstream branch>` as the first lines of the ticket report, then work
 test-first and run the assigned checks with their evidence before appending
 `## Implemented`. Commit on the workstream branch; there is nothing to merge and no ticket

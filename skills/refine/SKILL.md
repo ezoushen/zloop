@@ -78,7 +78,8 @@ operation stops with its input kept (see [Explicit phase composition](#explicit-
    outcome, risk or verification cost. Apply the [question filter](../../runtime/interview/question-filter.md).
    Newly cut tickets wait for the user's check before any implementation; silence or an unrelated reply is not approval.
    Write authorized changes to the board, never report a failed remote write as done, and validate the
-   resulting issue graph. Local Markdown: write the files and run `python3 "<plugin_root>/scripts/next_tickets.py" --repo "<repo>" <slug> --check`.
+   resulting issue graph. Local Markdown: create each ticket with `python3 "<plugin_root>/scripts/next_tickets.py" --repo "<repo>" <slug> --new "<title>"`
+   (`--blocked-by`, `--touches`), fill its body, then run the same script with `--check`.
 
 ## Definition of Ready
 

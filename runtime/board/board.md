@@ -28,7 +28,9 @@ known account users; `--max-live` sees this board's workers, not every service c
 | `--check` | validation |
 | `--counts` | counts |
 | `--set <ticket> status=<state>` or `worker=<id>` | runtime state; `status=blocked` also takes a new `blocker=<reason>`, which the ticket's front matter keeps until it leaves `blocked` |
+| `--new "<title>"` with a slug, `--blocked-by <ticket>`, `--touches <area>` | the workstream's next ticket from the template |
 | `--accept <ticket>` | structural evidence checks and standing measurements |
+| `--accept <ticket> --pr <url>` | a ticket delivered by PRs: `gh` must report each merged, and `status=done` asks it again |
 | `--delivery` | the structural delivery gate, which names each failing field |
 | `--orchestrate` | bind the calling session as the workstream's orchestrator |
 
