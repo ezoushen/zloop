@@ -777,6 +777,36 @@ def listed_commit_on(text, base, ref):
     return False
 
 
+def unmerged(prs):
+    """Why each PR does not deliver a ticket: gh reports it not merged, or cannot read it; none when all merged."""
+    problems = []
+    for url in prs:
+        try:
+            result = subprocess.run(["gh", "pr", "view", url, "--json", "state,mergeCommit"], capture_output=True,
+                                    text=True, timeout=60)
+            pull = json.loads(result.stdout) if result.returncode == 0 else None
+        except (OSError, subprocess.TimeoutExpired, ValueError) as error:
+            result, pull = None, str(error)
+        if not isinstance(pull, dict):
+            reason = pull if isinstance(pull, str) else (result.stderr or result.stdout).strip()
+            problems.append(f"gh cannot read {url}: {reason}")
+        elif pull.get("state") != "MERGED" or not (pull.get("mergeCommit") or {}).get("oid"):
+            problems.append(f"{url} is {pull.get('state')}, not merged")
+    return problems
+
+
+def accept_prs(tickets, name, prs):
+    """Accept a ticket by the PRs that deliver it, when gh reports each merged; record them as `delivered_by`."""
+    problems = unmerged(prs)
+    for problem in problems:
+        print(f"{name}: {problem}", file=sys.stderr)
+    if problems:
+        return False
+    write_fields(tickets[name], {"delivered_by": f"[{', '.join(prs)}]"})
+    print(f"{name}: delivered by merged {', '.join(prs)}; judge the content now")
+    return True
+
+
 def new_ticket(tickets, slug, title, blocked_by, touches):
     """Write the workstream's next numbered ticket from the local ticket template; its path, from the checkout."""
     nn = f"{max((int(t.split('/')[1]) for t in tickets if spec_of(t) == slug), default=0) + 1:02}"
@@ -824,7 +854,14 @@ def set_field(tickets, name, assignments):
         fields["lent"] = "done"
     elif fm.get("status") == "verifying" and fields.get("status", "verifying") != "verifying":
         fields["lent"] = None
-    if fields.get("status") == "done" and fm.get("status") != "done" and fm.get("lent") != "done":
+    if fields.get("status") == "done" and fm.get("status") != "done" and fm.get("lent") != "done" \
+            and fm.get("delivered_by"):
+        # Delivered by PRs: gh says each is merged now, whatever the front matter records.
+        delivered = fm["delivered_by"] if isinstance(fm["delivered_by"], list) else [fm["delivered_by"]]
+        problems = unmerged(delivered)
+        if problems:
+            sys.exit("\n".join(f"{name}: {problem}" for problem in problems))
+    elif fields.get("status") == "done" and fm.get("status") != "done" and fm.get("lent") != "done":
         accepted = fm.get("accepted") or ""
         if not re.fullmatch("[0-9a-f]{40}", accepted):
             sys.exit(f"{name}: status=done needs a passing --accept first")
@@ -852,7 +889,7 @@ def set_field(tickets, name, assignments):
 
 def write_fields(fm, fields):
     """Write each field to a ticket's front matter; None removes the field. Only status, blocker, start, accepted,
-    accepted_report and lent may be added; another key must already be in the template."""
+    accepted_report, lent and delivered_by may be added; another key must already be in the template."""
     path = ROOT / fm["path"]
     text = path.read_text()
     head = re.match(r"---\n.*?(?=\n---(?:\n|$))", text, re.S)[0]  # What front_matter.parse reads as the block.
@@ -863,7 +900,7 @@ def write_fields(fm, fields):
             head = re.sub(rf"\n{re.escape(key)}:.*$", "", head, flags=re.M)
         elif pattern.search(head):
             head = pattern.sub(lambda match: f"{match[1]} {value}", head, count=1)
-        elif key in ('status', 'blocker', 'start', 'accepted', 'accepted_report', 'lent'):
+        elif key in ('status', 'blocker', 'start', 'accepted', 'accepted_report', 'lent', 'delivered_by'):
             head += f'\n{key}: {value}'
         else:
             sys.exit(f"{fm['ticket']}: no front-matter key {key!r}")
@@ -907,12 +944,16 @@ def main(argv):
     actions.add_argument("--orchestrate", action="store_true", help="bind this session as the workstreams' orchestrator")
     actions.add_argument("--new", metavar="TITLE", help="write the workstream's next ticket from the template")
     parser.add_argument("--blocked-by", action="append", default=[], metavar="TICKET", help="with --new")
+    parser.add_argument("--pr", action="append", default=[], metavar="URL",
+                        help="with --accept: a PR that delivers the ticket, which gh must report merged")
     parser.add_argument("--touches", action="append", default=[], metavar="AREA", help="with --new")
     parser.add_argument("--counts", action="store_true")
     parser.add_argument("--autofix", action="store_true", help="with --orchestrate: repairs are authorized")
     args = parser.parse_args(argv)
     if args.counts and any((args.check, args.board, args.accept, args.can_verify, args.delivery, args.orchestrate)):
         parser.error("--counts may only be combined with --set")
+    if args.pr and not args.accept:
+        parser.error("--pr goes with --accept")
     if args.max_live < 1:
         parser.error("--max-live must be positive")
     if args.slug and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", args.slug):
@@ -983,6 +1024,8 @@ def main(argv):
             sys.exit('\n'.join(bad))
         print('delivery evidence matches selected workstream heads; inspect the recorded artifacts')
         return
+    if args.accept and args.pr:
+        sys.exit(0 if accept_prs(tickets, args.accept, args.pr) else 1)
     for name, fn in ((args.accept, accept), (args.can_verify, can_verify)):
         if name:
             sys.exit(0 if fn(tickets, name) else 1)

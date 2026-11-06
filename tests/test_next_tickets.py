@@ -150,6 +150,49 @@ class BoardCLI(unittest.TestCase):
                 self.cli(*args, code=2)
         self.assertEqual(sorted(self.root.glob('.scratch/*/issues/*.md')), before)
 
+    def gh(self, pulls):
+        """A `gh` on PATH answering `gh pr view <url> --json state,mergeCommit` from `pulls` (url to state, merge commit);
+        any other URL is one gh cannot read."""
+        bin_dir = self.root / 'bin'
+        bin_dir.mkdir(exist_ok=True)
+        (bin_dir / 'pulls.json').write_text(json.dumps(pulls))
+        stub = bin_dir / 'gh'
+        stub.write_text(f'#!{sys.executable}\nimport json, sys\npulls = json.load(open({str(bin_dir / "pulls.json")!r}))\n'
+                        'args = sys.argv[1:]\n'
+                        'if args[:2] != ["pr", "view"] or args[2] not in pulls:\n'
+                        '    sys.exit(f"GraphQL: Could not resolve to a PullRequest ({args[2:3]})")\n'
+                        'state, oid = pulls[args[2]]\n'
+                        'print(json.dumps({"state": state, "mergeCommit": {"oid": oid} if oid else None}))\n')
+        stub.chmod(0o755)
+        return patch.dict(os.environ, {'PATH': f"{bin_dir}{os.pathsep}{os.environ['PATH']}"})
+
+    def test_a_ticket_delivered_by_merged_prs_is_accepted_by_them_and_done_only_while_gh_says_merged(self):
+        # Question tool (board-tools, "Verified PR acceptance"): the jose run's tickets merged as PRs in other
+        # repositories, which the branch check cannot see; `gh` says whether each PR merged, so no agent's word does.
+        one, two, three = (f'https://github.com/o/configs/pull/{n}' for n in (1, 2, 3))
+        merged = {one: ('MERGED', 'a' * 40), two: ('OPEN', None), three: ('OPEN', None)}
+        path = self.write_ticket('fx/01', status='implementing', extra='worker: inline\n')
+        with self.gh(merged):
+            refused = self.cli('fx', '--accept', 'fx/01', '--pr', one, '--pr', two, code=1)
+            self.assertIn(f'fx/01: {two} is OPEN, not merged', refused.stderr)
+            refused = self.cli('fx', '--accept', 'fx/01', '--pr', 'https://github.com/o/configs/pull/9', code=1)
+            self.assertIn('fx/01: gh cannot read https://github.com/o/configs/pull/9', refused.stderr)
+            self.assertNotIn('delivered_by', path.read_text())
+            self.assertIn('needs a passing --accept', self.cli('fx', '--set', 'fx/01', 'status=done', code=1).stderr)
+        merged[two] = ('MERGED', 'b' * 40)
+        with self.gh(merged):
+            self.cli('fx', '--accept', 'fx/01', '--pr', one, '--pr', two)
+            self.assertEqual(front_matter.parse(path.read_text())['delivered_by'], [one, two])
+            self.cli('fx', '--set', 'fx/01', 'status=done')
+            self.assertEqual(front_matter.parse(path.read_text())['status'], 'done')
+            # A recorded PR proves nothing by itself: done asks gh again.
+            other = self.write_ticket('fx/02', status='implementing', extra=f'worker: inline\ndelivered_by: [{three}]\n')
+            refused = self.cli('fx', '--set', 'fx/02', 'status=done', code=1)
+            self.assertIn(f'fx/02: {three} is OPEN, not merged', refused.stderr)
+            self.assertEqual(front_matter.parse(other.read_text())['status'], 'implementing')
+            # --pr belongs to --accept.
+            self.cli('fx', '--check', '--pr', one, code=2)
+
     def test_an_interrupted_orchestrator_binding_write_leaves_the_old_binding_whole(self):
         # Audit A1: the binding is what holds the orchestrator at stop; a write cut short must not leave it empty.
         self.write_ticket("fx/01")
