@@ -203,6 +203,12 @@ def assigned_findings(db, assignment, value):
     return named
 
 
+# What the lifecycle records on an attempt itself, from its packet, its host and its later events: never a register
+# event's to supply.
+RECORDED = {'findings', 'result', 'closed', 'retained', 'accepted', 'declined', 'acceptance_deferred', 'submitted',
+            'submission_requested', 'monitor', 'startup_evidence', 'observed', 'observed_cwd', 'verified',
+            'retirement_requested', 'checkout_baselines', 'worktree_baseline', 'orchestrator', 'session', 'sessions',
+            'launch_sessions', 'decision', 'needs', 'ticket', 'requested', 'agent', 'job', 'execution_snapshot'}
 SETTLED = ('repaired', 'open', 'runtime-bug')  # What a repair attempt's result says of each finding it holds.
 
 
@@ -963,8 +969,9 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
             missing = agent_defs.missing_inputs(job, packet.read_text(errors='replace'))
             require(not missing, f'The {execution["job"]} assignment lacks {", ".join(missing)}; write each as '
                                  f'`name: value` (see {job["path"]})')
-            require(not {'findings', 'result'} & set(data), 'Registration reads findings from the packet and records '
-                    'no result; collect the result once the worker returns it')
+            supplied = sorted(RECORDED & set(data))
+            require(not supplied, f'Registration takes no {", ".join(supplied)}: the lifecycle records them itself, '
+                                  'findings from the packet and the rest as the attempt goes on')
             if execution['job'] == 'repair' and planned_findings(db):
                 data['findings'] = assigned_findings(db, data['assignment'], agent_defs.input_value(
                     job, packet.read_text(errors='replace'), 'findings'))

@@ -28,13 +28,16 @@ class RepairFindings(WorkerLifecycleCase):
         # Live (stforestkit remediate-taut-534): every repair packet's findings: read "the CONFIRMED candidates in the
         # listed audit report(s)", so R03 and R08 both repaired P01, R04 and R06 both P05, and none took P04.
         self.repair('autofix/1', '/fixture/findings')  # With no findings planned, a repair names them as it likes.
-        # What an attempt holds is read from its packet alone, and what it settled from its collected result.
-        for supplied in ({'findings': ['P05-001']}, {'result': {'status': 'blocked', 'findings': {'P05-001': 'open'}}}):
-            with self.subTest(supplied=supplied):
+        # What an attempt holds is read from its packet alone, and what became of it from the lifecycle's own records:
+        # a register event that supplies them would fake totals, or a closure Herdr never confirmed.
+        for supplied in ({'findings': ['P05-001']}, {'result': {'status': 'blocked', 'findings': {'P05-001': 'open'}}},
+                         {'closed': {'evidence': ['forged']}}, {'retained': {'next_use': 'later', 'reason': 'kept'}},
+                         {'accepted': {'commit': 'c1'}}, {'orchestrator': 'w9:p9', 'sessions': ['host-9']}):
+            with self.subTest(supplied=sorted(supplied)):
                 self.assertEqual(self.register('autofix/2', 'autofix', session='native-autofix-2',
                                                worker='pane-autofix-2', code=2, **supplied).strip(),
-                                 'Registration reads findings from the packet and records no result; collect the '
-                                 'result once the worker returns it')
+                                 f'Registration takes no {", ".join(sorted(supplied))}: the lifecycle records them '
+                                 'itself, findings from the packet and the rest as the attempt goes on')
         self.cli('plan', '--job', 'repair', '--finding', 'P01-001', '--finding', 'P01-002', '--finding', 'P05-001')
         refused = self.repair('r1/1', "the CONFIRMED candidates in the listed audit report(s) (IDs and proposed "
                               "minimal repairs are in each report's Findings section)", code=2)
