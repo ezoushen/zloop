@@ -193,7 +193,7 @@ session: theirs, quoted, not this card's
 
 ## State
 confirmed: no
-session: <the host's session ID where it exposes one in the environment, else unknown; never a path>
+session: <each host session ID this shell exports, comma-separated; `confirm` and `take-over` rewrite it>
 auto-merge: no
 dispatch-effort: medium
 review-effort: high
@@ -204,7 +204,7 @@ evidence:
 timer:
 resume: `autopilot --take-over`
 """
-UNNAMED = "session: <the host's session ID where it exposes one in the environment, else unknown; never a path>"
+UNNAMED = 'session: <each host session ID this shell exports, comma-separated; `confirm` and `take-over` rewrite it>'
 
 
 
@@ -233,7 +233,7 @@ class Confirm(unittest.TestCase):
                                sessions={'CODEX_SESSION_ID': 'codex-2', 'CLAUDE_CODE_SESSION_ID': 'claude-1'})
         self.assertEqual(text, confirmed.replace(UNNAMED, 'session: claude-1, codex-2'))
         # Review (Sonnet): words on several lines wrote their own `session:` line into the State; they are one line.
-        text, _ = self.confirm('--words', 'go ahead,\n\nsession: mine\n  inline', sessions={'PI_SESSION_ID': 'pi-1'})
+        text, _ = self.confirm('--words', 'go ahead,\n\nsession: mine\u2028  inline', sessions={'PI_SESSION_ID': 'pi-1'})
         self.assertEqual(text, DRAFT.replace('confirmed: no', f'confirmed: {today} "go ahead, session: mine inline"')
                          .replace(UNNAMED, 'session: pi-1'))
 
@@ -246,8 +246,11 @@ class Confirm(unittest.TestCase):
         self.assertEqual((text, error.strip()), (hand_written, "the card's State lacks confirmed, session, auto-merge, "
                          'dispatch-effort, review-effort, evidence, timer, resume: write each line of the run card\'s '
                          f'State ({run_card}), then confirm'))
-        for key in ('confirmed', 'session', 'auto-merge', 'dispatch-effort', 'review-effort', 'phase', 'terminal',
-                    'history', 'evidence', 'timer', 'resume'):
+        # Every line of the format's State, as run-card.md writes it.
+        template = run_card.read_text().split('\n## State\n', 1)[1].split('```', 1)[0]
+        keys = [line.split(':', 1)[0] for line in template.splitlines() if ':' in line]
+        self.assertEqual(len(keys), 11)
+        for key in keys:
             with self.subTest(missing=key):
                 lacking = '\n'.join(line for line in DRAFT.split('\n') if not line.startswith(f'{key}:'))
                 text, error = self.confirm('--words', 'go', card=lacking, sessions={'PI_SESSION_ID': 'pi-1'}, code=1)
