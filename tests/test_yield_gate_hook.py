@@ -2551,6 +2551,33 @@ class StopReap(HerdrWorkers):
                          self.attempt()['closed']['evidence'])
 
 
+class RepairFindingsHold(GateRepo):
+    def test_a_stop_is_held_for_planned_findings_no_repair_assignment_holds_once_nothing_runs(self):
+        # Live (stforestkit remediate-taut-534): every repair worker was done, 90 confirmed findings were never assigned,
+        # and Pi's stop passed. The session that registered the plan's repairs is held; another is not.
+        self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'builder',
+                                              'job': 'repair', 'settings': {'model': 'sonnet'}}))
+        subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'plan', '--state', str(self.state), '--job', 'repair',
+                        '--finding', 'P01-001', '--finding', 'P04-001'], check=True, capture_output=True)
+        packet = support.assignment_file(self.execution.parent, 'repair')
+        packet.write_text(packet.read_text().replace('findings: /fixture/findings', 'findings: P01-001'))
+        self.lifecycle('register', attempt='r1/1', assignment='r1', repo=str(self.repo), worktree=str(self.repo),
+                       head='head-1', execution=str(self.execution), runtime='claude', worker='pane-1',
+                       native_session='native-1', owned=True, packet=str(packet))
+        report = self.state.parent / 'r1.md'
+        report.write_text('## Fixed round 1\n\nBlocked on a seam\n')
+        self.lifecycle('result', attempt='r1/1', status='blocked', head='head-1', report=str(report),
+                       evidence=['seam decision needed'], findings={'P01-001': 'open'})
+        command = shlex.join(['python3', str(LIFECYCLE), 'plan', '--state', str(self.state), '--job', 'repair',
+                              '--replace'])
+        gap = (f'{self.state}: No repair assignment holds 1 of the 2 planned repair findings (P04-001): register a '
+               "repair attempt whose packet's findings: names them, or, on the user's decision, narrow the plan with "
+               f'`{command} --finding <ID>...`')
+        self.assertEqual(self.check(), [gap])
+        self.assertIn(gap, self.stop()['reason'])
+        self.assertEqual(self.check(pane='w1:p2'), [])
+
+
 class AutopilotCardHold(GateRepo):
     """A session that ran a confirmed autopilot card is held until the card records one terminal state with evidence."""
     STATES = ('delivered', 'delivered-local', 'merged', 'waiting-on-user', 'paused-allowance', 'paused-by-user',

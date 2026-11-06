@@ -351,7 +351,29 @@ def yield_gaps(db, include=lambda saved: True, rows=None):
                 for row in unconsumed if row['kind'] == 'result']
     missing += [f"{row['attempt']}: receipt {row['id']} was not delivered" for row in receipts
                 if row['payload'].get('delivery', {}).get('state') != 'sent']
-    return missing
+    return missing + unassigned_findings(db, included, rows, closed)
+
+
+def unassigned_findings(db, included, rows, closed):
+    """The repair plan's findings no attempt holds, named once no repair attempt is unfinished, to a host that
+    registered one holding findings of that plan."""
+    try:
+        planned = planned_findings(db)
+    except sqlite3.OperationalError:  # A state no lifecycle command has opened since findings were planned has none.
+        return []
+    held = {finding for row in rows for finding in row.get('findings', [])}
+    unassigned = [finding for finding in planned if finding not in held]
+    if not unassigned or not any(saved.get('findings') for saved in included) or any(
+            row.get('job') == 'repair' and not row.get('result')
+            and (row['runtime'], row['native_session']) not in closed for row in rows):
+        return []
+    command = shlex.join(['python3', str(Path(__file__).resolve()), 'plan', '--state', state_path(db), '--job',
+                          'repair', '--replace']) + ' --finding <ID>...'
+    return [f'No repair assignment holds {len(unassigned)} of the {len(planned)} planned repair findings '
+            f'({", ".join(unassigned[:5])}'
+            + (f' and {len(unassigned) - 5} more' if len(unassigned) > 5 else '')
+            + "): register a repair attempt whose packet's findings: names them, or, on the user's decision, narrow "
+            f'the plan with `{command}`']
 
 
 # A review or E2E report's own verdict; collection keeps the values the worker returned.

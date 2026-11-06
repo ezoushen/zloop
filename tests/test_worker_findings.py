@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """The repair plan's findings: each held by one repair assignment, each settled by a collected result."""
 import json
+import shlex
 import unittest
 
-from lifecycle_case import WorkerLifecycleCase
+from lifecycle_case import SCRIPT, WorkerLifecycleCase
 import support
 
 
@@ -107,6 +108,29 @@ class RepairFindings(WorkerLifecycleCase):
         self.assertEqual(self.cli('findings'), {
             'planned': 2, 'counts': {'repaired': 1, 'open': 0, 'runtime-bug': 0, 'pending': 0, 'unassigned': 1},
             'open': [], 'runtime-bug': [], 'pending': [], 'unassigned': ['P04-001']})
+
+    def test_a_run_with_nothing_left_running_is_held_for_planned_findings_no_assignment_holds(self):
+        # Live (stforestkit remediate-taut-534): with every repair worker done and P04, P08 and P15 never assigned,
+        # Pi's stop passed and it reported the repair round complete.
+        findings = [f'P{number:02}-001' for number in range(1, 8)]
+        self.cli('plan', '--job', 'repair', *[part for finding in findings for part in ('--finding', finding)])
+        self.repair('r1/1', 'P01-001')
+        self.ready('r1/1')
+        # While a repair worker runs, the run is not done: its wait is the gap.
+        self.assertEqual(self.cli('gate', '--stage', 'yield', code=1)['missing'], ['r1/1: no armed wait'])
+        self.settle('r1/1', findings={'P01-001': 'repaired'})
+        self.acknowledge()
+        command = (f'python3 {SCRIPT} plan --state {shlex.quote(str(self.state.resolve()))} --job repair --replace '
+                   '--finding <ID>...')
+        self.assertEqual(self.cli('gate', '--stage', 'yield', code=1)['missing'], [
+            'No repair assignment holds 6 of the 7 planned repair findings (P02-001, P03-001, P04-001, P05-001, '
+            "P06-001 and 1 more): register a repair attempt whose packet's findings: names them, or, on the user's decision, "
+            f'narrow the plan with `{command}`'])
+        self.repair('r2/1', ' '.join(findings[1:]))
+        self.ready('r2/1')
+        self.settle('r2/1', findings={finding: 'open' for finding in findings[1:]})
+        self.acknowledge()
+        self.assertEqual(self.cli('gate', '--stage', 'yield'), {'complete': True, 'missing': []})
 
 
 if __name__ == '__main__':
