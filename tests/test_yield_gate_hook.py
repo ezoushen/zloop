@@ -60,7 +60,7 @@ open({str(self.bin / 'argv')!r}, 'a').write(' '.join(args) + '\\n')
 if args[:1] == ['--session']:
     session, args = args[1], args[2:]
 open({str(self.bin / 'calls')!r}, 'a').write(session + ' ' + ' '.join(args) + '\\n')
-if served['hang']:
+if served['hang'] or served.get('hang_panes') and args[:2] == ['pane', 'get']:
     time.sleep(30)
 if served['fail']:
     print(json.dumps({{'error': {{'code': 'server_unavailable', 'message': served['fail']}}}}), file=sys.stderr)
@@ -97,10 +97,11 @@ else:
 ''')
         stub.chmod(0o700)
 
-    def serve(self, agents=(), panes=None, fail=None, hang=False, tabs=None):
-        """What the stub Herdr server reports: live agents, panes and tabs by server, or a failure."""
+    def serve(self, agents=(), panes=None, fail=None, hang=False, tabs=None, hang_panes=False):
+        """What the stub Herdr server reports: live agents, panes and tabs by server, or a failure; `hang_panes` hangs
+        `pane get` alone."""
         self.served.write_text(json.dumps({'agents': list(agents), 'panes': panes or {}, 'tabs': tabs or {},
-                                           'fail': fail, 'hang': hang}))
+                                           'fail': fail, 'hang': hang, 'hang_panes': hang_panes}))
 
     def env(self, pane='w1:p1', **values):
         """The environment of a session in Herdr pane `pane` of workspace w1, or outside Herdr when None."""
@@ -2025,15 +2026,15 @@ class HerdrWorkers(GateRepo):
         self.lifecycle('register', attempt, pane=pane, env=env, **{key: value for key, value in registration.items()
                                                           if value is not None})
 
-    def collect(self, **disposition):
+    def collect(self, attempt='ticket-1/1', **disposition):
         """Collect the attempt's result; with a `disposition`, through `collect` (which records it)."""
         result = dict(status='failed', head='head-1', report=str(self.report), evidence=['worker.log'])
         if not disposition:
-            return self.lifecycle('result', **result)
+            return self.lifecycle('result', attempt, **result)
         request = self.state.parent / 'collect.json'
         request.write_text(json.dumps(dict(result, disposition=disposition)))
         subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'collect', '--state', str(self.state), '--attempt',
-                        'ticket-1/1', '--input', str(request)], check=True, capture_output=True, env=self.env())
+                        attempt, '--input', str(request)], check=True, capture_output=True, env=self.env())
 
 
 
@@ -2089,45 +2090,114 @@ class StaleTabs(HerdrWorkers):
         self.assertEqual(self.check(pane='w1:p9'), [], 'only its orchestrator is reminded')
         brief = self.state.parent / 'decision.md'
         brief.write_text('Repair waits on a product ruling.\n')
+        self.lifecycle('hold', 'ticket-2/1', reason='another ticket waits on a ruling', brief=str(brief),
+                       evidence=['its own question'])
+        self.acknowledge()
+        self.assertEqual(self.check(pane='w1:p1'), [self.reminder()], "another assignment's hold is not its own")
         self.lifecycle('hold', reason='the repair waits on a product ruling', brief=str(brief),
                        evidence=['P03-071 corrected test fails'])
+        self.acknowledge()
+        self.assertEqual(self.check(pane='w1:p1'), [], 'a design hold waits on the user')
+
+    def acknowledge(self):
         status = subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'status', '--state', str(self.state)],
                                 check=True, capture_output=True, text=True, env=self.env())
         for receipt in json.loads(status.stdout)['pending']:
             subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'ack', '--state', str(self.state), '--event-id',
                             str(receipt['id'])], check=True, capture_output=True, env=self.env())
-        self.assertEqual(self.check(pane='w1:p1'), [], 'a design hold waits on the user')
+
+    def test_a_user_worker_is_never_reminded_to_be_retired(self):
+        # Review (Codex, Sonnet): an existing user worker (`owned: false`) is no cleanup target, so no reminder.
+        self.register(owned=False)
+        self.retain()
+        self.assertEqual(self.check(pane='w1:p1'), [])
+
+    def closed_worker(self, attempt='ticket-1/1', worker='builder-1', session='native-1', assignment='ticket-1'):
+        """A Herdr worker registered, collected and recorded closed while it still runs."""
+        self.register(attempt=attempt, worker=worker, native_session=session, assignment=assignment)
+        self.collect(attempt)
+        self.acknowledge()
+        self.lifecycle('closed', attempt, evidence=['herdr agent get tautrep17 and pane get w2W:pB8 both not found'])
+
+    @staticmethod
+    def occupant(session, kind='id', pane='w1:p5', tab='w1:t5'):
+        return {pane: {'pane_id': pane, 'tab_id': tab, 'agent': 'claude',
+                       'agent_session': {'kind': kind, 'value': session}}}
+
+    def closure_reminder(self, command='herdr --session default pane close w1:p5'):
+        return (f'{self.state}: ticket-1/1: recorded closed, but Herdr pane w1:p5 in tab w1:t5 still holds its '
+                f'conversation; end it with `{command}`')
 
     def test_a_worker_recorded_closed_while_its_own_pane_still_holds_it_is_a_reminder(self):
         # Rule 4 (stforestkit R15/repair-1: recorded closed with another worker's pane as its evidence while its own
         # Codex sat idle in its tab): a closure that the worker's own pane contradicts is named, with the command that
         # ends the worker.
+        self.closed_worker()
+        agents = [{'agent': 'claude', 'agent_status': 'idle', 'name': 'builder-1', 'pane_id': 'w1:p5',
+                   'tab_id': 'w1:t5', 'workspace_id': 'w1'}]
+        self.serve(agents=agents, tabs={'default': [self.tab]}, panes={'default': self.occupant('native-1')})
+        self.assertEqual(self.check(pane='w1:p1'), [self.closure_reminder()])
+        self.assertIn(f'- {self.closure_reminder()}\n', self.stop(pane='w1:p1')['reason'])
+        self.assertIsNone((self.stop(pane='w1:p1', active=True) or {}).get('decision'), 'a reminder holds once')
+        # Review (Sonnet): the command reaches the server the way the hook does, through the caller's own socket.
+        socket = str(self.repo / '.config' / 'herdr' / 'herdr.sock')
+        self.assertEqual(self.check(pane='w1:p1', env={'HERDR_SOCKET_PATH': socket}),
+                         [self.closure_reminder('herdr pane close w1:p5')])
+        # Another conversation in that pane, or no agent there (an exited worker's shell), is not this worker; a
+        # Herdr that cannot be asked names nothing, since a recorded closure is reminded of, not gated.
+        for case, panes in (('another conversation', self.occupant('native-9')),
+                            ('an identity it cannot compare', self.occupant('builder-1', kind='name')),
+                            ('no agent', {'w1:p5': {'pane_id': 'w1:p5', 'tab_id': 'w1:t5'}})):
+            with self.subTest(case=case):
+                self.serve(tabs={'default': [self.tab]}, panes={'default': panes})
+                self.assertEqual(self.check(pane='w1:p1'), [])
+        self.serve(tabs={'default': [self.tab]}, panes={'default': self.occupant('native-1')}, fail='connection refused')
+        self.assertEqual(self.check(pane='w1:p1'), [])
+
+    def test_a_closure_is_judged_by_a_record_path_as_well_as_an_id(self):
+        # Review (Codex, Sonnet): Pi's Herdr identity is its session record's path, compared with the record its
+        # startup observed, as the lifecycle compares it.
+        self.closed_worker()
+        db = sqlite3.connect(self.state)
+        data = json.loads(db.execute("SELECT data FROM attempts WHERE id = 'ticket-1/1'").fetchone()[0])
+        data['startup_evidence'] = {'native_observation': {'source': '/records/pi-session.jsonl'}}
+        db.execute("UPDATE attempts SET data = ? WHERE id = 'ticket-1/1'", (json.dumps(data),))
+        db.commit()
+        db.close()
+        self.serve(tabs={'default': [self.tab]},
+                   panes={'default': self.occupant('/records/pi-session.jsonl', kind='path')})
+        self.assertEqual(self.check(pane='w1:p1'), [self.closure_reminder()])
+
+    def test_a_failed_tab_listing_met_first_by_a_closure_is_still_named_for_an_open_attempt(self):
+        # Review (Sonnet, Codex): the closure that met the failure first stays silent; the collected attempt after it in
+        # the same workspace still names the check that could not run.
+        self.serve(agents=[{'agent': 'claude', 'agent_status': 'idle', 'name': name, 'pane_id': pane,
+                            'tab_id': tab, 'workspace_id': 'w1'}
+                           for name, pane, tab in (('builder-0', 'w1:p6', 'w1:t6'), ('builder-1', 'w1:p5', 'w1:t5'))],
+                   tabs={'default': [self.tab, dict(self.tab, tab_id='w1:t6')]})
+        self.closed_worker('ticket-0/1', 'builder-0', 'native-0', 'ticket-0')
         self.register()
         self.collect()
-        status = subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'status', '--state', str(self.state)],
-                                check=True, capture_output=True, text=True, env=self.env())
-        for receipt in json.loads(status.stdout)['pending']:
-            subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'ack', '--state', str(self.state), '--event-id',
-                            str(receipt['id'])], check=True, capture_output=True, env=self.env())
-        self.lifecycle('closed', evidence=['herdr agent get tautrep17 and pane get w2W:pB8 both not found'])
+        self.serve(fail='connection refused')
+        self.assertEqual(self.check(pane='w1:p1'), [
+            'could not check worker tabs: herdr tab list exited 1: '
+            '{"error": {"code": "server_unavailable", "message": "connection refused"}}'])
 
-        def occupant(session):
-            return {'default': {'w1:p5': {'pane_id': 'w1:p5', 'tab_id': 'w1:t5', 'agent': 'claude',
-                                          'agent_session': {'kind': 'id', 'value': session}}}}
-        self.serve(agents=[{'agent': 'claude', 'agent_status': 'idle', 'name': 'builder-1', 'pane_id': 'w1:p5',
-                            'tab_id': 'w1:t5', 'workspace_id': 'w1'}], tabs={'default': [self.tab]},
-                   panes=occupant('native-1'))
-        reminder = (f'{self.state}: ticket-1/1: recorded closed, but Herdr pane w1:p5 in tab w1:t5 still holds its '
-                    'conversation; end it with `herdr --session default pane close w1:p5`')
-        self.assertEqual(self.check(pane='w1:p1'), [reminder])
-        self.assertIn(f'- {reminder}\n', self.stop(pane='w1:p1')['reason'])
-        self.assertIsNone((self.stop(pane='w1:p1', active=True) or {}).get('decision'), 'a reminder holds once')
-        # Another conversation in that pane is not this worker; a Herdr that cannot be asked names nothing, since a
-        # recorded closure is reminded of, not gated.
-        self.serve(tabs={'default': [self.tab]}, panes=occupant('native-9'))
+    def test_closure_lookups_stop_at_the_first_one_herdr_does_not_answer(self):
+        # Review (Codex, Sonnet): the hosts give the whole stop check 20 seconds, so one pane lookup that times out
+        # ends the closure lookups of that stop instead of each waiting its own five seconds.
+        tabs = [self.tab, dict(self.tab, tab_id='w1:t6')]
+        self.serve(agents=[{'agent': 'claude', 'agent_status': 'idle', 'name': name, 'pane_id': pane,
+                            'tab_id': tab, 'workspace_id': 'w1'}
+                           for name, pane, tab in (('builder-0', 'w1:p6', 'w1:t6'), ('builder-1', 'w1:p5', 'w1:t5'))],
+                   tabs={'default': tabs})
+        self.closed_worker('ticket-0/1', 'builder-0', 'native-0', 'ticket-0')
+        self.closed_worker()
+        self.serve(tabs={'default': tabs}, hang_panes=True,
+                   panes={'default': {**self.occupant('native-1'), **self.occupant('native-0', pane='w1:p6', tab='w1:t6')}})
+        started = time.monotonic()
         self.assertEqual(self.check(pane='w1:p1'), [])
-        self.serve(tabs={'default': [self.tab]}, panes=occupant('native-1'), fail='connection refused')
-        self.assertEqual(self.check(pane='w1:p1'), [])
+        self.assertLess(time.monotonic() - started, 9)
 
     def test_a_state_without_a_holds_table_still_has_its_open_tabs_named(self):
         # Review (own): reading design holds must not cost a state its open-tab check; no table means no hold.
@@ -2140,15 +2210,17 @@ class StaleTabs(HerdrWorkers):
         self.assertEqual(self.check(pane='w1:p1'), [self.gap()])
 
     def test_only_the_latest_attempt_of_a_retained_worker_is_judged(self):
-        # Rule 2: a retained attempt whose worker took a later attempt has had its next use; the later one answers.
-        self.register()
-        self.retain()
-        self.register(attempt='ticket-1/2')
-        self.lifecycle('result', 'ticket-1/2', status='failed', head='head-1', report=str(self.report),
+        # Rule 2: a retained attempt whose worker took a later attempt has had its next use; the later one answers. The
+        # later one is the later registration (ticket-1/10 after ticket-1/9), whatever the names' order.
+        self.register(attempt='ticket-1/9')
+        self.collect('ticket-1/9', kind='retain', reason='the repair round reuses this context',
+                     next_use='ticket-1 repair', evidence=['review finding F1'])
+        self.register(attempt='ticket-1/10')
+        self.lifecycle('result', 'ticket-1/10', status='failed', head='head-1', report=str(self.report),
                        evidence=['worker.log'])
         self.assertEqual(self.check(pane='w1:p1'), [
-            f'{self.state}: ticket-1/2: Herdr tab w1:t5 is still open after collection; retire the worker or record its '
-            f'retention ({ROOT}/runtime/workers/collect.md)'])
+            f'{self.state}: ticket-1/10: Herdr tab w1:t5 is still open after collection; retire the worker or record '
+            f'its retention ({ROOT}/runtime/workers/collect.md)'])
 
     def test_a_retention_reminder_alone_holds_the_stop_once(self):
         # Rule 3: a reminder is said once; beside a gap that holds, the usual three holds apply.

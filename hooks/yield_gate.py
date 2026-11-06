@@ -13,7 +13,9 @@ launch it dismissed that is still open unless kept (`dismiss --keep`); one witho
 ZLOOP_WORKER, the marker every worker is launched with, also for each other such live
 agent of its Herdr workspace that no other session logged. The session bound to orchestrate a workstream
 (next_tickets.py --orchestrate; without one, the pane that registered the attempt) is held for each collected
-attempt, neither retained nor retired, whose Herdr tab is still open, and for a workstream whose
+attempt, neither retained nor retired, whose Herdr tab is still open, and reminded of a retained one of its own that
+nothing in its run follows (nothing unfinished, no later attempt of its conversation, no design hold on its
+assignment) and of one recorded closed whose own pane Herdr shows still holding its conversation; and for a workstream whose
 review report (before it records one, the binding) records autofix: true and no blocker, with
 every ticket done and delivery failing, until it is finished (branch deleted, reviewed head in
 main or on the remote's main, E2E passed at a head in main). A session is also held while a
@@ -26,7 +28,7 @@ The review, delivery and card holds do not apply while a live worker of that sta
 wait that will wake the host. A stop
 is held while its gaps stand, up to three times in a row for an identical set (a count per session under
 .scratch/holds/); then the stop passes and the gate says it gave up. A check that cannot run is a named gap, never a
-pass, and holds one stop. `claude` and `codex` speak their shared Stop
+pass, and holds one stop, as do reminders when nothing else stands. `claude` and `codex` speak their shared Stop
 hook protocol; `check <cwd> [session]` prints the gaps and the hold's message as JSON, and `stop <cwd> [session]`, which
 other hosts call at each stop, also counts the stop and says whether to hold it. Set
 ZLOOP_YIELD_HOOK=off to disable the check.
@@ -358,6 +360,7 @@ def stale_tabs(root, pane, session):
     conversation's latest attempt and no design hold waits on the user for its assignment) and one recorded closed
     whose own pane still holds its conversation."""
     listed, failed, missing = {}, {}, []
+    unanswered = False  # Once Herdr fails to answer, the reminders about closures ask it nothing more this stop.
     for state in states(root):
         # An unreadable binding decides nothing here (undelivered names it); the registering pane does.
         binding, mine = read_binding(state.with_name(BINDING), pane, session)
@@ -380,26 +383,31 @@ def stale_tabs(root, pane, session):
                 continue
             retained = saved.get('retained')
             if not saved.get('closed') and retained and (
-                    unfinished or saved.get('assignment') in held
+                    not saved['owned'] or unfinished or saved.get('assignment') in held
                     or latest[(saved['runtime'], saved['native_session'])] != saved['attempt']):
-                continue  # Its run, a later attempt of its worker or the user's ruling may still use it.
+                continue  # A user's worker, or one its run, a later attempt or the user's ruling may still use.
             where = (herdr['session'], herdr['workspace_id'])
+            if saved.get('closed') and unanswered:
+                continue
             if where not in listed:
                 try:
                     listed[where] = herdr_tabs(*where)
                 except Exception as error:
-                    listed[where], failed[where] = set(), f'could not check worker tabs: {error}'
+                    listed[where], failed[where], unanswered = set(), f'could not check worker tabs: {error}', True
             if saved.get('closed'):
                 # A recorded closure is reminded of, never gated: a Herdr that cannot be asked names nothing here.
-                if herdr['tab_id'] in listed[where] and herdr.get('pane_id') and holds_own(saved, herdr):
-                    missing.append(f"{state}: {saved['attempt']}: {CLOSED_REMINDER} Herdr pane {herdr['pane_id']} in "
-                                   f"tab {herdr['tab_id']} still holds its conversation; end it with `herdr --session "
-                                   f"{herdr['session']} pane close {herdr['pane_id']}`")
+                if herdr['tab_id'] in listed[where] and herdr.get('pane_id'):
+                    own = holds_own(saved, herdr)
+                    unanswered = own is None
+                    if own:
+                        named = '' if herdr['session'] == socket_server() else f"--session {herdr['session']} "
+                        missing.append(f"{state}: {saved['attempt']}: {CLOSED_REMINDER} Herdr pane {herdr['pane_id']} "
+                                       f"in tab {herdr['tab_id']} still holds its conversation; end it with `herdr "
+                                       f"{named}pane close {herdr['pane_id']}`")
             elif where in failed:  # A check that cannot run is a named gap, never a pass.
                 missing.append(failed.pop(where))
             elif herdr['tab_id'] in listed[where] and retained:
-                next_use = retained.get('next_use') if isinstance(retained, dict) else None
-                missing.append(f"{state}: {saved['attempt']}: retained for \"{next_use}\" in Herdr tab "
+                missing.append(f"{state}: {saved['attempt']}: retained for \"{retained['next_use']}\" in Herdr tab "
                                f"{herdr['tab_id']}, {REMINDER}: register that next attempt in this worker, raise a "
                                f'design hold for the decision it waits on, or retire the worker ({RETIRE})')
             elif herdr['tab_id'] in listed[where]:
@@ -409,15 +417,19 @@ def stale_tabs(root, pane, session):
 
 
 def holds_own(saved, herdr):
-    """Whether Herdr shows the attempt's recorded pane holding its own native conversation; no when it cannot say."""
+    """Whether Herdr shows the attempt's recorded pane holding its own native conversation: None when Herdr did not
+    answer, False for any other pane or a row it cannot be compared with."""
     named = [] if herdr['session'] == socket_server() else ['--session', herdr['session']]
     try:
         result = subprocess.run(['herdr', *named, 'pane', 'get', herdr['pane_id']], capture_output=True, text=True,
                                 timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    try:
         identity = json.loads(result.stdout)['result']['pane'].get('agent_session') if result.returncode == 0 else None
-    except (OSError, subprocess.SubprocessError, ValueError, TypeError, KeyError, AttributeError):
+        return isinstance(identity, dict) and lifecycle().conversation_named(saved, identity) is True
+    except (ValueError, TypeError, KeyError, AttributeError):
         return False
-    return isinstance(identity, dict) and lifecycle().conversation_named(saved, identity) is True
 
 
 def open_holds(state):
@@ -761,7 +773,7 @@ def checked(cwd, session=None):
 def count_hold(cwd, session, missing):
     """Record one more stop of this session with these gaps: (whether to hold it, the notice that the gate gave up or
     None, said once). An identical set holds up to MAX_HOLDS consecutive stops, one when every gap is a check that could
-    not run; a changed or cleared set starts the count again."""
+    not run or a reminder; a changed or cleared set starts the count again."""
     try:
         root = main_checkout(cwd)
     except Exception:
