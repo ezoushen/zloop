@@ -28,20 +28,28 @@ class RepairFindings(WorkerLifecycleCase):
         # Live (stforestkit remediate-taut-534): every repair packet's findings: read "the CONFIRMED candidates in the
         # listed audit report(s)", so R03 and R08 both repaired P01, R04 and R06 both P05, and none took P04.
         self.repair('autofix/1', '/fixture/findings')  # With no findings planned, a repair names them as it likes.
-        # What an attempt holds is read from its packet alone.
-        self.assertEqual(self.register('autofix/2', 'autofix', session='native-autofix-2', worker='pane-autofix-2',
-                                       findings=['P05-001'], code=2).strip(),
-                         'Registration reads findings from the packet; an event cannot supply them')
+        # What an attempt holds is read from its packet alone, and what it settled from its collected result.
+        for supplied in ({'findings': ['P05-001']}, {'result': {'status': 'blocked', 'findings': {'P05-001': 'open'}}}):
+            with self.subTest(supplied=supplied):
+                self.assertEqual(self.register('autofix/2', 'autofix', session='native-autofix-2',
+                                               worker='pane-autofix-2', code=2, **supplied).strip(),
+                                 'Registration reads findings from the packet and records no result; collect the '
+                                 'result once the worker returns it')
         self.cli('plan', '--job', 'repair', '--finding', 'P01-001', '--finding', 'P01-002', '--finding', 'P05-001')
         refused = self.repair('r1/1', "the CONFIRMED candidates in the listed audit report(s) (IDs and proposed "
                               "minimal repairs are in each report's Findings section)", code=2)
+        plan = f'python3 {SCRIPT} plan --state {shlex.quote(str(self.state.resolve()))} --job repair --finding <ID>'
         self.assertEqual(refused.strip(), "The repair packet's findings: names what the repair plan does not hold: "
                          'the, CONFIRMED, candidates, in, listed and 12 more; list the IDs of the planned findings '
-                         'this assignment repairs, separated by commas or spaces')
+                         'this assignment repairs, separated by commas or spaces, after planning a confirmed one '
+                         f'with `{plan}`')
+        self.assertEqual(self.repair('r1/1', ', ', code=2).strip(), "The repair packet's findings: names no finding; "
+                         'list the IDs of the planned findings this assignment repairs, separated by commas or spaces')
         self.repair('r1/1', 'P01-001, P01-002')
         refused = self.repair('r2/1', 'P01-002 P05-001', code=2)
         self.assertEqual(refused.strip(), 'Another repair assignment already holds P01-002 (r1); each planned finding '
-                         'is repaired under one assignment')
+                         'is repaired under one assignment: leave it out of this packet, or repair it in a new attempt '
+                         'of the assignment that holds it')
         self.repair('r2/1', 'P05-001,')  # A list may end with its separator.
         # A later attempt of the same assignment names its findings again.
         self.repair('r1/2', 'P01-002')
@@ -102,6 +110,16 @@ class RepairFindings(WorkerLifecycleCase):
         self.ready('r1/10')
         self.settle('r1/10', findings={'P01-002': 'repaired'})
         expected.update(counts={'repaired': 3, 'open': 0, 'runtime-bug': 1, 'pending': 1, 'unassigned': 1}, open=[])
+        self.assertEqual(self.cli('findings'), expected)
+        # Attempts collected out of their registration order: the later registered one's result stands.
+        self.repair('r3/2', 'P05-003')
+        self.repair('r3/3', 'P05-003')
+        for attempt in ('r3/2', 'r3/3'):
+            self.ready(attempt)
+        self.settle('r3/3', findings={'P05-003': 'open'})
+        self.settle('r3/2', findings={'P05-003': 'repaired'})
+        expected.update(counts={'repaired': 2, 'open': 1, 'runtime-bug': 1, 'pending': 1, 'unassigned': 1},
+                        open=['P05-003'])
         self.assertEqual(self.cli('findings'), expected)
         # Narrowing the plan narrows the totals.
         self.cli('plan', '--job', 'repair', '--replace', '--finding', 'P01-001', '--finding', 'P04-001')

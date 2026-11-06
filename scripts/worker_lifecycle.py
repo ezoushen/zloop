@@ -184,16 +184,22 @@ def planned_findings(db):
 def assigned_findings(db, assignment, value):
     """The planned findings a repair packet's findings: line names, none of which another assignment holds."""
     named = list(dict.fromkeys(finding for finding in re.split(r'[\s,]+', value) if finding))
+    require(named, "The repair packet's findings: names no finding; list the IDs of the planned findings this "
+                   'assignment repairs, separated by commas or spaces')
     planned = set(planned_findings(db))
     unknown = [finding for finding in named if finding not in planned]
+    command = shlex.join(['python3', str(Path(__file__).resolve()), 'plan', '--state', state_path(db), '--job',
+                          'repair']) + ' --finding <ID>'
     require(not unknown, "The repair packet's findings: names what the repair plan does not hold: "
                          + ', '.join(unknown[:5]) + (f' and {len(unknown) - 5} more' if len(unknown) > 5 else '')
-                         + '; list the IDs of the planned findings this assignment repairs, separated by commas or spaces')
+                         + '; list the IDs of the planned findings this assignment repairs, separated by commas or '
+                         f'spaces, after planning a confirmed one with `{command}`')
     holders = {finding: row['assignment'] for row in attempts(db) if row['assignment'] != assignment
                for finding in row.get('findings', [])}
     taken = [f'{finding} ({holders[finding]})' for finding in named if finding in holders]
     require(not taken, f'Another repair assignment already holds {", ".join(taken)}; each planned finding is repaired '
-                       'under one assignment')
+                       'under one assignment: leave it out of this packet, or repair it in a new attempt of the '
+                       'assignment that holds it')
     return named
 
 
@@ -956,7 +962,8 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
             missing = agent_defs.missing_inputs(job, packet.read_text(errors='replace'))
             require(not missing, f'The {execution["job"]} assignment lacks {", ".join(missing)}; write each as '
                                  f'`name: value` (see {job["path"]})')
-            require('findings' not in data, 'Registration reads findings from the packet; an event cannot supply them')
+            require(not {'findings', 'result'} & set(data), 'Registration reads findings from the packet and records '
+                    'no result; collect the result once the worker returns it')
             if execution['job'] == 'repair' and planned_findings(db):
                 data['findings'] = assigned_findings(db, data['assignment'], agent_defs.input_value(
                     job, packet.read_text(errors='replace'), 'findings'))
