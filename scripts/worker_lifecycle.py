@@ -337,9 +337,14 @@ def yield_gaps(db, include=None, rows=None):
         if saved.get('result') or (saved['runtime'], saved['native_session']) in closed:
             continue
         # A worker started as its own process wakes the host only through a wait, submitted or not; a native child
-        # wakes it natively until submitted, and an assignment under a design hold waits for the user.
-        if not submitted and ((saved.get('execution_snapshot') or {}).get('native_dispatch')
-                              or hold(db, saved.get('assignment'))):
+        # wakes it natively until submitted, once its recorded startup shows it exists, and an assignment under a
+        # design hold waits for the user.
+        if not submitted and hold(db, saved.get('assignment')):
+            continue
+        if not submitted and (saved.get('execution_snapshot') or {}).get('native_dispatch'):
+            if not saved.get('startup_evidence'):
+                missing.append(f"{saved['attempt']}: native child with no recorded startup; record `startup` with "
+                               'native: its session record, or a `cancelled` result if it never started')
             continue
         if watching(saved):
             if process_stamp(monitor['pid']) != monitor['stamp']:

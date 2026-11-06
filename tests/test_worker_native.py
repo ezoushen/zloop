@@ -202,6 +202,27 @@ class NativeProof(WorkerLifecycleCase):
                     saved = self.cli('status', '--attempt', attempt)['attempts'][0]
                     self.assertEqual(saved['observed'], {'runtime': runtime, 'model': model, 'effort': 'high'})
 
+    def test_a_native_child_no_startup_shows_was_started_holds_the_yield_gate_on_every_runtime(self):
+        # Rule (live Pi check, remediate-loopholes: a repair attempt registered with a native-child route and no worker
+        # behind it ended the stop): a native child wakes its host natively only once its recorded startup shows it
+        # exists, so one with none holds the yield gate, whatever its runtime; a recorded startup, its settings
+        # verified or not, keeps the native wake, and an assignment under a design hold waits for the user.
+        self.native_env = dict(os.environ, CODEX_SESSION_ID='codex-host')
+        for runtime in ('claude', 'codex', 'pi', 'opencode'):
+            with self.subTest(runtime=runtime):
+                attempt, model = self.runtime_attempt(runtime, child=True)
+                self.assertEqual(self.cli('gate', '--stage', 'yield', code=1)['missing'], [
+                    f'{attempt}: native child with no recorded startup; record `startup` with native: its session '
+                    'record, or a `cancelled` result if it never started'])
+                session = codex_child_session(attempt) if runtime == 'codex' else runtime
+                path = session_record(self.root / f'{runtime}.jsonl', runtime, session, self.root,
+                                      model=model + '-other', child=runtime in ('claude', 'codex'))
+                self.assertFalse(self.record('startup', attempt, native=str(path))['verified'])
+                self.assertEqual(self.cli('gate', '--stage', 'yield'), {'complete': True, 'missing': []})
+        self.register('held/1', assignment='held', session='held', worker='held', runtime='opencode')
+        self.cli('ack', '--event-id', str(self.escalate(attempt='held/1')['event_id']))
+        self.assertEqual(self.cli('gate', '--stage', 'yield'), {'complete': True, 'missing': []})
+
     def result_request(self, attempt, path):
         report = self.root / (attempt.replace('/', '-') + '.md')
         report.write_text('## Implemented\n\nWorker report.\n')

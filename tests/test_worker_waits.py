@@ -70,8 +70,10 @@ class Waits(WorkerLifecycleCase):
     def test_yield_gate_holds_a_process_worker_never_submitted_or_watched(self):
         # Rule (stforestkit R06/R10, prompted outside `submit` and never watched): a worker started as its own process
         # can wake its host only through a wait, so one registered and never submitted holds the stop as a submitted
-        # one does. A native child keeps its native wake, and an assignment under a design hold waits for the user.
+        # one does. A started native child keeps its native wake, and an assignment under a design hold waits for the
+        # user.
         self.register('ticket-2/1', 'ticket-2', session='native-2', worker='pane-2')
+        self.record('startup', 'ticket-2/1', native=str(self.native('ticket-2/1')))
         execution = json.loads(self.execution.read_text())
         execution.update(native_dispatch=False, launch={'writes': 'worktree', 'verify': {'permission_mode': 'dontAsk'}})
         self.execution.write_text(json.dumps(execution))

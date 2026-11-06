@@ -497,13 +497,14 @@ class YieldGateHook(GateRepo):
     def test_a_worker_session_in_its_own_worktree_is_not_held(self):
         worktree = self.repo / '.worktrees/ticket-2'
         worktree.mkdir(parents=True)
-        # A native child, so its own wake is not judged here: only where its session runs.
+        # A started native child, so its own wake is not judged here: only where its session runs.
         execution = self.state.parent / 'child-execution.json'
         execution.write_text(json.dumps(dict(json.loads(self.execution.read_text()), native_dispatch=True)))
         self.lifecycle('register', 'ticket-2/1', None, assignment='ticket-2', repo=str(self.repo),
                        worktree=str(worktree), head='head-1', execution=str(execution), runtime='claude',
                        worker='pane-2', native_session='native-2', owned=True,
                        packet=str(support.assignment_file(execution.parent, 'ticket')))
+        self.lifecycle('startup', 'ticket-2/1', None, native=str(self.native('ticket-2/1')))
         self.assertIsNone(self.stop(cwd=worktree, pane=None))
         # ticket-1/1 holds the pane that registered it, not a session elsewhere.
         self.assertEqual(self.stop()['decision'], 'block')
@@ -679,8 +680,8 @@ class UnregisteredWorkers(GateRepo):
         self.worktree = self.repo / '.worktrees/ticket-1'
         self.worktree.mkdir(parents=True)
         self.serve(panes={'default': {'w1:p5': {'pane_id': 'w1:p5', 'cwd': str(self.worktree)}}})
-        # These registrations stand for any worker its orchestrator accounted for; as native children they need no
-        # wait, which these tests do not judge (Waits does).
+        # These registrations stand for any worker its orchestrator accounted for; as native children with a recorded
+        # startup they need no wait, which these tests do not judge (Waits does).
         self.execution.write_text(json.dumps(dict(json.loads(self.execution.read_text()), native_dispatch=True)))
 
     def register(self, worker, attempt, native_session=None, pane='w1:p1', worktree=None, session=None):
@@ -691,6 +692,7 @@ class UnregisteredWorkers(GateRepo):
                        worktree=str(worktree or self.worktree), head='head-1', execution=str(self.execution), runtime='claude',
                        worker=worker, native_session=native_session or f'native-{attempt}', owned=True,
                        packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        self.lifecycle('startup', attempt, pane, native=str(self.native(attempt)))
 
     @staticmethod
     def agent(name, pane, cwd, workspace='w1'):
@@ -1444,6 +1446,7 @@ console.log('null');
                        assignment='ticket-1', repo=str(self.repo), worktree=str(self.worktree), head='head-1',
                        execution=str(self.execution), runtime='claude', worker='builder-1', native_session='native-1',
                        owned=True, packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        self.lifecycle('startup', 'ticket-1/1', 'w1:p1', native=str(self.native('ticket-1/1')))
         self.assertEqual(self.check(session='codex-inner'), [])
 
     def write_rows(self, *rows, events=True):
@@ -2082,6 +2085,7 @@ class StaleTabs(HerdrWorkers):
                        head='head-1', execution=str(child), runtime='claude', worker='helper-2',
                        native_session='native-2', owned=True,
                        packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        self.lifecycle('startup', 'ticket-2/1', native=str(self.native('ticket-2/1')))
         self.retain()
         self.assertEqual(self.check(pane='w1:p1'), [], 'ticket-2/1 is still unfinished')
         self.lifecycle('result', 'ticket-2/1', status='failed', head='head-1', report=str(self.report),
@@ -2561,10 +2565,10 @@ class RepairFindingsHold(GateRepo):
                        worktree=str(self.repo), head='head-1', execution=str(self.execution), runtime='claude',
                        worker='pane-' + attempt, native_session='native-' + attempt, owned=True, packet=str(packet))
 
-    def settle(self, attempt, pane, **findings):
+    def settle(self, attempt, pane, status='blocked', **findings):
         report = self.state.parent / (attempt.replace('/', '-') + '.md')
         report.write_text('## Fixed round 1\n\nBlocked on a seam\n')
-        self.lifecycle('result', attempt=attempt, pane=pane, status='blocked', head='head-1', report=str(report),
+        self.lifecycle('result', attempt=attempt, pane=pane, status=status, head='head-1', report=str(report),
                        evidence=['seam decision needed'], findings=findings)
 
     def plan(self, *findings, replace=False):
@@ -2596,6 +2600,24 @@ class RepairFindingsHold(GateRepo):
         self.assertEqual(self.check(pane='w1:p3'), [])  # A session that registered none of the plan's repairs.
         # Once the plan no longer holds what a session's repairs hold, that session is not held for it.
         self.plan('P04-001', replace=True)
+        self.assertEqual(self.check(), [])
+
+    def test_a_repair_registered_with_no_worker_behind_it_does_not_end_the_hold(self):
+        # Live (remediate-loopholes, Pi at 3f9444c): held for the unassigned P04-001, Pi registered r1/2 naming it on a
+        # native-child route with no worker behind it, and its stop passed. Every host's stop names that attempt until
+        # its startup is recorded (Waits pins that) or a cancelled result settles its findings.
+        self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'builder',
+                                              'job': 'repair', 'settings': {'model': 'sonnet'}}))
+        self.plan('P01-001', 'P04-001')
+        self.repair('r1/1', 'P01-001', 'w1:p1')
+        self.settle('r1/1', 'w1:p1', **{'P01-001': 'open'})
+        self.repair('r1/2', 'P04-001', 'w1:p1')
+        gap = (f'{self.state}: r1/2: native child with no recorded startup; record `startup` with native: its session '
+               'record, or a `cancelled` result if it never started')
+        self.assertEqual(self.check(), [gap])
+        for host in ('claude', 'codex'):
+            self.assertIn(gap, self.stop(host=host)['reason'])
+        self.settle('r1/2', 'w1:p1', 'cancelled', **{'P04-001': 'open'})
         self.assertEqual(self.check(), [])
 
 
