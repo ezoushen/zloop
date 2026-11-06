@@ -1315,6 +1315,8 @@ def wait_preconditions(db, saved, productive):
     else:
         # A native child got its assignment with its spawn; a worker started as its own process gets it by submission.
         require(saved.get('submitted') or saved['execution_snapshot'].get('native_dispatch'),
+                'Its submission was not confirmed: record `submitted` with evidence the worker accepted it, or record '
+                'its result and register a new attempt' if saved.get('submission_requested') else
                 'Wait for submitted work: `submit` its assignment, or record `submitted` with evidence the worker '
                 'already has it')
 

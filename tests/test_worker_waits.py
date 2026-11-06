@@ -105,6 +105,22 @@ class Waits(WorkerLifecycleCase):
         self.record('submitted', evidence=['native.jsonl:2:accepted prompt'])
         self.assertEqual(self.watch()['exit_code'], 0)
 
+    def test_a_wait_after_an_unconfirmed_submission_names_what_settles_it(self):
+        # Review (Codex): a submission that failed cannot be sent again for its attempt, so the refusal names the
+        # records that settle it rather than `submit`.
+        execution = json.loads(self.execution.read_text())
+        execution.update(native_dispatch=False, launch={'writes': 'worktree', 'verify': {'permission_mode': 'dontAsk'}})
+        self.execution.write_text(json.dumps(execution))
+        self.register()
+        request = self.root / 'submit.json'
+        request.write_text(json.dumps({'native': str(self.native()), 'timeout': 2,
+                                       'argv': [sys.executable, '-c', 'raise SystemExit(1)']}))
+        self.cli('submit', '--attempt', 'ticket-1/1', '--input', str(request), code=1)
+        self.acknowledge()
+        self.record('reconciled', evidence=['native record: the prompt never arrived'])
+        self.assertEqual(self.watch(code=2).strip(), 'Its submission was not confirmed: record `submitted` with evidence '
+                         'the worker accepted it, or record its result and register a new attempt')
+
     def test_yield_gate_needs_a_rearm_after_a_wake_is_reconciled(self):
         self.register()
         self.ready()
