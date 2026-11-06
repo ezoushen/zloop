@@ -192,6 +192,10 @@ sys.exit(process.returncode)
                          {'job': 'repair', 'findings': ['P01-001', 'P01-002', 'P04-007']})
         self.assertEqual(self.cli('plan', '--job', 'repair', '--replace', '--finding', 'P04-007'),
                          {'job': 'repair', 'findings': ['P04-007']})
+        # Repairs the user calls off leave nothing planned (Sonnet review: an emptied plan was out of reach).
+        self.assertEqual(self.cli('plan', '--job', 'repair', '--replace'), {'job': 'repair', 'findings': []})
+        self.assertIn('Plan requires --job and at least one --assignment',
+                      self.cli('plan', '--job', 'audit', '--replace', code=2))
         # Only repair work holds findings, and an ID is one token, as a packet's findings: line separates them.
         self.assertEqual(self.cli('plan', '--job', 'audit', '--finding', 'P01-001', code=2).strip(),
                          'Only the repair job takes --finding')

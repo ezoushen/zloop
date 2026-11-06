@@ -2589,7 +2589,7 @@ class RepairFindingsHold(GateRepo):
                               '--replace'])
         gap = (f'{self.state}: No repair assignment holds 1 of the 3 planned repair findings (P04-001): register a '
                "repair attempt whose packet's findings: names them, or, on the user's decision, narrow the plan with "
-               f'`{command} --finding <ID>...`')
+               f'`{command} [--finding <ID>...]`')
         self.assertEqual(self.check(), [gap])
         self.assertEqual(self.check(pane='w1:p2'), [gap])
         self.assertIn(gap, self.stop()['reason'])

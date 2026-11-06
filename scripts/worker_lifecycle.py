@@ -381,7 +381,7 @@ def unassigned_findings(db, included, rows, closed):
             and (row['runtime'], row['native_session']) not in closed for row in rows):
         return []
     command = shlex.join(['python3', str(Path(__file__).resolve()), 'plan', '--state', state_path(db), '--job',
-                          'repair', '--replace']) + ' --finding <ID>...'
+                          'repair', '--replace']) + ' [--finding <ID>...]'
     return [f'No repair assignment holds {len(unassigned)} of the {len(planned)} planned repair findings '
             f'({", ".join(unassigned[:5])}'
             + (f' and {len(unassigned) - 5} more' if len(unassigned) > 5 else '')
@@ -2020,7 +2020,9 @@ def main():
                               or args.session in panel_state.recorded_sessions(saved))
             elif args.action == 'plan':
                 require(not (args.assignment and args.finding), 'Plan takes --assignment or --finding, not both')
-                result = (plan_findings(db, args.job, args.finding, args.replace) if args.finding
+                # A repair plan replaced with nothing is emptied: repairs the user called off.
+                emptied = args.job == 'repair' and args.replace and not args.assignment
+                result = (plan_findings(db, args.job, args.finding, args.replace) if args.finding or emptied
                           else plan(db, args.job, args.assignment, args.replace))
             elif args.action == 'attribute':
                 require(text(args.attempt) and args.kind, 'Attribution requires --attempt and --kind')

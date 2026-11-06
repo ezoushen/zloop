@@ -136,7 +136,7 @@ class RepairFindings(WorkerLifecycleCase):
         findings = [f'P{number:02}-001' for number in range(1, 8)]
         self.cli('plan', '--job', 'repair', *[part for finding in findings for part in ('--finding', finding)])
         command = (f'python3 {SCRIPT} plan --state {shlex.quote(str(self.state.resolve()))} --job repair --replace '
-                   '--finding <ID>...')
+                   '[--finding <ID>...]')
         gap = ('No repair assignment holds {} of the 7 planned repair findings ({} and {} more): register a repair '
                "attempt whose packet's findings: names them, or, on the user's decision, narrow the plan with "
                f'`{command}`')
