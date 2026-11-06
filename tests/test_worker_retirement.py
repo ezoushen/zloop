@@ -495,6 +495,44 @@ class Retirement(WorkerLifecycleCase):
                 self.assertIn(refusal, error)
                 self.assertEqual(log.read_text().splitlines()[asked:], [])
 
+    def closure_before_herdr(self, attempt='ticket-1/1', **fields):
+        """The refusal of a closure by hand while Herdr shows the attempt's pane holding it, which must come before
+        Herdr is asked."""
+        self.herdr_fixture(pane_session='native-1')
+        log = self.root / 'herdr-argv.log'
+        asked = len(log.read_text().splitlines())
+        error = self.record('closed', attempt, code=2, evidence=['pane closed'], **fields)
+        self.assertEqual(log.read_text().splitlines()[asked:], [])
+        return error
+
+    def test_a_closure_by_hand_meets_a_missing_acceptance_before_herdr_is_asked(self):
+        # Sonnet review: retire refuses it for the same reason, so naming retire first sends the host round in a loop.
+        self.herdr_fixture()
+        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        self.assertIn('Settle acceptance of the completed ticket attempt before closing it', self.closure_before_herdr())
+
+    def test_a_closure_by_hand_meets_an_earlier_attempt_s_receipt_before_herdr_is_asked(self):
+        # Codex review: the earlier attempt of the conversation holds a receipt to acknowledge, which retire names too.
+        self.herdr_fixture()
+        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        self.record('retain', reason='same-assignment recheck', next_use='recheck', evidence=['report'])
+        self.register('ticket-1/2', worker='builder-1', herdr={'session': 'fixture-session'})
+        self.ready('ticket-1/2')
+        self.collect('ticket-1/2')
+        self.acknowledge()
+        brief = self.root / 'brief.md'
+        brief.write_text('# Ruling\n')
+        self.record('hold', reason='a ruling is needed', brief=str(brief), evidence=['finding'])
+        receipt = self.cli('status')['pending'][0]['id']
+        error = self.closure_before_herdr('ticket-1/2', acceptance={'decision': 'deferred', 'reason': 'pending'})
+        self.assertIn(f'ticket-1/1 lacks receipt {receipt} acknowledged (`python3 {SCRIPT} ack', error)
+
     def test_a_herdr_worker_is_not_recorded_closed_while_herdr_cannot_say_where_it_is(self):
         # Neither a Herdr that does not answer nor one that answers with an error tells that the worker has ended.
         self.herdr_fixture()

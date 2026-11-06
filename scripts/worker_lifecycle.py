@@ -1139,24 +1139,19 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
                 require(not saved.get('declined'), 'Attempt already declined')
                 require(text(data.get('reason')), 'Declining requires a reason')
                 saved['declined'] = data
-            elif kind in ('retain', 'closed'):
-                declined = declining(saved, data.get('acceptance') if kind == 'closed' else None)
-                if kind == 'closed':
-                    final_retirement(db, saved, declined)
-                receipts = pending(db, attempt)
+            elif kind == 'closed':
+                require_closable(db, saved, data.get('acceptance'))
+                settle(saved, data.get('acceptance'))
+                saved['closed'] = data
+            elif kind == 'retain':
                 require(saved.get('result') and not watching(saved)
-                        and (not receipts or kind == 'retain' and all(r['kind'] == 'hold' for r in receipts)),
+                        and all(r['kind'] == 'hold' for r in pending(db, attempt)),
                         'Collect result and acknowledge receipts before retaining or closing')
-                require(report_owed(saved, declined),
+                require(report_owed(saved, declining(saved, None)),
                         'Retain an intact report before retaining or closing, or decline the attempt')
-                if kind == 'closed':
-                    require(saved['owned'], 'Existing user worker is not a cleanup target')
-                    settle(saved, data.get('acceptance'))
-                    saved['closed'] = data
-                else:
-                    require(text(data.get('next_use')) and text(data.get('reason')),
-                            'Retention requires reason and next_use for this assignment')
-                    saved['retained'] = data
+                require(text(data.get('next_use')) and text(data.get('reason')),
+                        'Retention requires reason and next_use for this assignment')
+                saved['retained'] = data
             elif kind == 'hold':
                 require(text(data.get('reason')) and text(data.get('brief')), 'Hold requires reason and decision brief')
                 require(Path(data['brief']).is_absolute(), 'Decision brief path must be absolute')
@@ -1765,15 +1760,28 @@ def pane_answer(saved, timeout=LOOKUP_SECONDS):
     return command, False
 
 
-def require_ended(db, attempt):
+def require_closable(db, saved, acceptance):
+    """Refuse a closure the lifecycle would not record: each attempt of the conversation settled, this one collected
+    with no receipt outstanding, its report intact or declined, owned, and its acceptance settled."""
+    declined = declining(saved, acceptance)
+    final_retirement(db, saved, declined)
+    require(saved.get('result') and not watching(saved) and not pending(db, saved['attempt']),
+            'Collect result and acknowledge receipts before retaining or closing')
+    require(report_owed(saved, declined), 'Retain an intact report before retaining or closing, or decline the attempt')
+    require(saved['owned'], 'Existing user worker is not a cleanup target')
+    settle(dict(saved), acceptance)
+
+
+def require_ended(db, attempt, acceptance):
     """Refuse a closure recorded by hand for a Herdr worker whose own pane Herdr shows still holding its conversation:
     retire ends it, by closing that pane."""
     saved = get(db, attempt)
     placed = saved.get('herdr')
-    # Herdr is asked only for a closure the lifecycle would record: it refuses the others itself, naming their command.
-    if not (placed and saved['owned'] and saved.get('result') and not watching(saved) and not pending(db, attempt)
-            and conversation(db, saved)[1] == attempt):
+    if not placed:
         return
+    # Herdr is asked only about a closure the lifecycle would record: it refuses the others itself, naming their command.
+    require((saved['runtime'], saved['native_session']) not in closed_sessions(db), 'Native conversation already closed')
+    require_closable(db, saved, acceptance)
     pane, script, state = placed['pane_id'], shlex.quote(str(Path(__file__).resolve())), shlex.quote(state_path(db))
     retire = f'`python3 {script} retire --state {state} --attempt {attempt} --input <request>`'
     try:
@@ -1996,7 +2004,7 @@ def main():
                     data = read_object(args.input)
                 if args.action == 'record':
                     if data.get('kind') == 'closed' and text(data.get('attempt')):
-                        require_ended(db, data['attempt'])
+                        require_ended(db, data['attempt'], data.get('acceptance'))
                     result = record(db, data)
                 elif args.action == 'deliver':
                     require(args.event_id is not None, 'Delivery requires --event-id')
