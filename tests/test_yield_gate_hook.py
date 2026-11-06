@@ -2674,6 +2674,7 @@ class AutopilotCardHold(GateRepo):
         # Review (Codex, Sonnet): only a ticket file is a ticket; notes beside them are not.
         (path.parent / 'issues').mkdir()
         (path.parent / 'issues' / 'history.md').write_text('# T1 done\nticket: run/01, in the ledger\n')
+        (path.parent / 'issues' / '00-draft.md').write_text('---\nticket: run/00\n')  # Never closed: no ticket.
         self.card(phase='pr')
         self.assertEqual(len(self.check(session='host-1')), 2)
         # Review (Codex): a section after the State is not the State.

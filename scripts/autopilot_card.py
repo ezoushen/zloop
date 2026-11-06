@@ -82,15 +82,17 @@ def tracker_url(board):
     """Whether `board` names a tracker by its web address: http or https, a host, and nothing that splits it."""
     try:
         address = urlsplit(board)
-        return address.scheme in ('http', 'https') and bool(address.hostname) and not re.search(r'\s', board)
-    except ValueError:  # A port that is no number.
+        address.port  # Raises on a port that is no number in range.
+    except ValueError:
         return False
+    return (address.scheme in ('http', 'https') and bool(re.fullmatch(r'[a-z0-9.-]+', address.hostname or ''))
+            and not re.search(r'\s', board))
 
 
 def ticket_files(issues):
-    """The files of a local board that are tickets: those whose front matter, read as the board reads it, names one."""
-    return [path for path in issues.glob('*.md')
-            if (front_matter.parse(path.read_text(errors='replace')) or {}).get('ticket')]
+    """The files of a local board that are tickets as the board reads them: a front matter with a `ticket:` key, whose
+    value the board's own check judges."""
+    return [path for path in issues.glob('*.md') if 'ticket' in (front_matter.parse(path.read_text(errors='replace')) or {})]
 
 
 def board_problem(card, state):

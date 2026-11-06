@@ -832,7 +832,13 @@ def new_ticket(slug, title, blocked_by, touches):
         block = TEMPLATE.read_text().split("```markdown\n", 1)[1].rsplit("```", 1)[0]
         body = block.split("\n---\n", 1)[1].replace("<slug>", slug)
         body = re.sub(r"^# NN: .*$", lambda _: f"# {nn}: {title}", body, count=1, flags=re.M)
-        with path.open("x") as stream:
+        try:
+            stream = path.open("x")
+        except FileExistsError:
+            print(f"--new wrote nothing: {path} is taken by a file that is no ticket on the board; rename or remove "
+                  "it, then run it again", file=sys.stderr)
+            sys.exit(2)
+        with stream:
             stream.write("\n".join(["---", f"ticket: {slug}/{nn}", "status: ready",
                                     f"blocked_by: [{', '.join(blocked_by)}]", f"touches: [{', '.join(touches)}]",
                                     "devices: []", "needs: []", "model: standard", "worker:", "---", body]))
@@ -912,8 +918,8 @@ def write_fields(fm, fields):
     head = re.match(r"---\n.*?(?=\n---(?:\n|$))", text, re.S)[0]  # What front_matter.parse reads as the block.
     rest = text[len(head):]
     for key, value in fields.items():
-        # A key's value runs on through a block list's `- item` lines, and the blank and comment lines among them.
-        items = r"(?:\n(?:[ \t]*-[^\n]*|[ \t]*#[^\n]*|[ \t]*(?=\n)))*"
+        # A key's value runs on through a block list's `- item` lines, and the blank and comment lines between them.
+        items = r"(?:(?:\n[ \t]*(?:#[^\n]*)?)*\n[ \t]*-[^\n]*)*"
         pattern = re.compile(rf"^({re.escape(key)}:)[^\n]*{items}", re.M)
         if value is None:
             head = re.sub(rf"\n{re.escape(key)}:[^\n]*{items}", "", head)

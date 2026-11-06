@@ -171,18 +171,30 @@ class BoardCLI(unittest.TestCase):
         self.assertIn('--new wrote nothing: the board with this ticket fails its check', refused.stderr)
         self.assertEqual(sorted(self.root.glob('.scratch/*/issues/*.md')), before)
         # Review (Codex, Sonnet): two workstreams cutting tickets on each other at once close no cycle either.
-        self.write_ticket('c/01')
-        self.write_ticket('d/01')
+        pairs = (('c', 'd'), ('e', 'f'), ('g', 'h'), ('i', 'j'))  # Four races at once, so a lost one shows.
+        for slug in (slug for pair in pairs for slug in pair):
+            self.write_ticket(f'{slug}/01')
         calls = [subprocess.Popen([sys.executable, '-B', str(SCRIPT), '--repo', str(self.root), mine, '--new', 'Cross',
                                    '--blocked-by', f'{theirs}/01'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                 for mine, theirs in (('c', 'd'), ('d', 'c'))]
+                 for one, other in pairs for mine, theirs in ((one, other), (other, one))]
         for call in calls:
             call.communicate()
-        self.assertEqual(sorted(call.returncode for call in calls), [0, 2])
+        self.assertEqual(sorted(call.returncode for call in calls), [0] * 4 + [2] * 4)
         self.cli('c', '--check')
         # Review (Sonnet): a note beside the tickets, named by a date, is no ticket number.
         (self.root / '.scratch/a/issues/2026-11-06-handoff.md').write_text('# handoff\n')
         self.assertEqual(Path(self.cli('a', '--new', 'A two').stdout.strip()).name, '02-a-two.md')
+        # Review (Codex, Sonnet): a note holding the next ticket's file name is named, not a traceback.
+        (self.root / '.scratch/a/issues/03-a-three.md').write_text('# notes\n')
+        refused = self.cli('a', '--new', 'A three', code=2)
+        self.assertIn('--new wrote nothing: ', refused.stderr)
+        self.assertIn('03-a-three.md is taken by a file that is no ticket on the board', refused.stderr)
+
+    def test_set_keeps_the_comment_lines_beside_the_fields_it_writes(self):
+        # Review (Sonnet): replacing a block list must not take the comments and blank lines after a scalar field.
+        path = self.write_ticket('fx/01', extra='worker:\n# decided with the user\n\n# areas locked below\n')
+        self.cli('fx', '--set', 'fx/01', 'worker=inline')
+        self.assertIn('\nworker: inline\n# decided with the user\n\n# areas locked below\n---\n', path.read_text())
 
     def gh(self, pulls):
         """A `gh` on PATH answering `gh pr view <url> --json state,mergeCommit` from `pulls` (url to state, merge commit);
