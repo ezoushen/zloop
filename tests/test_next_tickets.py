@@ -126,6 +126,30 @@ class BoardCLI(unittest.TestCase):
             support.load_script("next_tickets.py", "next_tickets_bind").main(
                 ["--repo", str(self.root), "fx", "--orchestrate"])
 
+    def test_new_writes_the_next_numbered_ticket_from_the_template(self):
+        # Live (jose, Pi): its tickets were ledger bullets, so no board held them; a ticket file is one command, with
+        # the template's front matter and body (skills/refine/ticket-template.md) and the board's next number.
+        self.write_ticket('fx/07')
+        first = self.cli('fx', '--new', 'Proxy on every node').stdout.strip()
+        self.assertEqual(first, '.scratch/fx/issues/08-proxy-on-every-node.md')
+        second = self.cli('fx', '--new', 'WARP: root cause', '--blocked-by', 'fx/08', '--touches', 'k8s',
+                          '--touches', 'docs').stdout.strip()
+        self.assertEqual(second, '.scratch/fx/issues/09-warp-root-cause.md')
+        text = (self.root / second).read_text()
+        self.assertTrue(text.startswith('---\nticket: fx/09\nstatus: ready\nblocked_by: [fx/08]\ntouches: [k8s, docs]\n'
+                                        'devices: []\nneeds: []\nmodel: standard\nworker:\n---\n# 09: WARP: root cause\n'), text)
+        self.assertIn('\n**Story:** As a <actor>', text)
+        self.assertIn('\n## Acceptance criteria\n', text)
+        self.cli('fx', '--check')
+        # A new workstream starts at 01.
+        self.assertEqual(self.cli('new-run', '--new', 'First').stdout.strip(), '.scratch/new-run/issues/01-first.md')
+        before = sorted(self.root.glob('.scratch/*/issues/*.md'))
+        for args in (('--new', 'No slug'), ('fx', '--new', '  '), ('fx', '--new', 'two\nlines'),
+                     ('fx', '--new', 'Gated', '--blocked-by', 'fx/99')):
+            with self.subTest(args=args):
+                self.cli(*args, code=2)
+        self.assertEqual(sorted(self.root.glob('.scratch/*/issues/*.md')), before)
+
     def test_an_interrupted_orchestrator_binding_write_leaves_the_old_binding_whole(self):
         # Audit A1: the binding is what holds the orchestrator at stop; a write cut short must not leave it empty.
         self.write_ticket("fx/01")

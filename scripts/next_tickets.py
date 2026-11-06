@@ -46,6 +46,7 @@ import worker_lifecycle  # noqa: E402
 ROOT = Path.cwd()
 ISSUES = ROOT / ".scratch"
 LIVE = {"implementing", "reviewing", "fixing", "verifying"}
+TEMPLATE = Path(__file__).resolve().parents[1] / "skills" / "refine" / "ticket-template.md"
 TERMINAL = {"done"}
 STATUSES = {"ready", "blocked"} | LIVE | TERMINAL
 try:
@@ -776,6 +777,21 @@ def listed_commit_on(text, base, ref):
     return False
 
 
+def new_ticket(tickets, slug, title, blocked_by, touches):
+    """Write the workstream's next numbered ticket from the local ticket template; its path, from the checkout."""
+    nn = f"{max((int(t.split('/')[1]) for t in tickets if spec_of(t) == slug), default=0) + 1:02}"
+    words = "-".join(re.findall(r"[a-z0-9]+", title.lower()))[:60].strip("-") or "ticket"
+    block = TEMPLATE.read_text().split("```markdown\n", 1)[1].rsplit("```", 1)[0]
+    body = re.sub(r"^# NN: .*$", lambda _: f"# {nn}: {title}", block.split("\n---\n", 1)[1], count=1, flags=re.M)
+    path = ISSUES / slug / "issues" / f"{nn}-{words}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("x") as stream:
+        stream.write("\n".join(["---", f"ticket: {slug}/{nn}", "status: ready", f"blocked_by: [{', '.join(blocked_by)}]",
+                                f"touches: [{', '.join(touches)}]", "devices: []", "needs: []", "model: standard",
+                                "worker:", "---", body.replace("<slug>", slug)]))
+    return path.relative_to(ROOT)
+
+
 def set_field(tickets, name, assignments):
     """Write each `key=value` to the ticket's front matter; a blocked ticket keeps its reason as `blocker`.
 
@@ -889,6 +905,9 @@ def main(argv):
     actions.add_argument("--delivery", action="store_true", help="require done tickets and current review/E2E evidence")
     actions.add_argument("--set", nargs="+", metavar=("TICKET", "ASSIGNMENT"))
     actions.add_argument("--orchestrate", action="store_true", help="bind this session as the workstreams' orchestrator")
+    actions.add_argument("--new", metavar="TITLE", help="write the workstream's next ticket from the template")
+    parser.add_argument("--blocked-by", action="append", default=[], metavar="TICKET", help="with --new")
+    parser.add_argument("--touches", action="append", default=[], metavar="AREA", help="with --new")
     parser.add_argument("--counts", action="store_true")
     parser.add_argument("--autofix", action="store_true", help="with --orchestrate: repairs are authorized")
     args = parser.parse_args(argv)
@@ -905,6 +924,19 @@ def main(argv):
     if root.returncode or Path(root.stdout.strip()).resolve() != ROOT or (ROOT / common.stdout.strip()).resolve() != ROOT / ".git":
         parser.error("--repo must name the main Git checkout, not a subdirectory or linked worktree")
     tickets = load()
+    if args.new is not None:
+        title = args.new.strip()
+        if not args.slug:
+            parser.error("--new needs the workstream slug")
+        if not title or len(f"{title}x".splitlines()) > 1:
+            parser.error("--new takes a one-line title")
+        unknown = [name for name in args.blocked_by if name not in tickets]
+        if unknown:
+            parser.error(f"--blocked-by {', '.join(unknown)}: no such ticket on the board")
+        if not all(re.fullmatch(r"[A-Za-z0-9._/-]+", area) for area in args.touches):
+            parser.error("--touches takes area names of letters, digits, '.', '_', '/' and '-'")
+        print(new_ticket(tickets, args.slug, title, args.blocked_by, args.touches))
+        return
     selected = {t: fm for t, fm in tickets.items() if not args.slug or spec_of(t) == args.slug}
     if not selected:
         parser.error(f"no tickets in requested scope under {ISSUES}")
