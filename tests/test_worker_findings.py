@@ -132,18 +132,22 @@ class RepairFindings(WorkerLifecycleCase):
         # Pi's stop passed and it reported the repair round complete.
         findings = [f'P{number:02}-001' for number in range(1, 8)]
         self.cli('plan', '--job', 'repair', *[part for finding in findings for part in ('--finding', finding)])
+        command = (f'python3 {SCRIPT} plan --state {shlex.quote(str(self.state.resolve()))} --job repair --replace '
+                   '--finding <ID>...')
+        gap = ('No repair assignment holds {} of the 7 planned repair findings ({} and {} more): register a repair '
+               "attempt whose packet's findings: names them, or, on the user's decision, narrow the plan with "
+               f'`{command}`')
+        # The run's own check names a plan no repair has started on; a session's stop is held only for its own repairs.
+        self.assertEqual(self.cli('gate', '--stage', 'yield', code=1)['missing'],
+                         [gap.format(7, ', '.join(findings[:5]), 2)])
         self.repair('r1/1', 'P01-001')
         self.ready('r1/1')
         # While a repair worker runs, the run is not done: its wait is the gap.
         self.assertEqual(self.cli('gate', '--stage', 'yield', code=1)['missing'], ['r1/1: no armed wait'])
         self.settle('r1/1', findings={'P01-001': 'repaired'})
         self.acknowledge()
-        command = (f'python3 {SCRIPT} plan --state {shlex.quote(str(self.state.resolve()))} --job repair --replace '
-                   '--finding <ID>...')
-        self.assertEqual(self.cli('gate', '--stage', 'yield', code=1)['missing'], [
-            'No repair assignment holds 6 of the 7 planned repair findings (P02-001, P03-001, P04-001, P05-001, '
-            "P06-001 and 1 more): register a repair attempt whose packet's findings: names them, or, on the user's decision, "
-            f'narrow the plan with `{command}`'])
+        self.assertEqual(self.cli('gate', '--stage', 'yield', code=1)['missing'],
+                         [gap.format(6, ', '.join(findings[1:6]), 1)])
         self.repair('r2/1', ' '.join(findings[1:]))
         self.ready('r2/1')
         self.settle('r2/1', findings={finding: 'open' for finding in findings[1:]})

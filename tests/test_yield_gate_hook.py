@@ -2552,30 +2552,51 @@ class StopReap(HerdrWorkers):
 
 
 class RepairFindingsHold(GateRepo):
+    def repair(self, attempt, findings, pane):
+        """Register, from Herdr pane `pane`, a repair attempt whose packet's findings: line is findings."""
+        packet = support.assignment_file(self.execution.parent, 'repair')
+        packet = packet.rename(packet.with_name(attempt.replace('/', '-') + '.txt'))
+        packet.write_text(packet.read_text().replace('findings: /fixture/findings', f'findings: {findings}'))
+        self.lifecycle('register', attempt=attempt, pane=pane, assignment=attempt.split('/')[0], repo=str(self.repo),
+                       worktree=str(self.repo), head='head-1', execution=str(self.execution), runtime='claude',
+                       worker='pane-' + attempt, native_session='native-' + attempt, owned=True, packet=str(packet))
+
+    def settle(self, attempt, pane, **findings):
+        report = self.state.parent / (attempt.replace('/', '-') + '.md')
+        report.write_text('## Fixed round 1\n\nBlocked on a seam\n')
+        self.lifecycle('result', attempt=attempt, pane=pane, status='blocked', head='head-1', report=str(report),
+                       evidence=['seam decision needed'], findings=findings)
+
+    def plan(self, *findings, replace=False):
+        subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'plan', '--state', str(self.state), '--job', 'repair',
+                        *(['--replace'] if replace else []), *[part for finding in findings
+                                                               for part in ('--finding', finding)]],
+                       check=True, capture_output=True)
+
     def test_a_stop_is_held_for_planned_findings_no_repair_assignment_holds_once_nothing_runs(self):
         # Live (stforestkit remediate-taut-534): every repair worker was done, 90 confirmed findings were never assigned,
-        # and Pi's stop passed. The session that registered the plan's repairs is held; another is not.
+        # and Pi's stop passed. A session that registered a repair holding findings of the plan is held once no repair
+        # runs anywhere in the run; what any session's attempts hold is held.
         self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'builder',
                                               'job': 'repair', 'settings': {'model': 'sonnet'}}))
-        subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'plan', '--state', str(self.state), '--job', 'repair',
-                        '--finding', 'P01-001', '--finding', 'P04-001'], check=True, capture_output=True)
-        packet = support.assignment_file(self.execution.parent, 'repair')
-        packet.write_text(packet.read_text().replace('findings: /fixture/findings', 'findings: P01-001'))
-        self.lifecycle('register', attempt='r1/1', assignment='r1', repo=str(self.repo), worktree=str(self.repo),
-                       head='head-1', execution=str(self.execution), runtime='claude', worker='pane-1',
-                       native_session='native-1', owned=True, packet=str(packet))
-        report = self.state.parent / 'r1.md'
-        report.write_text('## Fixed round 1\n\nBlocked on a seam\n')
-        self.lifecycle('result', attempt='r1/1', status='blocked', head='head-1', report=str(report),
-                       evidence=['seam decision needed'], findings={'P01-001': 'open'})
+        self.plan('P01-001', 'P04-001', 'P05-001')
+        self.repair('r1/1', 'P01-001', 'w1:p1')
+        self.settle('r1/1', 'w1:p1', **{'P01-001': 'open'})
+        self.repair('r2/1', 'P05-001', 'w1:p2')
+        self.assertEqual(self.check(), [])  # Another session's repair still runs.
+        self.settle('r2/1', 'w1:p2', **{'P05-001': 'open'})
         command = shlex.join(['python3', str(LIFECYCLE), 'plan', '--state', str(self.state), '--job', 'repair',
                               '--replace'])
-        gap = (f'{self.state}: No repair assignment holds 1 of the 2 planned repair findings (P04-001): register a '
+        gap = (f'{self.state}: No repair assignment holds 1 of the 3 planned repair findings (P04-001): register a '
                "repair attempt whose packet's findings: names them, or, on the user's decision, narrow the plan with "
                f'`{command} --finding <ID>...`')
         self.assertEqual(self.check(), [gap])
+        self.assertEqual(self.check(pane='w1:p2'), [gap])
         self.assertIn(gap, self.stop()['reason'])
-        self.assertEqual(self.check(pane='w1:p2'), [])
+        self.assertEqual(self.check(pane='w1:p3'), [])  # A session that registered none of the plan's repairs.
+        # Once the plan no longer holds what a session's repairs hold, that session is not held for it.
+        self.plan('P04-001', replace=True)
+        self.assertEqual(self.check(), [])
 
 
 class AutopilotCardHold(GateRepo):

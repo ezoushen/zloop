@@ -315,13 +315,13 @@ def gaps(db, data, stage, revision=None):
     return missing
 
 
-def yield_gaps(db, include=lambda saved: True, rows=None):
-    """Name each way a host that yields now would miss an event of an included worker; `rows`, when given, are the
-    attempts to judge instead of every row of db."""
+def yield_gaps(db, include=None, rows=None):
+    """Name each way a host that yields now would miss an event of an included worker (`include` None: every one, and
+    the run's own gaps with them); `rows`, when given, are the attempts to judge instead of every row of db."""
     missing = []
     rows = attempts(db) if rows is None else rows
     closed = {(row['runtime'], row['native_session']) for row in rows if row.get('closed')}
-    included = [saved for saved in rows if include(saved)]
+    included = [saved for saved in rows if include is None or include(saved)]
     names = {saved['attempt'] for saved in included}
     unconsumed = [row for row in pending(db) if row['attempt'] in names]
     receipts = [row for row in unconsumed if row['kind'] in ('wait-finished', 'hold')]
@@ -357,19 +357,20 @@ def yield_gaps(db, include=lambda saved: True, rows=None):
                 for row in unconsumed if row['kind'] == 'result']
     missing += [f"{row['attempt']}: receipt {row['id']} was not delivered" for row in receipts
                 if row['payload'].get('delivery', {}).get('state') != 'sent']
-    return missing + unassigned_findings(db, included, rows, closed)
+    return missing + unassigned_findings(db, None if include is None else included, rows, closed)
 
 
 def unassigned_findings(db, included, rows, closed):
-    """The repair plan's findings no attempt holds, named once no repair attempt is unfinished, to a host that
-    registered one holding findings of that plan."""
+    """The repair plan's findings no attempt holds, named once no repair attempt is unfinished: to the run's own
+    check (`included` None), or to a host that registered a repair holding findings of that plan."""
     try:
         planned = planned_findings(db)
     except sqlite3.OperationalError:  # A state no lifecycle command has opened since findings were planned has none.
         return []
     held = {finding for row in rows for finding in row.get('findings', [])}
     unassigned = [finding for finding in planned if finding not in held]
-    if not unassigned or not any(saved.get('findings') for saved in included) or any(
+    if not unassigned or included is not None and not any(set(saved.get('findings', [])) & set(planned)
+                                                          for saved in included) or any(
             row.get('job') == 'repair' and not row.get('result')
             and (row['runtime'], row['native_session']) not in closed for row in rows):
         return []
