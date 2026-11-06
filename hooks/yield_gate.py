@@ -421,9 +421,11 @@ def holds_own(saved, herdr):
 
 
 def open_holds(state):
-    """The assignments of a run state with a design hold not yet ruled on."""
+    """The assignments of a run state with a design hold not yet ruled on; none in a state that never held one."""
     db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
     try:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'holds'").fetchone():
+            return set()
         return {row[0] for row in db.execute('SELECT assignment FROM holds')}
     finally:
         db.close()

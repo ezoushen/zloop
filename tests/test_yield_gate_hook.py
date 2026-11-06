@@ -2129,6 +2129,16 @@ class StaleTabs(HerdrWorkers):
         self.serve(tabs={'default': [self.tab]}, panes=occupant('native-1'), fail='connection refused')
         self.assertEqual(self.check(pane='w1:p1'), [])
 
+    def test_a_state_without_a_holds_table_still_has_its_open_tabs_named(self):
+        # Review (own): reading design holds must not cost a state its open-tab check; no table means no hold.
+        self.register()
+        self.collect()
+        db = sqlite3.connect(self.state)
+        db.execute('DROP TABLE holds')
+        db.commit()
+        db.close()
+        self.assertEqual(self.check(pane='w1:p1'), [self.gap()])
+
     def test_only_the_latest_attempt_of_a_retained_worker_is_judged(self):
         # Rule 2: a retained attempt whose worker took a later attempt has had its next use; the later one answers.
         self.register()
