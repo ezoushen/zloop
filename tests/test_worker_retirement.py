@@ -456,6 +456,10 @@ class Retirement(WorkerLifecycleCase):
                          "(/sessions/pi-worker.jsonl) this attempt cannot tell from its own: once you have checked it is "
                          "this attempt's worker, close it with `herdr --session fixture-session pane close pane-1`, then "
                          'record the closure')
+        # Live: a Pi without Herdr's extension has a conversation Herdr does not name at all.
+        self.herdr_fixture(session_kind='path', pane_session='')
+        error = self.record('closed', code=2, evidence=['pane closed'], acceptance=deferred)
+        self.assertIn('holds a conversation (Herdr names none) this attempt cannot tell from its own', error)
         self.assertNotIn('closed', self.cli('status')['attempts'][0])
 
     def test_a_worker_its_pane_names_by_its_session_record_is_not_recorded_closed(self):

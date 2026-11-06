@@ -1797,7 +1797,8 @@ def require_ended(db, attempt, acceptance):
     identity = listed.get('agent_session') if isinstance(listed.get('agent_session'), dict) else {}
     named = '' if placed['session'] == socket_server() else f"--session {placed['session']} "
     if listed.get('agent') and conversation_named(saved, identity) is None:
-        raise ValueError(f"Herdr pane {pane} in tab {placed['tab_id']} holds a conversation ({identity.get('value')}) "
+        raise ValueError(f"Herdr pane {pane} in tab {placed['tab_id']} holds a conversation "
+                         f"({identity.get('value') or 'Herdr names none'}) "
                          "this attempt cannot tell from its own: once you have checked it is this attempt's worker, "
                          f'close it with `herdr {named}pane close {pane}`, then record the closure')
     require(not (listed.get('agent') and conversation_named(saved, identity)),
