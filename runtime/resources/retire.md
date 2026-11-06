@@ -27,7 +27,8 @@ closes a recorded pane Herdr lists with no agent in it, where the worker exited.
 pane disappeared before any retirement intent, the host must inspect its native
 closure and reconcile owned jobs, then use the evidence-backed `record closed`
 path; absence alone does not establish ownership or safe cleanup. That path refuses a Herdr worker while Herdr shows
-its recorded pane still holding its conversation, or does not answer: retire it instead. At a stop (and on demand with
+its recorded pane still holding its conversation (retire it instead), holding one it cannot tell from its own (close
+that pane once checked), or does not answer. At a stop (and on demand with
 `worker_lifecycle.py reap --state ... [--session ...]`) the gate records `closed` itself for an owned attempt whose result is
 collected and whose recorded tab (else pane) its Herdr server confirms gone, or whose recorded pane it shows holding
 another conversation, with that answer as the evidence, and for a retained
