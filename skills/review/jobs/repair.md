@@ -53,6 +53,7 @@ reported.
 
 Commit scoped repairs on the assigned local branch. Append finding IDs, commits,
 commands/results and any unresolved boundaries under `## Fixed round N` in the
-existing report. Never replace the initial evidence or clear the follow-up list.
+existing report, saying of each assigned finding whether it is repaired, open at a
+reported boundary or a suspected runtime bug. Never replace the initial evidence or clear the follow-up list.
 Return the new head and evidence; only a reviewer closes findings, after checking
 the repair. No publication or remote comment submission.

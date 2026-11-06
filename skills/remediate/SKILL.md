@@ -118,8 +118,12 @@ report that boundary for a separate implementation task.
    and unproven claims from repairs; report their counts and reasons. Missing
    tools or inability to reproduce leave proof incomplete, never confirmed.
 3. **Repair confirmed findings.** Enforce the scope's confirmation rule first.
+   Record the findings to repair in the plan: `python3 "<plugin_root>/scripts/worker_lifecycle.py" plan
+   --state <reports>/workers.sqlite --job repair --finding <ID>`, one or more `--finding` per call.
    Use a builder's [repair](../review/jobs/repair.md) job when delegated, supplying
-   confirmed IDs, accepted seams, test/comment-only boundaries and this procedure. Otherwise
+   confirmed IDs, accepted seams, test/comment-only boundaries and this procedure. Each assignment's `findings:`
+   line lists its IDs: registration refuses one outside the plan or held by another assignment, and collection
+   settles each as `repaired`, `open` or `runtime-bug`; a stop with no repair running names the unassigned. Otherwise
    apply the same bounded steps directly. For tests: follow the kind's Repair, with an
    expected result from an independent source and, for an expected failure, a check
    of the claimed rule's own reason; then run it against the real implementation.
@@ -135,7 +139,8 @@ report that boundary for a separate implementation task.
    Recheck invalidated evidence after a repair; reuse unchanged passing evidence
    with its original input identity. Missing checks remain explicit gaps.
 5. **Report.** Give goal, base/head or working-tree identity, scope and coverage;
-   confirmed, repaired, dropped and unverified counts; per-finding proof and repair
+   confirmed, repaired, dropped and unverified counts, the repair ones as `worker_lifecycle.py findings --state
+   <reports>/workers.sqlite` prints them, never counted by hand; per-finding proof and repair
    locations; commands/results and retained evidence; suspected bugs and remaining
    gates. Whole-project detection returns this report before requesting repair
    confirmation. For a free-form goal, offer to save its definition as a reusable
