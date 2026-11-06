@@ -409,10 +409,11 @@ def accept(tickets, name):
         return True
     fm = tickets[name]
     withdrawn = {"accepted": None, "accepted_report": None} if fm.get("accepted") else {}
-    # Done only while accepted, lent to the E2E sentinel or not.
-    if "done" in (fm.get("status"), fm.get("lent")) and not accepted({**fm, **withdrawn}):
-        withdrawn.update(status="blocked", blocker="its acceptance failed again; restore the evidence, then --accept it",
-                         lent=None)
+    if not accepted({**fm, **withdrawn}):
+        if fm.get("status") == "done":  # Done only while accepted.
+            withdrawn.update(status="blocked", blocker="its acceptance failed again; restore the evidence, then --accept it")
+        elif fm.get("lent") == "done":  # Lent to the E2E sentinel: it keeps its devices, and returns only accepted.
+            withdrawn["lent"] = None
     if withdrawn:
         write_fields(fm, withdrawn)
     return False

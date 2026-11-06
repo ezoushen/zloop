@@ -225,7 +225,12 @@ class BoardCLI(unittest.TestCase):
         # Review (Sonnet): the set is written before the check refuses the count, and the refusal says so.
         self.assertIn('fx/01: set as asked; no counts while the board fails its check', refused)
         self.assertIn('worker: inline', path.read_text())
-        # The step the refusal names works on that ticket, even while another such ticket waits its turn (Codex).
+        # The step the refusal names works on that ticket, even while another such ticket waits its turn (Codex):
+        # plain --accept runs and judges the branch evidence, which here is missing.
+        self.write_ticket('fx/02', status='done', accepted=False)
+        tried = self.cli('fx', '--accept', 'fx/02', code=1).stderr
+        self.assertIn('fx/02: no report at', tried)
+        self.assertNotIn('status done with no acceptance', tried)
         self.write_ticket('fx/02', status='done', accepted=False)
         with self.gh({merged: ('MERGED', 'c' * 40)}):
             self.cli('fx', '--accept', 'fx/01', '--pr', merged)
@@ -242,13 +247,13 @@ class BoardCLI(unittest.TestCase):
         self.assertEqual((fm['status'], fm.get('accepted'), fm.get('accepted_report')), ('blocked', None, None))
         self.assertEqual(fm['blocker'], 'its acceptance failed again; restore the evidence, then --accept it')
         self.cli('fx', '--check')
-        # Review (Sonnet): a ticket the E2E sentinel lent to `verifying` is done all the same, so it is blocked too,
-        # and no longer lent, rather than returning to done with no acceptance.
-        lent = self.write_ticket('fx/03', status='done')
+        # Review (Sonnet, Codex): a ticket the E2E sentinel lent to `verifying` is no longer lent, so it cannot return to
+        # done with no acceptance, and stays verifying, so the E2E run keeps the devices it holds.
+        lent = self.write_ticket('fx/03', status='done', devices='ios')
         self.cli('fx', '--set', 'fx/03', 'status=verifying')
         self.cli('fx', '--accept', 'fx/03', code=1)
         fm = front_matter.parse(lent.read_text())
-        self.assertEqual((fm['status'], fm.get('lent'), fm.get('accepted')), ('blocked', None, None))
+        self.assertEqual((fm['status'], fm.get('lent'), fm.get('accepted')), ('verifying', None, None))
         self.cli('fx', '--set', 'fx/03', 'status=done', code=1)
         self.cli('fx', '--check')
         # A ticket its merged PRs accept stays done whatever a branch acceptance finds.
