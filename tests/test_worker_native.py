@@ -213,7 +213,7 @@ class NativeProof(WorkerLifecycleCase):
                 attempt, model = self.runtime_attempt(runtime, child=True)
                 self.assertEqual(self.cli('gate', '--stage', 'yield', code=1)['missing'], [
                     f'{attempt}: native child with no recorded startup; record `startup` with native: its session '
-                    'record, or a `cancelled` result if it never started'])
+                    'record, or `collect` a cancelled result if it never started'])
                 session = codex_child_session(attempt) if runtime == 'codex' else runtime
                 path = session_record(self.root / f'{runtime}.jsonl', runtime, session, self.root,
                                       model=model + '-other', child=runtime in ('claude', 'codex'))

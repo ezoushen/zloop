@@ -2565,10 +2565,10 @@ class RepairFindingsHold(GateRepo):
                        worktree=str(self.repo), head='head-1', execution=str(self.execution), runtime='claude',
                        worker='pane-' + attempt, native_session='native-' + attempt, owned=True, packet=str(packet))
 
-    def settle(self, attempt, pane, status='blocked', **findings):
+    def settle(self, attempt, pane, **findings):
         report = self.state.parent / (attempt.replace('/', '-') + '.md')
         report.write_text('## Fixed round 1\n\nBlocked on a seam\n')
-        self.lifecycle('result', attempt=attempt, pane=pane, status=status, head='head-1', report=str(report),
+        self.lifecycle('result', attempt=attempt, pane=pane, status='blocked', head='head-1', report=str(report),
                        evidence=['seam decision needed'], findings=findings)
 
     def plan(self, *findings, replace=False):
@@ -2605,7 +2605,7 @@ class RepairFindingsHold(GateRepo):
     def test_a_repair_registered_with_no_worker_behind_it_does_not_end_the_hold(self):
         # Live (remediate-loopholes, Pi at 3f9444c): held for the unassigned P04-001, Pi registered r1/2 naming it on a
         # native-child route with no worker behind it, and its stop passed. Every host's stop names that attempt until
-        # its startup is recorded (Waits pins that) or a cancelled result settles its findings.
+        # its startup is recorded (NativeProof pins that) or a cancelled result settling its findings is collected.
         self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'builder',
                                               'job': 'repair', 'settings': {'model': 'sonnet'}}))
         self.plan('P01-001', 'P04-001')
@@ -2613,11 +2613,18 @@ class RepairFindingsHold(GateRepo):
         self.settle('r1/1', 'w1:p1', **{'P01-001': 'open'})
         self.repair('r1/2', 'P04-001', 'w1:p1')
         gap = (f'{self.state}: r1/2: native child with no recorded startup; record `startup` with native: its session '
-               'record, or a `cancelled` result if it never started')
+               'record, or `collect` a cancelled result if it never started')
         self.assertEqual(self.check(), [gap])
         for host in ('claude', 'codex'):
             self.assertIn(gap, self.stop(host=host)['reason'])
-        self.settle('r1/2', 'w1:p1', 'cancelled', **{'P04-001': 'open'})
+        report = self.state.parent / 'r1-2.md'
+        report.write_text('## Fixed round 1\n\nNo worker was started\n')
+        request = self.state.parent / 'collect.json'
+        request.write_text(json.dumps({'status': 'cancelled', 'head': 'head-1', 'report': str(report),
+                                       'evidence': ['no worker was started'], 'findings': {'P04-001': 'open'},
+                                       'disposition': {'kind': 'retire', 'evidence': ['no worker was started']}}))
+        subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'collect', '--state', str(self.state), '--attempt', 'r1/2',
+                        '--input', str(request)], check=True, capture_output=True, env=self.env())
         self.assertEqual(self.check(), [])
 
 

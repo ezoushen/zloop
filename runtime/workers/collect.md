@@ -60,7 +60,7 @@ contains `status`, checked `head`, existing immutable `report`, verification
 For a completed attempt of a job with `acceptance: true` (`ticket`), `acceptance` goes
 inside `disposition` (see acceptance below); other jobs omit it.
 A repair attempt that holds planned findings adds `findings`, mapping each finding it holds to `repaired`, `open` or
-`runtime-bug`, whatever its status.
+`runtime-bug`, whatever its status; with no recorded startup, nothing shows a worker had them, so each is `open`.
 
 Collection persists the report and its digest, acknowledges only that attempt's
 wait/result receipts, then performs the chosen disposition. A completed collection

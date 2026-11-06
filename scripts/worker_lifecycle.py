@@ -212,8 +212,9 @@ RECORDED = {'findings', 'result', 'closed', 'retained', 'accepted', 'declined', 
 SETTLED = ('repaired', 'open', 'runtime-bug')  # What a repair attempt's result says of each finding it holds.
 
 
-def require_settled(held, settled):
-    """Refuse a result that does not give each finding its attempt holds, and only those, one of SETTLED."""
+def require_settled(held, settled, started):
+    """Refuse a result that does not give each finding its attempt holds, and only those, one of SETTLED: only open
+    when nothing shows its worker `started`."""
     settled = settled if isinstance(settled, dict) else {}
     missing = [finding for finding in held if finding not in settled]
     problems = [f'missing {", ".join(missing)}'] if missing else []
@@ -223,6 +224,10 @@ def require_settled(held, settled):
                  if finding in held and value not in SETTLED]
     require(not problems, f"This attempt's result settles each finding it holds ({', '.join(held)}) as repaired, open "
                           'or runtime-bug in findings: ' + '; '.join(problems))
+    claimed = [f'{finding} as {value}' for finding, value in settled.items() if value != 'open']
+    require(started or not claimed, 'This attempt has no recorded startup, so nothing shows a worker had the findings '
+            f'it holds: settle each as open, not {", ".join(claimed)}; or, if its worker started, record `startup` '
+            'with native: its session record first')
 
 
 def finding_totals(db):
@@ -344,7 +349,7 @@ def yield_gaps(db, include=None, rows=None):
         if not submitted and (saved.get('execution_snapshot') or {}).get('native_dispatch'):
             if not saved.get('startup_evidence'):
                 missing.append(f"{saved['attempt']}: native child with no recorded startup; record `startup` with "
-                               'native: its session record, or a `cancelled` result if it never started')
+                               'native: its session record, or `collect` a cancelled result if it never started')
             continue
         if watching(saved):
             if process_stamp(monitor['pid']) != monitor['stamp']:
@@ -1112,7 +1117,7 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
                     require(not unmet_needs(saved, data.get('evidence')), unmet_needs(saved, data.get('evidence')))
                 require(not saved.get('result'), 'Result already collected; use a new attempt for further work')
                 if saved.get('findings'):
-                    require_settled(saved['findings'], data.get('findings'))
+                    require_settled(saved['findings'], data.get('findings'), saved.get('startup_evidence'))
                 saved['result'] = dict(data, report_sha256=hashlib.sha256(report.read_bytes()).hexdigest())
                 verdict = report_verdict(report)
                 if verdict:
