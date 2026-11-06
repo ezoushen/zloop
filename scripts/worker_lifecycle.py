@@ -27,7 +27,6 @@ import front_matter  # noqa: E402
 import journal_store  # noqa: E402
 import native_settings  # noqa: E402
 import outcomes  # noqa: E402
-import panel_state  # noqa: E402
 
 DEFINITIONS = agent_defs.load()
 TAB_RECIPE = ('start the worker in a tab of its own: `herdr tab create --workspace <orchestrator workspace> '
@@ -1816,6 +1815,31 @@ def require_ended(db, attempt, acceptance):
             f'not ended: retire it with {retire}, which closes that pane and records the closure')
 
 
+def card_state(path):
+    """The field lines of a run card's `## State` section, as `key: value`; an absent card has none."""
+    if not path.is_file():
+        return {}
+    sections = path.read_text(errors='replace').split('\n## State', 1)
+    if len(sections) < 2:
+        return {}
+    fields = {}
+    for line in sections[1].split('\n## ', 1)[0].splitlines():
+        key, _, value = line.partition(':')
+        if key.strip() and ' ' not in key.strip():
+            fields[key.strip()] = value.strip()
+    return fields
+
+
+def recorded_sessions(data):
+    """The host sessions an attempt's registrar exported: its session list, else its one session, as the yield gate
+    reads them; none for a row that is not such a record."""
+    if not isinstance(data, dict):
+        return []
+    listed = data.get('sessions') if isinstance(data.get('sessions'), list) else []
+    return [value for value in listed if isinstance(value, str)] or (
+        [data['session']] if isinstance(data.get('session'), str) else [])
+
+
 def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
     """Close, through `record`, each included attempt whose status is already decided: a collected worker whose Herdr
     tab its server confirms gone, or whose pane it shows holding another conversation, and a retained native subagent
@@ -1824,7 +1848,7 @@ def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
     on Herdr's answers and on any lock, and leaves the attempts it did not reach for the next stop."""
     deadline = time.monotonic() + budget
     card = state.parent.parent / 'autopilot.md'
-    terminal = panel_state.card_state(card).get('terminal')
+    terminal = card_state(card).get('terminal')
     closed, left, refused, done, silent = [], [], [], set(closed_sessions(db)), set()
     for saved in attempts(db):
         key = (saved['runtime'], saved['native_session'])
@@ -2038,7 +2062,7 @@ def main():
                 result = finding_totals(db)
             elif args.action == 'reap':
                 result = reap(db, args.state, lambda saved: not args.session
-                              or args.session in panel_state.recorded_sessions(saved))
+                              or args.session in recorded_sessions(saved))
             elif args.action == 'plan':
                 require(not (args.assignment and args.finding), 'Plan takes --assignment or --finding, not both')
                 # A repair plan replaced with nothing is emptied: repairs the user called off.

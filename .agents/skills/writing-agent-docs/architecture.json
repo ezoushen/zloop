@@ -105,7 +105,8 @@
     "runtime/board/**/*.md"
    ],
    "code": [
-    "scripts/next_tickets.py"
+    "scripts/next_tickets.py",
+    "scripts/panel_state.py"
    ]
   },
   "autopilot": {
@@ -242,7 +243,6 @@
    "code": [
     "scripts/worker_lifecycle.py",
     "scripts/workstream_spend.py",
-    "scripts/panel_state.py",
     "scripts/native_wait.py"
    ]
   },

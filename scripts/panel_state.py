@@ -10,6 +10,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_matter  # noqa: E402
+from worker_lifecycle import card_state, recorded_sessions  # noqa: E402
 
 SCRATCH = '.scratch'
 CARD = 'autopilot.md'
@@ -25,21 +26,6 @@ BLOCKERS = {
     'waiting-on-user': 'waiting-on-user: one action on the pause list is needed',
     'blocked': 'blocked: no option fits the principles',
 }
-
-
-def card_state(path):
-    """The field lines of a run card's `## State` section, as `key: value`; an absent card has none."""
-    if not path.is_file():
-        return {}
-    sections = path.read_text(errors='replace').split('\n## State', 1)
-    if len(sections) < 2:
-        return {}
-    fields = {}
-    for line in sections[1].split('\n## ', 1)[0].splitlines():
-        key, _, value = line.partition(':')
-        if key.strip() and ' ' not in key.strip():
-            fields[key.strip()] = value.strip()
-    return fields
 
 
 def claims(workstream):
@@ -294,16 +280,6 @@ def bound_sessions(workstream):
 def registered_by(workstream, session_id):
     """Whether a worker attempt in the workstream's state was registered by this host session."""
     return any(session_id in recorded_sessions(data) for data in attempt_rows(workstream))
-
-
-def recorded_sessions(data):
-    """The host sessions an attempt's registrar exported: its session list, else its one session, as the yield gate
-    reads them; none for a row that is not such a record."""
-    if not isinstance(data, dict):
-        return []
-    listed = data.get('sessions') if isinstance(data.get('sessions'), list) else []
-    return [value for value in listed if isinstance(value, str)] or (
-        [data['session']] if isinstance(data.get('session'), str) else [])
 
 
 def tied(repo, session_id):
