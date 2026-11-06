@@ -1394,25 +1394,31 @@ def watch(db, state, attempt, request, *, productive=False):
     return dict(receipt, event_id=event_id, **({'delivery': delivery} if delivery else {})), code
 
 
-def herdr_prompt_flags(argv):
-    """The options after the target and text of a Herdr `agent prompt` argv, or None for any other command."""
+def herdr_prompt(argv):
+    """(The text, the options after it) of a Herdr `agent prompt` argv, or None for any other command."""
     if (not isinstance(argv, list) or not argv or not all(isinstance(arg, str) for arg in argv)
             or Path(argv[0]).name != 'herdr'):
         return None  # Not literal text: the wait's own validation reports it.
     # The command follows any global options (--session, --machine, --remote ...) and their values.
     index = next((index for index in range(1, len(argv) - 1) if argv[index:index + 2] == ['agent', 'prompt']), None)
-    return None if index is None else argv[index + 4:]
+    return None if index is None else ((argv[index + 3:index + 4] or [''])[0], argv[index + 4:])
 
 
 def submit(db, state, attempt, request):
     """Verify native settings and arm a durable wait before invoking productive submission once."""
-    flags = herdr_prompt_flags(request.get('argv'))
+    text, flags = herdr_prompt(request.get('argv')) or (None, None)
     # Plain --wait returns when the worker's turn settles, which would hold the orchestrator for the whole job.
     require(flags is None or '--wait' in flags and ('--until=working' in flags or any(
         pair == ('--until', 'working') for pair in zip(flags, flags[1:]))),
             'A Herdr submit returns once the worker is working: use `herdr agent prompt <worker> <assignment> '
             '--wait --until working --until blocked --timeout 45000`; once its receipt is reconciled, arm '
             '`watch` with `herdr agent wait <worker>` and notify for its completion')
+    if text is not None:
+        # The acceptance a submit records is the packet's: any other text would let a later prompt stand for it.
+        packet = Path(get(db, attempt).get('packet') or '')
+        require(packet.is_file() and text.strip() == packet.read_text(errors='replace').strip(),
+                f'A Herdr submit sends the registered packet: prompt the text of {packet}; a worker that already has '
+                'it is recorded with `record` of `submitted` and the evidence that it does')
     require('observed' not in request and 'evidence' not in request,
             'submit takes native: the absolute worker session record, not observed or evidence')
     record(db, dict(kind='startup', attempt=attempt, native=request.get('native'),

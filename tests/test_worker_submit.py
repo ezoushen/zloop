@@ -481,8 +481,9 @@ class Submission(WorkerLifecycleCase):
         # The host inspects the worker and records acceptance itself.
         self.record('submitted', evidence=['native.jsonl:2:accepted prompt'])
 
-    def herdr_prompt_request(self, *flags, options=('--session', 's1')):
-        """A submit request whose argv is Herdr's prompt, run by a stand-in herdr that records its call."""
+    def herdr_prompt_request(self, *flags, options=('--session', 's1'), text=None):
+        """A submit request whose argv is Herdr's prompt of text (by default the registered packet), run by a stand-in
+        herdr that records its call."""
         native = self.root / 'native.jsonl'
         native.write_text(json.dumps({'type': 'assistant', 'sessionId': 'native-1', 'cwd': str(self.root),
                                       'message': {'model': 'sonnet'}, 'effort': 'high'}) + '\n')
@@ -495,8 +496,27 @@ class Submission(WorkerLifecycleCase):
         request = self.root / 'submit.json'
         request.write_text(json.dumps({'native': str(native), 'timeout': 2,
                                        'argv': [str(herdr), *options, 'agent', 'prompt', 'builder-1',
-                                                'assignment', *flags]}))
+                                                self.packet().read_text() if text is None else text, *flags]}))
         return request
+
+    def test_a_herdr_submit_sends_the_registered_packet_and_nothing_else(self):
+        # Rule (stforestkit: the packet went out by hand and a later `submit` of `attempt: <id>` to the finished
+        # worker recorded the acceptance): the prompt a Herdr submit sends is the attempt's registered packet.
+        self.register()
+        flags = ('--wait', '--until', 'working', '--until', 'blocked', '--timeout', '45000')
+        packet = self.packet()
+        for case, text in (('its attempt line alone', 'attempt: ticket-1/1'),
+                           ('another assignment', packet.read_text() + 'Also refactor the parser.\n')):
+            with self.subTest(case=case):
+                error = self.cli('submit', '--attempt', 'ticket-1/1', '--input',
+                                 str(self.herdr_prompt_request(*flags, text=text)), code=2)
+                self.assertIn(f'A Herdr submit sends the registered packet: prompt the text of {packet}', error)
+                self.assertFalse((self.root / 'prompted').exists())
+                self.assertNotIn('submitted', self.cli('status')['attempts'][0])
+        # The packet as a shell reads it into an argument, without its final newline.
+        request = self.herdr_prompt_request(*flags, text=packet.read_text().rstrip('\n'))
+        self.assertEqual(self.cli('submit', '--attempt', 'ticket-1/1', '--input', str(request))['exit_code'], 0)
+        self.assertEqual((self.root / 'prompted').read_text(), 'ran')
 
     def test_submit_refuses_a_herdr_prompt_that_would_wait_for_the_whole_turn(self):
         # Rule: a Herdr submit returns once the worker is working; plain --wait holds until its turn settles.
