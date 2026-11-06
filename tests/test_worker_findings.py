@@ -42,7 +42,7 @@ class RepairFindings(WorkerLifecycleCase):
         refused = self.repair('r2/1', 'P01-002 P05-001', code=2)
         self.assertEqual(refused.strip(), 'Another repair assignment already holds P01-002 (r1); each planned finding '
                          'is repaired under one assignment')
-        self.repair('r2/1', 'P05-001')
+        self.repair('r2/1', 'P05-001,')  # A list may end with its separator.
         # A later attempt of the same assignment names its findings again.
         self.repair('r1/2', 'P01-002')
         held = {row['attempt']: row.get('findings') for row in self.cli('status')['attempts']}

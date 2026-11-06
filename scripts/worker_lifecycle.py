@@ -183,7 +183,7 @@ def planned_findings(db):
 
 def assigned_findings(db, assignment, value):
     """The planned findings a repair packet's findings: line names, none of which another assignment holds."""
-    named = list(dict.fromkeys(re.split(r'[\s,]+', value.strip())))
+    named = list(dict.fromkeys(finding for finding in re.split(r'[\s,]+', value) if finding))
     planned = set(planned_findings(db))
     unknown = [finding for finding in named if finding not in planned]
     require(not unknown, "The repair packet's findings: names what the repair plan does not hold: "
@@ -1080,8 +1080,6 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
                 saved['monitor']['state'] = 'reconciled'
             elif kind == 'result':
                 require(data.get('status') in ('completed', 'blocked', 'failed', 'cancelled'), 'Invalid result status')
-                if saved.get('findings'):
-                    require_settled(saved['findings'], data.get('findings'))
                 require(text(data.get('head')) and text(data.get('report')), 'Result requires head and durable report')
                 report = Path(data['report'])
                 require(report.is_absolute() and report.is_file(), 'Result report must be an existing absolute file')
@@ -1093,6 +1091,8 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
                             'Completion requires verified settings, accepted prompt and resolved design hold')
                     require(not unmet_needs(saved, data.get('evidence')), unmet_needs(saved, data.get('evidence')))
                 require(not saved.get('result'), 'Result already collected; use a new attempt for further work')
+                if saved.get('findings'):
+                    require_settled(saved['findings'], data.get('findings'))
                 saved['result'] = dict(data, report_sha256=hashlib.sha256(report.read_bytes()).hexdigest())
                 verdict = report_verdict(report)
                 if verdict:
