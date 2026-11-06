@@ -185,13 +185,16 @@ class Retirement(WorkerLifecycleCase):
         error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
         self.assertEqual(error.strip(), 'Inspect the missing native worker before recording closure')
         self.assertFalse((self.root / 'native-closed').exists())
-        # The same pane ID on another Herdr server is not the worker's pane.
-        self.herdr_fixture(agent_exited=True, servers=('fixture-session', 'other-session'))
-        elsewhere = self.root / 'retire-elsewhere.json'
-        elsewhere.write_text(json.dumps(dict(json.loads(request.read_text()), session='other-session')))
-        error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(elsewhere), code=2)
-        self.assertEqual(error.strip(), 'Inspect the missing native worker before recording closure')
-        self.assertFalse((self.root / 'native-closed').exists())
+        # The same pane ID on another Herdr server, or another empty pane on its server, is not the worker's pane.
+        self.herdr_fixture(agent_exited=True, servers=('fixture-session', 'other-session'), empty_panes=('pane-2',))
+        for case, where in (('another server', {'session': 'other-session'}), ('another pane', {'pane': 'pane-2'})):
+            with self.subTest(case=case):
+                elsewhere = self.root / 'retire-elsewhere.json'
+                elsewhere.write_text(json.dumps(dict(json.loads(request.read_text()), **where)))
+                error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(elsewhere), code=2)
+                self.assertEqual(error.strip(), 'Inspect the missing native worker before recording closure')
+                self.assertFalse((self.root / 'native-closed').exists())
+                self.assertNotIn('pane close', (self.root / 'herdr-argv.log').read_text())
         closed = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request))
         self.assertEqual((closed['attempt'], closed['closed']), ('ticket-1/1', True))
         self.assertEqual((self.root / 'native-closed').read_text(), 'closed\n')

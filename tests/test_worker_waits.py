@@ -84,6 +84,13 @@ class Waits(WorkerLifecycleCase):
         hold = self.escalate()
         self.cli('ack', '--event-id', str(hold['event_id']))
         self.assertEqual(self.cli('gate', '--stage', 'yield'), {'complete': True, 'missing': []})
+        # A hold raised after submission leaves the submitted worker's wait owed, as before.
+        self.register('ticket-3/1', 'ticket-3', session='native-3', worker='pane-3')
+        self.record('startup', 'ticket-3/1', native=str(self.native('ticket-3/1')))
+        self.record('submitted', 'ticket-3/1', evidence=['native.jsonl:2:accepted prompt'])
+        hold = self.escalate(attempt='ticket-3/1')
+        self.cli('ack', '--event-id', str(hold['event_id']))
+        self.assertEqual(self.cli('gate', '--stage', 'yield', code=1)['missing'], ['ticket-3/1: no armed wait'])
 
     def test_a_wait_watches_submitted_work(self):
         # Rule (stforestkit R06/R10, watched before any submission): a wait on a worker started as its own process
