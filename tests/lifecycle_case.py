@@ -180,7 +180,8 @@ class WorkerLifecycleCase(unittest.TestCase):
                       caller_tab='caller-tab', tab_survives=False, agent_tab='tab-1',
                       agent_delay=0, tab_delay=0, during_delay=None, lock_probe=None,
                       agent_kind='claude', session_kind='id', tab_gone_error='tab_not_found', pane_session=None,
-                      agent_name='builder-1', agent_exited=False, servers=('fixture-session',), empty_panes=()):
+                      agent_name='builder-1', agent_exited=False, servers=('fixture-session',), empty_panes=(),
+                      close_failures=0):
         # during_delay: an argv the fixture runs while a delayed call waits, recording its exit code in
         # during-delay.json, so a test can act inside that wait without racing its own thread against it.
         # lock_probe: a state database the fixture tries to write-lock, in its own process and without waiting,
@@ -188,7 +189,8 @@ class WorkerLifecycleCase(unittest.TestCase):
         # pane_session: the conversation Herdr reports in pane-1 (None: no agent there); agent_name: the name Herdr
         # reports for the agent in pane-1, which follows its occupant; agent_exited: pane-1 holds no agent (its
         # worker exited and left the pane), so `agent get` finds none; servers: the Herdr servers that answer, each
-        # alike (the first is the worker's); empty_panes: other panes Herdr lists, each holding no agent.
+        # alike (the first is the worker's); empty_panes: other panes Herdr lists, each holding no agent;
+        # close_failures: how many `pane close` calls fail before one succeeds.
         directory = self.root / 'bin'
         directory.mkdir(exist_ok=True)
         executable = directory / 'herdr'
@@ -235,6 +237,9 @@ elif args[2:]==['tab','get','tab-1']:
     if panes is None:
         print(json.dumps({{'error':{{'code':'server_unavailable'}}}}),file=sys.stderr);sys.exit(1)
     print(json.dumps({{'result':{{'tab':{{'tab_id':'tab-1','workspace_id':'ws-1','pane_count':panes}}}}}}))
+elif args[2:]==['pane','close','pane-1'] and len(list(Path({str(self.root)!r}).glob('close-failed-*'))) < {close_failures!r}:
+    Path({str(self.root)!r},'close-failed-'+str(time.time_ns())).touch()
+    print(json.dumps({{'error':{{'code':'server_error'}}}}),file=sys.stderr);sys.exit(1)
 elif args[2:]==['pane','close','pane-1']:
     marker.write_text(marker.read_text()+'closed'+chr(10) if marker.exists() else 'closed'+chr(10))
     print(json.dumps({{'result':{{'type':'ok'}}}}))

@@ -125,6 +125,8 @@ class Waits(WorkerLifecycleCase):
         self.cli('submit', '--attempt', 'ticket-1/1', '--input', str(request), code=1)
         self.acknowledge()
         self.record('reconciled', evidence=['native record: the prompt never arrived'])
+        # The gate does not send it back to `submit`, which would refuse a second submission.
+        self.assertEqual(self.cli('gate', '--stage', 'yield', code=1)['missing'], ['ticket-1/1: no armed wait'])
         self.assertEqual(self.watch(code=2).strip(), 'Its submission was not confirmed: record `submitted` with evidence '
                          'the worker accepted it, or record its result and register a new attempt')
 

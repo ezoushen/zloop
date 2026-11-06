@@ -1536,7 +1536,7 @@ def retire(db, state, attempt, request):
                 'Reconcile the original retirement target')
         require(process_stamp(previous['pid']) != previous['stamp'], 'Retirement already owned by a live process')
     code, response = herdr(session, 'agent', 'get', pane)
-    present = code == 0
+    present, exited = code == 0, False
     if present:
         agent = response['result']['agent']
         identity = agent.get('agent_session', {})
@@ -1552,15 +1552,17 @@ def retire(db, state, attempt, request):
                 'Native target does not match the registered worker handle')
         require(conversation_named(saved, identity), 'Native conversation no longer matches the attempt')
         require(agent.get('agent_status') in ('idle', 'done'), 'Native worker is active or blocked; retain it for inspection')
-    elif not previous:
-        # The worker exited in its own pane: Herdr lists the pane with no agent in it, so closing it ends no worker.
+    else:
+        # The worker exited in its own pane: Herdr lists the pane with no agent in it, so closing it ends no worker. A
+        # retirement already under way that finds the pane gone has nothing left to close.
         identity = None
         code, response = herdr(session, 'pane', 'get', pane)
         listed = (response.get('result') or {}).get('pane') if code == 0 else None
         placed = saved.get('herdr') or {}
-        require((session, pane) == (placed.get('session'), placed.get('pane_id')) and isinstance(listed, dict)
-                and not listed.get('agent'), 'Inspect the missing native worker before recording closure')
-    if present or not previous:
+        exited = ((session, pane) == (placed.get('session'), placed.get('pane_id')) and isinstance(listed, dict)
+                  and not listed.get('agent'))
+        require(previous or exited, 'Inspect the missing native worker before recording closure')
+    if present or exited:
         db.execute('BEGIN IMMEDIATE')
         with db:
             saved = get(db, attempt)

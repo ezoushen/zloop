@@ -200,6 +200,25 @@ class Retirement(WorkerLifecycleCase):
         self.assertEqual((self.root / 'native-closed').read_text(), 'closed\n')
         self.assertEqual([row.get('closed') is not None for row in self.cli('status')['attempts']], [True, False])
 
+    def test_retiring_an_exited_worker_again_after_its_pane_failed_to_close_closes_it(self):
+        # Review (Sonnet): the retirement recorded before a failed close must not stop the retry from closing the pane
+        # the exited worker left, as it does not for a worker still in its pane.
+        self.herdr_fixture()
+        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        self.herdr_fixture(agent_exited=True, close_failures=1)
+        request = self.root / 'retire.json'
+        request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1',
+                                       'jobs_evidence': ['owned jobs inspected'],
+                                       'acceptance': {'decision': 'deferred', 'reason': 'acceptance checks pending'}}))
+        error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+        self.assertEqual(error.strip(), 'Native close failed; reconcile the original pane before retrying')
+        closed = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request))
+        self.assertEqual((closed['attempt'], closed['closed']), ('ticket-1/1', True))
+        self.assertEqual((self.root / 'native-closed').read_text(), 'closed\n')
+
     def test_retiring_a_worker_whose_pane_herdr_cannot_identify_does_not_send_it_to_the_reap(self):
         # Review (Sonnet): the reap closes nothing Herdr cannot identify, so retire names it only for another
         # conversation; an identity with no value keeps the refusal that the conversation no longer matches.
