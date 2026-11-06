@@ -252,7 +252,8 @@ class Confirm(unittest.TestCase):
         self.assertEqual(len(keys), 11)
         for key in keys:
             with self.subTest(missing=key):
-                lacking = '\n'.join(line for line in DRAFT.split('\n') if not line.startswith(f'{key}:'))
+                head, state = DRAFT.split('## State\n')  # The Goal's quoted `session:` line stays.
+                lacking = head + '## State\n' + '\n'.join(line for line in state.split('\n') if not line.startswith(f'{key}:'))
                 text, error = self.confirm('--words', 'go', card=lacking, sessions={'PI_SESSION_ID': 'pi-1'}, code=1)
                 self.assertEqual((text, error.split(':', 1)[0]), (lacking, f"the card's State lacks {key}"))
         for words, sessions, refusal in (
