@@ -62,24 +62,33 @@ MEASURE_TIMEOUT = 600  # seconds a measurement command may run unless its entry 
 SESSION_VARIABLES = ("CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "PI_SESSION_ID", "OPENCODE_SESSION_ID")
 
 
-def load():
+def load(spared=None):
+    """The board's tickets by name. Exits naming a ticket file it refuses; with `spared`, a refused file of another
+    workstream is left out instead, so that workstream can still be judged (a ticket waiting on it then waits on a
+    ticket that does not exist)."""
     tickets = {}
     for path in sorted(ISSUES.glob("*/issues/*.md")):
         fm = front_matter.parse(path.read_text())
+        refusal = None
         if fm and "ticket" in fm:
-            if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*/[0-9]+", fm["ticket"]):
-                sys.exit(f"{path}: invalid ticket id {fm['ticket']!r}")
-            if fm["ticket"] in tickets:
-                sys.exit(f"{path}: duplicate ticket {fm['ticket']}")
-            if path.parent.parent.name != spec_of(fm["ticket"]):
-                sys.exit(f"{path}: ticket workstream differs from its directory")
-            for key in ("blocked_by", "touches", "devices"):
-                if not isinstance(fm.get(key), list):
-                    sys.exit(f"{path}: {key} must be a bracketed list")
+            if not isinstance(fm["ticket"], str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*/[0-9]+", fm["ticket"]):
+                refusal = f"{path}: invalid ticket id {fm['ticket']!r}"
+            elif fm["ticket"] in tickets:
+                refusal = f"{path}: duplicate ticket {fm['ticket']}"
+            elif path.parent.parent.name != spec_of(fm["ticket"]):
+                refusal = f"{path}: ticket workstream differs from its directory"
+            else:
+                refusal = next((f"{path}: {key} must be a bracketed list" for key in ("blocked_by", "touches", "devices")
+                                if not isinstance(fm.get(key), list)), None)
+        elif fm and set(fm) & {"blocked_by", "touches", "devices", "worker"}:
+            refusal = f"{path}: missing ticket front matter"
+        if refusal and spared and path.parent.parent.name != spared:
+            continue
+        if refusal:
+            sys.exit(refusal)
+        if fm and "ticket" in fm:
             fm["path"] = str(path.relative_to(ROOT))
             tickets[fm["ticket"]] = fm
-        elif fm and set(fm) & {"blocked_by", "touches", "devices", "worker"}:
-            sys.exit(f"{path}: missing ticket front matter")
     return tickets
 
 
@@ -107,9 +116,14 @@ def check(tickets, accepting=False):
 
 
 def concerns(problem, slug):
-    """Whether a check problem is the workstream's: one of its tickets, or its folder, appears in it (a cycle, a path);
-    `warp-demo/` is not `demo/`."""
-    return bool(re.search(rf"(?<![a-z0-9-]){re.escape(slug)}/", problem))
+    """Whether a problem `problems()` names, or a refusal of `load()`, is the workstream's: it starts with one of its
+    tickets, a ticket cycle lists one, a workstream cycle lists the workstream, or it names a file in its folder."""
+    head, _, rest = problem.partition(": ")
+    if head == "ticket dependency cycle":
+        return any(spec_of(name) == slug for name in rest.split(" -> "))
+    if head == "workstream dependency cycle":
+        return slug in rest.split(" -> ")
+    return problem.startswith(f"{slug}/") or f"{os.sep}.scratch{os.sep}{slug}{os.sep}issues{os.sep}" in head
 
 
 def problems(tickets, accepting=False):

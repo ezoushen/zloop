@@ -20,7 +20,8 @@ review report (before it records one, the binding) records autofix: true and no 
 every ticket done and delivery failing, until it is finished (branch deleted, reviewed head in
 main or on the remote's main, E2E passed at a head in main). A session is also held while a
 confirmed autopilot run card (.scratch/<slug>/autopilot.md) naming it lacks one terminal state or its
-evidence. A review binding beside a standalone or workstream report holds its session until the report names a
+evidence, or records delivered, delivered-local or merged while its workstream is not delivered on its local board
+(another workstream's problems hold nothing). A review binding beside a standalone or workstream report holds its session until the report names a
 completed collected diff-review attempt at review_head, names local review with a recorded no-route result, or
 records a blocker with a launched diff-review attempt in its state at review_head settled failed, blocked or cancelled,
 or a recorded no-route result. Launch evidence is a Herdr placement, verified startup or recorded submission.
@@ -383,7 +384,7 @@ def delivery_gaps(root, path, state):
     try:
         module = script('next_tickets')
         module.ROOT, module.ISSUES = root, root / '.scratch'
-        tickets = module.load()  # load() exits on a board it refuses.
+        tickets = module.load(spared=slug)  # load() exits on a ticket of this workstream it refuses.
         problems = [problem for problem in module.problems(tickets) if module.concerns(problem, slug)]
         undone = [f"{name} ({fm.get('status')})" for name, fm in tickets.items()
                   if module.spec_of(name) == slug and fm.get('status') != 'done']

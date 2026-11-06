@@ -2777,7 +2777,20 @@ class AutopilotCardHold(GateRepo):
         other = self.repo / '.scratch/other/issues'
         other.mkdir(parents=True)
         (other / '01-task.md').write_text('---\nticket: other/01\nstatus: done\nblocked_by: []\ntouches: []\ndevices: []\n---\n')
+        (other / '02-task.md').write_text('---\nticket: other/02\nstatus: implementing\nblocked_by: []\ntouches: []\n'
+                                          'devices: []\n---\n')
+        (other / '03-task.md').write_text('---\nticket: other/03\nstatus: ready\nblocked_by: x\ntouches: []\ndevices: []\n---\n')
         self.assertEqual(self.check(session='host-1'), [])
+        # A cycle between this workstream and another is its own.
+        ours = issues / '02-task.md'
+        ours.write_text(accepted.replace('run/01', 'run/02').replace('blocked_by: []', 'blocked_by: [other/01]'))
+        (other / '01-task.md').write_text('---\nticket: other/01\nstatus: done\nblocked_by: [run/01]\ntouches: []\n'
+                                          f"devices: []\naccepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
+        cycle = self.check(session='host-1')
+        self.assertEqual(len(cycle), 1)
+        self.assertRegex(cycle[0], r"while its workstream is not delivered: workstream dependency cycle: "
+                                   r"(other -> run -> other|run -> other -> run); finish what it names")
+        ours.unlink()
         ticket.write_text(accepted.replace(f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n", ''))
         self.assertEqual(self.check(session='host-1'), held(
             'run/01: status done with no acceptance; accept it with --accept run/01, or --accept run/01 --pr <url> when '
@@ -2798,6 +2811,18 @@ class AutopilotCardHold(GateRepo):
             f"{path}: this session's autopilot run records `terminal: merged` while its workstream is not delivered: "
             f"it cannot be checked: {issues / '01-task.md'}: invalid ticket id 'run/one'; finish what it names, or "
             "record the terminal state that fits"])
+        # Review (Sonnet): so is a check that raises on the way, here a worker state with no tables.
+        (issues / '01-task.md').write_text('---\nticket: run/01\nstatus: done\nblocked_by: []\ntouches: []\ndevices: []\n'
+                                           f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
+        reports = self.repo / '.scratch/run/reports'
+        reports.mkdir(parents=True)
+        (reports / 'spec-review.md').write_text('---\nreview_status: clean\ndocumentation_status: passed\n'
+                                                'e2e_status: passed\nreview_by: review/run/1\ne2e_by: e2e/run/1\n---\n')
+        sqlite3.connect(reports / 'workers.sqlite').close()
+        self.assertEqual(self.check(session='host-1'), [
+            f"{path}: this session's autopilot run records `terminal: merged` while its workstream is not delivered: "
+            "it cannot be checked: no such table: attempts; finish what it names, or record the terminal state that "
+            "fits"])
 
     def test_a_live_worker_with_a_running_wait_lets_the_run_yield_but_a_lost_one_does_not(self):
         # Rule: a yield while a worker of the card's workstream holds a running wait that will wake the host is not an end;

@@ -361,6 +361,31 @@ class PanelState(unittest.TestCase):
         ticket(self.scratch / 'alpha' / 'issues' / '01-a.md', 'alpha/01', status='done')
         ticket(self.scratch / 'warp-demo' / 'issues' / '01-a.md', 'warp-demo/01', status='done', accepted=False)
         self.assertFalse(self.snapshot()['active'])
+        # Review (Sonnet): another workstream's undone ticket gives this finished one no work left.
+        ticket(self.scratch / 'warp-demo' / 'issues' / '02-b.md', 'warp-demo/02')
+        self.assertFalse(self.snapshot()['active'])
+        # Review (Sonnet): a cycle between workstreams lists them by name, and this one in it makes it its own.
+        ticket(issues / '02-b.md', 'demo/02', status='done', blocked_by='cyc/01')
+        ticket(self.scratch / 'cyc' / 'issues' / '01-a.md', 'cyc/01', status='done')
+        ticket(self.scratch / 'cyc' / 'issues' / '02-b.md', 'cyc/02', status='done', blocked_by='demo/01')
+        blocker = self.row_texts(self.snapshot(), 'blocker')
+        self.assertEqual(len(blocker), 1)
+        self.assertRegex(blocker[0], r'^board fails its check: workstream dependency cycle: '
+                                     r'(cyc -> demo -> cyc|demo -> cyc -> demo) \(\+1 more\)$')
+
+    def test_a_repository_path_that_holds_the_workstreams_name_does_not_make_anothers_refusal_its_own(self):
+        # Review (Sonnet): another workstream's refused ticket is named by its absolute path, and a checkout whose
+        # folder is called like the workstream made that refusal look like this workstream's, keeping it on screen.
+        repo = self.repo / 'demo'
+        scratch = repo / '.scratch'
+        card(scratch / 'demo' / 'autopilot.md', terminal='merged')
+        ticket(scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='done')
+        refused = ticket(scratch / 'other' / 'issues' / '01-a.md', 'other/one')
+        self.assertFalse(PANEL.snapshot(repo, 'S', time.time())['active'])
+        ticket(refused, 'other/01')
+        ticket(scratch / 'demo' / 'issues' / '02-b.md', 'demo/two', status='done')  # Its own refused ticket is its own.
+        self.assertEqual(self.row_texts(PANEL.snapshot(repo, 'S', time.time()), 'blocker'), [
+            f"board fails its check: {scratch / 'demo' / 'issues' / '02-b.md'}: invalid ticket id 'demo/two'"])
 
     def test_a_board_the_scheduler_cannot_read_still_leaves_the_panel_its_rows(self):
         # Review (Codex): a status written as a list on another workstream's ticket, or a prerequisite workstream whose
@@ -393,10 +418,14 @@ class PanelState(unittest.TestCase):
             "next: unknown, the board cannot tell: AttributeError: 'NoneType' object has no attribute 'get'"])
         listed = ticket(self.scratch / 'base' / 'issues' / '01-a.md', '[base/01]', status='done')
         self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), [
-            "board fails its check: the board cannot be read: TypeError: expected string or bytes-like object, got 'list'"])
+            f"board fails its check: {listed}: invalid ticket id ['base/01']"])
         ticket(listed, 'base/one', status='done')
         self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), [
             f"board fails its check: {listed}: invalid ticket id 'base/one'"])
+        listed.write_bytes(b'\xff---\n')
+        self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), [
+            "board fails its check: the board cannot be read: UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff "
+            "in position 0: invalid start byte"])
 
     def test_the_next_row_asks_about_another_workstreams_blocker_once_however_many_tickets_wait_on_it(self):
         # Review (Codex): the panel refreshes every two seconds, and each ready ticket behind the same other workstream's
