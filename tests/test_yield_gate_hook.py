@@ -2141,8 +2141,10 @@ class StaleTabs(HerdrWorkers):
         self.assertIsNone((self.stop(pane='w1:p1', active=True) or {}).get('decision'), 'a reminder holds once')
         # Review (Sonnet): the command reaches the server the way the hook does, through the caller's own socket.
         socket = str(self.repo / '.config' / 'herdr' / 'herdr.sock')
+        (self.bin / 'argv').write_text('')
         self.assertEqual(self.check(pane='w1:p1', env={'HERDR_SOCKET_PATH': socket}),
                          [self.closure_reminder('herdr pane close w1:p5')])
+        self.assertIn('pane get w1:p5', (self.bin / 'argv').read_text().splitlines(), 'asked through the socket too')
         # Another conversation in that pane, or no agent there (an exited worker's shell), is not this worker; a
         # Herdr that cannot be asked names nothing, since a recorded closure is reminded of, not gated.
         for case, panes in (('another conversation', self.occupant('native-9')),
@@ -2167,6 +2169,9 @@ class StaleTabs(HerdrWorkers):
         self.serve(tabs={'default': [self.tab]},
                    panes={'default': self.occupant('/records/pi-session.jsonl', kind='path')})
         self.assertEqual(self.check(pane='w1:p1'), [self.closure_reminder()])
+        # Review (Codex): another record in that pane is another conversation.
+        self.serve(tabs={'default': [self.tab]}, panes={'default': self.occupant('/records/new.jsonl', kind='path')})
+        self.assertEqual(self.check(pane='w1:p1'), [])
 
     def test_a_failed_tab_listing_met_first_by_a_closure_is_still_named_for_an_open_attempt(self):
         # Review (Sonnet, Codex): the closure that met the failure first stays silent; the collected attempt after it in
@@ -2198,6 +2203,23 @@ class StaleTabs(HerdrWorkers):
         started = time.monotonic()
         self.assertEqual(self.check(pane='w1:p1'), [])
         self.assertLess(time.monotonic() - started, 9)
+
+    def test_closure_lookups_stop_across_run_states_too(self):
+        # Review (Codex): the bound is per stop, not per run state.
+        tabs = [self.tab, dict(self.tab, tab_id='w1:t6')]
+        self.serve(agents=[{'agent': 'claude', 'agent_status': 'idle', 'name': name, 'pane_id': pane,
+                            'tab_id': tab, 'workspace_id': 'w1'}
+                           for name, pane, tab in (('builder-0', 'w1:p6', 'w1:t6'), ('builder-1', 'w1:p5', 'w1:t5'))],
+                   tabs={'default': tabs})
+        self.closed_worker()
+        self.state = self.repo / '.scratch/other/reports/workers.sqlite'
+        self.state.parent.mkdir(parents=True)
+        self.closed_worker('other/1', 'builder-0', 'native-0', 'other')
+        self.serve(tabs={'default': tabs}, hang_panes=True,
+                   panes={'default': {**self.occupant('native-1'), **self.occupant('native-0', pane='w1:p6', tab='w1:t6')}})
+        (self.bin / 'calls').write_text('')
+        self.assertEqual(self.check(pane='w1:p1'), [])
+        self.assertEqual(sum(' pane get ' in line for line in (self.bin / 'calls').read_text().splitlines()), 1)
 
     def test_a_state_without_a_holds_table_still_has_its_open_tabs_named(self):
         # Review (own): reading design holds must not cost a state its open-tab check; no table means no hold.
