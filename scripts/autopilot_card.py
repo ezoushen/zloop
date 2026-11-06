@@ -27,8 +27,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-import state_files
-from worker_lifecycle import SESSION_VARIABLES, host_sessions
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import state_files  # noqa: E402
+from worker_lifecycle import SESSION_VARIABLES, host_sessions  # noqa: E402
 
 LEVELS = ('low', 'medium', 'high', 'xhigh', 'max')
 # The lines of the run card format's State, every one written before the user confirms the card.
@@ -75,11 +76,16 @@ def session_line(sessions, command):
     return ', '.join(sessions)
 
 
+def tracker_url(board):
+    """Whether `board` names a tracker by its web address: http or https, a host, and nothing that splits it."""
+    return bool(re.fullmatch(r'https?://[^/\s]+(?:/\S*)?', board))
+
+
 def board_problem(card, state):
     """Why the run of `card` cannot work its board yet, or None: a tracker's URL holds its own tickets; a `local` board
     needs ticket files that pass the board's check."""
     board = field(state, 'board')
-    if board.startswith(('https://', 'http://')):
+    if tracker_url(board):
         return None
     if board != 'local':
         return f"the card's `board:` is neither `local` nor a tracker's URL: {board!r}"
@@ -97,11 +103,14 @@ def board_problem(card, state):
 def phase(card, text, value):
     """The card's text with `phase:` set to `value`; exits when dispatch or pr has no board to work."""
     state = state_section(text)
-    field(state[0], 'phase')
     problem = value in ('dispatch', 'pr') and board_problem(card, state[0])
     if problem:
         sys.exit(problem)
-    return text[:state.start()] + set_field(state[0], 'phase', value) + text[state.end():]
+    lines = state[0]
+    if not re.search(r'^phase:', lines, re.M):  # A State that lost its line gets one.
+        kept = lines.rstrip('\n')
+        lines = kept + '\nphase:' + lines[len(kept):]
+    return text[:state.start()] + set_field(lines, 'phase', value) + text[state.end():]
 
 
 def confirm(text, words, sessions, today):

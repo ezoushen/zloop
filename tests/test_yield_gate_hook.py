@@ -2663,7 +2663,7 @@ class AutopilotCardHold(GateRepo):
                 self.assertEqual(self.check(session='host-1'), [
                     f"{path}: this session's autopilot run is in {phase} with no tickets on its local board: write each "
                     f'with `{new}`', self.gap(path)])
-        for board in (None, 'jira'):
+        for board in (None, 'jira', 'https://'):
             with self.subTest(board=board):
                 self.card(phase='dispatch', board=board)
                 self.assertEqual(self.check(session='host-1'), [
@@ -2671,7 +2671,15 @@ class AutopilotCardHold(GateRepo):
                     "tracker's URL in the card's State", self.gap(path)])
         self.card(phase='dispatch', board='https://linear.app/team/project/x')
         self.assertEqual(self.check(session='host-1'), [self.gap(path)])
+        # Review (Codex, Sonnet): only a ticket file is a ticket; notes beside them are not.
         (path.parent / 'issues').mkdir()
+        (path.parent / 'issues' / 'history.md').write_text('# T1 done\n')
+        self.card(phase='pr')
+        self.assertEqual(len(self.check(session='host-1')), 2)
+        # Review (Codex): a section after the State is not the State.
+        self.card(phase='dispatch (inline)')
+        path.write_text(path.read_text() + '\n## Notes\nphase: refine\n')
+        self.assertIn("has phase 'dispatch (inline)'", self.check(session='host-1')[0])
         (path.parent / 'issues' / '01-task.md').write_text('---\nticket: run/01\nstatus: ready\n---\n')
         self.card(phase='dispatch')
         self.assertEqual(self.check(session='host-1'), [self.gap(path)])

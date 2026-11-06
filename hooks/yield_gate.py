@@ -47,7 +47,6 @@ import time
 from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parent.parent
-PHASES = ('align', 'refine', 'dispatch', 'pr')  # An autopilot run's phases (autopilot_card.py PHASES).
 RECENT_SECONDS = 24 * 3600
 # The name Herdr gives the server a shell reaches without `--session`.
 DEFAULT_SERVER = 'default'
@@ -333,7 +332,7 @@ def card_state(path):
         return {}
     state = {}
     heading = re.search(r'^## State[ \t]*$', text, re.M)
-    for line in text[heading.end():].splitlines() if heading else []:
+    for line in re.split(r'^## ', text[heading.end():], maxsplit=1, flags=re.M)[0].splitlines() if heading else []:
         key, colon, value = line.partition(':')
         if colon and re.fullmatch(r'[a-z-]+', key):
             value = value.strip()
@@ -341,20 +340,27 @@ def card_state(path):
     return state
 
 
+def ticket_files(issues):
+    """The files of a local board that are tickets: those whose front matter names one."""
+    return [path for path in issues.glob('*.md')
+            if re.match(r'---\n(?:(?!---\n).*\n)*?ticket:', path.read_text(errors='replace'))]
+
+
 def board_gaps(root, path, state):
     """What `autopilot_card.py phase` would refuse in a run card's State written by hand: a phase none of the four,
     or dispatch or pr with no board, or with no ticket on its local board."""
+    cards = script('autopilot_card')
     phase, board = state.get('phase', ''), state.get('board', '')
-    if phase not in PHASES:
+    if phase not in cards.PHASES:
         setter = shlex.join(['python3', str(ROOT / 'scripts/autopilot_card.py'), 'phase', str(path), '<phase>'])
-        return [f"{path}: this session's autopilot run has phase {phase!r}, none of {', '.join(PHASES)}: set it with "
+        return [f"{path}: this session's autopilot run has phase {phase!r}, none of {', '.join(cards.PHASES)}: set it with "
                 f'`{setter}`']
-    if phase not in ('dispatch', 'pr') or board.startswith(('https://', 'http://')):
+    if phase not in ('dispatch', 'pr') or cards.tracker_url(board):
         return []
     if board != 'local':
         return [f"{path}: this session's autopilot run is in {phase} with no board: write `board: local` or the "
                 "tracker's URL in the card's State"]
-    if any((path.parent / 'issues').glob('*.md')):
+    if ticket_files(path.parent / 'issues'):
         return []
     new = shlex.join(['python3', str(ROOT / 'scripts/next_tickets.py'), '--repo', str(root), path.parent.name, '--new',
                       '<title>'])

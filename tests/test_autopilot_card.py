@@ -278,10 +278,12 @@ class Phase(unittest.TestCase):
         self.card = self.repo / '.scratch' / 'run' / 'autopilot.md'
         self.card.parent.mkdir(parents=True)
 
-    def phase(self, phase, board='local', code=0):
-        """Set `phase` on a card naming `board` (None: no board line); the card after, and stderr."""
+    def phase(self, phase, board='local', code=0, phase_line=True):
+        """Set `phase` on a card naming `board` (None: no board line), with or without a `phase:` line; the card
+        after, and stderr."""
         text = DRAFT.replace('confirmed: no', 'confirmed: 2026-11-06 "go"').replace(UNNAMED, 'session: host-1')
         text = text.replace('board: local\n', f'board: {board}\n' if board is not None else '')
+        text = text if phase_line else text.replace('phase: refine\n', '')
         self.card.write_text(text)
         result = subprocess.run([sys.executable, '-B', str(COMMAND), 'phase', str(self.card), phase],
                                 capture_output=True, text=True, timeout=30)
@@ -309,17 +311,23 @@ class Phase(unittest.TestCase):
                                  f'set the phase')
                 self.assertIn('\nphase: refine\n', text)
         self.ticket('01', blocked_by='run/09')
-        text, error = self.phase('dispatch', code=1)
-        self.assertIn('the local board of run fails its check: run/01: blocked_by run/09 does not exist', error)
+        for phase in ('dispatch', 'pr'):
+            with self.subTest(phase=phase):
+                text, error = self.phase(phase, code=1)
+                self.assertIn('the local board of run fails its check: run/01: blocked_by run/09 does not exist', error)
         self.ticket('01')
         self.assertIn('\nphase: dispatch\n', self.phase('dispatch')[0])
+        # Review (Sonnet): the stop hook names this command for a card with no `phase:` line too, so it writes one.
+        text, _ = self.phase('align', phase_line=False)
+        self.assertIn('\nreview-effort: high\nterminal:\nhistory:\nevidence:\ntimer:\nresume: `autopilot --take-over`\nphase: align\n', text)
 
     def test_dispatch_on_a_tracker_board_needs_no_local_tickets_and_a_card_names_its_board(self):
         # Question tool (board-tools, "Card names its board"): a tracker holds its own tickets; the card says which.
         self.assertIn('\nphase: dispatch\n', self.phase('dispatch', board='https://linear.app/team/project/x')[0])
         for board, refusal in ((None, 'the card has no `board:` line'),
                                ("<local | the tracker's URL>", "the card's `board:` is neither `local` nor a tracker's URL: ''"),
-                               ('jira', "the card's `board:` is neither `local` nor a tracker's URL: 'jira'")):
+                               ('jira', "the card's `board:` is neither `local` nor a tracker's URL: 'jira'"),
+                               ('https://', "the card's `board:` is neither `local` nor a tracker's URL: 'https://'")):
             with self.subTest(board=board):
                 text, error = self.phase('dispatch', board=board, code=1)
                 self.assertEqual(error.strip(), refusal)
