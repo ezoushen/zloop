@@ -790,8 +790,10 @@ def unmerged(prs):
         if not isinstance(pull, dict):
             reason = pull if isinstance(pull, str) else (result.stderr or result.stdout).strip()
             problems.append(f"gh cannot read {url}: {reason}")
-        elif pull.get("state") != "MERGED" or not (pull.get("mergeCommit") or {}).get("oid"):
+        elif pull.get("state") != "MERGED":
             problems.append(f"{url} is {pull.get('state')}, not merged")
+        elif not (pull.get("mergeCommit") or {}).get("oid"):
+            problems.append(f"{url} names no merge commit")
     return problems
 
 
@@ -807,19 +809,30 @@ def accept_prs(tickets, name, prs):
     return True
 
 
-def new_ticket(tickets, slug, title, blocked_by, touches):
-    """Write the workstream's next numbered ticket from the local ticket template; its path, from the checkout."""
-    nn = f"{max((int(t.split('/')[1]) for t in tickets if spec_of(t) == slug), default=0) + 1:02}"
-    words = "-".join(re.findall(r"[a-z0-9]+", title.lower()))[:60].strip("-") or "ticket"
-    block = TEMPLATE.read_text().split("```markdown\n", 1)[1].rsplit("```", 1)[0]
-    body = re.sub(r"^# NN: .*$", lambda _: f"# {nn}: {title}", block.split("\n---\n", 1)[1], count=1, flags=re.M)
-    path = ISSUES / slug / "issues" / f"{nn}-{words}.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("x") as stream:
-        stream.write("\n".join(["---", f"ticket: {slug}/{nn}", "status: ready", f"blocked_by: [{', '.join(blocked_by)}]",
-                                f"touches: [{', '.join(touches)}]", "devices: []", "needs: []", "model: standard",
-                                "worker:", "---", body.replace("<slug>", slug)]))
-    return path.relative_to(ROOT)
+def new_ticket(slug, title, blocked_by, touches):
+    """Write the workstream's next numbered ticket from the local ticket template, under the board's lock; its path.
+    Exits, writing nothing, when the board with it would fail its check."""
+    issues = ISSUES / slug / "issues"
+    issues.mkdir(parents=True, exist_ok=True)
+    with state_files.locked(issues / ".new"):
+        tickets = load()  # Read under the lock: a parallel call may have written a ticket since.
+        taken = [int(t.split("/")[1]) for t in tickets if spec_of(t) == slug]
+        taken += [int(match[1]) for match in (re.match(r"([0-9]+)-", path.name) for path in issues.glob("*.md")) if match]
+        nn = f"{max(taken, default=0) + 1:02}"
+        words = "-".join(re.findall(r"[a-z0-9]+", title.lower()))[:60].strip("-") or "ticket"
+        path = issues / f"{nn}-{words}.md"
+        fields = {"ticket": f"{slug}/{nn}", "status": "ready", "blocked_by": blocked_by, "touches": touches,
+                  "devices": [], "needs": [], "path": str(path.relative_to(ROOT))}
+        if not check({**tickets, fields["ticket"]: fields}):
+            sys.exit(2)
+        block = TEMPLATE.read_text().split("```markdown\n", 1)[1].rsplit("```", 1)[0]
+        body = block.split("\n---\n", 1)[1].replace("<slug>", slug)
+        body = re.sub(r"^# NN: .*$", lambda _: f"# {nn}: {title}", body, count=1, flags=re.M)
+        with path.open("x") as stream:
+            stream.write("\n".join(["---", f"ticket: {slug}/{nn}", "status: ready",
+                                    f"blocked_by: [{', '.join(blocked_by)}]", f"touches: [{', '.join(touches)}]",
+                                    "devices: []", "needs: []", "model: standard", "worker:", "---", body]))
+    return path
 
 
 def set_field(tickets, name, assignments):
@@ -895,9 +908,10 @@ def write_fields(fm, fields):
     head = re.match(r"---\n.*?(?=\n---(?:\n|$))", text, re.S)[0]  # What front_matter.parse reads as the block.
     rest = text[len(head):]
     for key, value in fields.items():
-        pattern = re.compile(rf"^({re.escape(key)}:).*$", re.M)
+        # A key's value runs on through the `- item` lines of a block list.
+        pattern = re.compile(rf"^({re.escape(key)}:)[^\n]*(?:\n[ \t]*-[^\n]*)*", re.M)
         if value is None:
-            head = re.sub(rf"\n{re.escape(key)}:.*$", "", head, flags=re.M)
+            head = re.sub(rf"\n{re.escape(key)}:[^\n]*(?:\n[ \t]*-[^\n]*)*", "", head)
         elif pattern.search(head):
             head = pattern.sub(lambda match: f"{match[1]} {value}", head, count=1)
         elif key in ('status', 'blocker', 'start', 'accepted', 'accepted_report', 'lent', 'delivered_by'):
@@ -954,6 +968,8 @@ def main(argv):
         parser.error("--counts may only be combined with --set")
     if args.pr and not args.accept:
         parser.error("--pr goes with --accept")
+    if not all(re.fullmatch(r"https://[^/\s]+/[^/\s]+/[^/\s]+/pull/[0-9]+", url) for url in args.pr):
+        parser.error("--pr takes a pull request's URL: https://<host>/<owner>/<repo>/pull/<number>")
     if args.max_live < 1:
         parser.error("--max-live must be positive")
     if args.slug and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", args.slug):
@@ -976,7 +992,7 @@ def main(argv):
             parser.error(f"--blocked-by {', '.join(unknown)}: no such ticket on the board")
         if not all(re.fullmatch(r"[A-Za-z0-9._/-]+", area) for area in args.touches):
             parser.error("--touches takes area names of letters, digits, '.', '_', '/' and '-'")
-        print(new_ticket(tickets, args.slug, title, args.blocked_by, args.touches))
+        print(new_ticket(args.slug, title, args.blocked_by, args.touches))
         return
     selected = {t: fm for t, fm in tickets.items() if not args.slug or spec_of(t) == args.slug}
     if not selected:

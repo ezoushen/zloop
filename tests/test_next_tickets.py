@@ -131,23 +131,43 @@ class BoardCLI(unittest.TestCase):
         # the template's front matter and body (skills/refine/ticket-template.md) and the board's next number.
         self.write_ticket('fx/07')
         first = self.cli('fx', '--new', 'Proxy on every node').stdout.strip()
-        self.assertEqual(first, '.scratch/fx/issues/08-proxy-on-every-node.md')
+        self.assertEqual(first, str(self.root.resolve() / '.scratch/fx/issues/08-proxy-on-every-node.md'))
         second = self.cli('fx', '--new', 'WARP: root cause', '--blocked-by', 'fx/08', '--touches', 'k8s',
                           '--touches', 'docs').stdout.strip()
-        self.assertEqual(second, '.scratch/fx/issues/09-warp-root-cause.md')
-        text = (self.root / second).read_text()
+        self.assertEqual(second, str(self.root.resolve() / '.scratch/fx/issues/09-warp-root-cause.md'))
+        text = Path(second).read_text()
         self.assertTrue(text.startswith('---\nticket: fx/09\nstatus: ready\nblocked_by: [fx/08]\ntouches: [k8s, docs]\n'
                                         'devices: []\nneeds: []\nmodel: standard\nworker:\n---\n# 09: WARP: root cause\n'), text)
         self.assertIn('\n**Story:** As a <actor>', text)
         self.assertIn('\n## Acceptance criteria\n', text)
         self.cli('fx', '--check')
         # A new workstream starts at 01.
-        self.assertEqual(self.cli('new-run', '--new', 'First').stdout.strip(), '.scratch/new-run/issues/01-first.md')
+        self.assertEqual(Path(self.cli('new-run', '--new', 'First').stdout.strip()).name, '01-first.md')
+        # Review (Sonnet): a title naming `<slug>` keeps it; only the template's own placeholder is filled.
+        third = Path(self.cli('fx', '--new', 'Rename <slug> in the CLI').stdout.strip())
+        self.assertIn('\n# 10: Rename <slug> in the CLI\n', third.read_text())
         before = sorted(self.root.glob('.scratch/*/issues/*.md'))
         for args in (('--new', 'No slug'), ('fx', '--new', '  '), ('fx', '--new', 'two\nlines'),
-                     ('fx', '--new', 'Gated', '--blocked-by', 'fx/99')):
+                     ('fx', '--new', 'two\u2028lines'), ('fx', '--new', 'Gated', '--blocked-by', 'fx/99'),
+                     ('fx', '--new', 'Areas', '--touches', 'a,b')):
             with self.subTest(args=args):
                 self.cli(*args, code=2)
+        self.assertEqual(sorted(self.root.glob('.scratch/*/issues/*.md')), before)
+
+    def test_new_keeps_the_board_valid_under_parallel_calls_and_dependency_cycles(self):
+        # Review (Codex, Sonnet): parallel calls all took the same number, which broke every board command; and a
+        # dependency on another workstream could close a cycle the board's check refuses.
+        calls = [subprocess.Popen([sys.executable, '-B', str(SCRIPT), '--repo', str(self.root), 'par', '--new',
+                                   f'task {n}'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                 for n in range(4)]
+        names = sorted(Path(call.communicate()[0].strip()).name[:3] for call in calls)
+        self.assertEqual(names, ['01-', '02-', '03-', '04-'])
+        self.cli('par', '--check')
+        self.write_ticket('a/01')
+        self.write_ticket('b/01', blocked='a/01')
+        before = sorted(self.root.glob('.scratch/*/issues/*.md'))
+        refused = self.cli('a', '--new', 'A two', '--blocked-by', 'b/01', code=2)
+        self.assertIn('workstream dependency cycle', refused.stderr)
         self.assertEqual(sorted(self.root.glob('.scratch/*/issues/*.md')), before)
 
     def gh(self, pulls):
@@ -169,14 +189,23 @@ class BoardCLI(unittest.TestCase):
     def test_a_ticket_delivered_by_merged_prs_is_accepted_by_them_and_done_only_while_gh_says_merged(self):
         # Question tool (board-tools, "Verified PR acceptance"): the jose run's tickets merged as PRs in other
         # repositories, which the branch check cannot see; `gh` says whether each PR merged, so no agent's word does.
-        one, two, three = (f'https://github.com/o/configs/pull/{n}' for n in (1, 2, 3))
-        merged = {one: ('MERGED', 'a' * 40), two: ('OPEN', None), three: ('OPEN', None)}
+        one, two, three, four, five = (f'https://github.com/o/configs/pull/{n}' for n in (1, 2, 3, 4, 5))
+        merged = {one: ('MERGED', 'a' * 40), two: ('OPEN', None), three: ('OPEN', None), four: ('CLOSED', None),
+                  five: ('MERGED', None)}
         path = self.write_ticket('fx/01', status='implementing', extra='worker: inline\n')
         with self.gh(merged):
             refused = self.cli('fx', '--accept', 'fx/01', '--pr', one, '--pr', two, code=1)
             self.assertIn(f'fx/01: {two} is OPEN, not merged', refused.stderr)
             refused = self.cli('fx', '--accept', 'fx/01', '--pr', 'https://github.com/o/configs/pull/9', code=1)
             self.assertIn('fx/01: gh cannot read https://github.com/o/configs/pull/9', refused.stderr)
+            for url, problem in ((four, 'is CLOSED, not merged'), (five, 'names no merge commit')):
+                with self.subTest(url=url):
+                    refused = self.cli('fx', '--accept', 'fx/01', '--pr', url, code=1)
+                    self.assertIn(f'fx/01: {url} {problem}', refused.stderr)
+            # Review (Sonnet): only a PR's own URL is evidence; a number, a flag or a second line is not.
+            for value in ('12', '--repo=cli/cli', f'{one}\nstatus: done'):
+                with self.subTest(value=value):
+                    self.cli('fx', '--accept', 'fx/01', f'--pr={value}', code=2)
             self.assertNotIn('delivered_by', path.read_text())
             self.assertIn('needs a passing --accept', self.cli('fx', '--set', 'fx/01', 'status=done', code=1).stderr)
         merged[two] = ('MERGED', 'b' * 40)
@@ -192,6 +221,11 @@ class BoardCLI(unittest.TestCase):
             self.assertEqual(front_matter.parse(other.read_text())['status'], 'implementing')
             # --pr belongs to --accept.
             self.cli('fx', '--check', '--pr', one, code=2)
+            # Review (Codex): a block list of PRs is replaced whole, so an accepted ticket names only what was accepted.
+            listed = self.write_ticket('fx/03', status='implementing', extra=f'worker: inline\ndelivered_by:\n  - {three}\n')
+            self.cli('fx', '--accept', 'fx/03', '--pr', one)
+            self.assertEqual(front_matter.parse(listed.read_text())['delivered_by'], [one])
+            self.cli('fx', '--set', 'fx/03', 'status=done')
 
     def test_an_interrupted_orchestrator_binding_write_leaves_the_old_binding_whole(self):
         # Audit A1: the binding is what holds the orchestrator at stop; a write cut short must not leave it empty.
