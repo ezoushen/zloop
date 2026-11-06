@@ -1313,8 +1313,10 @@ def wait_preconditions(db, saved, productive):
         require(not saved.get('submission_requested') and not saved.get('submitted'),
                 'Submission already requested; reconcile rather than resubmit')
     else:
-        require(saved.get('submitted'), 'Wait for submitted work: `submit` its assignment, or record `submitted` with '
-                                        'evidence the worker already has it')
+        # A native child got its assignment with its spawn; a worker started as its own process gets it by submission.
+        require(saved.get('submitted') or saved['execution_snapshot'].get('native_dispatch'),
+                'Wait for submitted work: `submit` its assignment, or record `submitted` with evidence the worker '
+                'already has it')
 
 
 def watch(db, state, attempt, request, *, productive=False):

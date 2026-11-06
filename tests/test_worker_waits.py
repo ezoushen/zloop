@@ -86,14 +86,22 @@ class Waits(WorkerLifecycleCase):
         self.assertEqual(self.cli('gate', '--stage', 'yield'), {'complete': True, 'missing': []})
 
     def test_a_wait_watches_submitted_work(self):
-        # Rule (stforestkit R06/R10, watched before any submission): a wait follows the submission; an attempt never
-        # submitted is submitted first, or recorded `submitted` when its worker already has the assignment.
+        # Rule (stforestkit R06/R10, watched before any submission): a wait on a worker started as its own process
+        # follows its submission; one never submitted is submitted first, or recorded `submitted` when it already has
+        # the assignment. A native child got its assignment with its spawn, so it is watched as it is (Claude's
+        # native_wait.py).
+        self.register('ticket-2/1', 'ticket-2', session='native-2', worker='pane-2')
+        self.record('startup', 'ticket-2/1', native=str(self.native('ticket-2/1')))
+        execution = json.loads(self.execution.read_text())
+        execution.update(native_dispatch=False, launch={'writes': 'worktree', 'verify': {'permission_mode': 'dontAsk'}})
+        self.execution.write_text(json.dumps(execution))
         self.register()
         self.record('startup', native=str(self.native()))
         error = self.watch(code=2)
         self.assertIn('Wait for submitted work: `submit` its assignment, or record `submitted` with evidence the '
                       'worker already has it', error)
-        self.assertNotIn('monitor', self.cli('status')['attempts'][0])
+        self.assertNotIn('monitor', self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0])
+        self.assertEqual(self.watch('ticket-2/1')['exit_code'], 0)
         self.record('submitted', evidence=['native.jsonl:2:accepted prompt'])
         self.assertEqual(self.watch()['exit_code'], 0)
 
@@ -333,15 +341,16 @@ class Waits(WorkerLifecycleCase):
     def test_stale_idle_is_a_wait_receipt_and_requires_prompt_and_report(self):
         self.register()
         self.record('startup', native=str(self.native()))
-        self.watch(code=2)  # Nothing was submitted to wait for.
+        self.watch()
         self.cli('gate', '--attempt', 'ticket-1/1', '--stage', 'accept', '--revision', 'head-1', code=1)
         report = self.root / 'report.md'
         report.write_text('An older report\n')
         self.record('result', code=2, status='completed', head='head-1', report=str(report), evidence=['older report'])
+        self.record('reconciled', evidence=['native idle, prompt not received'])
+        self.record('result', code=2, status='completed', head='head-1', report=str(report), evidence=['older report'])
         self.record('submitted', evidence=['accepted prompt with working activity'])
         self.record('submitted', code=2, evidence=['duplicate prompt'])
-        self.watch()  # A standalone wait may return stale idle at once.
-        self.record('result', code=2, status='completed', head='head-1', report=str(report), evidence=['older report'])
+        self.watch()
         self.watch(code=2)
         self.record('reconciled', evidence=['native completed this assignment at head-1'])
         self.collect()
