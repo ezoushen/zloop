@@ -62,7 +62,8 @@ receipts, attempts needing attention and unresolved design holds, including hold
 blocked worker is closed.
 
 Before yielding, run `gate --state ... --stage yield` (no `--attempt`). It exits 1 and
-names each live worker without an armed wait that can wake you, each lost wait and each
+names each live worker without an armed wait that can wake you (a worker started as its own process is
+live from registration, submitted or not), each lost wait and each
 undelivered receipt; fix those first. Claude Code and Codex (Stop hooks), Pi
 (extension) and OpenCode (plugin, after a turn succeeds) also run it when you stop, and
 send you back while the same gaps stand, up to three stops in a row, then let the stop through and say so
