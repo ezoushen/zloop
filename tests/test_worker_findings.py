@@ -48,6 +48,38 @@ class RepairFindings(WorkerLifecycleCase):
         self.assertEqual(held, {'autofix/1': None, 'r1/1': ['P01-001', 'P01-002'], 'r2/1': ['P05-001'],
                                 'r1/2': ['P01-002']})
 
+    def settle(self, attempt, code=0, status='completed', **fields):
+        """Record attempt's result with its report and evidence, plus fields."""
+        report = self.root / (attempt.replace('/', '-') + '.md')
+        report.write_text('## Fixed round 1\n\nRepaired at head-1\n')
+        return self.completed(attempt, code=code, status=status, head='head-1', report=str(report),
+                              evidence=['checks.log@head-1'], **fields)
+
+    def test_a_result_settles_each_finding_its_attempt_holds(self):
+        # The totals come from these results, not from a number someone writes (Pi's ledger said 551, then 453).
+        self.cli('plan', '--job', 'repair', '--finding', 'P01-001', '--finding', 'P01-002', '--finding', 'P05-001')
+        self.repair('r1/1', 'P01-001 P01-002')
+        self.ready('r1/1')
+        held = ("This attempt's result settles each finding it holds (P01-001, P01-002) as repaired, open or "
+                'runtime-bug in findings: ')
+        for given, problem in ((None, 'missing P01-001, P01-002'),
+                               ({'P01-001': 'repaired'}, 'missing P01-002'),
+                               ({'P01-001': 'repaired', 'P01-002': 'open', 'P05-001': 'open'},
+                                'P05-001 not held by this attempt'),
+                               ({'P01-001': 'done', 'P01-002': 'open'},
+                                "P01-001: 'done' is not repaired, open or runtime-bug")):
+            with self.subTest(given=given):
+                refused = self.settle('r1/1', code=2, **({} if given is None else {'findings': given}))
+                self.assertEqual(refused.strip(), held + problem)
+        self.settle('r1/1', findings={'P01-001': 'repaired', 'P01-002': 'runtime-bug'})
+        self.assertEqual(self.cli('status', '--attempt', 'r1/1')['attempts'][0]['result']['findings'],
+                         {'P01-001': 'repaired', 'P01-002': 'runtime-bug'})
+        # A blocked or failed attempt settles them too: what it did not repair is open.
+        self.repair('r2/1', 'P05-001')
+        self.ready('r2/1')
+        self.assertIn('missing P05-001', self.settle('r2/1', code=2, status='blocked'))
+        self.settle('r2/1', status='blocked', findings={'P05-001': 'open'})
+
 
 if __name__ == '__main__':
     unittest.main()

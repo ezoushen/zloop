@@ -197,6 +197,22 @@ def assigned_findings(db, assignment, value):
     return named
 
 
+SETTLED = ('repaired', 'open', 'runtime-bug')  # What a repair attempt's result says of each finding it holds.
+
+
+def require_settled(held, settled):
+    """Refuse a result that does not give each finding its attempt holds, and only those, one of SETTLED."""
+    settled = settled if isinstance(settled, dict) else {}
+    missing = [finding for finding in held if finding not in settled]
+    problems = [f'missing {", ".join(missing)}'] if missing else []
+    extra = [finding for finding in settled if finding not in held]
+    problems += [f'{", ".join(extra)} not held by this attempt'] if extra else []
+    problems += [f'{finding}: {value!r} is not repaired, open or runtime-bug' for finding, value in settled.items()
+                 if finding in held and value not in SETTLED]
+    require(not problems, f"This attempt's result settles each finding it holds ({', '.join(held)}) as repaired, open "
+                          'or runtime-bug in findings: ' + '; '.join(problems))
+
+
 def planned_of(db, job):
     """The assignments a job's plan holds, or None when it has no plan."""
     row = db.execute('SELECT assignments FROM plans WHERE job = ?', (job,)).fetchone()
@@ -1025,6 +1041,8 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
                 saved['monitor']['state'] = 'reconciled'
             elif kind == 'result':
                 require(data.get('status') in ('completed', 'blocked', 'failed', 'cancelled'), 'Invalid result status')
+                if saved.get('findings'):
+                    require_settled(saved['findings'], data.get('findings'))
                 require(text(data.get('head')) and text(data.get('report')), 'Result requires head and durable report')
                 report = Path(data['report'])
                 require(report.is_absolute() and report.is_file(), 'Result report must be an existing absolute file')
