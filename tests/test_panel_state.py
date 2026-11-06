@@ -33,14 +33,14 @@ def orchestrator(workstream, sessions):
     return path
 
 
-def ticket(path, name, status='ready', blocker=None):
-    """A local ticket with the front matter the board reads."""
+def ticket(path, name, status='ready', blocker=None, worker='', title='a behaviour'):
+    """A local ticket with the front matter the board reads, titled as the template titles one."""
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = ['---', f'ticket: {name}', f'status: {status}', 'blocked_by: []', 'touches: [scripts]',
-             'devices: []', 'model: standard', 'worker:']
+             'devices: []', 'model: standard', f'worker: {worker}'.rstrip()]
     if blocker:
         lines.append(f'blocker: {blocker}')
-    lines += ['---', f'# {name}: a behaviour', '', '**Story:** a story.', '']
+    lines += ['---', f"# {name.split('/')[-1]}: {title}", '', '**Story:** a story.', '']
     path.write_text('\n'.join(lines))
     return path
 
@@ -218,7 +218,22 @@ class PanelState(unittest.TestCase):
         ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='done')
         ticket(self.scratch / 'demo' / 'issues' / '02-b.md', 'demo/02', status='ready')
         ticket(self.scratch / 'demo' / 'issues' / '03-c.md', 'demo/03', status='implementing')
-        self.assertEqual(['1 done · 0 blocked · 1 ready · 1 live'], self.row_texts(self.snapshot(), 'counts'))
+        self.assertEqual(['3 tickets · 1 done · 0 blocked · 1 ready · 1 live'], self.row_texts(self.snapshot(), 'counts'))
+
+    def test_the_counts_give_the_total_and_an_inline_ticket_in_progress_is_named(self):
+        # Live (jose, Pi): an inline run showed neither how many tickets there are nor which one it was working on; an
+        # inline ticket has no worker record to give it a row, so its own front matter does.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='done')
+        ticket(self.scratch / 'demo' / 'issues' / '02-b.md', 'demo/02', status='implementing', worker='inline',
+               title='Oracle client rollout')
+        ticket(self.scratch / 'demo' / 'issues' / '03-c.md', 'demo/03', status='ready')
+        ticket(self.scratch / 'demo' / 'issues' / '04-d.md', 'demo/04', status='reviewing', worker='inline',
+               title='WARP cadence')
+        ticket(self.scratch / 'demo' / 'issues' / '05-e.md', 'demo/05', status='implementing', worker='demo/05')
+        self.assertEqual([row['text'] for row in self.snapshot()['rows']], [
+            'demo · dispatch', '▶ inline · demo/02 · Oracle client rollout', '▶ inline · demo/04 · WARP cadence',
+            'next: demo/03', '5 tickets · 1 done · 0 blocked · 1 ready · 3 live'])
 
     def test_a_draft_card_says_its_confirmation_is_missing(self):
         card(self.scratch / 'demo' / 'autopilot.md', phase='align', confirmed='no')
@@ -659,7 +674,7 @@ class PanelState(unittest.TestCase):
     def test_a_workstream_with_tickets_keeps_its_tickets_tally(self):
         self.worker_run()
         ticket(self.scratch / 'remediate-x' / 'issues' / '01-a.md', 'remediate-x/01', status='ready')
-        self.assertEqual(['0 done · 0 blocked · 1 ready · 0 live'], self.row_texts(self.snapshot('S'), 'counts'))
+        self.assertEqual(['1 ticket · 0 done · 0 blocked · 1 ready · 0 live'], self.row_texts(self.snapshot('S'), 'counts'))
 
     def plan(self, state, job, *assignments):
         """Record a job's plan the way an orchestrator does, through the lifecycle."""

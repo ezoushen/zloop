@@ -15,6 +15,8 @@ SCRATCH = '.scratch'
 CARD = 'autopilot.md'
 ORCHESTRATOR = 'orchestrator.json'
 RUN_CAP = 3
+# The board's statuses of a ticket being worked on (next_tickets.py LIVE).
+LIVE_TICKET = ('implementing', 'reviewing', 'fixing', 'verifying')
 # Terminal states that leave a resume step in the card's `resume:` line.
 PAUSED = ('waiting-on-user', 'paused-allowance', 'paused-by-user', 'blocked')
 BLOCKERS = {
@@ -76,6 +78,21 @@ def tickets(workstream):
             for path in sorted((workstream / 'issues').glob('*.md'))]
 
 
+def ticket_title(path):
+    """The title of a ticket's `# NN: <title>` heading, '' when it has none."""
+    for line in path.read_text(errors='replace').split('\n---', 2)[-1].splitlines():
+        if line.startswith('# '):
+            return line[2:].split(': ', 1)[-1].strip()
+    return ''
+
+
+def inline_rows(found_tickets):
+    """A row for each ticket the orchestrator works on itself: no worker record names it, so its front matter does."""
+    return [{'kind': 'run', 'text': ' · '.join(filter(None, ['▶ inline', fields.get('ticket', path.stem),
+                                                            ticket_title(path)]))}
+            for path, fields in found_tickets if fields.get('status') in LIVE_TICKET and fields.get('worker') == 'inline']
+
+
 def blocker_row(workstream, state, found_tickets):
     """The one blocker worth showing, by precedence: the run's own stop first, then its tickets."""
     terminal = state.get('terminal', '')
@@ -126,12 +143,14 @@ def counts_row(found_tickets):
     """The workstream's ticket tally, or None when it records no tickets."""
     if not found_tickets:
         return None
-    tally = {'done': 0, 'blocked': 0, 'ready': 0, 'implementing': 0}
+    tally = {'done': 0, 'blocked': 0, 'ready': 0, 'live': 0}
     for _, fields in found_tickets:
-        if fields.get('status') in tally:
-            tally[fields['status']] += 1
-    return {'kind': 'counts', 'text': f"{tally['done']} done · {tally['blocked']} blocked · "
-                                     f"{tally['ready']} ready · {tally['implementing']} live"}
+        status = 'live' if fields.get('status') in LIVE_TICKET else fields.get('status')
+        if status in tally:
+            tally[status] += 1
+    total = f"{len(found_tickets)} ticket{'' if len(found_tickets) == 1 else 's'}"
+    return {'kind': 'counts', 'text': f"{total} · {tally['done']} done · {tally['blocked']} blocked · "
+                                     f"{tally['ready']} ready · {tally['live']} live"}
 
 
 def attempt_rows(workstream):
@@ -349,7 +368,7 @@ def snapshot(repo, session_id, now):
                 'strip': None}
     headline = f'{workstream.name} · {phase}' if phase else workstream.name
     rows = [{'kind': 'headline', 'text': headline + (' · draft' if draft else '')}]
-    running, waiting = [], []
+    running, waiting = inline_rows(found_tickets), []
     for age, data, label in attempts:
         if label:
             waiting.append({'kind': 'wait', 'text': f"{label} · {data.get('assignment', '')} · quiet {fmt_age(age)}"})
