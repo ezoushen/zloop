@@ -215,6 +215,12 @@ class Retirement(WorkerLifecycleCase):
                                        'acceptance': {'decision': 'deferred', 'reason': 'acceptance checks pending'}}))
         error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
         self.assertEqual(error.strip(), 'Native close failed; reconcile the original pane before retrying')
+        # Review (Codex): an agent lookup that fails while the pane shows an agent is no exit on a retry either.
+        self.herdr_fixture(agent_exited=True, pane_session='native-1', close_failures=1)
+        error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+        self.assertEqual(error.strip(), 'Native closure is not confirmed; preserve the original retirement target')
+        self.assertEqual((self.root / 'herdr-argv.log').read_text().count('pane close'), 1)
+        self.herdr_fixture(agent_exited=True, close_failures=1)
         closed = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request))
         self.assertEqual((closed['attempt'], closed['closed']), ('ticket-1/1', True))
         self.assertEqual((self.root / 'native-closed').read_text(), 'closed\n')
