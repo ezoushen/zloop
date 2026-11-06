@@ -2633,11 +2633,12 @@ class AutopilotCardHold(GateRepo):
     STATES = ('delivered', 'delivered-local', 'merged', 'waiting-on-user', 'paused-allowance', 'paused-by-user',
               'blocked')
 
-    def card(self, slug='run', confirmed='2026-10-27 "go"', session='host-1', terminal='', evidence='', **extra):
+    def card(self, slug='run', confirmed='2026-10-27 "go"', session='host-1', terminal='', evidence='', phase='refine',
+             board='local', **extra):
         path = self.repo / f'.scratch/{slug}/autopilot.md'
         path.parent.mkdir(parents=True, exist_ok=True)
-        fields = dict(confirmed=confirmed, session=session, **{'auto-merge': 'no'}, phase='dispatch',
-                      terminal=terminal, history='', evidence=evidence, **extra)
+        fields = dict(confirmed=confirmed, session=session, **{'auto-merge': 'no'}, **({'board': board} if board else {}),
+                      phase=phase, terminal=terminal, history='', evidence=evidence, **extra)
         path.write_text(f'# {slug} \u2014 autopilot run card\n\n## Goal\nx\n\n## State\n'
                         + ''.join(f'{key}: {value}\n'.replace(': \n', ':\n') for key, value in fields.items()))
         return path
@@ -2645,6 +2646,37 @@ class AutopilotCardHold(GateRepo):
     def gap(self, path):
         return (f"{path}: this session's autopilot run has no terminal state or no evidence; record `terminal:` as "
                 f"exactly one of {', '.join(f'`{state}`' for state in self.STATES)} and `evidence:` in the card's State")
+
+    def test_a_run_in_no_known_phase_or_working_without_its_boards_tickets_holds_the_stop(self):
+        # Live (jose, Pi): the card said `phase: dispatch (inline)`, set by hand with no ticket on any board, so the
+        # panel had nothing to count; a phase written by hand is held to what `autopilot_card.py phase` checks.
+        path = self.card(phase='dispatch (inline)')
+        setter = shlex.join(['python3', str(ROOT / 'scripts/autopilot_card.py'), 'phase', str(path), '<phase>'])
+        self.assertEqual(self.check(session='host-1'), [
+            f"{path}: this session's autopilot run has phase 'dispatch (inline)', none of align, refine, dispatch, pr: "
+            f'set it with `{setter}`', self.gap(path)])
+        new = shlex.join(['python3', str(ROOT / 'scripts/next_tickets.py'), '--repo', str(self.repo), 'run', '--new',
+                          '<title>'])
+        for phase in ('dispatch', 'pr'):
+            with self.subTest(phase=phase):
+                self.card(phase=phase)
+                self.assertEqual(self.check(session='host-1'), [
+                    f"{path}: this session's autopilot run is in {phase} with no tickets on its local board: write each "
+                    f'with `{new}`', self.gap(path)])
+        for board in (None, 'jira'):
+            with self.subTest(board=board):
+                self.card(phase='dispatch', board=board)
+                self.assertEqual(self.check(session='host-1'), [
+                    f"{path}: this session's autopilot run is in dispatch with no board: write `board: local` or the "
+                    "tracker's URL in the card's State", self.gap(path)])
+        self.card(phase='dispatch', board='https://linear.app/team/project/x')
+        self.assertEqual(self.check(session='host-1'), [self.gap(path)])
+        (path.parent / 'issues').mkdir()
+        (path.parent / 'issues' / '01-task.md').write_text('---\nticket: run/01\nstatus: ready\n---\n')
+        self.card(phase='dispatch')
+        self.assertEqual(self.check(session='host-1'), [self.gap(path)])
+        self.card(phase='dispatch (inline)', session='host-2')
+        self.assertEqual(self.check(session='host-1'), [])
 
     def test_a_confirmed_card_of_this_session_without_a_terminal_state_or_evidence_holds_the_stop(self):
         # Rule: no run ends silently. Only this session's confirmed card with `terminal:` or `evidence:` empty holds.

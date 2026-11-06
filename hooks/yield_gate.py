@@ -38,6 +38,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -46,6 +47,7 @@ import time
 from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parent.parent
+PHASES = ('align', 'refine', 'dispatch', 'pr')  # An autopilot run's phases (autopilot_card.py PHASES).
 RECENT_SECONDS = 24 * 3600
 # The name Herdr gives the server a shell reaches without `--session`.
 DEFAULT_SERVER = 'default'
@@ -339,16 +341,40 @@ def card_state(path):
     return state
 
 
+def board_gaps(root, path, state):
+    """What `autopilot_card.py phase` would refuse in a run card's State written by hand: a phase none of the four,
+    or dispatch or pr with no board, or with no ticket on its local board."""
+    phase, board = state.get('phase', ''), state.get('board', '')
+    if phase not in PHASES:
+        setter = shlex.join(['python3', str(ROOT / 'scripts/autopilot_card.py'), 'phase', str(path), '<phase>'])
+        return [f"{path}: this session's autopilot run has phase {phase!r}, none of {', '.join(PHASES)}: set it with "
+                f'`{setter}`']
+    if phase not in ('dispatch', 'pr') or board.startswith(('https://', 'http://')):
+        return []
+    if board != 'local':
+        return [f"{path}: this session's autopilot run is in {phase} with no board: write `board: local` or the "
+                "tracker's URL in the card's State"]
+    if any((path.parent / 'issues').glob('*.md')):
+        return []
+    new = shlex.join(['python3', str(ROOT / 'scripts/next_tickets.py'), '--repo', str(root), path.parent.name, '--new',
+                      '<title>'])
+    return [f"{path}: this session's autopilot run is in {phase} with no tickets on its local board: write each with "
+            f'`{new}`']
+
+
 def unfinished_runs(root, session):
     """Name each confirmed autopilot run card of this host session that lacks one terminal state or its evidence,
-    unless a live worker of the card's workstream holds a running wait that will wake the host."""
+    unless a live worker of the card's workstream holds a running wait that will wake the host, and in such a run
+    what `autopilot_card.py phase` would refuse."""
     missing = []
     for path in sorted(root.glob('.scratch/*/autopilot.md')):
         state = card_state(path)
-        if (session and session in [part.strip() for part in state.get('session', '').split(',')]
+        if not (session and session in [part.strip() for part in state.get('session', '').split(',')]
                 and state.get('confirmed', 'no') not in ('', 'no')
-                and (state.get('terminal') not in TERMINAL_STATES or not state.get('evidence'))
-                and not awaited(path.with_name('reports') / 'workers.sqlite')):
+                and (state.get('terminal') not in TERMINAL_STATES or not state.get('evidence'))):
+            continue
+        missing += board_gaps(root, path, state)
+        if not awaited(path.with_name('reports') / 'workers.sqlite'):
             missing.append(f"{path}: this session's autopilot run has no terminal state or no evidence; record "
                            f"`terminal:` as exactly one of {', '.join(f'`{name}`' for name in TERMINAL_STATES)} and "
                            "`evidence:` in the card's State")
