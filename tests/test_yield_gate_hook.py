@@ -2058,7 +2058,74 @@ class StaleTabs(HerdrWorkers):
         self.serve(tabs={'default': [self.tab]})
         self.collect(kind='retain', reason='the repair round reuses this context', next_use='ticket-1 repair',
                      evidence=['review finding F1'])
-        self.assertEqual(self.check(pane='w1:p1'), [])
+        # Retention ends the open-tab gap; with nothing else in this run, the retention reminder takes its place.
+        self.assertEqual(self.check(pane='w1:p1'), [self.reminder()])
+
+    def reminder(self, attempt='ticket-1/1', next_use='ticket-1 repair'):
+        return (f'{self.state}: {attempt}: retained for "{next_use}" in Herdr tab w1:t5, and nothing in its run follows '
+                'it: register that next attempt in this worker, raise a design hold for the decision it waits on, or '
+                f'retire the worker ({ROOT}/runtime/resources/retire.md)')
+
+    def retain(self):
+        self.collect(kind='retain', reason='the repair round reuses this context', next_use='ticket-1 repair',
+                     evidence=['review finding F1'])
+
+    def test_a_retained_worker_nothing_in_its_run_follows_is_named_until_its_run_or_a_hold_needs_it(self):
+        # Rules 1-2 (stforestkit R14, R15, R01: kept after their run was integrated and pushed, R14 still holding
+        # uncommitted repairs): retention keeps a worker for a next use. Once nothing of its run is unfinished and no
+        # design hold waits on the user for its assignment, the stop names it.
+        child = self.state.parent / 'child-execution.json'
+        child.write_text(json.dumps(dict(json.loads(self.execution.read_text()), native_dispatch=True)))
+        self.register()
+        self.lifecycle('register', 'ticket-2/1', assignment='ticket-2', repo=str(self.repo), worktree=str(self.repo),
+                       head='head-1', execution=str(child), runtime='claude', worker='helper-2',
+                       native_session='native-2', owned=True,
+                       packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        self.retain()
+        self.assertEqual(self.check(pane='w1:p1'), [], 'ticket-2/1 is still unfinished')
+        self.lifecycle('result', 'ticket-2/1', status='failed', head='head-1', report=str(self.report),
+                       evidence=['worker.log'])
+        self.assertEqual(self.check(pane='w1:p1'), [self.reminder()])
+        self.assertEqual(self.check(pane='w1:p9'), [], 'only its orchestrator is reminded')
+        brief = self.state.parent / 'decision.md'
+        brief.write_text('Repair waits on a product ruling.\n')
+        self.lifecycle('hold', reason='the repair waits on a product ruling', brief=str(brief),
+                       evidence=['P03-071 corrected test fails'])
+        status = subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'status', '--state', str(self.state)],
+                                check=True, capture_output=True, text=True, env=self.env())
+        for receipt in json.loads(status.stdout)['pending']:
+            subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'ack', '--state', str(self.state), '--event-id',
+                            str(receipt['id'])], check=True, capture_output=True, env=self.env())
+        self.assertEqual(self.check(pane='w1:p1'), [], 'a design hold waits on the user')
+
+    def test_only_the_latest_attempt_of_a_retained_worker_is_judged(self):
+        # Rule 2: a retained attempt whose worker took a later attempt has had its next use; the later one answers.
+        self.register()
+        self.retain()
+        self.register(attempt='ticket-1/2')
+        self.lifecycle('result', 'ticket-1/2', status='failed', head='head-1', report=str(self.report),
+                       evidence=['worker.log'])
+        self.assertEqual(self.check(pane='w1:p1'), [
+            f'{self.state}: ticket-1/2: Herdr tab w1:t5 is still open after collection; retire the worker or record its '
+            f'retention ({ROOT}/runtime/workers/collect.md)'])
+
+    def test_a_retention_reminder_alone_holds_the_stop_once(self):
+        # Rule 3: a reminder is said once; beside a gap that holds, the usual three holds apply.
+        self.register()
+        self.retain()
+        first = self.stop(pane='w1:p1')
+        self.assertEqual(first['decision'], 'block')
+        self.assertIn(f'- {self.reminder()}\n', first['reason'])
+        second = self.stop(pane='w1:p1', active=True) or {}
+        self.assertEqual((second.get('decision'), 'gave up holding the stop after 1 hold' in second.get('systemMessage', '')),
+                         (None, True))
+        self.assertIsNone(self.stop(pane='w1:p1', active=True))
+        db = sqlite3.connect(self.state)
+        db.execute('INSERT INTO attempts VALUES (?, ?)', ('bad/1', json.dumps({'attempt': 'bad/1', 'orchestrator': 'w1:p1'})))
+        db.commit()
+        db.close()
+        self.assertEqual([(self.stop(pane='w1:p1', active=True) or {}).get('decision') for _ in range(4)],
+                         ['block', 'block', 'block', None])
 
     def test_the_tabs_of_the_server_the_callers_socket_names_are_listed_through_that_socket(self):
         # Live (OpenCode on an isolated XDG_CONFIG_HOME): `--session default` found no socket under that config; the

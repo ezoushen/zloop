@@ -49,5 +49,7 @@ transports, close through the installed lifecycle tool, confirm closure, then
 record `closed` with native evidence. The helper requires a
 collected report (intact when the result is completed) and acknowledged receipts. Retain only a stated next use
 or a concrete runtime/ownership limitation, with `retain`, `reason`, `next_use` and
-evidence. An unsupported close operation leaves capacity unavailable until the
+evidence. Once nothing of its run is unfinished, no later attempt took the worker and no design hold waits on its
+assignment, a stop reminds you once of a retained Herdr worker whose tab is open: reuse it, raise the hold or retire it.
+An unsupported close operation leaves capacity unavailable until the
 runtime confirms release. Existing user panes stay with their owner.

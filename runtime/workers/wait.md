@@ -69,7 +69,8 @@ undelivered receipt; fix those first. Claude Code and Codex (Stop hooks), Pi
 send you back while the same gaps stand, up to three stops in a row, then let the stop through and say so
 (`hooks/yield_gate.py`). `ZLOOP_YIELD_HOOK=off` disables the hooks. The stop hooks name what holds the session
 (a worker, a Herdr launch no attempt accounts for, an uncollected tab, an unfinished
-autofix delivery or autopilot card) and the remedy; a check that cannot run is named, never passed.
+autofix delivery or autopilot card) and the remedy; a check that cannot run is named, never passed. A retained
+worker nothing follows is a reminder, held once.
 
 Read every completed wait's retained log and inspect the native worker and report. When
 the opt-in [wake-triage pilot](../decisions/shadow-pilots.md#wake-triage-shadow-pilot) is

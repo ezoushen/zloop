@@ -50,6 +50,8 @@ DEFAULT_SERVER = 'default'
 GUIDE = ROOT / 'runtime/workers/wait.md'
 PREPARE = ROOT / 'runtime/workers/prepare.md'
 COLLECT = ROOT / 'runtime/workers/collect.md'
+RETIRE = ROOT / 'runtime/resources/retire.md'
+REMINDER = 'and nothing in its run follows it'  # A retention reminder holds a stop once, as a failed check does.
 HANDOFF = ROOT / 'skills/dispatch/handoff.md'
 # hooks/herdr_launch.py appends each `herdr agent start` here, one JSON object per line.
 LAUNCHES = '.scratch/herdr-launches.jsonl'
@@ -253,7 +255,7 @@ def read_state(state):
     db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
     try:
         rows = db.execute('SELECT id, data FROM attempts ORDER BY id').fetchall()
-        events = db.execute("SELECT attempt, payload FROM events WHERE kind = 'register'").fetchall()
+        events = db.execute("SELECT attempt, payload FROM events WHERE kind = 'register' ORDER BY id").fetchall()
     finally:
         db.close()
     saved_attempts, malformed, registered = [], [], {}
@@ -348,25 +350,36 @@ def unfinished_runs(root, session):
 
 
 def stale_tabs(root, pane, session):
-    """Name each collected attempt, neither retained nor retired, whose recorded Herdr tab its session still lists, for
-    the session bound to orchestrate its workstream or, with none bound, the pane that registered it, however old the
-    run."""
+    """Name each collected attempt, not retired, whose recorded Herdr tab its session still lists, for the session bound
+    to orchestrate its workstream or, with none bound, the pane that registered it, however old the run: one not
+    retained, and a retained one that nothing follows (its run has nothing unfinished, it is its conversation's latest
+    attempt and no design hold waits on the user for its assignment)."""
     listed, missing = {}, []
     for state in states(root):
         # An unreadable binding decides nothing here (undelivered names it); the registering pane does.
         binding, mine = read_binding(state.with_name(BINDING), pane, session)
         bound = mine if binding else None
         try:
-            saved_attempts = read_state(state)[0]
+            saved_attempts, _, registered = read_state(state)
+            held = open_holds(state)
         except Exception:  # gaps() names a state that cannot be read to its workstream's orchestrator.
             continue
+        closed = {(saved['runtime'], saved['native_session']) for saved in saved_attempts if saved.get('closed')}
+        unfinished = any(not saved.get('result') and (saved['runtime'], saved['native_session']) not in closed
+                         for saved in saved_attempts)
+        order, latest = {name: index for index, name in enumerate(registered)}, {}
+        for saved in sorted(saved_attempts, key=lambda saved: order.get(saved['attempt'], -1)):
+            latest[(saved['runtime'], saved['native_session'])] = saved['attempt']
         for saved in saved_attempts:
             herdr = saved.get('herdr') or {}
             mine = bound if bound is not None else attributed(saved) and owns(saved, pane, session)
             # A retired attempt's tab was confirmed gone before its closure was recorded.
-            if not (herdr.get('tab_id') and saved.get('result') and not saved.get('retained')
-                    and not saved.get('closed') and mine):
+            if not (herdr.get('tab_id') and saved.get('result') and not saved.get('closed') and mine):
                 continue
+            retained = saved.get('retained')
+            if retained and (unfinished or saved.get('assignment') in held
+                             or latest[(saved['runtime'], saved['native_session'])] != saved['attempt']):
+                continue  # Its run, a later attempt of its worker or the user's ruling may still use it.
             where = (herdr['session'], herdr['workspace_id'])
             if where not in listed:
                 try:
@@ -374,10 +387,24 @@ def stale_tabs(root, pane, session):
                 except Exception as error:  # A check that cannot run is a named gap, never a pass.
                     listed[where] = set()
                     missing.append(f'could not check worker tabs: {error}')
-            if herdr['tab_id'] in listed[where]:
+            if herdr['tab_id'] in listed[where] and retained:
+                next_use = retained.get('next_use') if isinstance(retained, dict) else None
+                missing.append(f"{state}: {saved['attempt']}: retained for \"{next_use}\" in Herdr tab "
+                               f"{herdr['tab_id']}, {REMINDER}: register that next attempt in this worker, raise a "
+                               f'design hold for the decision it waits on, or retire the worker ({RETIRE})')
+            elif herdr['tab_id'] in listed[where]:
                 missing.append(f"{state}: {saved['attempt']}: Herdr tab {herdr['tab_id']} is still open after "
                                f'collection; retire the worker or record its retention ({COLLECT})')
     return missing
+
+
+def open_holds(state):
+    """The assignments of a run state with a design hold not yet ruled on."""
+    db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
+    try:
+        return {row[0] for row in db.execute('SELECT assignment FROM holds')}
+    finally:
+        db.close()
 
 
 def herdr_tabs(session, workspace):
@@ -734,7 +761,7 @@ def count_hold(cwd, session, missing):
         except (OSError, ValueError):
             saved = {}
         held = saved.get('holds', 0) if saved.get('gaps') == missing else 0
-        if held >= (1 if all(map(failed_check, missing)) else MAX_HOLDS):
+        if held >= (1 if all(failed_check(gap) or REMINDER in gap for gap in missing) else MAX_HOLDS):
             if saved.get('told'):
                 return False, None  # Said once; later stops of the same gaps pass quietly.
             files.write_atomic(path, json.dumps({'gaps': missing, 'holds': held, 'told': True}))
