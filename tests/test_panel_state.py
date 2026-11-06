@@ -222,18 +222,37 @@ class PanelState(unittest.TestCase):
 
     def test_the_counts_give_the_total_and_an_inline_ticket_in_progress_is_named(self):
         # Live (jose, Pi): an inline run showed neither how many tickets there are nor which one it was working on; an
-        # inline ticket has no worker record to give it a row, so its own front matter does.
+        # inline ticket has no worker record to give it a row, so its own front matter does. Every status the board
+        # counts as worked on is live; a stray note in the folder is no ticket.
         card(self.scratch / 'demo' / 'autopilot.md')
-        ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='done')
-        ticket(self.scratch / 'demo' / 'issues' / '02-b.md', 'demo/02', status='implementing', worker='inline',
-               title='Oracle client rollout')
-        ticket(self.scratch / 'demo' / 'issues' / '03-c.md', 'demo/03', status='ready')
-        ticket(self.scratch / 'demo' / 'issues' / '04-d.md', 'demo/04', status='reviewing', worker='inline',
-               title='WARP cadence')
-        ticket(self.scratch / 'demo' / 'issues' / '05-e.md', 'demo/05', status='implementing', worker='demo/05')
+        issues = self.scratch / 'demo' / 'issues'
+        ticket(issues / '01-a.md', 'demo/01', status='done', worker='inline')
+        ticket(issues / '02-b.md', 'demo/02', status='implementing', worker='inline', title='Oracle client rollout')
+        ticket(issues / '03-c.md', 'demo/03', status='ready')
+        ticket(issues / '04-d.md', 'demo/04', status='fixing', worker='inline', title='WARP cadence')
+        ticket(issues / '05-e.md', 'demo/05', status='implementing', worker='demo/05')
+        ticket(issues / '06-f.md', 'demo/06', status='verifying', worker='demo/06')
+        ticket(issues / '07-g.md', 'demo/07', status='reviewing', worker='demo/07')
+        (issues / 'README.md').write_text('# Notes on these tickets\n')
         self.assertEqual([row['text'] for row in self.snapshot()['rows']], [
             'demo · dispatch', '▶ inline · demo/02 · Oracle client rollout', '▶ inline · demo/04 · WARP cadence',
-            'next: demo/03', '5 tickets · 1 done · 0 blocked · 1 ready · 3 live'])
+            'next: demo/03', '7 tickets · 1 done · 0 blocked · 1 ready · 5 live'])
+
+    def test_an_inline_ticket_keeps_its_title_and_its_run_shows_while_it_is_reviewed(self):
+        # Review (Codex, Sonnet): a `---` in a ticket's body lost its title; and a run bound by dispatch alone, with
+        # no card, went quiet once its inline ticket left implementing.
+        workstream = self.scratch / 'demo'
+        orchestrator(workstream, ['S'])
+        path = ticket(workstream / 'issues' / '01-a.md', 'demo/01', status='reviewing', worker='inline',
+                      title='Keep the client online')
+        path.write_text(path.read_text() + '---\n```sh\n# run the suite\n```\n')
+        found = self.snapshot()
+        self.assertEqual((found['active'], [row['text'] for row in found['rows']][1]),
+                         (True, '▶ inline · demo/01 · Keep the client online'))
+
+    def test_the_panels_live_statuses_are_the_boards(self):
+        # Review (Sonnet): the panel keeps its own list of the statuses next_tickets.py counts as live.
+        self.assertEqual(set(PANEL.LIVE_TICKET), support.load_script('next_tickets.py', 'next_tickets_live').LIVE)
 
     def test_a_draft_card_says_its_confirmation_is_missing(self):
         card(self.scratch / 'demo' / 'autopilot.md', phase='align', confirmed='no')

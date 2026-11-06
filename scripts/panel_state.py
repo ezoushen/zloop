@@ -74,13 +74,14 @@ def activity(workstream):
 
 def tickets(workstream):
     """The workstream's local tickets, in name order, with their front matter."""
-    return [(path, front_matter.parse(path.read_text(errors='replace')) or {})
-            for path in sorted((workstream / 'issues').glob('*.md'))]
+    found = [(path, front_matter.parse(path.read_text(errors='replace')) or {})
+             for path in sorted((workstream / 'issues').glob('*.md'))]
+    return [(path, fields) for path, fields in found if fields.get('ticket')]  # A note beside them is no ticket.
 
 
 def ticket_title(path):
     """The title of a ticket's `# NN: <title>` heading, '' when it has none."""
-    for line in path.read_text(errors='replace').split('\n---', 2)[-1].splitlines():
+    for line in path.read_text(errors='replace').split('\n---', 1)[-1].splitlines():
         if line.startswith('# '):
             return line[2:].split(': ', 1)[-1].strip()
     return ''
@@ -120,7 +121,7 @@ def live_workstream(state, attempts, blocker, draft, found_tickets):
     if draft or blocker or attempts:
         return True
     if not state:
-        return any(fields.get('status') in ('ready', 'implementing', 'blocked') for _, fields in found_tickets)
+        return any(fields.get('status') in ('ready', 'blocked', *LIVE_TICKET) for _, fields in found_tickets)
     if state.get('phase') == 'ended':
         return False
     return not state.get('terminal')
