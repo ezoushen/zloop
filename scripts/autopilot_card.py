@@ -26,8 +26,10 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import front_matter  # noqa: E402
 import state_files  # noqa: E402
 from worker_lifecycle import SESSION_VARIABLES, host_sessions  # noqa: E402
 
@@ -78,13 +80,17 @@ def session_line(sessions, command):
 
 def tracker_url(board):
     """Whether `board` names a tracker by its web address: http or https, a host, and nothing that splits it."""
-    return bool(re.fullmatch(r'https?://[^/\s]+(?:/\S*)?', board))
+    try:
+        address = urlsplit(board)
+        return address.scheme in ('http', 'https') and bool(address.hostname) and not re.search(r'\s', board)
+    except ValueError:  # A port that is no number.
+        return False
 
 
 def ticket_files(issues):
-    """The files of a local board that are tickets: those whose front matter names one."""
+    """The files of a local board that are tickets: those whose front matter, read as the board reads it, names one."""
     return [path for path in issues.glob('*.md')
-            if re.match(r'---\n(?:(?!---\n).*\n)*?ticket:', path.read_text(errors='replace'))]
+            if (front_matter.parse(path.read_text(errors='replace')) or {}).get('ticket')]
 
 
 def board_problem(card, state):

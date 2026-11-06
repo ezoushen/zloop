@@ -231,12 +231,12 @@ class PanelState(unittest.TestCase):
         ticket(issues / '03-c.md', 'demo/03', status='ready')
         ticket(issues / '04-d.md', 'demo/04', status='fixing', worker='inline', title='WARP cadence')
         ticket(issues / '05-e.md', 'demo/05', status='implementing', worker='demo/05')
-        ticket(issues / '06-f.md', 'demo/06', status='verifying', worker='demo/06')
+        ticket(issues / '06-f.md', 'demo/06', status='verifying', worker='inline', title='Smoke the rollout')
         ticket(issues / '07-g.md', 'demo/07', status='reviewing', worker='demo/07')
         (issues / 'README.md').write_text('# Notes on these tickets\n')
         self.assertEqual([row['text'] for row in self.snapshot()['rows']], [
             'demo · dispatch', '▶ inline · demo/02 · Oracle client rollout', '▶ inline · demo/04 · WARP cadence',
-            'next: demo/03', '7 tickets · 1 done · 0 blocked · 1 ready · 5 live'])
+            '▶ inline · demo/06 · Smoke the rollout', 'next: demo/03', '7 tickets · 1 done · 0 blocked · 1 ready · 5 live'])
 
     def test_an_inline_ticket_keeps_its_title_and_its_run_shows_while_it_is_reviewed(self):
         # Review (Codex, Sonnet): a `---` in a ticket's body lost its title; and a run bound by dispatch alone, with

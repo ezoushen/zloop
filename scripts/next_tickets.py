@@ -818,7 +818,7 @@ def new_ticket(slug, title, blocked_by, touches):
     Exits, writing nothing, when the board with it would fail its check."""
     issues = ISSUES / slug / "issues"
     issues.mkdir(parents=True, exist_ok=True)
-    with state_files.locked(issues / ".new"):
+    with state_files.locked(ISSUES / ".new-ticket"):  # One lock for the whole board: its check spans workstreams.
         tickets = load()  # Read under the lock: a parallel call wrote its ticket before letting go of it.
         nn = f"{max((int(t.split('/')[1]) for t in tickets if spec_of(t) == slug), default=0) + 1:02}"
         words = "-".join(re.findall(r"[a-z0-9]+", title.lower()))[:60].strip("-") or "ticket"
@@ -912,10 +912,11 @@ def write_fields(fm, fields):
     head = re.match(r"---\n.*?(?=\n---(?:\n|$))", text, re.S)[0]  # What front_matter.parse reads as the block.
     rest = text[len(head):]
     for key, value in fields.items():
-        # A key's value runs on through the `- item` lines of a block list.
-        pattern = re.compile(rf"^({re.escape(key)}:)[^\n]*(?:\n[ \t]*-[^\n]*)*", re.M)
+        # A key's value runs on through a block list's `- item` lines, and the blank and comment lines among them.
+        items = r"(?:\n(?:[ \t]*-[^\n]*|[ \t]*#[^\n]*|[ \t]*(?=\n)))*"
+        pattern = re.compile(rf"^({re.escape(key)}:)[^\n]*{items}", re.M)
         if value is None:
-            head = re.sub(rf"\n{re.escape(key)}:[^\n]*(?:\n[ \t]*-[^\n]*)*", "", head)
+            head = re.sub(rf"\n{re.escape(key)}:[^\n]*{items}", "", head)
         elif pattern.search(head):
             head = pattern.sub(lambda match: f"{match[1]} {value}", head, count=1)
         elif key in ('status', 'blocker', 'start', 'accepted', 'accepted_report', 'lent', 'delivered_by'):

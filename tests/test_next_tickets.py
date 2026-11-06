@@ -170,6 +170,16 @@ class BoardCLI(unittest.TestCase):
         self.assertIn('workstream dependency cycle', refused.stderr)
         self.assertIn('--new wrote nothing: the board with this ticket fails its check', refused.stderr)
         self.assertEqual(sorted(self.root.glob('.scratch/*/issues/*.md')), before)
+        # Review (Codex, Sonnet): two workstreams cutting tickets on each other at once close no cycle either.
+        self.write_ticket('c/01')
+        self.write_ticket('d/01')
+        calls = [subprocess.Popen([sys.executable, '-B', str(SCRIPT), '--repo', str(self.root), mine, '--new', 'Cross',
+                                   '--blocked-by', f'{theirs}/01'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                 for mine, theirs in (('c', 'd'), ('d', 'c'))]
+        for call in calls:
+            call.communicate()
+        self.assertEqual(sorted(call.returncode for call in calls), [0, 2])
+        self.cli('c', '--check')
         # Review (Sonnet): a note beside the tickets, named by a date, is no ticket number.
         (self.root / '.scratch/a/issues/2026-11-06-handoff.md').write_text('# handoff\n')
         self.assertEqual(Path(self.cli('a', '--new', 'A two').stdout.strip()).name, '02-a-two.md')
@@ -230,7 +240,8 @@ class BoardCLI(unittest.TestCase):
             # --pr belongs to --accept.
             self.cli('fx', '--check', '--pr', one, code=2)
             # Review (Codex): a block list of PRs is replaced whole, so an accepted ticket names only what was accepted.
-            listed = self.write_ticket('fx/03', status='implementing', extra=f'worker: inline\ndelivered_by:\n  - {three}\n')
+            listed = self.write_ticket('fx/03', status='implementing',
+                                       extra=f'worker: inline\ndelivered_by:\n  - {three}\n\n  # and\n  - {two}\n')
             self.cli('fx', '--accept', 'fx/03', '--pr', one)
             self.assertEqual(front_matter.parse(listed.read_text())['delivered_by'], [one])
             self.cli('fx', '--set', 'fx/03', 'status=done')

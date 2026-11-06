@@ -307,12 +307,17 @@ class Phase(unittest.TestCase):
         # Review (Sonnet): a note in the board's folder is no ticket.
         (self.repo / '.scratch' / 'run' / 'issues').mkdir()
         (self.repo / '.scratch' / 'run' / 'issues' / 'README.md').write_text('# notes\nticket: none yet\n')
+        # Review (Codex): a front matter that never closes, or names no ticket, is no ticket either.
+        (self.repo / '.scratch' / 'run' / 'issues' / '00-draft.md').write_text('---\nticket: run/00\n')
+        (self.repo / '.scratch' / 'run' / 'issues' / '00-blank.md').write_text('---\nticket:\nstatus: ready\n---\n')
         for phase in ('dispatch', 'pr'):
             with self.subTest(phase=phase):
                 text, error = self.phase(phase, code=1)
                 self.assertEqual(error.strip(), f'the local board of run has no tickets: write each with `{new}`, then '
                                  f'set the phase')
                 self.assertIn('\nphase: refine\n', text)
+        for draft in ('00-draft.md', '00-blank.md'):  # The board's own check refuses a blank ticket id outright.
+            (self.repo / '.scratch' / 'run' / 'issues' / draft).unlink()
         self.ticket('01', blocked_by='run/09')
         for phase in ('dispatch', 'pr'):
             with self.subTest(phase=phase):
@@ -330,7 +335,10 @@ class Phase(unittest.TestCase):
         for board, refusal in ((None, 'the card has no `board:` line'),
                                ("<local | the tracker's URL>", "the card's `board:` is neither `local` nor a tracker's URL: ''"),
                                ('jira', "the card's `board:` is neither `local` nor a tracker's URL: 'jira'"),
-                               ('https://', "the card's `board:` is neither `local` nor a tracker's URL: 'https://'")):
+                               ('https://', "the card's `board:` is neither `local` nor a tracker's URL: 'https://'"),
+                               ('https://?project=1', "the card's `board:` is neither `local` nor a tracker's URL: "
+                                                      "'https://?project=1'"),
+                               ('https://:443', "the card's `board:` is neither `local` nor a tracker's URL: 'https://:443'")):
             with self.subTest(board=board):
                 text, error = self.phase('dispatch', board=board, code=1)
                 self.assertEqual(error.strip(), refusal)
