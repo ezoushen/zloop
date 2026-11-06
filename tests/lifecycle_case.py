@@ -180,13 +180,14 @@ class WorkerLifecycleCase(unittest.TestCase):
                       caller_tab='caller-tab', tab_survives=False, agent_tab='tab-1',
                       agent_delay=0, tab_delay=0, during_delay=None, lock_probe=None,
                       agent_kind='claude', session_kind='id', tab_gone_error='tab_not_found', pane_session=None,
-                      agent_name='builder-1'):
+                      agent_name='builder-1', agent_exited=False):
         # during_delay: an argv the fixture runs while a delayed call waits, recording its exit code in
         # during-delay.json, so a test can act inside that wait without racing its own thread against it.
         # lock_probe: a state database the fixture tries to write-lock, in its own process and without waiting,
         # while a delayed call waits, recording whether it could; it needs no new interpreter, so load cannot delay it.
         # pane_session: the conversation Herdr reports in pane-1 (None: no agent there); agent_name: the name Herdr
-        # reports for the agent in pane-1, which follows its occupant.
+        # reports for the agent in pane-1, which follows its occupant; agent_exited: pane-1 holds no agent (its
+        # worker exited and left the pane), so `agent get` finds none.
         directory = self.root / 'bin'
         directory.mkdir(exist_ok=True)
         executable = directory / 'herdr'
@@ -221,7 +222,7 @@ if args[2:]==['pane','current','--current']:
         print(json.dumps({{'error':{{'code':'pane_not_found'}}}}),file=sys.stderr);sys.exit(1)
     print(json.dumps({{'result':{{'pane':{{'pane_id':{caller!r},'tab_id':{caller_tab!r}}}}}}}))
 elif args[2:4]==['agent','get']:
-    if marker.exists() or args[4:] not in (['pane-1'],['builder-1']):
+    if marker.exists() or {agent_exited!r} or args[4:] not in (['pane-1'],['builder-1']):
         print(json.dumps({{'error':{{'code':'agent_not_found'}}}}),file=sys.stderr);sys.exit(1)
     print(json.dumps({{'result':{{'agent':{{'agent':{agent_kind!r},'name':{agent_name!r},'pane_id':'pane-1',
         'tab_id':{agent_tab!r},'workspace_id':'ws-1','agent_status':'idle',

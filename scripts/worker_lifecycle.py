@@ -1532,7 +1532,8 @@ def retire(db, state, attempt, request):
                 'Reconcile the original retirement target')
         require(process_stamp(previous['pid']) != previous['stamp'], 'Retirement already owned by a live process')
     code, response = herdr(session, 'agent', 'get', pane)
-    if code == 0:
+    present = code == 0
+    if present:
         agent = response['result']['agent']
         identity = agent.get('agent_session', {})
         require(isinstance(identity, dict), 'Invalid native conversation identity')
@@ -1547,6 +1548,14 @@ def retire(db, state, attempt, request):
                 'Native target does not match the registered worker handle')
         require(conversation_named(saved, identity), 'Native conversation no longer matches the attempt')
         require(agent.get('agent_status') in ('idle', 'done'), 'Native worker is active or blocked; retain it for inspection')
+    elif not previous:
+        # The worker exited in its own pane: Herdr lists the pane with no agent in it, so closing it ends no worker.
+        identity = None
+        code, response = herdr(session, 'pane', 'get', pane)
+        listed = (response.get('result') or {}).get('pane') if code == 0 else None
+        require(pane == (saved.get('herdr') or {}).get('pane_id') and isinstance(listed, dict)
+                and not listed.get('agent'), 'Inspect the missing native worker before recording closure')
+    if present or not previous:
         db.execute('BEGIN IMMEDIATE')
         with db:
             saved = get(db, attempt)
@@ -1567,8 +1576,6 @@ def retire(db, state, attempt, request):
         code, response = herdr(session, 'pane', 'close', pane)
         require(code == 0 and response.get('result', {}).get('type') == 'ok',
                 'Native close failed; reconcile the original pane before retrying')
-    else:
-        require(previous, 'Inspect the missing native worker before recording closure')
     code, response = herdr(session, 'pane', 'get', pane)
     require(code != 0 and response.get('error', {}).get('code') == 'pane_not_found',
             'Native closure is not confirmed; preserve the original retirement target')
