@@ -252,12 +252,12 @@ def yield_gaps(db, include=lambda saved: True, rows=None):
     for saved in included:
         monitor = saved.get('monitor', {})
         submitted = saved.get('submitted') or saved.get('submission_requested')
+        if saved.get('result') or (saved['runtime'], saved['native_session']) in closed:
+            continue
         # A worker started as its own process wakes the host only through a wait, submitted or not; a native child
         # wakes it natively until submitted, and an assignment under a design hold waits for the user.
-        process = not saved['execution_snapshot'].get('native_dispatch') and not hold(db, saved['assignment'])
-        live = ((submitted or process) and not saved.get('result')
-                and (saved['runtime'], saved['native_session']) not in closed)
-        if not live:
+        if not submitted and ((saved.get('execution_snapshot') or {}).get('native_dispatch')
+                              or hold(db, saved.get('assignment'))):
             continue
         if watching(saved):
             if process_stamp(monitor['pid']) != monitor['stamp']:
@@ -1312,6 +1312,9 @@ def wait_preconditions(db, saved, productive):
         require(not gaps(db, saved, 'work'), 'Resolve runtime settings and design holds before submission')
         require(not saved.get('submission_requested') and not saved.get('submitted'),
                 'Submission already requested; reconcile rather than resubmit')
+    else:
+        require(saved.get('submitted'), 'Wait for submitted work: `submit` its assignment, or record `submitted` with '
+                                        'evidence the worker already has it')
 
 
 def watch(db, state, attempt, request, *, productive=False):

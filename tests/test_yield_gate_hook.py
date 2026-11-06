@@ -496,7 +496,9 @@ class YieldGateHook(GateRepo):
     def test_a_worker_session_in_its_own_worktree_is_not_held(self):
         worktree = self.repo / '.worktrees/ticket-2'
         worktree.mkdir(parents=True)
-        execution = self.state.parent / 'execution.json'
+        # A native child, so its own wake is not judged here: only where its session runs.
+        execution = self.state.parent / 'child-execution.json'
+        execution.write_text(json.dumps(dict(json.loads(self.execution.read_text()), native_dispatch=True)))
         self.lifecycle('register', 'ticket-2/1', None, assignment='ticket-2', repo=str(self.repo),
                        worktree=str(worktree), head='head-1', execution=str(execution), runtime='claude',
                        worker='pane-2', native_session='native-2', owned=True,
@@ -676,6 +678,9 @@ class UnregisteredWorkers(GateRepo):
         self.worktree = self.repo / '.worktrees/ticket-1'
         self.worktree.mkdir(parents=True)
         self.serve(panes={'default': {'w1:p5': {'pane_id': 'w1:p5', 'cwd': str(self.worktree)}}})
+        # These registrations stand for any worker its orchestrator accounted for; as native children they need no
+        # wait, which these tests do not judge (Waits does).
+        self.execution.write_text(json.dumps(dict(json.loads(self.execution.read_text()), native_dispatch=True)))
 
     def register(self, worker, attempt, native_session=None, pane='w1:p1', worktree=None, session=None):
         """Register `worker` for an attempt in the run's workers.sqlite, as prepare.md has the orchestrator in

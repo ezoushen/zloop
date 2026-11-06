@@ -85,6 +85,18 @@ class Waits(WorkerLifecycleCase):
         self.cli('ack', '--event-id', str(hold['event_id']))
         self.assertEqual(self.cli('gate', '--stage', 'yield'), {'complete': True, 'missing': []})
 
+    def test_a_wait_watches_submitted_work(self):
+        # Rule (stforestkit R06/R10, watched before any submission): a wait follows the submission; an attempt never
+        # submitted is submitted first, or recorded `submitted` when its worker already has the assignment.
+        self.register()
+        self.record('startup', native=str(self.native()))
+        error = self.watch(code=2)
+        self.assertIn('Wait for submitted work: `submit` its assignment, or record `submitted` with evidence the '
+                      'worker already has it', error)
+        self.assertNotIn('monitor', self.cli('status')['attempts'][0])
+        self.record('submitted', evidence=['native.jsonl:2:accepted prompt'])
+        self.assertEqual(self.watch()['exit_code'], 0)
+
     def test_yield_gate_needs_a_rearm_after_a_wake_is_reconciled(self):
         self.register()
         self.ready()
@@ -321,16 +333,15 @@ class Waits(WorkerLifecycleCase):
     def test_stale_idle_is_a_wait_receipt_and_requires_prompt_and_report(self):
         self.register()
         self.record('startup', native=str(self.native()))
-        self.watch()
+        self.watch(code=2)  # Nothing was submitted to wait for.
         self.cli('gate', '--attempt', 'ticket-1/1', '--stage', 'accept', '--revision', 'head-1', code=1)
         report = self.root / 'report.md'
         report.write_text('An older report\n')
         self.record('result', code=2, status='completed', head='head-1', report=str(report), evidence=['older report'])
-        self.record('reconciled', evidence=['native idle, prompt not received'])
-        self.record('result', code=2, status='completed', head='head-1', report=str(report), evidence=['older report'])
         self.record('submitted', evidence=['accepted prompt with working activity'])
         self.record('submitted', code=2, evidence=['duplicate prompt'])
-        self.watch()
+        self.watch()  # A standalone wait may return stale idle at once.
+        self.record('result', code=2, status='completed', head='head-1', report=str(report), evidence=['older report'])
         self.watch(code=2)
         self.record('reconciled', evidence=['native completed this assignment at head-1'])
         self.collect()
