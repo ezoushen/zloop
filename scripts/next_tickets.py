@@ -84,23 +84,29 @@ def load():
     return tickets
 
 
+def delivered(fm):
+    """The pull requests a ticket's `delivered_by` names: its list, or its one value."""
+    value = fm.get("delivered_by")
+    return value if isinstance(value, list) else [value] if value else []
+
+
 def accepted(fm):
     """Whether a ticket carries what only an acceptance writes: an accepted commit with its report's digest, or the
     pull requests that delivered it. The form only; `--set status=done` judged the evidence."""
-    delivered = fm.get("delivered_by")
+    prs = delivered(fm)
     return bool(re.fullmatch("[0-9a-f]{40}", str(fm.get("accepted") or ""))
                 and re.fullmatch("[0-9a-f]{64}", str(fm.get("accepted_report") or ""))) or bool(
-        isinstance(delivered, list) and delivered and all(PR_URL.fullmatch(str(url)) for url in delivered))
+        prs and all(PR_URL.fullmatch(str(url)) for url in prs))
 
 
-def check(tickets, accepting=None):
-    """Print what makes the board invalid; whether it is valid. A done ticket needs its acceptance, except the one
-    `--accept` is about to accept."""
+def check(tickets, accepting=False):
+    """Print what makes the board invalid; whether it is valid. A done ticket needs its acceptance, except while
+    `--accept` runs (`accepting`): it gives those tickets their acceptance, one at a time."""
     bad = [f"{t}: status {fm.get('status')!r} is not one of {sorted(STATUSES)}"
            for t, fm in tickets.items() if fm.get('status') not in STATUSES]
     bad += [f"{t}: status done with no acceptance; accept it with --accept {t}, or --accept {t} --pr <url> when PRs "
             "delivered it" for t, fm in tickets.items()
-            if fm.get('status') == 'done' and t != accepting and not accepted(fm)]
+            if fm.get('status') == 'done' and not accepting and not accepted(fm)]
     bad += [f"{t}: blocked_by {dep} does not exist" for t, fm in tickets.items()
            for dep in fm.get("blocked_by", []) if dep not in tickets]
     allowed = ", ".join(capability_probe.NEEDS)
@@ -401,8 +407,12 @@ def accept(tickets, name):
     Any failure withdraws an earlier acceptance."""
     if verify(tickets, name):
         return True
-    if tickets[name].get("accepted"):
-        write_fields(tickets[name], {"accepted": None, "accepted_report": None})
+    fm = tickets[name]
+    withdrawn = {"accepted": None, "accepted_report": None} if fm.get("accepted") else {}
+    if fm.get("status") == "done" and not accepted({**fm, **withdrawn}):  # Done only while accepted.
+        withdrawn.update(status="blocked", blocker="its acceptance failed again; restore the evidence, then --accept it")
+    if withdrawn:
+        write_fields(fm, withdrawn)
     return False
 
 
@@ -894,13 +904,12 @@ def set_field(tickets, name, assignments):
     if fields.get("status") == "done" and fm.get("status") != "done" and fm.get("lent") != "done" \
             and fm.get("delivered_by"):
         # Delivered by PRs: gh says each is merged now, whatever the front matter records.
-        delivered = fm["delivered_by"] if isinstance(fm["delivered_by"], list) else [fm["delivered_by"]]
-        problems = unmerged(delivered)
+        problems = unmerged(delivered(fm))
         if problems:
             sys.exit("\n".join(f"{name}: {problem}" for problem in problems))
     elif fields.get("status") == "done" and fm.get("status") != "done" and fm.get("lent") != "done":
         accepted = fm.get("accepted") or ""
-        if not re.fullmatch("[0-9a-f]{40}", accepted):
+        if not re.fullmatch("[0-9a-f]{40}", accepted) or not re.fullmatch("[0-9a-f]{64}", fm.get("accepted_report") or ""):
             sys.exit(f"{name}: status=done needs a passing --accept first")
         workstream = workstream_branch(spec_of(name))
         ref = branch_ref(workstream)
@@ -1048,9 +1057,12 @@ def main(argv):
             parser.error("--set needs a ticket and at least one assignment")
         set_field(tickets, args.set[0], args.set[1:])
         if args.counts:
-            print(counts({t: fm for t, fm in load().items() if t in selected}))
+            board = load()
+            if not check(board):
+                sys.exit(1)
+            print(counts({t: fm for t, fm in board.items() if t in selected}))
         return
-    if not check(tickets, args.accept):
+    if not check(tickets, bool(args.accept)):
         sys.exit(1)
     if args.check:
         return

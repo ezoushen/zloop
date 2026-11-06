@@ -206,21 +206,51 @@ class BoardCLI(unittest.TestCase):
         path = self.write_ticket('fx/01', status='done', accepted=False)
         refusal = ('fx/01: status done with no acceptance; accept it with --accept fx/01, or --accept fx/01 --pr <url> '
                    'when PRs delivered it')
-        for args in (('--check',), ('--counts',), ()):
+        for args, code in ((('--check',), 1), (('--counts',), 1), ((), 1), (('--delivery',), 1), (('--new', 'Next'), 2)):
             with self.subTest(args=args):
-                self.assertIn(refusal, self.cli('fx', *args, code=1).stderr)
+                self.assertIn(refusal, self.cli('fx', *args, code=code).stderr)
         for extra, ok in ((f"accepted: {'a' * 40}\n", False), (f"accepted: abc\naccepted_report: {'b' * 64}\n", False),
+                          (f"accepted: {'a' * 40}\naccepted_report: b\n", False),
                           (f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n", True),
-                          ('delivered_by: [12]\n', False), (f'delivered_by: [{merged}]\n', True)):
+                          ('delivered_by: [12]\n', False), ('delivered_by: []\n', False),
+                          (f'delivered_by: [{merged}, 12]\n', False), (f'delivered_by: [{merged}]\n', True),
+                          (f'delivered_by: {merged}\n', True)):
             with self.subTest(extra=extra):
                 self.write_ticket('fx/01', status='done', extra=extra)
                 self.cli('fx', '--check', code=0 if ok else 1)
-        # The step the refusal names works on that ticket.
-        self.write_ticket('fx/01', status='done', accepted=False)
+        # Review (Codex): `--set` with `--counts` counts only a board that passes the check.
+        self.write_ticket('fx/01', status='done', accepted=False, extra='worker:\n')
+        self.assertIn(refusal, self.cli('fx', '--set', 'fx/01', 'worker=inline', '--counts', code=1).stderr)
+        # The step the refusal names works on that ticket, even while another such ticket waits its turn (Codex).
+        self.write_ticket('fx/02', status='done', accepted=False)
         with self.gh({merged: ('MERGED', 'c' * 40)}):
             self.cli('fx', '--accept', 'fx/01', '--pr', merged)
-        self.assertEqual(front_matter.parse(path.read_text())['delivered_by'], [merged])
+            self.assertEqual(front_matter.parse(path.read_text())['delivered_by'], [merged])
+            self.cli('fx', '--accept', 'fx/02', '--pr', merged)
         self.cli('fx', '--check')
+
+    def test_a_done_ticket_whose_acceptance_fails_again_leaves_done(self):
+        # Review (Codex): re-running --accept on a done ticket whose report is gone withdrew its acceptance and kept it
+        # done, a state the board's check refuses; it is blocked now, with why.
+        self.write_ticket('fx/01', status='done')
+        self.cli('fx', '--accept', 'fx/01', code=1)
+        fm = front_matter.parse(next(self.root.glob('.scratch/fx/issues/01-*.md')).read_text())
+        self.assertEqual((fm['status'], fm.get('accepted'), fm.get('accepted_report')), ('blocked', None, None))
+        self.assertEqual(fm['blocker'], 'its acceptance failed again; restore the evidence, then --accept it')
+        self.cli('fx', '--check')
+        # A ticket its merged PRs accept stays done whatever a branch acceptance finds.
+        merged = self.write_ticket('fx/02', status='done', extra='delivered_by: [https://github.com/o/r/pull/1]\n')
+        self.cli('fx', '--accept', 'fx/02', code=1)
+        self.assertEqual(front_matter.parse(merged.read_text())['status'], 'done')
+
+    def test_done_needs_the_report_digest_its_acceptance_recorded(self):
+        # Review (Codex): a missing report and a missing digest compared equal, so done passed with no report.
+        self.commit('base')
+        self.git('switch', '-q', '-c', 'feat/inline')
+        work = self.commit('ticket work')
+        self.write_ticket('inline/01', 'implementing', extra=f'accepted: {work}\n')
+        self.assertIn('inline/01: status=done needs a passing --accept first',
+                      self.cli('inline', '--set', 'inline/01', 'status=done', code=1).stderr)
 
     def gh(self, pulls):
         """A `gh` on PATH answering `gh pr view <url> --json state,mergeCommit` from `pulls` (url to state, merge commit);
@@ -617,6 +647,7 @@ class BoardCLI(unittest.TestCase):
         self.cli('inline', '--set', 'inline/01', 'status=verifying')
         self.cli('inline', '--set', 'inline/01', 'status=verifying')
         self.cli('inline', '--set', 'inline/01', 'status=done')
+        self.cli('inline', '--check')  # Review (Codex): the round trip keeps the ticket's acceptance.
         # A ticket that was never done does not become done through the sentinel.
         self.cli('inline', '--set', 'inline/02', 'status=verifying')
         refused = self.cli('inline', '--set', 'inline/02', 'status=done', code=1)
