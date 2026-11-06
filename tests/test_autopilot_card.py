@@ -2,6 +2,7 @@
 """Taking over an autopilot run card ends the old run's merge grant and keeps its terminal state as history."""
 import datetime
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -195,6 +196,7 @@ session: theirs, quoted, not this card's
 confirmed: no
 session: <each host session ID this shell exports, comma-separated; `confirm` and `take-over` rewrite it>
 auto-merge: no
+board: local
 dispatch-effort: medium
 review-effort: high
 phase: refine
@@ -244,12 +246,13 @@ class Confirm(unittest.TestCase):
         hand_written = '# maven-warp-closeout\n\n## Goal\nx\n\n## State\nphase: refine\nterminal:\nhistory:\n- 10:04 HOLD\n'
         text, error = self.confirm('--words', 'go', card=hand_written, sessions={'PI_SESSION_ID': 'pi-1'}, code=1)
         self.assertEqual((text, error.strip()), (hand_written, "the card's State lacks confirmed, session, auto-merge, "
-                         'dispatch-effort, review-effort, evidence, timer, resume: write each line of the run card\'s '
+                         'board, dispatch-effort, review-effort, evidence, timer, resume: write each line of the run '
+                         "card's "
                          f'State ({run_card}), then confirm'))
         # Every line of the format's State, as run-card.md writes it.
         template = run_card.read_text().split('\n## State\n', 1)[1].split('```', 1)[0]
         keys = [line.split(':', 1)[0] for line in template.splitlines() if ':' in line]
-        self.assertEqual(len(keys), 11)
+        self.assertEqual(len(keys), 12)
         for key in keys:
             with self.subTest(missing=key):
                 head, state = DRAFT.split('## State\n')  # The Goal's quoted `session:` line stays.
@@ -262,6 +265,65 @@ class Confirm(unittest.TestCase):
                            'OPENCODE_SESSION_ID): confirm from the shell of the host session that runs this autopilot')):
             with self.subTest(refusal=refusal):
                 self.assertEqual(self.confirm('--words', words, sessions=sessions, code=1), (DRAFT, refusal + '\n'))
+
+
+class Phase(unittest.TestCase):
+    """`phase` sets the run's phase; dispatch and pr need the tickets on the board the card names."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix='zloop-phase-')
+        self.addCleanup(tmp.cleanup)
+        self.repo = Path(tmp.name).resolve()
+        subprocess.run(['git', 'init', '-q', '-b', 'main', str(self.repo)], check=True)
+        self.card = self.repo / '.scratch' / 'run' / 'autopilot.md'
+        self.card.parent.mkdir(parents=True)
+
+    def phase(self, phase, board='local', code=0):
+        """Set `phase` on a card naming `board` (None: no board line); the card after, and stderr."""
+        text = DRAFT.replace('confirmed: no', 'confirmed: 2026-11-06 "go"').replace(UNNAMED, 'session: host-1')
+        text = text.replace('board: local\n', f'board: {board}\n' if board is not None else '')
+        self.card.write_text(text)
+        result = subprocess.run([sys.executable, '-B', str(COMMAND), 'phase', str(self.card), phase],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, code, result.stderr)
+        return self.card.read_text(), result.stderr
+
+    def ticket(self, number, blocked_by=''):
+        path = self.repo / '.scratch' / 'run' / 'issues' / f'{number}-task.md'
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(f'---\nticket: run/{number}\nstatus: ready\nblocked_by: [{blocked_by}]\ntouches: []\n'
+                        'devices: []\n---\n# task\n')
+
+    def test_a_phase_is_one_of_the_four_and_dispatch_needs_the_local_boards_tickets(self):
+        # Live (jose, Pi): the run set `phase: dispatch (inline)` by hand with no ticket on any board, so the panel
+        # had nothing to count. A phase is set by this command, and dispatch and pr only with tickets to work.
+        text, _ = self.phase('align')
+        self.assertIn('\nphase: align\n', text)
+        self.assertEqual(self.phase('dispatch (inline)', code=2)[0], text.replace('phase: align', 'phase: refine'))
+        new = shlex.join(['python3', str(COMMAND.resolve().parent / 'next_tickets.py'), '--repo', str(self.repo), 'run',
+                          '--new', '<title>'])
+        for phase in ('dispatch', 'pr'):
+            with self.subTest(phase=phase):
+                text, error = self.phase(phase, code=1)
+                self.assertEqual(error.strip(), f'the local board of run has no tickets: write each with `{new}`, then '
+                                 f'set the phase')
+                self.assertIn('\nphase: refine\n', text)
+        self.ticket('01', blocked_by='run/09')
+        text, error = self.phase('dispatch', code=1)
+        self.assertIn('the local board of run fails its check: run/01: blocked_by run/09 does not exist', error)
+        self.ticket('01')
+        self.assertIn('\nphase: dispatch\n', self.phase('dispatch')[0])
+
+    def test_dispatch_on_a_tracker_board_needs_no_local_tickets_and_a_card_names_its_board(self):
+        # Question tool (board-tools, "Card names its board"): a tracker holds its own tickets; the card says which.
+        self.assertIn('\nphase: dispatch\n', self.phase('dispatch', board='https://linear.app/team/project/x')[0])
+        for board, refusal in ((None, 'the card has no `board:` line'),
+                               ("<local | the tracker's URL>", "the card's `board:` is neither `local` nor a tracker's URL: ''"),
+                               ('jira', "the card's `board:` is neither `local` nor a tracker's URL: 'jira'")):
+            with self.subTest(board=board):
+                text, error = self.phase('dispatch', board=board, code=1)
+                self.assertEqual(error.strip(), refusal)
+                self.assertIn('\nphase: refine\n', text)
 
 
 if __name__ == '__main__':

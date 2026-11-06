@@ -16,7 +16,9 @@ the two lines or with a line that is not a level.
 Record the user's confirmation from the shell of the session running the autopilot, with
 `python3 "<plugin_root>/scripts/autopilot_card.py" confirm <card> --words "<the user's words>"`: it writes
 `confirmed:` and `session:`, which the panel and the stop hook go by, and refuses a card whose State lacks a
-line below. A take-over names its own session on `session:` the same way.
+line below. A take-over names its own session on `session:` the same way. Set `phase:` with
+`autopilot_card.py phase <card> <align|refine|dispatch|pr>`: dispatch and pr need the tickets of the board on
+`board:`, `local` ticket files that pass `next_tickets.py --check`, or a tracker's URL.
 
 ```markdown
 # <slug> — autopilot run card
@@ -49,6 +51,7 @@ Decisions made without the user are rows in `.scratch/<slug>/ledger.md`; open on
 confirmed: no | <date> "<the user's words>"
 session: <each host session ID this shell exports, comma-separated; `confirm` and `take-over` rewrite it>
 auto-merge: no | yes
+board: local | <the tracker's URL>
 dispatch-effort: medium
 review-effort: high
 phase: align | refine | dispatch | pr   (the phase the run is in; kept at the one it stopped in when it ends)

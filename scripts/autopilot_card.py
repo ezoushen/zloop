@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Confirm or take over an autopilot run card: `autopilot_card.py confirm <card> --words "<the user's words>"`, or
-`autopilot_card.py take-over <card> [--auto-merge] [--effort <level>] [--dispatch-effort <level>]
-[--review-effort <level>]`.
+"""Confirm an autopilot run card, set its phase or take it over: `autopilot_card.py confirm <card> --words "<the user's
+words>"`, `autopilot_card.py phase <card> <align|refine|dispatch|pr>`, or `autopilot_card.py take-over <card>
+[--auto-merge] [--effort <level>] [--dispatch-effort <level>] [--review-effort <level>]`.
+
+A phase of dispatch or pr needs the tickets of the board the card names on `board:`: a tracker's URL holds its own; a
+`local` board needs ticket files that pass `next_tickets.py --check`.
 
 A confirmation records the date and the user's words on `confirmed:`, and on `session:` each host session ID this
 shell exports, as the stop hook counts them, so the panel and the stop hold find the run.
@@ -19,6 +22,8 @@ sets both, and a split flag overrides it for its own step. A card without either
 import argparse
 import datetime
 import re
+import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -27,9 +32,11 @@ from worker_lifecycle import SESSION_VARIABLES, host_sessions
 
 LEVELS = ('low', 'medium', 'high', 'xhigh', 'max')
 # The lines of the run card format's State, every one written before the user confirms the card.
-STATE_LINES = ('confirmed', 'session', 'auto-merge', 'dispatch-effort', 'review-effort', 'phase', 'terminal', 'history',
-               'evidence', 'timer', 'resume')
+STATE_LINES = ('confirmed', 'session', 'auto-merge', 'board', 'dispatch-effort', 'review-effort', 'phase', 'terminal',
+               'history', 'evidence', 'timer', 'resume')
 RUN_CARD = Path(__file__).resolve().parents[1] / 'skills' / 'autopilot' / 'run-card.md'
+PHASES = ('align', 'refine', 'dispatch', 'pr')
+TICKETS = Path(__file__).resolve().parent / 'next_tickets.py'
 
 
 def field(text, key):
@@ -66,6 +73,35 @@ def session_line(sessions, command):
         sys.exit(f'no host session ID is exported here ({", ".join(SESSION_VARIABLES)}): {command} from the shell of '
                  'the host session that runs this autopilot')
     return ', '.join(sessions)
+
+
+def board_problem(card, state):
+    """Why the run of `card` cannot work its board yet, or None: a tracker's URL holds its own tickets; a `local` board
+    needs ticket files that pass the board's check."""
+    board = field(state, 'board')
+    if board.startswith(('https://', 'http://')):
+        return None
+    if board != 'local':
+        return f"the card's `board:` is neither `local` nor a tracker's URL: {board!r}"
+    slug, repo = card.parent.name, card.resolve().parents[2]
+    if not list((card.parent / 'issues').glob('*.md')):
+        new = shlex.join(['python3', str(TICKETS), '--repo', str(repo), slug, '--new', '<title>'])
+        return f'the local board of {slug} has no tickets: write each with `{new}`, then set the phase'
+    check = subprocess.run([sys.executable, str(TICKETS), '--repo', str(repo), slug, '--check'],
+                           capture_output=True, text=True, timeout=60)
+    if check.returncode:
+        return f'the local board of {slug} fails its check: {(check.stderr or check.stdout).strip()}'
+    return None
+
+
+def phase(card, text, value):
+    """The card's text with `phase:` set to `value`; exits when dispatch or pr has no board to work."""
+    state = state_section(text)
+    field(state[0], 'phase')
+    problem = value in ('dispatch', 'pr') and board_problem(card, state[0])
+    if problem:
+        sys.exit(problem)
+    return text[:state.start()] + set_field(state[0], 'phase', value) + text[state.end():]
 
 
 def confirm(text, words, sessions, today):
@@ -105,8 +141,9 @@ def take_over_state(text, auto_merge, dispatch_effort, review_effort, today):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('command', choices=['confirm', 'take-over'])
+    parser.add_argument('command', choices=['confirm', 'phase', 'take-over'])
     parser.add_argument('card', type=Path)
+    parser.add_argument('phase', nargs='?', choices=PHASES, help='phase: the phase the run enters')
     parser.add_argument('--words', help="confirm: the user's words that confirmed the card")
     parser.add_argument('--auto-merge', action='store_true', help='grant merging to the new run')
     parser.add_argument('--effort', choices=LEVELS, help='set both steps to this level')
@@ -114,6 +151,11 @@ def main():
     parser.add_argument('--review-effort', choices=LEVELS, help="set the review's level")
     args = parser.parse_args()
     today = datetime.date.today().isoformat()
+    if args.command == 'phase':
+        if not args.phase:
+            parser.error(f'phase takes one of {", ".join(PHASES)}')
+        state_files.write_atomic(args.card, phase(args.card, args.card.read_text(), args.phase))
+        return
     if args.command == 'confirm':
         state_files.write_atomic(args.card, confirm(args.card.read_text(), args.words, host_sessions(), today))
         return
