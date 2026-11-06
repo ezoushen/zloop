@@ -84,9 +84,23 @@ def load():
     return tickets
 
 
-def check(tickets):
+def accepted(fm):
+    """Whether a ticket carries what only an acceptance writes: an accepted commit with its report's digest, or the
+    pull requests that delivered it. The form only; `--set status=done` judged the evidence."""
+    delivered = fm.get("delivered_by")
+    return bool(re.fullmatch("[0-9a-f]{40}", str(fm.get("accepted") or ""))
+                and re.fullmatch("[0-9a-f]{64}", str(fm.get("accepted_report") or ""))) or bool(
+        isinstance(delivered, list) and delivered and all(PR_URL.fullmatch(str(url)) for url in delivered))
+
+
+def check(tickets, accepting=None):
+    """Print what makes the board invalid; whether it is valid. A done ticket needs its acceptance, except the one
+    `--accept` is about to accept."""
     bad = [f"{t}: status {fm.get('status')!r} is not one of {sorted(STATUSES)}"
            for t, fm in tickets.items() if fm.get('status') not in STATUSES]
+    bad += [f"{t}: status done with no acceptance; accept it with --accept {t}, or --accept {t} --pr <url> when PRs "
+            "delivered it" for t, fm in tickets.items()
+            if fm.get('status') == 'done' and t != accepting and not accepted(fm)]
     bad += [f"{t}: blocked_by {dep} does not exist" for t, fm in tickets.items()
            for dep in fm.get("blocked_by", []) if dep not in tickets]
     allowed = ", ".join(capability_probe.NEEDS)
@@ -1036,7 +1050,7 @@ def main(argv):
         if args.counts:
             print(counts({t: fm for t, fm in load().items() if t in selected}))
         return
-    if not check(tickets):
+    if not check(tickets, args.accept):
         sys.exit(1)
     if args.check:
         return

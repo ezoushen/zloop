@@ -102,7 +102,10 @@ class BoardCLI(unittest.TestCase):
         self.root = Path(tmp.name)
         subprocess.run(['git', 'init', '-q', '-b', 'main', str(self.root)], check=True)
 
-    def write_ticket(self, name, status='ready', touches='runtime', blocked='', devices='', extra=''):
+    def write_ticket(self, name, status='ready', touches='runtime', blocked='', devices='', extra='', accepted=True):
+        """A ticket file; a done one carries the acceptance fields `--accept` writes, unless `accepted` is False."""
+        if status == 'done' and accepted and 'accepted:' not in extra and 'delivered_by' not in extra:
+            extra += f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n"
         # inline/01 of a measured workstream keeps the start measured_ticket recorded, as --set would have.
         if name == 'inline/01' and getattr(self, 'inline_start', None) and 'start:' not in extra:
             extra += f'start: {self.inline_start}\n'
@@ -195,6 +198,29 @@ class BoardCLI(unittest.TestCase):
         path = self.write_ticket('fx/01', extra='worker:\n# decided with the user\n\n# areas locked below\n')
         self.cli('fx', '--set', 'fx/01', 'worker=inline')
         self.assertIn('\nworker: inline\n# decided with the user\n\n# areas locked below\n---\n', path.read_text())
+
+    def test_a_done_ticket_with_no_acceptance_fails_the_boards_check_until_it_is_accepted(self):
+        # Review (Sonnet, board-tools): `status: done` written by hand passed the check and counted as done. A done
+        # ticket carries what only an acceptance writes: an accepted commit and report digest, or merged PRs.
+        merged = 'https://github.com/o/configs/pull/1'
+        path = self.write_ticket('fx/01', status='done', accepted=False)
+        refusal = ('fx/01: status done with no acceptance; accept it with --accept fx/01, or --accept fx/01 --pr <url> '
+                   'when PRs delivered it')
+        for args in (('--check',), ('--counts',), ()):
+            with self.subTest(args=args):
+                self.assertIn(refusal, self.cli('fx', *args, code=1).stderr)
+        for extra, ok in ((f"accepted: {'a' * 40}\n", False), (f"accepted: abc\naccepted_report: {'b' * 64}\n", False),
+                          (f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n", True),
+                          ('delivered_by: [12]\n', False), (f'delivered_by: [{merged}]\n', True)):
+            with self.subTest(extra=extra):
+                self.write_ticket('fx/01', status='done', extra=extra)
+                self.cli('fx', '--check', code=0 if ok else 1)
+        # The step the refusal names works on that ticket.
+        self.write_ticket('fx/01', status='done', accepted=False)
+        with self.gh({merged: ('MERGED', 'c' * 40)}):
+            self.cli('fx', '--accept', 'fx/01', '--pr', merged)
+        self.assertEqual(front_matter.parse(path.read_text())['delivered_by'], [merged])
+        self.cli('fx', '--check')
 
     def gh(self, pulls):
         """A `gh` on PATH answering `gh pr view <url> --json state,mergeCommit` from `pulls` (url to state, merge commit);

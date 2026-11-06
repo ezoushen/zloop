@@ -25,7 +25,7 @@ known account users; `--max-live` sees this board's workers, not every service c
 | Flag | Use |
 |---|---|
 | no action flag | candidates (scheduling calls still take `--max-live`) |
-| `--check` | validation |
+| `--check` | validation, including that each done ticket carries its acceptance |
 | `--counts` | counts |
 | `--set <ticket> status=<state>` or `worker=<id>` | runtime state; `status=blocked` also takes a new `blocker=<reason>`, which the ticket's front matter keeps until it leaves `blocked` |
 | `--new "<title>"` with a slug, `--blocked-by <ticket>`, `--touches <area>` | the workstream's next ticket from the template |

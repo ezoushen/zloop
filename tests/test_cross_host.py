@@ -27,7 +27,8 @@ def write_ticket(repo, name, status='ready', deps=(), area=None):
     slug, nn = name.split('/')
     path = repo / '.scratch' / slug / 'issues' / f'{nn}-task.md'
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f'---\nticket: {name}\nstatus: {status}\nblocked_by: [{", ".join(deps)}]\ntouches: [{area or name}]\ndevices: []\nmodel: standard\nworker:\n---\n# Task\n')
+    accepted = f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n" if status == 'done' else ''  # As --accept writes.
+    path.write_text(f'---\nticket: {name}\nstatus: {status}\nblocked_by: [{", ".join(deps)}]\ntouches: [{area or name}]\ndevices: []\nmodel: standard\nworker:\n{accepted}---\n# Task\n')
     return path
 
 
