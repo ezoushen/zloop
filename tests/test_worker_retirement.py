@@ -458,18 +458,35 @@ class Retirement(WorkerLifecycleCase):
                          'record the closure')
         self.assertNotIn('closed', self.cli('status')['attempts'][0])
 
+    def test_a_worker_its_pane_names_by_its_session_record_is_not_recorded_closed(self):
+        # Codex review: Herdr names a Pi worker's conversation by the path of its session record, which the attempt's
+        # startup observed: the same conversation, so retire ends it.
+        self.herdr_fixture(session_kind='path')
+        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        self.herdr_fixture(session_kind='path', pane_session=str(self.native_paths['ticket-1/1']))
+        error = self.record('closed', code=2, evidence=['pane closed'],
+                            acceptance={'decision': 'deferred', 'reason': 'acceptance checks pending'})
+        self.assertIn("Herdr pane pane-1 in tab tab-1 still holds this attempt's conversation", error)
+
     def test_a_closure_by_hand_meets_the_lifecycle_s_own_refusals_before_herdr_is_asked(self):
-        # Sonnet review: an uncollected worker, or a user's own, is refused for that, not sent to retire, which refuses it.
-        for owned, worker, refusal in ((True, 'builder-1', 'lacks a collected result'),
-                                       (False, 'pane-1', 'Existing user worker is not a cleanup target')):
-            with self.subTest(owned=owned):
-                attempt, session = f'ticket-{int(owned)}/1', f'native-{int(owned)}'
+        # Sonnet review: an uncollected worker, a user's own, or one with a receipt still to acknowledge is refused for
+        # that, with its command, not sent to retire, which refuses it again.
+        for number, (owned, collected, worker, refusal) in enumerate((
+                (True, False, 'builder-1', 'lacks a collected result'),
+                (False, True, 'pane-1', 'Existing user worker is not a cleanup target'),
+                (True, True, 'fixture-session/pane-1/builder-1', 'acknowledged (`python3')), 1):
+            with self.subTest(refusal=refusal):
+                attempt, session = f'ticket-{number}/1', f'native-{number}'
                 self.herdr_fixture(native_session=session)
-                self.register(attempt, f'ticket-{int(owned)}', session=session, worker=worker, owned=owned,
+                self.register(attempt, f'ticket-{number}', session=session, worker=worker, owned=owned,
                               herdr={'session': 'fixture-session'})
-                if not owned:
+                if collected:
                     self.ready(attempt)
                     self.collect(attempt)
+                if not owned:
                     self.acknowledge()
                 self.herdr_fixture(native_session=session, pane_session=session)
                 log = self.root / 'herdr-argv.log'

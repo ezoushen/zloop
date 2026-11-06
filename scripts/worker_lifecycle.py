@@ -1770,7 +1770,9 @@ def require_ended(db, attempt):
     retire ends it, by closing that pane."""
     saved = get(db, attempt)
     placed = saved.get('herdr')
-    if not (placed and saved['owned'] and saved.get('result')):  # Else the lifecycle's own refusal comes first.
+    # Herdr is asked only for a closure the lifecycle would record: it refuses the others itself, naming their command.
+    if not (placed and saved['owned'] and saved.get('result') and not watching(saved) and not pending(db, attempt)
+            and conversation(db, saved)[1] == attempt):
         return
     pane, script, state = placed['pane_id'], shlex.quote(str(Path(__file__).resolve())), shlex.quote(state_path(db))
     retire = f'`python3 {script} retire --state {state} --attempt {attempt} --input <request>`'
