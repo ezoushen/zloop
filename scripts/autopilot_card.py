@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
-"""Take over an autopilot run card: `autopilot_card.py take-over <card> [--auto-merge]
-[--effort <level>] [--dispatch-effort <level>] [--review-effort <level>]`.
+"""Confirm or take over an autopilot run card: `autopilot_card.py confirm <card> --words "<the user's words>"`, or
+`autopilot_card.py take-over <card> [--auto-merge] [--effort <level>] [--dispatch-effort <level>]
+[--review-effort <level>]`.
+
+A confirmation records the date and the user's words on `confirmed:`, and on `session:` each host session ID this
+shell exports, as the stop hook counts them, so the panel and the stop hold find the run.
 
 Rewrites the lines of the card's `## State` section in place and nothing else, so a Goal quoting `auto-merge:` is
 left alone. `auto-merge:` becomes `yes` only with `--auto-merge`, so a grant from the run that
@@ -19,8 +23,13 @@ import sys
 from pathlib import Path
 
 import state_files
+from worker_lifecycle import SESSION_VARIABLES, host_sessions
 
 LEVELS = ('low', 'medium', 'high', 'xhigh', 'max')
+# The lines of the run card format's State, every one written before the user confirms the card.
+STATE_LINES = ('confirmed', 'session', 'auto-merge', 'dispatch-effort', 'review-effort', 'phase', 'terminal', 'history',
+               'evidence', 'timer', 'resume')
+RUN_CARD = Path(__file__).resolve().parents[1] / 'skills' / 'autopilot' / 'run-card.md'
 
 
 def field(text, key):
@@ -43,12 +52,42 @@ def level(text, key):
     return value
 
 
-def take_over(text, auto_merge, dispatch_effort, review_effort, today):
-    """The card's text after a take-over; only the lines of its `## State` section change."""
+def state_section(text):
+    """The card's `## State` section, as a match; exits when the card has none."""
     state = re.search(r'^## State[ \t]*\n.*?(?=^## |\Z)', text, re.M | re.S)
     if not state:
         sys.exit('the card has no `## State` section')
-    return text[:state.start()] + take_over_state(state[0], auto_merge, dispatch_effort, review_effort, today) + text[state.end():]
+    return state
+
+
+def session_line(sessions, command):
+    """The `session:` value naming each host session exported here; exits when there is none."""
+    if not sessions:
+        sys.exit(f'no host session ID is exported here ({", ".join(SESSION_VARIABLES)}): {command} from the shell of '
+                 'the host session that runs this autopilot')
+    return ', '.join(sessions)
+
+
+def confirm(text, words, sessions, today):
+    """The card's text once the user confirmed it; only `confirmed:` and `session:` of its State change. Exits on a
+    State missing a line of the format, on no words and on no host session."""
+    state = state_section(text)
+    missing = [key for key in STATE_LINES if not re.search(rf'^{re.escape(key)}:', state[0], re.M)]
+    if missing:
+        sys.exit(f"the card's State lacks {', '.join(missing)}: write each line of the run card's State ({RUN_CARD}), "
+                 'then confirm')
+    if not (words or '').strip():
+        sys.exit("confirm takes --words: the user's words that confirmed this card")
+    lines = set_field(set_field(state[0], 'confirmed', f'{today} "{words}"'), 'session', session_line(sessions, 'confirm'))
+    return text[:state.start()] + lines + text[state.end():]
+
+
+def take_over(text, auto_merge, dispatch_effort, review_effort, today, sessions):
+    """The card's text after a take-over by the host sessions exported here; only the lines of its `## State` section
+    change."""
+    state = state_section(text)
+    taken = take_over_state(state[0], auto_merge, dispatch_effort, review_effort, today)
+    return text[:state.start()] + set_field(taken, 'session', session_line(sessions, 'take over')) + text[state.end():]
 
 
 def take_over_state(text, auto_merge, dispatch_effort, review_effort, today):
@@ -64,16 +103,21 @@ def take_over_state(text, auto_merge, dispatch_effort, review_effort, today):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('command', choices=['take-over'])
+    parser.add_argument('command', choices=['confirm', 'take-over'])
     parser.add_argument('card', type=Path)
+    parser.add_argument('--words', help="confirm: the user's words that confirmed the card")
     parser.add_argument('--auto-merge', action='store_true', help='grant merging to the new run')
     parser.add_argument('--effort', choices=LEVELS, help='set both steps to this level')
     parser.add_argument('--dispatch-effort', choices=LEVELS, help="set the dispatch's verification level")
     parser.add_argument('--review-effort', choices=LEVELS, help="set the review's level")
     args = parser.parse_args()
+    today = datetime.date.today().isoformat()
+    if args.command == 'confirm':
+        state_files.write_atomic(args.card, confirm(args.card.read_text(), args.words, host_sessions(), today))
+        return
     levels = (args.dispatch_effort or args.effort, args.review_effort or args.effort)
-    state_files.write_atomic(args.card, take_over(args.card.read_text(), args.auto_merge, *levels,
-                                                  datetime.date.today().isoformat()))
+    state_files.write_atomic(args.card, take_over(args.card.read_text(), args.auto_merge, *levels, today,
+                                                  host_sessions()))
 
 
 if __name__ == '__main__':

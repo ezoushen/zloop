@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Taking over an autopilot run card ends the old run's merge grant and keeps its terminal state as history."""
 import datetime
+import os
 import subprocess
 import sys
 import tempfile
@@ -30,24 +31,31 @@ evidence: abc123
 resume: `autopilot --take-over`
 """
 
+SESSIONS = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID', 'OPENCODE_SESSION_ID')
+
 
 class TakeOver(unittest.TestCase):
-    def take_over(self, *flags, card=CARD):
+    def take_over(self, *flags, card=CARD, sessions=None, code=0):
+        """Take over a copy of `card` from a shell exporting only `sessions` (default: Pi session host-2)."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         path = Path(tmp.name) / 'autopilot.md'
         path.write_text(card)
+        env = {key: value for key, value in os.environ.items() if key not in SESSIONS}
         result = subprocess.run([sys.executable, '-B', str(COMMAND), 'take-over', str(path), *flags],
-                                capture_output=True, text=True, timeout=20)
-        self.assertEqual(result.returncode, 0, result.stderr)
+                                capture_output=True, text=True, timeout=20,
+                                env=dict(env, **({'PI_SESSION_ID': 'host-2'} if sessions is None else sessions)))
+        self.assertEqual(result.returncode, code, result.stderr)
         return path.read_text()
 
     def test_a_take_over_grants_merging_only_with_its_own_flag_and_keeps_the_old_state_as_history(self):
-        # Rule: the merge grant lapses with the terminal state; the new run holds only what its take-over grants.
+        # Rule: the merge grant lapses with the terminal state; the new run holds only what its take-over grants, and
+        # it is the run of the session that took it over (card-confirm: the panel and the stop hold go by `session:`).
         today = datetime.date.today().isoformat()
         for flags, merge in (((), 'no'), (('--auto-merge',), 'yes')):
             text = self.take_over(*flags)
             self.assertEqual(text, CARD.replace('auto-merge: yes', f'auto-merge: {merge}')
+                             .replace('session: host-1', 'session: host-2')
                              .replace('terminal: merged', 'terminal:')
                              .replace('history: waiting-on-user 2026-10-24',
                                       f'history: waiting-on-user 2026-10-24; merged {today}'))
@@ -155,12 +163,82 @@ class TakeOver(unittest.TestCase):
     def test_a_card_that_never_ended_keeps_its_history_and_still_takes_its_grant_from_the_flag(self):
         open_card = CARD.replace('terminal: merged', 'terminal:').replace('history: waiting-on-user 2026-10-24', 'history:')
         text = self.take_over(card=open_card)
-        self.assertEqual(text, open_card.replace('auto-merge: yes', 'auto-merge: no'))
+        self.assertEqual(text, open_card.replace('auto-merge: yes', 'auto-merge: no').replace('session: host-1',
+                                                                                             'session: host-2'))
 
     def test_a_first_ended_state_starts_the_history(self):
         today = datetime.date.today().isoformat()
         first = CARD.replace('history: waiting-on-user 2026-10-24', 'history: <earlier terminal states>')
         self.assertIn(f'history: merged {today}\n', self.take_over(card=first))
+
+    def test_a_take_over_from_a_shell_with_no_host_session_is_refused(self):
+        # Rule (card-confirm): a run nobody can tie to a session has no panel and no stop hold.
+        self.assertEqual(self.take_over(sessions={}, code=1), CARD)
+
+
+DRAFT = """# run — autopilot run card
+
+## Goal
+Ship it. The user wrote:
+session: theirs, quoted, not this card's
+
+## State
+confirmed: no
+session: <the host's session ID where it exposes one in the environment, else unknown; never a path>
+auto-merge: no
+dispatch-effort: medium
+review-effort: high
+phase: refine
+terminal:
+history:
+evidence:
+timer:
+resume: `autopilot --take-over`
+"""
+UNNAMED = "session: <the host's session ID where it exposes one in the environment, else unknown; never a path>"
+
+
+
+class Confirm(unittest.TestCase):
+    def confirm(self, *args, card=DRAFT, sessions=None, code=0):
+        """Run `confirm` on a copy of `card` from a shell exporting only `sessions` (a SESSIONS name to its value);
+        the card's text after it, and what it printed to stderr."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / 'autopilot.md'
+        path.write_text(card)
+        env = {key: value for key, value in os.environ.items() if key not in SESSIONS}
+        result = subprocess.run([sys.executable, '-B', str(COMMAND), 'confirm', str(path), *args], capture_output=True,
+                                text=True, timeout=20, env=dict(env, **(sessions or {})))
+        self.assertEqual(result.returncode, code, result.stderr)
+        return path.read_text(), result.stderr
+
+    def test_confirming_writes_the_users_words_and_each_host_session_exported_here_and_nothing_else(self):
+        # Live (jose, Pi): a hand-written card named no session, so neither the panel nor the stop hold found its run.
+        today = datetime.date.today().isoformat()
+        confirmed = DRAFT.replace('confirmed: no', f'confirmed: {today} "go ahead, inline"')
+        text, _ = self.confirm('--words', 'go ahead, inline', sessions={'PI_SESSION_ID': 'pi-1'})
+        self.assertEqual(text, confirmed.replace(UNNAMED, 'session: pi-1'))
+        # A host started from another host's shell exports both, and the stop hook counts each.
+        text, _ = self.confirm('--words', 'go ahead, inline',
+                               sessions={'CODEX_SESSION_ID': 'codex-2', 'CLAUDE_CODE_SESSION_ID': 'claude-1'})
+        self.assertEqual(text, confirmed.replace(UNNAMED, 'session: claude-1, codex-2'))
+
+
+    def test_confirming_refuses_a_card_missing_a_state_line_empty_words_or_no_host_session(self):
+        # Live (jose, Pi): its State held only phase, terminal and history. The lines expected are the run-card format's.
+        run_card = COMMAND.resolve().parents[1] / 'skills/autopilot/run-card.md'
+        hand_written = '# maven-warp-closeout\n\n## Goal\nx\n\n## State\nphase: refine\nterminal:\nhistory:\n- 10:04 HOLD\n'
+        text, error = self.confirm('--words', 'go', card=hand_written, sessions={'PI_SESSION_ID': 'pi-1'}, code=1)
+        self.assertEqual((text, error.strip()), (hand_written, "the card's State lacks confirmed, session, auto-merge, "
+                         'dispatch-effort, review-effort, evidence, timer, resume: write each line of the run card\'s '
+                         f'State ({run_card}), then confirm'))
+        for words, sessions, refusal in (
+                (' ', {'PI_SESSION_ID': 'pi-1'}, "confirm takes --words: the user's words that confirmed this card"),
+                ('go', {}, 'no host session ID is exported here (CLAUDE_CODE_SESSION_ID, CODEX_SESSION_ID, PI_SESSION_ID, '
+                           'OPENCODE_SESSION_ID): confirm from the shell of the host session that runs this autopilot')):
+            with self.subTest(refusal=refusal):
+                self.assertEqual(self.confirm('--words', words, sessions=sessions, code=1), (DRAFT, refusal + '\n'))
 
 
 if __name__ == '__main__':

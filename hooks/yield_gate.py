@@ -344,7 +344,8 @@ def unfinished_runs(root, session):
     missing = []
     for path in sorted(root.glob('.scratch/*/autopilot.md')):
         state = card_state(path)
-        if (session and state.get('session') == session and state.get('confirmed', 'no') not in ('', 'no')
+        if (session and session in [part.strip() for part in state.get('session', '').split(',')]
+                and state.get('confirmed', 'no') not in ('', 'no')
                 and (state.get('terminal') not in TERMINAL_STATES or not state.get('evidence'))
                 and not awaited(path.with_name('reports') / 'workers.sqlite')):
             missing.append(f"{path}: this session's autopilot run has no terminal state or no evidence; record "

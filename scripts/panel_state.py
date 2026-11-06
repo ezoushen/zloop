@@ -41,9 +41,9 @@ def card_state(path):
 
 
 def claims(workstream):
-    """The session id a run card records, or None when it records none."""
+    """The session ids a run card records: each host session its confirming shell exported."""
     recorded = card_state(workstream / CARD).get('session', '')
-    return recorded if recorded and recorded != 'unknown' else None
+    return [part.strip() for part in recorded.split(',') if part.strip() not in ('', 'unknown')]
 
 
 def workstreams(repo):
@@ -299,7 +299,7 @@ def tied(repo, session_id):
     recorded = dict.fromkeys([
         *sorted((workstream for workstream in found if session_id in (bound_sessions(workstream) or [])), key=activity,
                 reverse=True),
-        *(workstream for workstream in found if claims(workstream) == session_id),
+        *(workstream for workstream in found if session_id in claims(workstream)),
         *(workstream for workstream in found if any(workstream.glob(f'decisions-{session_id}*.jsonl'))
           or any((workstream / 'reports').glob(f'decisions-{session_id}*.jsonl')))])
     yield from recorded

@@ -201,6 +201,14 @@ class PanelState(unittest.TestCase):
         self.assertEqual('alpha', self.snapshot('S')['workstream'])
         self.assertEqual('beta', self.snapshot('other')['workstream'])
 
+    def test_a_card_naming_several_sessions_is_each_ones(self):
+        # Rule (card-confirm): `confirm` names each host session the shell exports, so a host started from another
+        # host's shell finds its run by its own session.
+        card(self.scratch / 'beta' / 'autopilot.md', session='outer, S')
+        self.assertEqual(('beta', True), (self.snapshot('S')['workstream'], self.snapshot('S')['active']))
+        self.assertEqual('beta', self.snapshot('outer')['workstream'])
+        self.assertFalse(self.snapshot('outer, S')['active'])
+
     def test_a_workstream_claimed_by_another_session_is_not_shown(self):
         card(self.scratch / 'beta' / 'autopilot.md', session='other')
         self.assertFalse(self.snapshot('S')['active'])

@@ -13,6 +13,11 @@ with the levels its setup recorded, which equal the card's. `max` runs only when
 asks, an unknown flag or level value is refused, and so is a take-over of a card without
 the two lines or with a line that is not a level.
 
+Record the user's confirmation from the shell of the session running the autopilot, with
+`python3 "<plugin_root>/scripts/autopilot_card.py" confirm <card> --words "<the user's words>"`: it writes
+`confirmed:` and `session:`, which the panel and the stop hook go by, and refuses a card whose State lacks a
+line below. A take-over names its own session on `session:` the same way.
+
 ```markdown
 # <slug> — autopilot run card
 
@@ -42,7 +47,7 @@ Decisions made without the user are rows in `.scratch/<slug>/ledger.md`; open on
 
 ## State
 confirmed: no | <date> "<the user's words>"
-session: <the host's session ID where it exposes one in the environment, else unknown; never a path>
+session: <written by `autopilot_card.py confirm` and `take-over`: each host session ID their shell exports>
 auto-merge: no | yes
 dispatch-effort: medium
 review-effort: high

@@ -48,7 +48,7 @@ Then autopilot writes the [run card](run-card.md) to `.scratch/<slug>/autopilot.
 it, and asks the user to confirm it once.
 The card, ledger and reports are workflow state: a principle about the project's files never keeps them out of `.scratch/`.
 No phase after align starts before that confirmation; silence or an unrelated reply is
-not one. Record the confirmation on the card, with the user's words. Waiting for this confirmation is not a terminal state: `terminal:` stays empty.
+not one. Record the confirmation on the card by its `confirm` command. Waiting for this confirmation is not a terminal state: `terminal:` stays empty.
 The confirmed card authorizes every action it grants, and stands for the user's check of newly cut and split tickets.
 
 ## Run
