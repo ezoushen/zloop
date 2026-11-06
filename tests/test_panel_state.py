@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 import support
 
@@ -280,6 +281,8 @@ class PanelState(unittest.TestCase):
         ticket(issues / '02-b.md', 'demo/02', status='implementing', worker='inline')
         ticket(issues / '03-c.md', 'demo/03', status='done')
         ticket(issues / '04-d.md', 'demo/04', blocked_by='demo/01, demo/02, demo/03')
+        # Review (Codex): another workstream's ready ticket is not this one's next.
+        ticket(self.scratch / 'alpha' / 'issues' / '01-a.md', 'alpha/01')
         self.assertEqual([], self.row_texts(self.snapshot(), 'next'))
         ticket(issues / '05-e.md', 'demo/05', blocked_by='demo/03')
         self.assertEqual(['next: demo/05'], self.row_texts(self.snapshot(), 'next'))
@@ -325,6 +328,55 @@ class PanelState(unittest.TestCase):
         ticket(issues / '02-b.md', 'demo/02', status='done')
         card(workstream / 'autopilot.md', terminal='merged')
         self.assertFalse(self.snapshot()['active'])
+        # Review (Codex): a problem is this workstream's wherever one of its tickets appears in it, as in a cycle, and
+        # another workstream whose name ends in this one's is not this one.
+        ticket(issues / '02-b.md', 'demo/02', status='done', blocked_by='demo/02')
+        self.assertEqual(['board fails its check: ticket dependency cycle: demo/02 -> demo/02 (+1 more)'],
+                         self.row_texts(self.snapshot(), 'blocker'))
+        ticket(issues / '02-b.md', 'demo/02', status='done')
+        ticket(self.scratch / 'alpha' / 'issues' / '01-a.md', 'alpha/01', status='done')
+        ticket(self.scratch / 'warp-demo' / 'issues' / '01-a.md', 'warp-demo/01', status='done', accepted=False)
+        self.assertFalse(self.snapshot()['active'])
+
+    def test_a_board_the_scheduler_cannot_read_still_leaves_the_panel_its_rows(self):
+        # Review (Codex): a status written as a list on another workstream's ticket, or a prerequisite workstream whose
+        # worker state lost its tables, raised out of the snapshot and erased the whole panel.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        issues = self.scratch / 'demo' / 'issues'
+        ticket(issues / '01-a.md', 'demo/01', blocked_by='base/01')
+        ticket(self.scratch / 'base' / 'issues' / '01-a.md', 'base/01', status='[done]')
+        statuses = "['blocked', 'done', 'fixing', 'implementing', 'ready', 'reviewing', 'verifying']"
+        self.assertEqual([row['text'] for row in self.snapshot()['rows']], [
+            'demo · dispatch', f"board fails its check: base/01: status ['done'] is not one of {statuses}",
+            '1 ticket · 0 done · 0 blocked · 1 ready · 0 live'])
+        ticket(self.scratch / 'base' / 'issues' / '01-a.md', 'base/01', status='done')
+        reports = self.scratch / 'base' / 'reports'
+        reports.mkdir(parents=True)
+        (reports / 'spec-review.md').write_text('---\nreview_status: clean\ndocumentation_status: passed\n'
+                                                'e2e_status: passed\nreview_by: review/base/1\ne2e_by: e2e/base/1\n---\n')
+        sqlite3.connect(reports / 'workers.sqlite').close()  # A state file with no tables.
+        self.assertEqual([row['text'] for row in self.snapshot()['rows']], [
+            'demo · dispatch', 'next: unknown, the board cannot tell: no such table: attempts',
+            '1 ticket · 0 done · 0 blocked · 1 ready · 0 live'])
+
+    def test_the_next_row_asks_about_another_workstreams_blocker_once_however_many_tickets_wait_on_it(self):
+        # Review (Codex): the panel refreshes every two seconds, and each ready ticket behind the same other workstream's
+        # blocker asked git about that workstream again: 64 such tickets took ten seconds, past the hosts' read timeout.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        ticket(self.scratch / 'base' / 'issues' / '01-a.md', 'base/01', status='done')
+        reports = self.scratch / 'base' / 'reports'
+        reports.mkdir(parents=True)
+        (reports / 'spec-review.md').write_text('---\nworkstream_branch: feat/base\nreview_status: findings\n---\n')
+
+        def git_calls(waiting):
+            for n in range(1, waiting + 1):
+                ticket(self.scratch / 'demo' / 'issues' / f'{n:02}-t.md', f'demo/{n:02}', blocked_by='base/01')
+            with patch('subprocess.run', wraps=subprocess.run) as run:  # git is the process boundary.
+                self.assertEqual([], self.row_texts(self.snapshot(), 'next'))
+            return sum(1 for call in run.call_args_list if call.args and call.args[0][0] == 'git')
+        few = git_calls(2)
+        self.assertGreater(few, 0)
+        self.assertEqual(few, git_calls(12))
 
     def test_the_strip_names_the_workstream_its_state_and_its_next_step(self):
         card(self.scratch / 'demo' / 'autopilot.md')

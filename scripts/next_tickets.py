@@ -114,7 +114,7 @@ def problems(tickets, accepting=False):
     """What makes the board invalid, [] when nothing does. A done ticket needs its acceptance, except while `--accept`
     runs (`accepting`): it gives those tickets their acceptance, one at a time."""
     bad = [f"{t}: status {fm.get('status')!r} is not one of {sorted(STATUSES)}"
-           for t, fm in tickets.items() if fm.get('status') not in STATUSES]
+           for t, fm in tickets.items() if not isinstance(fm.get('status'), str) or fm['status'] not in STATUSES]
     bad += [f"{t}: status done with no acceptance; accept it with --accept {t}, or --accept {t} --pr <url> when PRs "
             f"delivered it, or --accept {t} --run <url> when a successful CI run proves it" for t, fm in tickets.items()
             if fm.get('status') == 'done' and not accepting and not accepted(fm)]
@@ -352,17 +352,25 @@ def check_run_problems(logs, head):
     return problems
 
 
-def unblocked(tickets, name):
-    """Whether the ticket's blockers let it start: each done, and one of another workstream also integrated."""
+def unblocked(tickets, name, known):
+    """Whether the ticket's blockers let it start: each done, and one of another workstream also integrated. `known`
+    keeps each integration verdict for the caller's pass over the board: it depends only on the two workstreams."""
     blockers = tickets[name].get("blocked_by", [])
-    return all(tickets[d]["status"] in TERMINAL for d in blockers) and all(
-        integrated(tickets, name, d) for d in blockers)
+    if not all(tickets[d]["status"] in TERMINAL for d in blockers):
+        return False
+    for dependency in blockers:
+        pair = (spec_of(dependency), spec_of(name))
+        if pair not in known:
+            known[pair] = integrated(tickets, name, dependency)
+        if not known[pair]:
+            return False
+    return True
 
 
 def ready(tickets, slug=None, max_live=MAX_LIVE):
     live = [fm for fm in tickets.values() if fm["status"] in LIVE]
     busy_areas = {a for fm in live for a in fm.get("touches", [])}
-    out = []
+    out, known = [], {}
     order = sorted(tickets, key=lambda n: (PRIORITY.index(n.split("/")[0]) if n.split("/")[0] in PRIORITY else 99, n))
     for name in order:
         if len(live) + len(out) >= max_live:
@@ -370,7 +378,7 @@ def ready(tickets, slug=None, max_live=MAX_LIVE):
         fm = tickets[name]
         if fm["status"] != "ready" or (slug and spec_of(name) != slug):
             continue
-        if not unblocked(tickets, name):
+        if not unblocked(tickets, name, known):
             continue
         if busy_areas & set(fm.get("touches", [])):
             continue

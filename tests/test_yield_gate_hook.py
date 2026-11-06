@@ -2761,6 +2761,29 @@ class AutopilotCardHold(GateRepo):
         self.card(terminal='merged', evidence='PR 1 merged', phase='pr')
         self.assertEqual(self.check(session='host-1'), [])
 
+    def test_a_delivery_check_that_dies_without_a_word_still_holds_the_stop(self):
+        # Review (Codex): `--delivery` killed with no output (SIGKILL, out of memory) left nothing to name, so the stop
+        # passed; a check that did not pass holds it, saying how it ended.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('yield_gate_killed', HOOK)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        issues = self.repo / '.scratch/run/issues'
+        issues.mkdir(parents=True)
+        (issues / '01-task.md').write_text('---\nticket: run/01\nstatus: ready\nblocked_by: []\ntouches: []\ndevices: []\n---\n')
+        path = self.card(terminal='merged', evidence='PR 1 merged', phase='pr')
+        real = subprocess.run
+
+        def run(argv, *args, **kwargs):  # The process boundary: only the delivery check dies.
+            if '--delivery' in argv:
+                return subprocess.CompletedProcess(argv, -9, '', '')
+            return real(argv, *args, **kwargs)
+        with patch.object(gate.subprocess, 'run', run):
+            self.assertEqual(gate.unfinished_runs(self.repo, 'host-1'), [
+                f"{path}: this session's autopilot run records `terminal: merged` while its local board fails "
+                "--delivery: --delivery exited -9 with no output; finish what it names, or record the terminal state "
+                "that fits"])
+
     def test_a_live_worker_with_a_running_wait_lets_the_run_yield_but_a_lost_one_does_not(self):
         # Rule: a yield while a worker of the card's workstream holds a running wait that will wake the host is not an end;
         # the card hold applies again once the wait is lost.

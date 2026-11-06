@@ -375,7 +375,8 @@ def delivery_gaps(root, path, state):
     try:
         result = subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/next_tickets.py'), '--repo', str(root), slug,
                                  '--delivery'], capture_output=True, text=True, timeout=60)
-        problems = (result.stderr or result.stdout).strip().splitlines() if result.returncode else []
+        problems = ((result.stderr or result.stdout).strip().splitlines()
+                    or [f'--delivery exited {result.returncode} with no output']) if result.returncode else []
     except subprocess.TimeoutExpired:
         problems = ['--delivery gave no answer within 60 seconds']
     if not problems:

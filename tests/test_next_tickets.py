@@ -360,7 +360,9 @@ class BoardCLI(unittest.TestCase):
                     self.assertIn(f'fx/01: {url} {problem}' if problem != 'gh cannot read' else f'fx/01: gh cannot read {url}',
                                   refused.stderr)
             # Only a run's own URL is evidence: not a number, a PR, a job inside a run or a second line.
-            for value in ('42', pr, f'{ok}/job/7', f'{ok}\nstatus: done'):
+            # Review (Codex): the run's id is a number, so no flag reaches gh in its place.
+            for value in ('42', pr, f'{ok}/job/7', f'{ok}\nstatus: done', 'https://github.com/o/jose/actions/runs/--help',
+                          'https://github.com/o/jose/actions/runs/abc'):
                 with self.subTest(value=value):
                     self.cli('fx', '--accept', 'fx/01', f'--run={value}', code=2)
             self.assertNotIn('delivered_by', path.read_text())

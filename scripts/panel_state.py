@@ -3,6 +3,7 @@
 import argparse
 import json
 from pathlib import Path
+import re
 import sqlite3
 import subprocess
 import sys
@@ -92,7 +93,8 @@ def blocker_row(workstream, state, found_tickets, scheduled):
             text = f'{text} (resumes {timer.split()[0]})'
         return {'kind': 'blocker', 'text': text}
     problems = scheduled[1]
-    own = [problem for problem in problems if problem.startswith(f'{workstream.name}/')]
+    # This workstream's: one of its tickets, or its folder, appears in it (a cycle, a path); `warp-demo/` is not `demo/`.
+    own = [problem for problem in problems if re.search(rf'(?<![a-z0-9-]){re.escape(workstream.name)}/', problem)]
     if own or (problems and any(fields.get('status') != 'done' for _, fields in found_tickets)):
         more = f' (+{len(problems) - 1} more)' if len(problems) > 1 else ''
         return {'kind': 'blocker', 'text': f'board fails its check: {(own or problems)[0]}{more}'}
@@ -131,11 +133,13 @@ def next_row(workstream, state, draft, scheduled):
     board, problems = scheduled
     if problems:
         return None
-    ready = [name for name in sorted(board) if next_tickets.spec_of(name) == workstream.name
-             and board[name].get('status') == 'ready' and next_tickets.unblocked(board, name)]
-    if ready:
-        return {'kind': 'next', 'text': f'next: {ready[0]}'}
-    return None
+    known = {}
+    try:
+        first = next((name for name in sorted(board) if next_tickets.spec_of(name) == workstream.name
+                      and board[name].get('status') == 'ready' and next_tickets.unblocked(board, name, known)), None)
+    except (sqlite3.DatabaseError, OSError, ValueError) as error:  # A prerequisite's state it cannot read.
+        return {'kind': 'next', 'text': f'next: unknown, the board cannot tell: {error}'}
+    return {'kind': 'next', 'text': f'next: {first}'} if first else None
 
 
 def board_of(repo):
