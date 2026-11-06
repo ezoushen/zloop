@@ -1562,6 +1562,18 @@ class BoardCLI(unittest.TestCase):
         review.write_text(unreviewed.replace(head, start))
         self.cli('onmain', '--delivery', code=1)
 
+    def test_a_ticket_behind_two_other_workstreams_waits_for_both_to_integrate(self):
+        # Review (Sonnet): a pass keeps one integration verdict per pair of workstreams; keyed by the waiting
+        # workstream alone, the first blocker's verdict stood for the second's.
+        self.write_ticket('onmain/01', 'done')
+        self.write_ticket('other/01', 'done')
+        self.write_ticket('later/01', blocked='onmain/01, other/01', touches='docs')
+        self.write_ticket('later/02', blocked='onmain/01', touches='tests')
+        start = self.commit('start')
+        head = self.commit('ticket work on main')
+        self.deliver('onmain', 'main', start, head)
+        assert self.ready_names('later') == ['later/02']
+
     def merged_on_remote(self, slug, on_remote=True):
         """A workstream whose branch is deleted, reviewed and E2E passed at the head of feat/<slug>, which a bare remote's
         main holds (when on_remote) while local main stays at the start and has never fetched."""

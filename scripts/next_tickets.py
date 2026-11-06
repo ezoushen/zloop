@@ -53,11 +53,7 @@ PR_URL = re.compile(r"https://[^/\s]+/[^/\s]+/[^/\s]+/pull/[0-9]+")  # A pull re
 RUN_URL = re.compile(r"https://([^/\s]+/[^/\s]+/[^/\s]+)/actions/runs/([0-9]+)")  # A CI run, by its own address.
 TERMINAL = {"done"}
 STATUSES = {"ready", "blocked"} | LIVE | TERMINAL
-try:
-    MAX_LIVE = int(os.environ.get("MAX_LIVE", "8"))
-    assert MAX_LIVE >= 1
-except (ValueError, AssertionError):
-    sys.exit(f"MAX_LIVE must be a positive integer, got {os.environ.get('MAX_LIVE')!r}")
+MAX_LIVE = 8  # Tickets live at once, unless --max-live or MAX_LIVE in the environment says otherwise (main checks it).
 # Critical path first. TICKET_PRIORITY=spec-a,spec-b names the specs to drain first; default is name order.
 PRIORITY = [s for s in os.environ.get("TICKET_PRIORITY", "").split(",") if s]
 MEASURE_TIMEOUT = 600  # seconds a measurement command may run unless its entry sets timeout_seconds
@@ -108,6 +104,12 @@ def check(tickets, accepting=False):
     for line in bad:
         print(line, file=sys.stderr)
     return not bad
+
+
+def concerns(problem, slug):
+    """Whether a check problem is the workstream's: one of its tickets, or its folder, appears in it (a cycle, a path);
+    `warp-demo/` is not `demo/`."""
+    return bool(re.search(rf"(?<![a-z0-9-]){re.escape(slug)}/", problem))
 
 
 def problems(tickets, accepting=False):
@@ -1013,7 +1015,7 @@ def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", type=Path, required=True, help="absolute main checkout path")
     parser.add_argument("slug", nargs="?", help="only this workstream; locks still include the whole board")
-    parser.add_argument("--max-live", type=int, default=MAX_LIVE)
+    parser.add_argument("--max-live", type=int)
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument("--check", action="store_true")
     actions.add_argument("--board", action="store_true")
@@ -1040,6 +1042,12 @@ def main(argv):
         parser.error("--pr takes a pull request's URL: https://<host>/<owner>/<repo>/pull/<number>")
     if not all(RUN_URL.fullmatch(url) for url in args.run):
         parser.error("--run takes a CI run's URL: https://<host>/<owner>/<repo>/actions/runs/<number>")
+    if args.max_live is None:
+        try:
+            args.max_live = int(os.environ.get("MAX_LIVE", MAX_LIVE))
+            assert args.max_live >= 1
+        except (ValueError, AssertionError):
+            parser.error(f"MAX_LIVE must be a positive integer, got {os.environ.get('MAX_LIVE')!r}")
     if args.max_live < 1:
         parser.error("--max-live must be positive")
     if args.slug and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", args.slug):

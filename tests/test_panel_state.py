@@ -184,6 +184,30 @@ class PanelState(unittest.TestCase):
         self.assertIn('paused-by-user', blockers[0])
         self.assertNotIn('no approval', blockers[0])
 
+    def test_a_scheduler_setting_the_panel_does_not_use_cannot_silence_it(self):
+        # Review (Sonnet): the panel imports the scheduler, which exited at import on a MAX_LIVE it refuses, so the panel
+        # printed nothing; the scheduler still refuses it where it schedules.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01')
+        for value in ('0', 'abc'):
+            with self.subTest(value=value):
+                env = dict(os.environ, MAX_LIVE=value)
+                result = subprocess.run([sys.executable, '-B', str(support.script('panel_state.py')), '--repo',
+                                         str(self.repo), '--session-id', 'S'], capture_output=True, text=True, env=env)
+                self.assertEqual((result.returncode, result.stdout), (0, 'demo · dispatch\nnext: demo/01\n'
+                                                                      '1 ticket · 0 done · 0 blocked · 1 ready · 0 live\n'))
+                refused = subprocess.run([sys.executable, '-B', str(support.script('next_tickets.py')), '--repo',
+                                          str(self.repo), 'demo'], capture_output=True, text=True, env=env)
+                self.assertEqual((refused.returncode, refused.stderr.strip().splitlines()[-1]),
+                                 (2, f'next_tickets.py: error: MAX_LIVE must be a positive integer, got {value!r}'))
+        # A valid one still caps what the scheduler starts.
+        subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
+        second = ticket(self.scratch / 'demo' / 'issues' / '02-b.md', 'demo/02')
+        second.write_text(second.read_text().replace('touches: [scripts]', 'touches: [docs]'))
+        started = subprocess.run([sys.executable, '-B', str(support.script('next_tickets.py')), '--repo', str(self.repo),
+                                  'demo'], capture_output=True, text=True, env=dict(os.environ, MAX_LIVE='1'))
+        self.assertEqual([found['ticket'] for found in json.loads(started.stdout)], ['demo/01'])
+
     def test_an_unreadable_state_file_degrades_to_the_card(self):
         card(self.scratch / 'demo' / 'autopilot.md')
         broken = self.scratch / 'demo' / 'reports' / 'workers.sqlite'
@@ -356,8 +380,23 @@ class PanelState(unittest.TestCase):
                                                 'e2e_status: passed\nreview_by: review/base/1\ne2e_by: e2e/base/1\n---\n')
         sqlite3.connect(reports / 'workers.sqlite').close()  # A state file with no tables.
         self.assertEqual([row['text'] for row in self.snapshot()['rows']], [
-            'demo · dispatch', 'next: unknown, the board cannot tell: no such table: attempts',
+            'demo · dispatch', 'next: unknown, the board cannot tell: OperationalError: no such table: attempts',
             '1 ticket · 0 done · 0 blocked · 1 ready · 0 live'])
+        # Review (Sonnet): whatever the scheduler raises on the way, the panel says it and keeps its rows: a recorded
+        # attempt that is no record, a ticket id written as a list, a ticket the board refuses outright.
+        db = sqlite3.connect(reports / 'workers.sqlite')
+        db.execute('CREATE TABLE attempts (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
+        db.execute("INSERT INTO attempts VALUES ('review/base/1', 'null')")
+        db.commit()
+        db.close()
+        self.assertEqual(self.row_texts(self.snapshot(), 'next'), [
+            "next: unknown, the board cannot tell: AttributeError: 'NoneType' object has no attribute 'get'"])
+        listed = ticket(self.scratch / 'base' / 'issues' / '01-a.md', '[base/01]', status='done')
+        self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), [
+            "board fails its check: the board cannot be read: TypeError: expected string or bytes-like object, got 'list'"])
+        ticket(listed, 'base/one', status='done')
+        self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), [
+            f"board fails its check: {listed}: invalid ticket id 'base/one'"])
 
     def test_the_next_row_asks_about_another_workstreams_blocker_once_however_many_tickets_wait_on_it(self):
         # Review (Codex): the panel refreshes every two seconds, and each ready ticket behind the same other workstream's
@@ -677,6 +716,12 @@ class PanelState(unittest.TestCase):
                        check=True)
         found = PANEL.snapshot(worktree, 'S', time.time())
         self.assertEqual('demo', found['workstream'])
+        # Review (Sonnet): the board the panel checks is the main checkout's too.
+        ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='done', accepted=False)
+        self.assertEqual(self.row_texts(PANEL.snapshot(worktree, 'S', time.time()), 'blocker'), [
+            'board fails its check: demo/01: status done with no acceptance; accept it with --accept demo/01, or '
+            '--accept demo/01 --pr <url> when PRs delivered it, or --accept demo/01 --run <url> when a successful CI '
+            'run proves it'])
 
     def test_an_allowance_pause_names_the_card_timers_resume(self):
         card(self.scratch / 'demo' / 'autopilot.md', terminal='paused-allowance')

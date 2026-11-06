@@ -3,7 +3,6 @@
 import argparse
 import json
 from pathlib import Path
-import re
 import sqlite3
 import subprocess
 import sys
@@ -93,8 +92,7 @@ def blocker_row(workstream, state, found_tickets, scheduled):
             text = f'{text} (resumes {timer.split()[0]})'
         return {'kind': 'blocker', 'text': text}
     problems = scheduled[1]
-    # This workstream's: one of its tickets, or its folder, appears in it (a cycle, a path); `warp-demo/` is not `demo/`.
-    own = [problem for problem in problems if re.search(rf'(?<![a-z0-9-]){re.escape(workstream.name)}/', problem)]
+    own = [problem for problem in problems if next_tickets.concerns(problem, workstream.name)]
     if own or (problems and any(fields.get('status') != 'done' for _, fields in found_tickets)):
         more = f' (+{len(problems) - 1} more)' if len(problems) > 1 else ''
         return {'kind': 'blocker', 'text': f'board fails its check: {(own or problems)[0]}{more}'}
@@ -137,8 +135,8 @@ def next_row(workstream, state, draft, scheduled):
     try:
         first = next((name for name in sorted(board) if next_tickets.spec_of(name) == workstream.name
                       and board[name].get('status') == 'ready' and next_tickets.unblocked(board, name, known)), None)
-    except (sqlite3.DatabaseError, OSError, ValueError) as error:  # A prerequisite's state it cannot read.
-        return {'kind': 'next', 'text': f'next: unknown, the board cannot tell: {error}'}
+    except Exception as error:  # A prerequisite's state it cannot read: say so, and keep the other rows.
+        return {'kind': 'next', 'text': f'next: unknown, the board cannot tell: {type(error).__name__}: {error}'}
     return {'kind': 'next', 'text': f'next: {first}'} if first else None
 
 
@@ -147,11 +145,11 @@ def board_of(repo):
     next_tickets.ROOT, next_tickets.ISSUES = repo, repo / SCRATCH
     try:
         board = next_tickets.load()
-    except SystemExit as refusal:
+        return board, next_tickets.problems(board)
+    except SystemExit as refusal:  # load() names a ticket it refuses.
         return {}, [str(refusal.code)]
-    except (OSError, ValueError) as error:
-        return {}, [f'the board cannot be read: {error}']
-    return board, next_tickets.problems(board)
+    except Exception as error:  # A board it cannot read: say so, and keep the other rows.
+        return {}, [f'the board cannot be read: {type(error).__name__}: {error}']
 
 
 def counts_row(found_tickets):

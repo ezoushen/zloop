@@ -69,7 +69,7 @@ BINDING = 'orchestrator.json'
 # The states skills/autopilot/run-card.md lets a run end in.
 TERMINAL_STATES = ('delivered', 'delivered-local', 'merged', 'waiting-on-user', 'paused-allowance', 'paused-by-user',
                    'blocked')
-# The ones that claim the work delivered: a local board must pass `next_tickets.py --delivery` for them.
+# The ones that claim the work delivered: the card's workstream must be delivered on its local board.
 DELIVERED = ('delivered', 'delivered-local', 'merged')
 
 
@@ -365,24 +365,37 @@ def board_gaps(root, path, state):
 
 
 def delivery_gaps(root, path, state):
-    """What holds a run card that records a delivered terminal state on a local board: a board with no tickets, or
-    what its `--delivery` names."""
-    terminal, slug = state['terminal'], path.parent.name
-    if not script('autopilot_card').ticket_files(path.parent / 'issues'):
+    """What holds a run card that records a delivered terminal state: a board neither `local` nor a tracker's URL, a
+    local board with no tickets, or what keeps its workstream from delivered: its own check problems, its tickets not
+    done and the evidence `next_tickets.py --delivery` judges, unless it finished (its branch deleted after the merge,
+    its reviewed heads in main). Another workstream's problems are not this run's to fix."""
+    terminal, slug, board = state['terminal'], path.parent.name, state.get('board', '')
+    cards = script('autopilot_card')
+    if cards.tracker_url(board):
+        return []
+    if board != 'local':
+        return [f"{path}: this session's autopilot run records `terminal: {terminal}` with no board: write `board: local` "
+                "or the tracker's URL in the card's State"]
+    if not cards.ticket_files(path.parent / 'issues'):
         new = shlex.join(['python3', str(ROOT / 'scripts/next_tickets.py'), '--repo', str(root), slug, '--new', '<title>'])
         return [f"{path}: this session's autopilot run records `terminal: {terminal}` while its local board has no "
                 f"tickets: write each with `{new}`, or record the terminal state that fits"]
     try:
-        result = subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/next_tickets.py'), '--repo', str(root), slug,
-                                 '--delivery'], capture_output=True, text=True, timeout=60)
-        problems = ((result.stderr or result.stdout).strip().splitlines()
-                    or [f'--delivery exited {result.returncode} with no output']) if result.returncode else []
-    except subprocess.TimeoutExpired:
-        problems = ['--delivery gave no answer within 60 seconds']
+        module = script('next_tickets')
+        module.ROOT, module.ISSUES = root, root / '.scratch'
+        tickets = module.load()  # load() exits on a board it refuses.
+        problems = [problem for problem in module.problems(tickets) if module.concerns(problem, slug)]
+        undone = [f"{name} ({fm.get('status')})" for name, fm in tickets.items()
+                  if module.spec_of(name) == slug and fm.get('status') != 'done']
+        problems += [f"tickets not done: {', '.join(undone)}"] if undone else []
+        if not module.finished(slug):
+            problems += module.delivery_problems(slug)
+    except (Exception, SystemExit) as error:  # A check that cannot run is a named gap, never a pass.
+        problems = [f'it cannot be checked: {error}']
     if not problems:
         return []
-    return [f"{path}: this session's autopilot run records `terminal: {terminal}` while its local board fails "
-            f"--delivery: {'; '.join(problems)}; finish what it names, or record the terminal state that fits"]
+    return [f"{path}: this session's autopilot run records `terminal: {terminal}` while its workstream is not delivered: "
+            f"{'; '.join(problems)}; finish what it names, or record the terminal state that fits"]
 
 
 def unfinished_runs(root, session):
@@ -396,7 +409,7 @@ def unfinished_runs(root, session):
                 and state.get('confirmed', 'no') not in ('', 'no')):
             continue
         if state.get('terminal') in TERMINAL_STATES and state.get('evidence'):
-            if state['terminal'] in DELIVERED and state.get('board') == 'local':
+            if state['terminal'] in DELIVERED:
                 missing += delivery_gaps(root, path, state)
             continue
         missing += board_gaps(root, path, state)

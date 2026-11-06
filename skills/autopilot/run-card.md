@@ -19,8 +19,9 @@ Record the user's confirmation from the shell of the session running the autopil
 line below. A take-over names its own session on `session:` the same way. Set `phase:` with
 `autopilot_card.py phase <card> <align|refine|dispatch|pr>`: dispatch and pr need the tickets of the board on
 `board:`, `local` ticket files that pass `next_tickets.py --check`, or a tracker's URL. A card that records
-`delivered`, `delivered-local` or `merged` on a `local` board holds the stop until that board passes
-`next_tickets.py <slug> --delivery`.
+`delivered`, `delivered-local` or `merged` names its board, and on a `local` one holds the stop until its workstream is
+delivered: its own tickets done and passing the check, and the evidence `next_tickets.py <slug> --delivery` judges, or
+its branch deleted after the merge with its reviewed heads in main.
 
 ```markdown
 # <slug> — autopilot run card

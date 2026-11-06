@@ -41,7 +41,8 @@ assignments whose result completed; a job with a plan (`worker_lifecycle.py plan
 assignments, over the plan's size, even before its first worker. The failed check is this workstream's blocker when a
 problem names one of its tickets, or it has a ticket not done, since the scheduler then starts nothing: it shows the
 first problem, this workstream's first, with `(+N more)`. The next step is the first ready ticket whose blockers the
-board counts as met (each done, and one of another workstream integrated), none while the check fails.
+board counts as met (each done, and one of another workstream integrated), none while the check fails. A board the
+scheduler cannot read is said so in the row it would have supplied, and the other rows stay.
 Each host tones a row by its kind — after truncation, so the words stay identical and styling cannot widen a line —
 and a run row keeps the default style:
 
