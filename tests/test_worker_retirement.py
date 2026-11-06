@@ -440,6 +440,44 @@ class Retirement(WorkerLifecycleCase):
                     (self.root / 'native-closed').write_text('closed\n')
                 self.record('closed', attempt, evidence=['pane-1 holds no worker'], acceptance=deferred)
 
+    def test_a_herdr_worker_its_pane_holds_with_a_conversation_it_cannot_compare_is_not_recorded_closed(self):
+        # Codex review: Herdr names a Pi worker's conversation by its session record's path, which an attempt with no
+        # startup record cannot compare; the pane may hold this very worker, so only closing that pane ends it.
+        self.herdr_fixture(session_kind='path')
+        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
+        report = self.root / 'report.md'
+        report.write_text('Blocked before its first answer\n')
+        self.record('result', status='blocked', head='head-1', report=str(report), evidence=['worker never answered'])
+        self.acknowledge()
+        self.herdr_fixture(session_kind='path', pane_session='/sessions/pi-worker.jsonl')
+        deferred = {'decision': 'deferred', 'reason': 'acceptance checks pending'}
+        error = self.record('closed', code=2, evidence=['pane closed'], acceptance=deferred)
+        self.assertEqual(error.strip(), 'Herdr pane pane-1 in tab tab-1 holds a conversation '
+                         "(/sessions/pi-worker.jsonl) this attempt cannot tell from its own: once you have checked it is "
+                         "this attempt's worker, close it with `herdr --session fixture-session pane close pane-1`, then "
+                         'record the closure')
+        self.assertNotIn('closed', self.cli('status')['attempts'][0])
+
+    def test_a_closure_by_hand_meets_the_lifecycle_s_own_refusals_before_herdr_is_asked(self):
+        # Sonnet review: an uncollected worker, or a user's own, is refused for that, not sent to retire, which refuses it.
+        for owned, worker, refusal in ((True, 'builder-1', 'lacks a collected result'),
+                                       (False, 'pane-1', 'Existing user worker is not a cleanup target')):
+            with self.subTest(owned=owned):
+                attempt, session = f'ticket-{int(owned)}/1', f'native-{int(owned)}'
+                self.herdr_fixture(native_session=session)
+                self.register(attempt, f'ticket-{int(owned)}', session=session, worker=worker, owned=owned,
+                              herdr={'session': 'fixture-session'})
+                if not owned:
+                    self.ready(attempt)
+                    self.collect(attempt)
+                    self.acknowledge()
+                self.herdr_fixture(native_session=session, pane_session=session)
+                log = self.root / 'herdr-argv.log'
+                asked = len(log.read_text().splitlines())
+                error = self.record('closed', attempt, code=2, evidence=['pane closed'])
+                self.assertIn(refusal, error)
+                self.assertEqual(log.read_text().splitlines()[asked:], [])
+
     def test_a_herdr_worker_is_not_recorded_closed_while_herdr_cannot_say_where_it_is(self):
         # Neither a Herdr that does not answer nor one that answers with an error tells that the worker has ended.
         self.herdr_fixture()

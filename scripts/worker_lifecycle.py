@@ -1763,7 +1763,7 @@ def require_ended(db, attempt):
     retire ends it, by closing that pane."""
     saved = get(db, attempt)
     placed = saved.get('herdr')
-    if not placed:
+    if not (placed and saved['owned'] and saved.get('result')):  # Else the lifecycle's own refusal comes first.
         return
     pane, script, state = placed['pane_id'], shlex.quote(str(Path(__file__).resolve())), shlex.quote(state_path(db))
     retire = f'`python3 {script} retire --state {state} --attempt {attempt} --input <request>`'
@@ -1776,8 +1776,14 @@ def require_ended(db, attempt):
         unknown = str(failure)
     require(not unknown, f"Herdr cannot confirm whether pane {pane} still holds this attempt's conversation "
                          f'({unknown}); record the closure once it does, or retire the worker with {retire}')
-    identity = ((response.get('result') or {}).get('pane') or {}).get('agent_session') if code == 0 else None
-    require(not (isinstance(identity, dict) and conversation_named(saved, identity)),
+    listed = ((response.get('result') or {}).get('pane') or {}) if code == 0 else {}
+    identity = listed.get('agent_session') if isinstance(listed.get('agent_session'), dict) else {}
+    named = '' if placed['session'] == socket_server() else f"--session {placed['session']} "
+    if listed.get('agent') and conversation_named(saved, identity) is None:
+        raise ValueError(f"Herdr pane {pane} in tab {placed['tab_id']} holds a conversation ({identity.get('value')}) "
+                         "this attempt cannot tell from its own: once you have checked it is this attempt's worker, "
+                         f'close it with `herdr {named}pane close {pane}`, then record the closure')
+    require(not (listed.get('agent') and conversation_named(saved, identity)),
             f"Herdr pane {pane} in tab {placed['tab_id']} still holds this attempt's conversation, so its worker has "
             f'not ended: retire it with {retire}, which closes that pane and records the closure')
 
