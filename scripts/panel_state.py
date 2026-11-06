@@ -10,6 +10,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_matter  # noqa: E402
+import next_tickets  # noqa: E402
 from worker_lifecycle import card_state, recorded_sessions  # noqa: E402
 
 SCRATCH = '.scratch'
@@ -113,17 +114,34 @@ def live_workstream(state, attempts, blocker, draft, found_tickets):
     return not state.get('terminal')
 
 
-def next_row(state, found_tickets, draft):
-    """The one step the person or the run takes next, or None when nothing follows."""
+def next_row(workstream, state, draft, scheduled):
+    """The one step the person or the run takes next, or None when nothing follows: a ready ticket of the workstream
+    whose blockers the board counts as met, none while the board fails its check."""
     if draft:
         return {'kind': 'next', 'text': 'awaiting your confirmation'}
     if state.get('terminal') in PAUSED:
         resume = state.get('resume', '')
         return {'kind': 'next', 'text': f'resume: {resume}' if resume else 'resume the run'}
-    ready = [fields.get('ticket') for _, fields in found_tickets if fields.get('status') == 'ready']
+    board, problems = scheduled
+    if problems:
+        return None
+    ready = [name for name in sorted(board) if next_tickets.spec_of(name) == workstream.name
+             and board[name].get('status') == 'ready' and next_tickets.unblocked(board, name)]
     if ready:
         return {'kind': 'next', 'text': f'next: {ready[0]}'}
     return None
+
+
+def board_of(repo):
+    """The checkout's local board as the scheduler reads it, with what its check refuses: (tickets, problems)."""
+    next_tickets.ROOT, next_tickets.ISSUES = repo, repo / SCRATCH
+    try:
+        board = next_tickets.load()
+    except SystemExit as refusal:
+        return {}, [str(refusal.code)]
+    except (OSError, ValueError) as error:
+        return {}, [f'the board cannot be read: {error}']
+    return board, next_tickets.problems(board)
 
 
 def counts_row(found_tickets):
@@ -323,7 +341,9 @@ def snapshot(repo, session_id, now):
     """What this session's workstream is doing, as the rows a host draws: the first live workstream tied to it, else
     the first tied one, quiet."""
     chosen = None
-    for workstream in tied(main_checkout(repo), session_id):
+    main = main_checkout(repo)
+    scheduled = board_of(main)
+    for workstream in tied(main, session_id):
         state = card_state(workstream / CARD)
         found_tickets = tickets(workstream)
         draft = is_draft(state) if state else False
@@ -358,7 +378,7 @@ def snapshot(repo, session_id, now):
         rows.append({'kind': 'more', 'text': f'+{len(hidden)} more'})
     if blocker:
         rows.append(blocker)
-    step = next_row(state, found_tickets, draft)
+    step = next_row(workstream, state, draft, scheduled)
     if step:
         rows.append(step)
     counts = counts_row(found_tickets) if found_tickets else done_row(workstream)

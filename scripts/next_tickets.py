@@ -103,8 +103,16 @@ def accepted(fm):
 
 
 def check(tickets, accepting=False):
-    """Print what makes the board invalid; whether it is valid. A done ticket needs its acceptance, except while
-    `--accept` runs (`accepting`): it gives those tickets their acceptance, one at a time."""
+    """Print what makes the board invalid; whether it is valid."""
+    bad = problems(tickets, accepting)
+    for line in bad:
+        print(line, file=sys.stderr)
+    return not bad
+
+
+def problems(tickets, accepting=False):
+    """What makes the board invalid, [] when nothing does. A done ticket needs its acceptance, except while `--accept`
+    runs (`accepting`): it gives those tickets their acceptance, one at a time."""
     bad = [f"{t}: status {fm.get('status')!r} is not one of {sorted(STATUSES)}"
            for t, fm in tickets.items() if fm.get('status') not in STATUSES]
     bad += [f"{t}: status done with no acceptance; accept it with --accept {t}, or --accept {t} --pr <url> when PRs "
@@ -133,9 +141,7 @@ def check(tickets, accepting=False):
             tuple(TopologicalSorter(graph).static_order())
         except CycleError as error:
             bad.append(f"{label} dependency cycle: {' -> '.join(error.args[1])}")
-    for line in bad:
-        print(line, file=sys.stderr)
-    return not bad
+    return bad
 
 
 def spec_of(name):
@@ -346,6 +352,13 @@ def check_run_problems(logs, head):
     return problems
 
 
+def unblocked(tickets, name):
+    """Whether the ticket's blockers let it start: each done, and one of another workstream also integrated."""
+    blockers = tickets[name].get("blocked_by", [])
+    return all(tickets[d]["status"] in TERMINAL for d in blockers) and all(
+        integrated(tickets, name, d) for d in blockers)
+
+
 def ready(tickets, slug=None, max_live=MAX_LIVE):
     live = [fm for fm in tickets.values() if fm["status"] in LIVE]
     busy_areas = {a for fm in live for a in fm.get("touches", [])}
@@ -357,9 +370,7 @@ def ready(tickets, slug=None, max_live=MAX_LIVE):
         fm = tickets[name]
         if fm["status"] != "ready" or (slug and spec_of(name) != slug):
             continue
-        if any(tickets[d]["status"] not in TERMINAL for d in fm.get("blocked_by", [])):
-            continue
-        if any(not integrated(tickets, name, d) for d in fm.get("blocked_by", [])):
+        if not unblocked(tickets, name):
             continue
         if busy_areas & set(fm.get("touches", [])):
             continue

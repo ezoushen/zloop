@@ -33,13 +33,16 @@ def orchestrator(workstream, sessions):
     return path
 
 
-def ticket(path, name, status='ready', blocker=None, worker='', title='a behaviour'):
-    """A local ticket with the front matter the board reads, titled as the template titles one."""
+def ticket(path, name, status='ready', blocker=None, worker='', title='a behaviour', blocked_by='', accepted=True):
+    """A local ticket with the front matter the board reads, titled as the template titles one; a done one carries the
+    acceptance fields `--accept` writes, unless `accepted` is False."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines = ['---', f'ticket: {name}', f'status: {status}', 'blocked_by: []', 'touches: [scripts]',
+    lines = ['---', f'ticket: {name}', f'status: {status}', f'blocked_by: [{blocked_by}]', 'touches: [scripts]',
              'devices: []', 'model: standard', f'worker: {worker}'.rstrip()]
     if blocker:
         lines.append(f'blocker: {blocker}')
+    if status == 'done' and accepted:
+        lines += [f"accepted: {'a' * 40}", f"accepted_report: {'b' * 64}"]
     lines += ['---', f"# {name.split('/')[-1]}: {title}", '', '**Story:** a story.', '']
     path.write_text('\n'.join(lines))
     return path
@@ -266,6 +269,29 @@ class PanelState(unittest.TestCase):
         ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='done')
         ticket(self.scratch / 'demo' / 'issues' / '02-b.md', 'demo/02', status='ready')
         self.assertEqual(['next: demo/02'], self.row_texts(self.snapshot(), 'next'))
+
+    def test_the_next_row_names_only_a_ready_ticket_whose_blockers_are_done(self):
+        # Live (jose, Pi): the panel showed `next: maven-warp-closeout/08`, whose blockers included two tickets parked as
+        # blocked and a standing one, so the scheduler could never start it. Next is a ticket the board's blockers allow.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        issues = self.scratch / 'demo' / 'issues'
+        ticket(issues / '01-a.md', 'demo/01', status='blocked', blocker='finished; no PR the board can check')
+        ticket(issues / '02-b.md', 'demo/02', status='implementing', worker='inline')
+        ticket(issues / '03-c.md', 'demo/03', status='done')
+        ticket(issues / '04-d.md', 'demo/04', blocked_by='demo/01, demo/02, demo/03')
+        self.assertEqual([], self.row_texts(self.snapshot(), 'next'))
+        ticket(issues / '05-e.md', 'demo/05', blocked_by='demo/03')
+        self.assertEqual(['next: demo/05'], self.row_texts(self.snapshot(), 'next'))
+        ticket(issues / '02-b.md', 'demo/02', status='done')  # A blocker parked as blocked is still not done.
+        self.assertEqual(['next: demo/05'], self.row_texts(self.snapshot(), 'next'))
+        ticket(issues / '01-a.md', 'demo/01', status='done')
+        self.assertEqual(['next: demo/04'], self.row_texts(self.snapshot(), 'next'))
+        # Another workstream's done ticket blocks until the board counts it integrated: its workstream delivered.
+        ticket(self.scratch / 'other' / 'issues' / '01-a.md', 'other/01', status='done')
+        for path in (issues / '04-d.md', issues / '05-e.md'):
+            path.unlink()
+        ticket(issues / '06-f.md', 'demo/06', blocked_by='other/01')
+        self.assertEqual([], self.row_texts(self.snapshot(), 'next'))
 
     def test_the_strip_names_the_workstream_its_state_and_its_next_step(self):
         card(self.scratch / 'demo' / 'autopilot.md')
