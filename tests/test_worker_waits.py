@@ -67,6 +67,24 @@ class Waits(WorkerLifecycleCase):
         self.acknowledge()
         self.assertEqual(self.cli('gate', '--stage', 'yield'), {'complete': True, 'missing': []})
 
+    def test_yield_gate_holds_a_process_worker_never_submitted_or_watched(self):
+        # Rule (stforestkit R06/R10, prompted outside `submit` and never watched): a worker started as its own process
+        # can wake its host only through a wait, so one registered and never submitted holds the stop as a submitted
+        # one does. A native child keeps its native wake, and an assignment under a design hold waits for the user.
+        self.register('ticket-2/1', 'ticket-2', session='native-2', worker='pane-2')
+        execution = json.loads(self.execution.read_text())
+        execution.update(native_dispatch=False, launch={'writes': 'worktree', 'verify': {'permission_mode': 'dontAsk'}})
+        self.execution.write_text(json.dumps(execution))
+        self.register()
+        self.record('startup', native=str(self.native()))
+        gate = self.cli('gate', '--stage', 'yield', code=1)
+        self.assertEqual(gate['missing'], ['ticket-1/1: never submitted and no armed wait; `submit` its assignment, or '
+                                           'record `submitted` with evidence the worker already has it, then arm `watch`'])
+        self.assertEqual(self.cli('status')['yield'], gate)
+        hold = self.escalate()
+        self.cli('ack', '--event-id', str(hold['event_id']))
+        self.assertEqual(self.cli('gate', '--stage', 'yield'), {'complete': True, 'missing': []})
+
     def test_yield_gate_needs_a_rearm_after_a_wake_is_reconciled(self):
         self.register()
         self.ready()

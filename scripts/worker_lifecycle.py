@@ -251,7 +251,11 @@ def yield_gaps(db, include=lambda saved: True, rows=None):
     receipts = [row for row in unconsumed if row['kind'] in ('wait-finished', 'hold')]
     for saved in included:
         monitor = saved.get('monitor', {})
-        live = ((saved.get('submitted') or saved.get('submission_requested')) and not saved.get('result')
+        submitted = saved.get('submitted') or saved.get('submission_requested')
+        # A worker started as its own process wakes the host only through a wait, submitted or not; a native child
+        # wakes it natively until submitted, and an assignment under a design hold waits for the user.
+        process = not saved['execution_snapshot'].get('native_dispatch') and not hold(db, saved['assignment'])
+        live = ((submitted or process) and not saved.get('result')
                 and (saved['runtime'], saved['native_session']) not in closed)
         if not live:
             continue
@@ -266,7 +270,9 @@ def yield_gaps(db, include=lambda saved: True, rows=None):
                        and row['attempt'] == saved['attempt'] and row['kind'] == 'wait-finished'
                        and row['payload'].get('token') == monitor.get('token')]
             if not current:
-                missing.append(f"{saved['attempt']}: no armed wait")
+                missing.append(f"{saved['attempt']}: no armed wait" if submitted else
+                               f"{saved['attempt']}: never submitted and no armed wait; `submit` its assignment, or "
+                               'record `submitted` with evidence the worker already has it, then arm `watch`')
             # A delivered wake the host has not consumed: stopping now, it would never be told again.
             missing += [f"{row['attempt']}: receipt {row['id']} was delivered and not consumed; collect the result "
                         'or ack it and arm the next wait' for row in current
