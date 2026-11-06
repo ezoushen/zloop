@@ -1555,7 +1555,8 @@ def retire(db, state, attempt, request):
         identity = None
         code, response = herdr(session, 'pane', 'get', pane)
         listed = (response.get('result') or {}).get('pane') if code == 0 else None
-        require(pane == (saved.get('herdr') or {}).get('pane_id') and isinstance(listed, dict)
+        placed = saved.get('herdr') or {}
+        require((session, pane) == (placed.get('session'), placed.get('pane_id')) and isinstance(listed, dict)
                 and not listed.get('agent'), 'Inspect the missing native worker before recording closure')
     if present or not previous:
         db.execute('BEGIN IMMEDIATE')
