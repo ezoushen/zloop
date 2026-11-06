@@ -170,7 +170,8 @@ class PanelState(unittest.TestCase):
         card(self.scratch / 'demo' / 'autopilot.md')
         path = self.scratch / 'demo' / 'issues' / '01-a.md'
         path.parent.mkdir(parents=True)
-        path.write_text('---\nticket: demo/01\nneeds:\n  - network\nstatus: blocked\nblocker: no approval\n---\n# 01\n')
+        path.write_text('---\nticket: demo/01\nblocked_by: []\ntouches: []\ndevices: []\nneeds:\n  - network\n'
+                        'status: blocked\nblocker: no approval\n---\n# 01\n')
         self.assertEqual(['blocked: demo/01 · no approval'], self.row_texts(self.snapshot(), 'blocker'))
 
     def test_one_blocker_row_by_precedence(self):
@@ -292,6 +293,38 @@ class PanelState(unittest.TestCase):
             path.unlink()
         ticket(issues / '06-f.md', 'demo/06', blocked_by='other/01')
         self.assertEqual([], self.row_texts(self.snapshot(), 'next'))
+
+    def test_a_board_that_fails_its_check_is_the_workstreams_blocker(self):
+        # Live (jose, Pi): T4 was marked done by hand, so `--check` refused the board and the scheduler started nothing,
+        # while the panel counted it done, named a next ticket and showed no sign of the refusal.
+        workstream = self.scratch / 'demo'
+        card(workstream / 'autopilot.md')
+        issues = workstream / 'issues'
+        ticket(issues / '01-a.md', 'demo/01', status='done', accepted=False)
+        ticket(issues / '02-b.md', 'demo/02')
+        refusal = ('demo/01: status done with no acceptance; accept it with --accept demo/01, or --accept demo/01 --pr '
+                   '<url> when PRs delivered it, or --accept demo/01 --run <url> when a successful CI run proves it')
+        self.assertEqual([row['text'] for row in self.snapshot()['rows']], [
+            'demo · dispatch', f'board fails its check: {refusal}', '2 tickets · 1 done · 0 blocked · 1 ready · 0 live'])
+        # This workstream's problem comes first, then how many more the board has.
+        ticket(self.scratch / 'alpha' / 'issues' / '01-a.md', 'alpha/01', status='done', accepted=False)
+        self.assertEqual([f'board fails its check: {refusal} (+1 more)'], self.row_texts(self.snapshot(), 'blocker'))
+        # Another workstream's problem is this one's blocker while it has work left, since the scheduler starts none.
+        ticket(issues / '01-a.md', 'demo/01', status='done')
+        other = ('alpha/01: status done with no acceptance; accept it with --accept alpha/01, or --accept alpha/01 --pr '
+                 '<url> when PRs delivered it, or --accept alpha/01 --run <url> when a successful CI run proves it')
+        self.assertEqual([f'board fails its check: {other}'], self.row_texts(self.snapshot(), 'blocker'))
+        # A ticket the board blocks comes after it.
+        ticket(issues / '03-c.md', 'demo/03', status='blocked', blocker='no credential')
+        self.assertEqual([f'board fails its check: {other}'], self.row_texts(self.snapshot(), 'blocker'))
+        # A stop the card records comes first.
+        card(workstream / 'autopilot.md', terminal='paused-by-user')
+        self.assertEqual(['paused-by-user: you took control'], self.row_texts(self.snapshot(), 'blocker'))
+        # A run that ended with all its tickets done is not kept on screen by another workstream's problem.
+        (issues / '03-c.md').unlink()
+        ticket(issues / '02-b.md', 'demo/02', status='done')
+        card(workstream / 'autopilot.md', terminal='merged')
+        self.assertFalse(self.snapshot()['active'])
 
     def test_the_strip_names_the_workstream_its_state_and_its_next_step(self):
         card(self.scratch / 'demo' / 'autopilot.md')

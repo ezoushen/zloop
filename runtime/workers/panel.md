@@ -18,7 +18,7 @@ only these words; they never re-derive a fact.
 
 It reads, read-only: the workstream's run card (`.scratch/<slug>/autopilot.md`), its worker attempt state
 (`.scratch/<slug>/reports/workers.sqlite`, the file the worker attempts protocol keeps) and its local tickets
-(`.scratch/<slug>/issues/`). A session working in a worktree still reads its main checkout's state. An unreadable
+(`.scratch/<slug>/issues/`), with the whole local board as `next_tickets.py` loads and checks it. A session working in a worktree still reads its main checkout's state. An unreadable
 state file drops only the rows it would have supplied.
 
 Which workstream is this session's: one a record ties to it, in this order — its `reports/orchestrator.json` naming this
@@ -34,10 +34,14 @@ stopped on `waiting-on-user`, `paused-allowance`, `paused-by-user` or `blocked`.
 Rows are ordered by what the person needs first: the headline, then running workers and waiting ones (three each, the
 rest of both under one `+N more`), a waiting one being a worker whose result is ready to collect, whose wait ended with
 nothing collected and no new wait (`wait ended`: nothing watches it) or that is `retained` open until a later
-attempt of its conversation uses it; an attempt whose conversation any attempt closed shows no row. Then one blocker by precedence (the run's own stop first, then a blocked ticket), the next step, and
+attempt of its conversation uses it; an attempt whose conversation any attempt closed shows no row. Then one blocker by precedence (the run's own stop first, then the board's failed check, then a blocked ticket), the
+next step, and
 the counts: the tickets' tally, or for a workstream without tickets `done:` and, per job of its workers, the
 assignments whose result completed; a job with a plan (`worker_lifecycle.py plan`) counts only its planned
-assignments, over the plan's size, even before its first worker.
+assignments, over the plan's size, even before its first worker. The failed check is this workstream's blocker when a
+problem names one of its tickets, or it has a ticket not done, since the scheduler then starts nothing: it shows the
+first problem, this workstream's first, with `(+N more)`. The next step is the first ready ticket whose blockers the
+board counts as met (each done, and one of another workstream integrated), none while the check fails.
 Each host tones a row by its kind — after truncation, so the words stay identical and styling cannot widen a line —
 and a run row keeps the default style:
 

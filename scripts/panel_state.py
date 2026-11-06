@@ -81,8 +81,9 @@ def inline_rows(found_tickets):
             for path, fields in found_tickets if fields.get('status') in LIVE_TICKET and fields.get('worker') == 'inline']
 
 
-def blocker_row(workstream, state, found_tickets):
-    """The one blocker worth showing, by precedence: the run's own stop first, then its tickets."""
+def blocker_row(workstream, state, found_tickets, scheduled):
+    """The one blocker worth showing, by precedence: the run's own stop first, then the board's check (when it names
+    this workstream, or this workstream has work the scheduler would start), then its tickets."""
     terminal = state.get('terminal', '')
     if terminal in BLOCKERS:
         text = BLOCKERS[terminal]
@@ -90,6 +91,11 @@ def blocker_row(workstream, state, found_tickets):
         if terminal == 'paused-allowance' and timer:
             text = f'{text} (resumes {timer.split()[0]})'
         return {'kind': 'blocker', 'text': text}
+    problems = scheduled[1]
+    own = [problem for problem in problems if problem.startswith(f'{workstream.name}/')]
+    if own or (problems and any(fields.get('status') != 'done' for _, fields in found_tickets)):
+        more = f' (+{len(problems) - 1} more)' if len(problems) > 1 else ''
+        return {'kind': 'blocker', 'text': f'board fails its check: {(own or problems)[0]}{more}'}
     for path, fields in found_tickets:
         if fields.get('status') == 'blocked':
             reason = fields.get('blocker') or 'blocked'
@@ -347,7 +353,7 @@ def snapshot(repo, session_id, now):
         state = card_state(workstream / CARD)
         found_tickets = tickets(workstream)
         draft = is_draft(state) if state else False
-        blocker = blocker_row(workstream, state, found_tickets)
+        blocker = blocker_row(workstream, state, found_tickets, scheduled)
         bound = bound_sessions(workstream)
         attempts = live_attempts(workstream, now, set(bound) if bound is not None else {session_id})
         live = live_workstream(state, attempts, blocker, draft, found_tickets)
