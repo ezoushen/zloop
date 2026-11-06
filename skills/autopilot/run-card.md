@@ -47,7 +47,7 @@ Decisions made without the user are rows in `.scratch/<slug>/ledger.md`; open on
 
 ## State
 confirmed: no | <date> "<the user's words>"
-session: <written by `autopilot_card.py confirm` and `take-over`: each host session ID their shell exports>
+session: <each host session ID this shell exports, comma-separated; `confirm` and `take-over` rewrite it>
 auto-merge: no | yes
 dispatch-effort: medium
 review-effort: high

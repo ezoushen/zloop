@@ -76,7 +76,8 @@ def confirm(text, words, sessions, today):
     if missing:
         sys.exit(f"the card's State lacks {', '.join(missing)}: write each line of the run card's State ({RUN_CARD}), "
                  'then confirm')
-    if not (words or '').strip():
+    words = ' '.join((words or '').split())  # On one line, so no word can become a State line.
+    if not words:
         sys.exit("confirm takes --words: the user's words that confirmed this card")
     lines = set_field(set_field(state[0], 'confirmed', f'{today} "{words}"'), 'session', session_line(sessions, 'confirm'))
     return text[:state.start()] + lines + text[state.end():]
@@ -92,6 +93,7 @@ def take_over(text, auto_merge, dispatch_effort, review_effort, today, sessions)
 
 def take_over_state(text, auto_merge, dispatch_effort, review_effort, today):
     ended, history = field(text, 'terminal'), field(text, 'history')
+    field(text, 'session')
     field(text, 'auto-merge')
     dispatch, review = level(text, 'dispatch-effort'), level(text, 'review-effort')
     dispatch, review = dispatch_effort or dispatch, review_effort or review

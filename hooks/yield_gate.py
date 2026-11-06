@@ -330,7 +330,8 @@ def card_state(path):
     except OSError:
         return {}
     state = {}
-    for line in text.partition('\n## State\n')[2].splitlines():
+    heading = re.search(r'^## State[ \t]*$', text, re.M)
+    for line in text[heading.end():].splitlines() if heading else []:
         key, colon, value = line.partition(':')
         if colon and re.fullmatch(r'[a-z-]+', key):
             value = value.strip()

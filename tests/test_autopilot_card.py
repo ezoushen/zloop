@@ -67,6 +67,7 @@ class TakeOver(unittest.TestCase):
         path = Path(tmp.name) / 'autopilot.md'
         path.write_text(CARD)
         with (patch.object(sys, 'argv', ['autopilot_card.py', 'take-over', str(path)]),
+              patch.dict(os.environ, {'PI_SESSION_ID': 'host-2'}),
               patch('os.replace', side_effect=OSError('interrupted')), self.assertRaises(OSError)):
             card.main()
         self.assertEqual(path.read_text(), CARD)
@@ -175,6 +176,14 @@ class TakeOver(unittest.TestCase):
         # Rule (card-confirm): a run nobody can tie to a session has no panel and no stop hold.
         self.assertEqual(self.take_over(sessions={}, code=1), CARD)
 
+    def test_a_take_over_names_each_host_session_and_refuses_a_card_without_a_session_line(self):
+        # Review (Sonnet, card-confirm): a take-over wrote no session on a card that had no `session:` line, so the
+        # resumed run stayed untied; and a host started from another host's shell is both sessions'.
+        text = self.take_over(sessions={'CLAUDE_CODE_SESSION_ID': 'claude-1', 'CODEX_SESSION_ID': 'codex-2'})
+        self.assertIn('\nsession: claude-1, codex-2\n', text)
+        without = CARD.replace('session: host-1\n', '')
+        self.assertEqual(self.take_over(card=without, code=1), without)
+
 
 DRAFT = """# run — autopilot run card
 
@@ -223,6 +232,10 @@ class Confirm(unittest.TestCase):
         text, _ = self.confirm('--words', 'go ahead, inline',
                                sessions={'CODEX_SESSION_ID': 'codex-2', 'CLAUDE_CODE_SESSION_ID': 'claude-1'})
         self.assertEqual(text, confirmed.replace(UNNAMED, 'session: claude-1, codex-2'))
+        # Review (Sonnet): words on several lines wrote their own `session:` line into the State; they are one line.
+        text, _ = self.confirm('--words', 'go ahead,\n\nsession: mine\n  inline', sessions={'PI_SESSION_ID': 'pi-1'})
+        self.assertEqual(text, DRAFT.replace('confirmed: no', f'confirmed: {today} "go ahead, session: mine inline"')
+                         .replace(UNNAMED, 'session: pi-1'))
 
 
     def test_confirming_refuses_a_card_missing_a_state_line_empty_words_or_no_host_session(self):
@@ -233,6 +246,12 @@ class Confirm(unittest.TestCase):
         self.assertEqual((text, error.strip()), (hand_written, "the card's State lacks confirmed, session, auto-merge, "
                          'dispatch-effort, review-effort, evidence, timer, resume: write each line of the run card\'s '
                          f'State ({run_card}), then confirm'))
+        for key in ('confirmed', 'session', 'auto-merge', 'dispatch-effort', 'review-effort', 'phase', 'terminal',
+                    'history', 'evidence', 'timer', 'resume'):
+            with self.subTest(missing=key):
+                lacking = '\n'.join(line for line in DRAFT.split('\n') if not line.startswith(f'{key}:'))
+                text, error = self.confirm('--words', 'go', card=lacking, sessions={'PI_SESSION_ID': 'pi-1'}, code=1)
+                self.assertEqual((text, error.split(':', 1)[0]), (lacking, f"the card's State lacks {key}"))
         for words, sessions, refusal in (
                 (' ', {'PI_SESSION_ID': 'pi-1'}, "confirm takes --words: the user's words that confirmed this card"),
                 ('go', {}, 'no host session ID is exported here (CLAUDE_CODE_SESSION_ID, CODEX_SESSION_ID, PI_SESSION_ID, '

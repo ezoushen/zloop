@@ -2670,6 +2670,9 @@ class AutopilotCardHold(GateRepo):
         path = self.card(session='outer-1, host-1')
         self.assertEqual((self.check(session='host-1'), self.check(session='outer-1')), ([self.gap(path)], [self.gap(path)]))
         self.assertEqual((self.check(session='host-2'), self.check(session='host')), ([], []))
+        # Review (Codex): `confirm` takes a State heading with trailing spaces; the hold reads the same card.
+        path.write_text(path.read_text().replace('\n## State\n', '\n## State  \n'))
+        self.assertEqual(self.check(session='host-1'), [self.gap(path)])
 
     def test_a_live_worker_with_a_running_wait_lets_the_run_yield_but_a_lost_one_does_not(self):
         # Rule: a yield while a worker of the card's workstream holds a running wait that will wake the host is not an end;
