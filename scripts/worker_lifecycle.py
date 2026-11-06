@@ -181,6 +181,22 @@ def planned_findings(db):
     return [row[0] for row in db.execute('SELECT finding FROM findings ORDER BY rowid')]
 
 
+def assigned_findings(db, assignment, value):
+    """The planned findings a repair packet's findings: line names, none of which another assignment holds."""
+    named = list(dict.fromkeys(re.split(r'[\s,]+', value.strip())))
+    planned = set(planned_findings(db))
+    unknown = [finding for finding in named if finding not in planned]
+    require(not unknown, "The repair packet's findings: names what the repair plan does not hold: "
+                         + ', '.join(unknown[:5]) + (f' and {len(unknown) - 5} more' if len(unknown) > 5 else '')
+                         + '; list the IDs of the planned findings this assignment repairs, separated by commas or spaces')
+    holders = {finding: row['assignment'] for row in attempts(db) if row['assignment'] != assignment
+               for finding in row.get('findings', [])}
+    taken = [f'{finding} ({holders[finding]})' for finding in named if finding in holders]
+    require(not taken, f'Another repair assignment already holds {", ".join(taken)}; each planned finding is repaired '
+                       'under one assignment')
+    return named
+
+
 def planned_of(db, job):
     """The assignments a job's plan holds, or None when it has no plan."""
     row = db.execute('SELECT assignments FROM plans WHERE job = ?', (job,)).fetchone()
@@ -885,6 +901,10 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
             missing = agent_defs.missing_inputs(job, packet.read_text(errors='replace'))
             require(not missing, f'The {execution["job"]} assignment lacks {", ".join(missing)}; write each as '
                                  f'`name: value` (see {job["path"]})')
+            require('findings' not in data, 'Registration reads findings from the packet; an event cannot supply them')
+            if execution['job'] == 'repair' and planned_findings(db):
+                data['findings'] = assigned_findings(db, data['assignment'], agent_defs.input_value(
+                    job, packet.read_text(errors='replace'), 'findings'))
             problem = 'needs' in job['inputs'] and needs_problems(packet.read_text(errors='replace'))
             require(not problem, f'The {execution["job"]} assignment {problem}')
             needs = assigned_needs(packet.read_text(errors='replace')) if 'needs' in job['inputs'] else None
@@ -1845,7 +1865,7 @@ def status(db, attempt=None):
         summary = {key: saved[key] for key in ('attempt', 'assignment', 'agent', 'job', 'worker', 'native_session',
                    'herdr', 'head', 'requested', 'observed', 'observed_cwd', 'verified', 'monitor', 'result',
                    'accepted', 'declined', 'acceptance_deferred', 'retained', 'closed',
-                   'retirement_requested', 'premise', 'census') if key in saved}
+                   'retirement_requested', 'premise', 'census', 'findings') if key in saved}
         if saved.get('observed_cwd') and native_settings.outside(saved['observed_cwd'], saved['worktree'],
                                                                  saved['runtime']):
             summary['warnings'] = [f"the native record puts the worker in {saved['observed_cwd']}, outside its "
