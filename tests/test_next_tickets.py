@@ -205,7 +205,7 @@ class BoardCLI(unittest.TestCase):
         merged = 'https://github.com/o/configs/pull/1'
         path = self.write_ticket('fx/01', status='done', accepted=False)
         refusal = ('fx/01: status done with no acceptance; accept it with --accept fx/01, or --accept fx/01 --pr <url> '
-                   'when PRs delivered it')
+                   'when PRs delivered it, or --accept fx/01 --run <url> when a successful CI run proves it')
         for args, code in ((('--check',), 1), (('--counts',), 1), ((), 1), (('--delivery',), 1), (('--new', 'Next'), 2)):
             with self.subTest(args=args):
                 self.assertIn(refusal, self.cli('fx', *args, code=code).stderr)
@@ -214,6 +214,8 @@ class BoardCLI(unittest.TestCase):
                           (f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n", True),
                           ('delivered_by: [12]\n', False), ('delivered_by: []\n', False),
                           (f'delivered_by: [{merged}, 12]\n', False), (f'delivered_by: [{merged}]\n', True),
+                          ('delivered_by: [https://github.com/o/r/actions/runs/7]\n', True),
+                          ('delivered_by: [https://github.com/o/r/actions/runs/7/job/8]\n', False),
                           (f'delivered_by: {merged}\n', True)):
             with self.subTest(extra=extra):
                 self.write_ticket('fx/01', status='done', extra=extra)
@@ -270,15 +272,25 @@ class BoardCLI(unittest.TestCase):
         self.assertIn('inline/01: status=done needs a passing --accept first',
                       self.cli('inline', '--set', 'inline/01', 'status=done', code=1).stderr)
 
-    def gh(self, pulls):
-        """A `gh` on PATH answering `gh pr view <url> --json state,mergeCommit` from `pulls` (url to state, merge commit);
-        any other URL is one gh cannot read."""
+    def gh(self, pulls, runs=None):
+        """A `gh` on PATH answering `gh pr view <url> --json state,mergeCommit` from `pulls` (url to state, merge commit)
+        and `gh run view <id> -R <host>/<owner>/<repo> --json status,conclusion` from `runs` (run URL to status,
+        conclusion); any other URL is one gh cannot read."""
         bin_dir = self.root / 'bin'
         bin_dir.mkdir(exist_ok=True)
         (bin_dir / 'pulls.json').write_text(json.dumps(pulls))
+        (bin_dir / 'runs.json').write_text(json.dumps(runs or {}))
         stub = bin_dir / 'gh'
         stub.write_text(f'#!{sys.executable}\nimport json, sys\npulls = json.load(open({str(bin_dir / "pulls.json")!r}))\n'
+                        f'runs = json.load(open({str(bin_dir / "runs.json")!r}))\n'
                         'args = sys.argv[1:]\n'
+                        'if args[:2] == ["run", "view"] and args[3:4] == ["-R"] and args[5:] == ["--json", "status,conclusion"]:\n'
+                        '    url = f"https://{args[4]}/actions/runs/{args[2]}"\n'
+                        '    if url not in runs:\n'
+                        '        sys.exit("failed to get run: HTTP 404: Not Found")\n'
+                        '    status, conclusion = runs[url]\n'
+                        '    print(json.dumps({"status": status, "conclusion": conclusion}))\n'
+                        '    sys.exit()\n'
                         'if args[:2] != ["pr", "view"] or args[2] not in pulls:\n'
                         '    sys.exit(f"GraphQL: Could not resolve to a PullRequest ({args[2:3]})")\n'
                         'state, oid = pulls[args[2]]\n'
@@ -316,7 +328,7 @@ class BoardCLI(unittest.TestCase):
             self.assertEqual(front_matter.parse(path.read_text())['status'], 'done')
             # Review (Sonnet): a hand-written value that is no PR's URL never reaches gh.
             odd = self.write_ticket('fx/04', status='implementing', extra='worker: inline\ndelivered_by: [12]\n')
-            self.assertIn("fx/04: 12 is not a pull request's URL", self.cli('fx', '--set', 'fx/04', 'status=done', code=1).stderr)
+            self.assertIn("fx/04: 12 is not a pull request's or a CI run's URL", self.cli('fx', '--set', 'fx/04', 'status=done', code=1).stderr)
             self.assertEqual(front_matter.parse(odd.read_text())['status'], 'implementing')
             # A recorded PR proves nothing by itself: done asks gh again.
             other = self.write_ticket('fx/02', status='implementing', extra=f'worker: inline\ndelivered_by: [{three}]\n')
@@ -331,6 +343,39 @@ class BoardCLI(unittest.TestCase):
             self.cli('fx', '--accept', 'fx/03', '--pr', one)
             self.assertEqual(front_matter.parse(listed.read_text())['delivered_by'], [one])
             self.cli('fx', '--set', 'fx/03', 'status=done')
+
+    def test_a_ticket_a_successful_ci_run_proves_is_accepted_by_it_and_done_only_while_gh_says_it_succeeded(self):
+        # User (2026-11-07, "Go ahead with all three"): work with no commit in the board's repository, such as the jose
+        # run's rollout, had no acceptance path; a CI run gh reports completed and successful accepts it, as merged PRs do.
+        ok, failed, running, unknown = (f'https://github.com/o/jose/actions/runs/{n}' for n in (1, 2, 3, 9))
+        pr = 'https://github.com/o/configs/pull/1'
+        runs = {ok: ('completed', 'success'), failed: ('completed', 'failure'), running: ('in_progress', '')}
+        path = self.write_ticket('fx/01', status='implementing', extra='worker: inline\n')
+        with self.gh({pr: ('MERGED', 'a' * 40)}, runs):
+            for url, problem in ((failed, 'is completed (failure), not a successful run'),
+                                 (running, 'is in_progress, not a successful run'),
+                                 (unknown, 'gh cannot read')):
+                with self.subTest(url=url):
+                    refused = self.cli('fx', '--accept', 'fx/01', '--run', url, code=1)
+                    self.assertIn(f'fx/01: {url} {problem}' if problem != 'gh cannot read' else f'fx/01: gh cannot read {url}',
+                                  refused.stderr)
+            # Only a run's own URL is evidence: not a number, a PR, a job inside a run or a second line.
+            for value in ('42', pr, f'{ok}/job/7', f'{ok}\nstatus: done'):
+                with self.subTest(value=value):
+                    self.cli('fx', '--accept', 'fx/01', f'--run={value}', code=2)
+            self.assertNotIn('delivered_by', path.read_text())
+            self.cli('fx', '--accept', 'fx/01', '--run', ok, '--pr', pr)
+            self.assertEqual(sorted(front_matter.parse(path.read_text())['delivered_by']), sorted([pr, ok]))
+            self.cli('fx', '--set', 'fx/01', 'status=done')
+            self.assertEqual(front_matter.parse(path.read_text())['status'], 'done')
+            self.cli('fx', '--check')
+            # A recorded run proves nothing by itself: done asks gh again.
+            other = self.write_ticket('fx/02', status='implementing', extra=f'worker: inline\ndelivered_by: [{failed}]\n')
+            refused = self.cli('fx', '--set', 'fx/02', 'status=done', code=1)
+            self.assertIn(f'fx/02: {failed} is completed (failure), not a successful run', refused.stderr)
+            self.assertEqual(front_matter.parse(other.read_text())['status'], 'implementing')
+        # --run belongs to --accept.
+        self.cli('fx', '--check', '--run', ok, code=2)
 
     def test_an_interrupted_orchestrator_binding_write_leaves_the_old_binding_whole(self):
         # Audit A1: the binding is what holds the orchestrator at stop; a write cut short must not leave it empty.

@@ -9,6 +9,8 @@ Actions: --board, --counts, --check, --accept TICKET,
 --set TICKET status=blocked also needs blocker=REASON, which the ticket's front matter keeps. Entering implementing
 records start: (the workstream branch head) when the ticket has none; start never changes once recorded. A passing
 --accept records accepted: (the head it accepted); status=done needs it, merged into the workstream branch.
+--accept TICKET --pr URL / --run URL accepts it instead by the PRs gh reports merged and the CI runs gh reports
+successful, recorded as delivered_by:; status=done asks gh again.
 Only --set may be combined with --counts. --accept of a delegated ticket (its branch is not the workstream branch)
 needs the report a collected worker attempt of the workstream returned completed, unchanged since. It also runs the
 standing measurements (.scratch/<slug>/measurements.json) at the ticket head, in a clean checkout, and refuses a
@@ -48,6 +50,7 @@ ISSUES = ROOT / ".scratch"
 LIVE = {"implementing", "reviewing", "fixing", "verifying"}
 TEMPLATE = Path(__file__).resolve().parents[1] / "skills" / "refine" / "ticket-template.md"
 PR_URL = re.compile(r"https://[^/\s]+/[^/\s]+/[^/\s]+/pull/[0-9]+")  # A pull request, by its own address.
+RUN_URL = re.compile(r"https://([^/\s]+/[^/\s]+/[^/\s]+)/actions/runs/([0-9]+)")  # A CI run, by its own address.
 TERMINAL = {"done"}
 STATUSES = {"ready", "blocked"} | LIVE | TERMINAL
 try:
@@ -85,18 +88,18 @@ def load():
 
 
 def delivered(fm):
-    """The pull requests a ticket's `delivered_by` names: its list, or its one value."""
+    """The pull requests and CI runs a ticket's `delivered_by` names: its list, or its one value."""
     value = fm.get("delivered_by")
     return value if isinstance(value, list) else [value] if value else []
 
 
 def accepted(fm):
     """Whether a ticket carries what only an acceptance writes: an accepted commit with its report's digest, or the
-    pull requests that delivered it. The form only; `--set status=done` judged the evidence."""
-    prs = delivered(fm)
+    pull requests and CI runs that delivered it. The form only; `--set status=done` judged the evidence."""
+    urls = delivered(fm)
     return bool(re.fullmatch("[0-9a-f]{40}", str(fm.get("accepted") or ""))
                 and re.fullmatch("[0-9a-f]{64}", str(fm.get("accepted_report") or ""))) or bool(
-        prs and all(PR_URL.fullmatch(str(url)) for url in prs))
+        urls and all(PR_URL.fullmatch(str(url)) or RUN_URL.fullmatch(str(url)) for url in urls))
 
 
 def check(tickets, accepting=False):
@@ -105,7 +108,7 @@ def check(tickets, accepting=False):
     bad = [f"{t}: status {fm.get('status')!r} is not one of {sorted(STATUSES)}"
            for t, fm in tickets.items() if fm.get('status') not in STATUSES]
     bad += [f"{t}: status done with no acceptance; accept it with --accept {t}, or --accept {t} --pr <url> when PRs "
-            "delivered it" for t, fm in tickets.items()
+            f"delivered it, or --accept {t} --run <url> when a successful CI run proves it" for t, fm in tickets.items()
             if fm.get('status') == 'done' and not accepting and not accepted(fm)]
     bad += [f"{t}: blocked_by {dep} does not exist" for t, fm in tickets.items()
            for dep in fm.get("blocked_by", []) if dep not in tickets]
@@ -805,38 +808,45 @@ def listed_commit_on(text, base, ref):
     return False
 
 
-def unmerged(prs):
-    """Why each PR does not deliver a ticket: gh reports it not merged, or cannot read it; none when all merged."""
+def unproven(urls):
+    """Why each URL does not deliver a ticket: gh reports the PR not merged or the CI run not successful, or cannot
+    read it; none when all hold."""
     problems = []
-    for url in prs:
-        if not PR_URL.fullmatch(str(url)):  # Never handed to gh: a number or a flag means something else there.
-            problems.append(f"{url} is not a pull request's URL")
+    for url in urls:
+        run = RUN_URL.fullmatch(str(url))
+        if not (run or PR_URL.fullmatch(str(url))):  # Never handed to gh: a number or a flag means something else there.
+            problems.append(f"{url} is not a pull request's or a CI run's URL")
             continue
+        command = (["gh", "run", "view", run[2], "-R", run[1], "--json", "status,conclusion"] if run
+                   else ["gh", "pr", "view", url, "--json", "state,mergeCommit"])
         try:
-            result = subprocess.run(["gh", "pr", "view", url, "--json", "state,mergeCommit"], capture_output=True,
-                                    text=True, timeout=60)
-            pull = json.loads(result.stdout) if result.returncode == 0 else None
+            result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+            found = json.loads(result.stdout) if result.returncode == 0 else None
         except (OSError, subprocess.TimeoutExpired, ValueError) as error:
-            result, pull = None, str(error)
-        if not isinstance(pull, dict):
-            reason = pull if isinstance(pull, str) else (result.stderr or result.stdout).strip()
+            result, found = None, str(error)
+        if not isinstance(found, dict):
+            reason = found if isinstance(found, str) else (result.stderr or result.stdout).strip()
             problems.append(f"gh cannot read {url}: {reason}")
-        elif pull.get("state") != "MERGED":
-            problems.append(f"{url} is {pull.get('state')}, not merged")
-        elif not (pull.get("mergeCommit") or {}).get("oid"):
+        elif run and (found.get("status"), found.get("conclusion")) != ("completed", "success"):
+            ended = f" ({found['conclusion']})" if found.get("conclusion") else ""
+            problems.append(f"{url} is {found.get('status')}{ended}, not a successful run")
+        elif not run and found.get("state") != "MERGED":
+            problems.append(f"{url} is {found.get('state')}, not merged")
+        elif not run and not (found.get("mergeCommit") or {}).get("oid"):
             problems.append(f"{url} names no merge commit")
     return problems
 
 
-def accept_prs(tickets, name, prs):
-    """Accept a ticket by the PRs that deliver it, when gh reports each merged; record them as `delivered_by`."""
-    problems = unmerged(prs)
+def accept_delivered(tickets, name, urls):
+    """Accept a ticket by the PRs and CI runs that deliver it, when gh reports each PR merged and each run successful;
+    record them as `delivered_by`."""
+    problems = unproven(urls)
     for problem in problems:
         print(f"{name}: {problem}", file=sys.stderr)
     if problems:
         return False
-    write_fields(tickets[name], {"delivered_by": f"[{', '.join(prs)}]"})
-    print(f"{name}: delivered by merged {', '.join(prs)}; judge the content now")
+    write_fields(tickets[name], {"delivered_by": f"[{', '.join(urls)}]"})
+    print(f"{name}: delivered by merged or successful {', '.join(urls)}; judge the content now")
     return True
 
 
@@ -906,8 +916,8 @@ def set_field(tickets, name, assignments):
         fields["lent"] = None
     if fields.get("status") == "done" and fm.get("status") != "done" and fm.get("lent") != "done" \
             and fm.get("delivered_by"):
-        # Delivered by PRs: gh says each is merged now, whatever the front matter records.
-        problems = unmerged(delivered(fm))
+        # Delivered by PRs and CI runs: gh says each is merged or successful now, whatever the front matter records.
+        problems = unproven(delivered(fm))
         if problems:
             sys.exit("\n".join(f"{name}: {problem}" for problem in problems))
     elif fields.get("status") == "done" and fm.get("status") != "done" and fm.get("lent") != "done":
@@ -997,16 +1007,20 @@ def main(argv):
     parser.add_argument("--blocked-by", action="append", default=[], metavar="TICKET", help="with --new")
     parser.add_argument("--pr", action="append", default=[], metavar="URL",
                         help="with --accept: a PR that delivers the ticket, which gh must report merged")
+    parser.add_argument("--run", action="append", default=[], metavar="URL",
+                        help="with --accept: a CI run that proves the ticket, which gh must report successful")
     parser.add_argument("--touches", action="append", default=[], metavar="AREA", help="with --new")
     parser.add_argument("--counts", action="store_true")
     parser.add_argument("--autofix", action="store_true", help="with --orchestrate: repairs are authorized")
     args = parser.parse_args(argv)
     if args.counts and any((args.check, args.board, args.accept, args.can_verify, args.delivery, args.orchestrate)):
         parser.error("--counts may only be combined with --set")
-    if args.pr and not args.accept:
-        parser.error("--pr goes with --accept")
+    if (args.pr or args.run) and not args.accept:
+        parser.error("--pr and --run go with --accept")
     if not all(PR_URL.fullmatch(url) for url in args.pr):
         parser.error("--pr takes a pull request's URL: https://<host>/<owner>/<repo>/pull/<number>")
+    if not all(RUN_URL.fullmatch(url) for url in args.run):
+        parser.error("--run takes a CI run's URL: https://<host>/<owner>/<repo>/actions/runs/<number>")
     if args.max_live < 1:
         parser.error("--max-live must be positive")
     if args.slug and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", args.slug):
@@ -1080,8 +1094,8 @@ def main(argv):
             sys.exit('\n'.join(bad))
         print('delivery evidence matches selected workstream heads; inspect the recorded artifacts')
         return
-    if args.accept and args.pr:
-        sys.exit(0 if accept_prs(tickets, args.accept, args.pr) else 1)
+    if args.accept and (args.pr or args.run):
+        sys.exit(0 if accept_delivered(tickets, args.accept, args.pr + args.run) else 1)
     for name, fn in ((args.accept, accept), (args.can_verify, can_verify)):
         if name:
             sys.exit(0 if fn(tickets, name) else 1)
