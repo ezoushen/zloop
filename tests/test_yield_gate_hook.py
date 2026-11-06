@@ -2698,8 +2698,8 @@ class AutopilotCardHold(GateRepo):
         self.assertEqual(self.check(session='host-1'), [self.gap(path)])
         self.card(terminal='finished-ish', evidence='abc123')
         self.assertEqual(self.check(session='host-1'), [self.gap(path)])
-        for state in self.STATES:
-            self.card(terminal=state, evidence='abc123')
+        for state in self.STATES:  # A tracker holds its own tickets; a local board's delivery is checked below.
+            self.card(terminal=state, evidence='abc123', board='https://linear.app/team/project/x')
             self.assertEqual(self.check(session='host-1'), [], state)
         self.card(confirmed='no')
         self.assertEqual(self.check(session='host-1'), [])
@@ -2714,6 +2714,52 @@ class AutopilotCardHold(GateRepo):
         # Review (Codex): `confirm` takes a State heading with trailing spaces; the hold reads the same card.
         path.write_text(path.read_text().replace('\n## State\n', '\n## State  \n'))
         self.assertEqual(self.check(session='host-1'), [self.gap(path)])
+
+    def test_a_delivered_terminal_state_holds_the_stop_while_its_local_board_fails_delivery(self):
+        # User (2026-11-07, "Go ahead with all three"): Pi's jose card recorded `terminal: merged` while its board held a
+        # live ticket and the undone delivery report; delivered, delivered-local and merged are held to `--delivery`.
+        new = shlex.join(['python3', str(ROOT / 'scripts/next_tickets.py'), '--repo', str(self.repo), 'run', '--new',
+                          '<title>'])
+        path = self.card(terminal='merged', evidence='PR 1 merged', phase='pr')
+        self.assertEqual(self.check(session='host-1'), [
+            f"{path}: this session's autopilot run records `terminal: merged` while its local board has no tickets: "
+            f"write each with `{new}`, or record the terminal state that fits"])
+        issues = self.repo / '.scratch/run/issues'
+        issues.mkdir(parents=True)
+        ticket = issues / '01-task.md'
+        ticket.write_text('---\nticket: run/01\nstatus: implementing\nblocked_by: []\ntouches: []\ndevices: []\n---\n')
+        review = self.repo / '.scratch/run/reports/spec-review.md'
+        for terminal in ('delivered', 'delivered-local', 'merged'):
+            with self.subTest(terminal=terminal):
+                path = self.card(terminal=terminal, evidence='PR 1 merged', phase='pr')
+                self.assertEqual(self.check(session='host-1'), [
+                    f"{path}: this session's autopilot run records `terminal: {terminal}` while its local board fails "
+                    f"--delivery: run: tickets not done: run/01 (implementing); run: no review report at {review}; "
+                    "finish what it names, or record the terminal state that fits"])
+        # The other terminal states, another session's card and a tracker's board are not held to it.
+        for fields in (dict(terminal='blocked'), dict(terminal='waiting-on-user'), dict(terminal='merged', session='host-2'),
+                       dict(terminal='merged', board='https://linear.app/team/project/x')):
+            with self.subTest(fields=fields):
+                self.card(**{'evidence': 'x', 'phase': 'pr', **fields})
+                self.assertEqual(self.check(session='host-1'), [])
+        # A board that passes --delivery: its ticket done and accepted, reviewed and E2E-passed at main's head.
+        git = ['git', '-C', str(self.repo), '-c', 'user.name=t', '-c', 'user.email=t@t']
+        subprocess.run([*git, 'checkout', '-q', '-B', 'main'], check=True)
+        heads = []
+        for message in ('start', 'work'):
+            subprocess.run([*git, 'commit', '-q', '--allow-empty', '-m', message], check=True)
+            heads.append(subprocess.run([*git, 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip())
+        start, head = heads
+        ticket.write_text(ticket.read_text().replace('status: implementing', f"status: done\naccepted: {'a' * 40}\n"
+                                                                             f"accepted_report: {'b' * 64}"))
+        review.parent.mkdir(parents=True, exist_ok=True)
+        review.write_text(f'---\nworkstream_branch: main\nreview_status: clean\ndocumentation_status: passed\n'
+                          f'review_head: {head}\nreview_base: {start}\nreview_diff_base: {start}\ne2e_status: passed\n'
+                          f'e2e_head: {head}\nreview_by: review/run/1\ne2e_by: e2e/run/1\n---\n')
+        support.collected_attempt(self.repo, 'run', 'review/run/1', review, job='diff-review', head=head)
+        support.collected_attempt(self.repo, 'run', 'e2e/run/1', review, job='e2e-gate', head=head)
+        self.card(terminal='merged', evidence='PR 1 merged', phase='pr')
+        self.assertEqual(self.check(session='host-1'), [])
 
     def test_a_live_worker_with_a_running_wait_lets_the_run_yield_but_a_lost_one_does_not(self):
         # Rule: a yield while a worker of the card's workstream holds a running wait that will wake the host is not an end;

@@ -18,7 +18,9 @@ Record the user's confirmation from the shell of the session running the autopil
 `confirmed:` and `session:`, which the panel and the stop hook go by, and refuses a card whose State lacks a
 line below. A take-over names its own session on `session:` the same way. Set `phase:` with
 `autopilot_card.py phase <card> <align|refine|dispatch|pr>`: dispatch and pr need the tickets of the board on
-`board:`, `local` ticket files that pass `next_tickets.py --check`, or a tracker's URL.
+`board:`, `local` ticket files that pass `next_tickets.py --check`, or a tracker's URL. A card that records
+`delivered`, `delivered-local` or `merged` on a `local` board holds the stop until that board passes
+`next_tickets.py <slug> --delivery`.
 
 ```markdown
 # <slug> — autopilot run card

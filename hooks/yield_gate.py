@@ -69,6 +69,8 @@ BINDING = 'orchestrator.json'
 # The states skills/autopilot/run-card.md lets a run end in.
 TERMINAL_STATES = ('delivered', 'delivered-local', 'merged', 'waiting-on-user', 'paused-allowance', 'paused-by-user',
                    'blocked')
+# The ones that claim the work delivered: a local board must pass `next_tickets.py --delivery` for them.
+DELIVERED = ('delivered', 'delivered-local', 'merged')
 
 
 def lifecycle():
@@ -362,16 +364,39 @@ def board_gaps(root, path, state):
             f'`{new}`']
 
 
+def delivery_gaps(root, path, state):
+    """What holds a run card that records a delivered terminal state on a local board: a board with no tickets, or
+    what its `--delivery` names."""
+    terminal, slug = state['terminal'], path.parent.name
+    if not script('autopilot_card').ticket_files(path.parent / 'issues'):
+        new = shlex.join(['python3', str(ROOT / 'scripts/next_tickets.py'), '--repo', str(root), slug, '--new', '<title>'])
+        return [f"{path}: this session's autopilot run records `terminal: {terminal}` while its local board has no "
+                f"tickets: write each with `{new}`, or record the terminal state that fits"]
+    try:
+        result = subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/next_tickets.py'), '--repo', str(root), slug,
+                                 '--delivery'], capture_output=True, text=True, timeout=60)
+        problems = (result.stderr or result.stdout).strip().splitlines() if result.returncode else []
+    except subprocess.TimeoutExpired:
+        problems = ['--delivery gave no answer within 60 seconds']
+    if not problems:
+        return []
+    return [f"{path}: this session's autopilot run records `terminal: {terminal}` while its local board fails "
+            f"--delivery: {'; '.join(problems)}; finish what it names, or record the terminal state that fits"]
+
+
 def unfinished_runs(root, session):
     """Name each confirmed autopilot run card of this host session that lacks one terminal state or its evidence,
     unless a live worker of the card's workstream holds a running wait that will wake the host, and in such a run
-    what `autopilot_card.py phase` would refuse."""
+    what `autopilot_card.py phase` would refuse; and each that records a delivered state its local board refuses."""
     missing = []
     for path in sorted(root.glob('.scratch/*/autopilot.md')):
         state = card_state(path)
         if not (session and session in [part.strip() for part in state.get('session', '').split(',')]
-                and state.get('confirmed', 'no') not in ('', 'no')
-                and (state.get('terminal') not in TERMINAL_STATES or not state.get('evidence'))):
+                and state.get('confirmed', 'no') not in ('', 'no')):
+            continue
+        if state.get('terminal') in TERMINAL_STATES and state.get('evidence'):
+            if state['terminal'] in DELIVERED and state.get('board') == 'local':
+                missing += delivery_gaps(root, path, state)
             continue
         missing += board_gaps(root, path, state)
         if not awaited(path.with_name('reports') / 'workers.sqlite'):
