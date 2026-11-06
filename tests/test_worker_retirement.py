@@ -405,6 +405,64 @@ class Retirement(WorkerLifecycleCase):
         self.assertTrue(collected['result']['already_collected'])
         self.assertEqual([], self.cli('status')['pending'])
 
+    def test_a_herdr_worker_its_own_pane_still_holds_is_not_recorded_closed(self):
+        # Live (stforestkit R15/repair-1): Pi recorded R15 closed on "herdr agent get tautrep17 and pane get w2W:pB8
+        # both not found", R05's worker and pane, while R15's own Codex sat idle in its pane. Only retire, which closes
+        # that pane, ends such a worker; a pane Herdr shows gone, empty or holding another conversation has no worker.
+        deferred = {'decision': 'deferred', 'reason': 'acceptance checks pending'}
+        self.herdr_fixture()
+        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        self.herdr_fixture(pane_session='native-1')
+        error = self.record('closed', code=2, evidence=['herdr agent get worker-5: agent_not_found'],
+                            acceptance=deferred)
+        self.assertEqual(error.strip(), "Herdr pane pane-1 in tab tab-1 still holds this attempt's conversation, so "
+                         f"its worker has not ended: retire it with `python3 {SCRIPT} retire --state "
+                         f"{shlex.quote(str(self.state.resolve()))} --attempt ticket-1/1 --input <request>`, which "
+                         'closes that pane and records the closure')
+        self.assertNotIn('closed', self.cli('status')['attempts'][0])
+        self.herdr_fixture(pane_session='native-2')
+        self.record('closed', evidence=['pane-1 holds native-2'], acceptance=deferred)
+        # An empty pane (the worker exited), then a pane Herdr no longer lists.
+        for number, gone in ((2, False), (3, True)):
+            with self.subTest(gone=gone):
+                attempt = f'ticket-{number}/1'
+                self.herdr_fixture(native_session=f'native-{number}')
+                self.register(attempt, f'ticket-{number}', session=f'native-{number}', worker='builder-1',
+                              herdr={'session': 'fixture-session'})
+                self.ready(attempt)
+                self.collect(attempt)
+                self.acknowledge()
+                self.herdr_fixture(native_session=f'native-{number}', pane_session=None)
+                if gone:
+                    (self.root / 'native-closed').write_text('closed\n')
+                self.record('closed', attempt, evidence=['pane-1 holds no worker'], acceptance=deferred)
+
+    def test_a_herdr_worker_is_not_recorded_closed_while_herdr_cannot_say_where_it_is(self):
+        # Neither a Herdr that does not answer nor one that answers with an error tells that the worker has ended.
+        self.herdr_fixture()
+        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        retire = (f'retire the worker with `python3 {SCRIPT} retire --state {shlex.quote(str(self.state.resolve()))} '
+                  '--attempt ticket-1/1 --input <request>`')
+        deferred = {'decision': 'deferred', 'reason': 'acceptance checks pending'}
+        self.herdr_fixture(pane_session='native-2', pane_delay=8)
+        error = self.record('closed', code=2, evidence=['pane closed'], acceptance=deferred)
+        self.assertEqual(error.strip(), "Herdr cannot confirm whether pane pane-1 still holds this attempt's "
+                         'conversation (Herdr did not answer pane get pane-1 within 5 s); record the closure once it '
+                         f'does, or {retire}')
+        self.herdr_fixture(verify_error='server_unavailable')
+        (self.root / 'native-closed').write_text('closed\n')
+        error = self.record('closed', code=2, evidence=['pane closed'], acceptance=deferred)
+        self.assertEqual(error.strip(), "Herdr cannot confirm whether pane pane-1 still holds this attempt's "
+                         'conversation (pane get answered server_unavailable); record the closure once it does, or '
+                         f'{retire}')
+        self.assertNotIn('closed', self.cli('status')['attempts'][0])
+
     def test_existing_user_worker_cannot_be_recorded_as_closed(self):
         self.register(owned=False)
         self.ready()

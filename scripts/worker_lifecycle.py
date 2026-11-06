@@ -1652,6 +1652,30 @@ def pane_answer(saved, timeout=LOOKUP_SECONDS):
     return command, False
 
 
+def require_ended(db, attempt):
+    """Refuse a closure recorded by hand for a Herdr worker whose own pane Herdr shows still holding its conversation:
+    retire ends it, by closing that pane."""
+    saved = get(db, attempt)
+    placed = saved.get('herdr')
+    if not placed:
+        return
+    pane, script, state = placed['pane_id'], shlex.quote(str(Path(__file__).resolve())), shlex.quote(state_path(db))
+    retire = f'`python3 {script} retire --state {state} --attempt {attempt} --input <request>`'
+    try:
+        code, response = herdr(placed['session'], 'pane', 'get', pane, timeout=LOOKUP_SECONDS)
+        error = (response.get('error') or {}).get('code') if code else None
+        unknown = None if not code or error in ('pane_not_found', 'server_not_running') else \
+            f'pane get answered {error}'
+    except (OSError, ValueError) as failure:
+        unknown = str(failure)
+    require(not unknown, f"Herdr cannot confirm whether pane {pane} still holds this attempt's conversation "
+                         f'({unknown}); record the closure once it does, or retire the worker with {retire}')
+    identity = ((response.get('result') or {}).get('pane') or {}).get('agent_session') if code == 0 else None
+    require(not (isinstance(identity, dict) and conversation_named(saved, identity)),
+            f"Herdr pane {pane} in tab {placed['tab_id']} still holds this attempt's conversation, so its worker has "
+            f'not ended: retire it with {retire}, which closes that pane and records the closure')
+
+
 def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
     """Close, through `record`, each included attempt whose status is already decided: a collected worker whose Herdr
     tab its server confirms gone, or whose pane it shows holding another conversation, and a retained native subagent
@@ -1848,6 +1872,8 @@ def main():
                     require(args.input, 'This operation requires --input')
                     data = read_object(args.input)
                 if args.action == 'record':
+                    if data.get('kind') == 'closed' and text(data.get('attempt')):
+                        require_ended(db, data['attempt'])
                     result = record(db, data)
                 elif args.action == 'deliver':
                     require(args.event_id is not None, 'Delivery requires --event-id')

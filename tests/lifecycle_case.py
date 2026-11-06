@@ -181,7 +181,7 @@ class WorkerLifecycleCase(unittest.TestCase):
                       agent_delay=0, tab_delay=0, during_delay=None, lock_probe=None,
                       agent_kind='claude', session_kind='id', tab_gone_error='tab_not_found', pane_session=None,
                       agent_name='builder-1', agent_exited=False, servers=('fixture-session',), empty_panes=(),
-                      close_failures=0):
+                      close_failures=0, pane_delay=0):
         # during_delay: an argv the fixture runs while a delayed call waits, recording its exit code in
         # during-delay.json, so a test can act inside that wait without racing its own thread against it.
         # lock_probe: a state database the fixture tries to write-lock, in its own process and without waiting,
@@ -190,7 +190,7 @@ class WorkerLifecycleCase(unittest.TestCase):
         # reports for the agent in pane-1, which follows its occupant; agent_exited: pane-1 holds no agent (its
         # worker exited and left the pane), so `agent get` finds none; servers: the Herdr servers that answer, each
         # alike (the first is the worker's); empty_panes: other panes Herdr lists, each holding no agent;
-        # close_failures: how many `pane close` calls fail before one succeeds.
+        # close_failures: how many `pane close` calls fail before one succeeds; pane_delay: seconds `pane get` waits.
         directory = self.root / 'bin'
         directory.mkdir(exist_ok=True)
         executable = directory / 'herdr'
@@ -204,7 +204,7 @@ with open({str(self.root / 'herdr-argv.log')!r},'a') as log: log.write(' '.join(
 if args[:1]!=['--session'] and os.environ.get('HERDR_SOCKET_PATH','').endswith('/herdr/sessions/fixture-session/herdr.sock'):
     args=['--session','fixture-session']+args
 assert args[0]=='--session' and args[1] in {list(servers)!r}
-for command,delay in ((['agent','get'],{agent_delay!r}),(['tab','get'],{tab_delay!r})):
+for command,delay in ((['agent','get'],{agent_delay!r}),(['tab','get'],{tab_delay!r}),(['pane','get'],{pane_delay!r})):
     if args[2:4]==command and delay:
         Path({str(self.root / 'herdr-waiting')!r}).touch()
         if {lock_probe!r}:
