@@ -220,7 +220,11 @@ class BoardCLI(unittest.TestCase):
                 self.cli('fx', '--check', code=0 if ok else 1)
         # Review (Codex): `--set` with `--counts` counts only a board that passes the check.
         self.write_ticket('fx/01', status='done', accepted=False, extra='worker:\n')
-        self.assertIn(refusal, self.cli('fx', '--set', 'fx/01', 'worker=inline', '--counts', code=1).stderr)
+        refused = self.cli('fx', '--set', 'fx/01', 'worker=inline', '--counts', code=1).stderr
+        self.assertIn(refusal, refused)
+        # Review (Sonnet): the set is written before the check refuses the count, and the refusal says so.
+        self.assertIn('fx/01: set as asked; no counts while the board fails its check', refused)
+        self.assertIn('worker: inline', path.read_text())
         # The step the refusal names works on that ticket, even while another such ticket waits its turn (Codex).
         self.write_ticket('fx/02', status='done', accepted=False)
         with self.gh({merged: ('MERGED', 'c' * 40)}):
@@ -237,6 +241,15 @@ class BoardCLI(unittest.TestCase):
         fm = front_matter.parse(next(self.root.glob('.scratch/fx/issues/01-*.md')).read_text())
         self.assertEqual((fm['status'], fm.get('accepted'), fm.get('accepted_report')), ('blocked', None, None))
         self.assertEqual(fm['blocker'], 'its acceptance failed again; restore the evidence, then --accept it')
+        self.cli('fx', '--check')
+        # Review (Sonnet): a ticket the E2E sentinel lent to `verifying` is done all the same, so it is blocked too,
+        # and no longer lent, rather than returning to done with no acceptance.
+        lent = self.write_ticket('fx/03', status='done')
+        self.cli('fx', '--set', 'fx/03', 'status=verifying')
+        self.cli('fx', '--accept', 'fx/03', code=1)
+        fm = front_matter.parse(lent.read_text())
+        self.assertEqual((fm['status'], fm.get('lent'), fm.get('accepted')), ('blocked', None, None))
+        self.cli('fx', '--set', 'fx/03', 'status=done', code=1)
         self.cli('fx', '--check')
         # A ticket its merged PRs accept stays done whatever a branch acceptance finds.
         merged = self.write_ticket('fx/02', status='done', extra='delivered_by: [https://github.com/o/r/pull/1]\n')

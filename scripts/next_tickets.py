@@ -409,8 +409,10 @@ def accept(tickets, name):
         return True
     fm = tickets[name]
     withdrawn = {"accepted": None, "accepted_report": None} if fm.get("accepted") else {}
-    if fm.get("status") == "done" and not accepted({**fm, **withdrawn}):  # Done only while accepted.
-        withdrawn.update(status="blocked", blocker="its acceptance failed again; restore the evidence, then --accept it")
+    # Done only while accepted, lent to the E2E sentinel or not.
+    if "done" in (fm.get("status"), fm.get("lent")) and not accepted({**fm, **withdrawn}):
+        withdrawn.update(status="blocked", blocker="its acceptance failed again; restore the evidence, then --accept it",
+                         lent=None)
     if withdrawn:
         write_fields(fm, withdrawn)
     return False
@@ -1059,7 +1061,7 @@ def main(argv):
         if args.counts:
             board = load()
             if not check(board):
-                sys.exit(1)
+                sys.exit(f"{args.set[0]}: set as asked; no counts while the board fails its check")
             print(counts({t: fm for t, fm in board.items() if t in selected}))
         return
     if not check(tickets, bool(args.accept)):
