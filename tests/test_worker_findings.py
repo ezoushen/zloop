@@ -95,8 +95,8 @@ class RepairFindings(WorkerLifecycleCase):
     def test_an_attempt_nothing_shows_was_started_settles_its_findings_only_as_open(self):
         # Review (Sonnet, native-startup): a repair registered with no worker behind it, then given the cancelled result
         # the stop names as its way out, settled both its findings as repaired, and the totals counted them. With no
-        # recorded startup nothing shows a worker had them, whatever the result's status; once startup is recorded, a
-        # worker that stopped short settles what it did.
+        # recorded startup nothing shows a worker had them, whatever the result's status; once startup is recorded, its
+        # settings verified or not, a worker that stopped short settles what it did.
         self.cli('plan', '--job', 'repair', '--finding', 'P01-001', '--finding', 'P04-001')
         self.repair('r1/1', 'P01-001 P04-001')
         report = self.root / 'r1-1.md'
@@ -114,7 +114,7 @@ class RepairFindings(WorkerLifecycleCase):
         self.assertEqual(self.cli('findings')['counts'],
                          {'repaired': 0, 'open': 2, 'runtime-bug': 0, 'pending': 0, 'unassigned': 0})
         self.repair('r1/2', 'P01-001')
-        self.record('startup', 'r1/2', native=str(self.native('r1/2')))
+        self.assertFalse(self.record('startup', 'r1/2', native=str(self.native('r1/2', model='opus')))['verified'])
         self.record('result', 'r1/2', status='blocked', head='head-1', report=str(report), evidence=['seam decision'],
                     findings={'P01-001': 'repaired'})
         self.assertEqual(self.cli('findings')['counts'],
