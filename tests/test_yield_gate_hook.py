@@ -2098,6 +2098,37 @@ class StaleTabs(HerdrWorkers):
                             str(receipt['id'])], check=True, capture_output=True, env=self.env())
         self.assertEqual(self.check(pane='w1:p1'), [], 'a design hold waits on the user')
 
+    def test_a_worker_recorded_closed_while_its_own_pane_still_holds_it_is_a_reminder(self):
+        # Rule 4 (stforestkit R15/repair-1: recorded closed with another worker's pane as its evidence while its own
+        # Codex sat idle in its tab): a closure that the worker's own pane contradicts is named, with the command that
+        # ends the worker.
+        self.register()
+        self.collect()
+        status = subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'status', '--state', str(self.state)],
+                                check=True, capture_output=True, text=True, env=self.env())
+        for receipt in json.loads(status.stdout)['pending']:
+            subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'ack', '--state', str(self.state), '--event-id',
+                            str(receipt['id'])], check=True, capture_output=True, env=self.env())
+        self.lifecycle('closed', evidence=['herdr agent get tautrep17 and pane get w2W:pB8 both not found'])
+
+        def occupant(session):
+            return {'default': {'w1:p5': {'pane_id': 'w1:p5', 'tab_id': 'w1:t5', 'agent': 'claude',
+                                          'agent_session': {'kind': 'id', 'value': session}}}}
+        self.serve(agents=[{'agent': 'claude', 'agent_status': 'idle', 'name': 'builder-1', 'pane_id': 'w1:p5',
+                            'tab_id': 'w1:t5', 'workspace_id': 'w1'}], tabs={'default': [self.tab]},
+                   panes=occupant('native-1'))
+        reminder = (f'{self.state}: ticket-1/1: recorded closed, but Herdr pane w1:p5 in tab w1:t5 still holds its '
+                    'conversation; end it with `herdr --session default pane close w1:p5`')
+        self.assertEqual(self.check(pane='w1:p1'), [reminder])
+        self.assertIn(f'- {reminder}\n', self.stop(pane='w1:p1')['reason'])
+        self.assertIsNone((self.stop(pane='w1:p1', active=True) or {}).get('decision'), 'a reminder holds once')
+        # Another conversation in that pane is not this worker; a Herdr that cannot be asked names nothing, since a
+        # recorded closure is reminded of, not gated.
+        self.serve(tabs={'default': [self.tab]}, panes=occupant('native-9'))
+        self.assertEqual(self.check(pane='w1:p1'), [])
+        self.serve(tabs={'default': [self.tab]}, panes=occupant('native-1'), fail='connection refused')
+        self.assertEqual(self.check(pane='w1:p1'), [])
+
     def test_only_the_latest_attempt_of_a_retained_worker_is_judged(self):
         # Rule 2: a retained attempt whose worker took a later attempt has had its next use; the later one answers.
         self.register()

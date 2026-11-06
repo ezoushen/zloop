@@ -51,7 +51,9 @@ GUIDE = ROOT / 'runtime/workers/wait.md'
 PREPARE = ROOT / 'runtime/workers/prepare.md'
 COLLECT = ROOT / 'runtime/workers/collect.md'
 RETIRE = ROOT / 'runtime/resources/retire.md'
-REMINDER = 'and nothing in its run follows it'  # A retention reminder holds a stop once, as a failed check does.
+# Reminders hold a stop once, as a failed check does: a retained worker nothing follows, a closure Herdr contradicts.
+REMINDER = 'and nothing in its run follows it'
+CLOSED_REMINDER = 'recorded closed, but'
 HANDOFF = ROOT / 'skills/dispatch/handoff.md'
 # hooks/herdr_launch.py appends each `herdr agent start` here, one JSON object per line.
 LAUNCHES = '.scratch/herdr-launches.jsonl'
@@ -350,11 +352,12 @@ def unfinished_runs(root, session):
 
 
 def stale_tabs(root, pane, session):
-    """Name each collected attempt, not retired, whose recorded Herdr tab its session still lists, for the session bound
-    to orchestrate its workstream or, with none bound, the pane that registered it, however old the run: one not
-    retained, and a retained one that nothing follows (its run has nothing unfinished, it is its conversation's latest
-    attempt and no design hold waits on the user for its assignment)."""
-    listed, missing = {}, []
+    """Name each collected attempt whose recorded Herdr tab its session still lists, for the session bound to
+    orchestrate its workstream or, with none bound, the pane that registered it, however old the run: one neither
+    retained nor closed; as reminders, a retained one that nothing follows (its run has nothing unfinished, it is its
+    conversation's latest attempt and no design hold waits on the user for its assignment) and one recorded closed
+    whose own pane still holds its conversation."""
+    listed, failed, missing = {}, {}, []
     for state in states(root):
         # An unreadable binding decides nothing here (undelivered names it); the registering pane does.
         binding, mine = read_binding(state.with_name(BINDING), pane, session)
@@ -373,21 +376,28 @@ def stale_tabs(root, pane, session):
         for saved in saved_attempts:
             herdr = saved.get('herdr') or {}
             mine = bound if bound is not None else attributed(saved) and owns(saved, pane, session)
-            # A retired attempt's tab was confirmed gone before its closure was recorded.
-            if not (herdr.get('tab_id') and saved.get('result') and not saved.get('closed') and mine):
+            if not (herdr.get('tab_id') and saved.get('result') and mine):
                 continue
             retained = saved.get('retained')
-            if retained and (unfinished or saved.get('assignment') in held
-                             or latest[(saved['runtime'], saved['native_session'])] != saved['attempt']):
+            if not saved.get('closed') and retained and (
+                    unfinished or saved.get('assignment') in held
+                    or latest[(saved['runtime'], saved['native_session'])] != saved['attempt']):
                 continue  # Its run, a later attempt of its worker or the user's ruling may still use it.
             where = (herdr['session'], herdr['workspace_id'])
             if where not in listed:
                 try:
                     listed[where] = herdr_tabs(*where)
-                except Exception as error:  # A check that cannot run is a named gap, never a pass.
-                    listed[where] = set()
-                    missing.append(f'could not check worker tabs: {error}')
-            if herdr['tab_id'] in listed[where] and retained:
+                except Exception as error:
+                    listed[where], failed[where] = set(), f'could not check worker tabs: {error}'
+            if saved.get('closed'):
+                # A recorded closure is reminded of, never gated: a Herdr that cannot be asked names nothing here.
+                if herdr['tab_id'] in listed[where] and herdr.get('pane_id') and holds_own(saved, herdr):
+                    missing.append(f"{state}: {saved['attempt']}: {CLOSED_REMINDER} Herdr pane {herdr['pane_id']} in "
+                                   f"tab {herdr['tab_id']} still holds its conversation; end it with `herdr --session "
+                                   f"{herdr['session']} pane close {herdr['pane_id']}`")
+            elif where in failed:  # A check that cannot run is a named gap, never a pass.
+                missing.append(failed.pop(where))
+            elif herdr['tab_id'] in listed[where] and retained:
                 next_use = retained.get('next_use') if isinstance(retained, dict) else None
                 missing.append(f"{state}: {saved['attempt']}: retained for \"{next_use}\" in Herdr tab "
                                f"{herdr['tab_id']}, {REMINDER}: register that next attempt in this worker, raise a "
@@ -396,6 +406,18 @@ def stale_tabs(root, pane, session):
                 missing.append(f"{state}: {saved['attempt']}: Herdr tab {herdr['tab_id']} is still open after "
                                f'collection; retire the worker or record its retention ({COLLECT})')
     return missing
+
+
+def holds_own(saved, herdr):
+    """Whether Herdr shows the attempt's recorded pane holding its own native conversation; no when it cannot say."""
+    named = [] if herdr['session'] == socket_server() else ['--session', herdr['session']]
+    try:
+        result = subprocess.run(['herdr', *named, 'pane', 'get', herdr['pane_id']], capture_output=True, text=True,
+                                timeout=5)
+        identity = json.loads(result.stdout)['result']['pane'].get('agent_session') if result.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError, KeyError, AttributeError):
+        return False
+    return isinstance(identity, dict) and lifecycle().conversation_named(saved, identity) is True
 
 
 def open_holds(state):
@@ -761,7 +783,8 @@ def count_hold(cwd, session, missing):
         except (OSError, ValueError):
             saved = {}
         held = saved.get('holds', 0) if saved.get('gaps') == missing else 0
-        if held >= (1 if all(failed_check(gap) or REMINDER in gap for gap in missing) else MAX_HOLDS):
+        if held >= (1 if all(failed_check(gap) or REMINDER in gap or CLOSED_REMINDER in gap for gap in missing)
+                      else MAX_HOLDS):
             if saved.get('told'):
                 return False, None  # Said once; later stops of the same gaps pass quietly.
             files.write_atomic(path, json.dumps({'gaps': missing, 'holds': held, 'told': True}))
