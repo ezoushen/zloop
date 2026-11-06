@@ -168,7 +168,11 @@ class BoardCLI(unittest.TestCase):
         before = sorted(self.root.glob('.scratch/*/issues/*.md'))
         refused = self.cli('a', '--new', 'A two', '--blocked-by', 'b/01', code=2)
         self.assertIn('workstream dependency cycle', refused.stderr)
+        self.assertIn('--new wrote nothing: the board with this ticket fails its check', refused.stderr)
         self.assertEqual(sorted(self.root.glob('.scratch/*/issues/*.md')), before)
+        # Review (Sonnet): a note beside the tickets, named by a date, is no ticket number.
+        (self.root / '.scratch/a/issues/2026-11-06-handoff.md').write_text('# handoff\n')
+        self.assertEqual(Path(self.cli('a', '--new', 'A two').stdout.strip()).name, '02-a-two.md')
 
     def gh(self, pulls):
         """A `gh` on PATH answering `gh pr view <url> --json state,mergeCommit` from `pulls` (url to state, merge commit);
@@ -214,6 +218,10 @@ class BoardCLI(unittest.TestCase):
             self.assertEqual(front_matter.parse(path.read_text())['delivered_by'], [one, two])
             self.cli('fx', '--set', 'fx/01', 'status=done')
             self.assertEqual(front_matter.parse(path.read_text())['status'], 'done')
+            # Review (Sonnet): a hand-written value that is no PR's URL never reaches gh.
+            odd = self.write_ticket('fx/04', status='implementing', extra='worker: inline\ndelivered_by: [12]\n')
+            self.assertIn("fx/04: 12 is not a pull request's URL", self.cli('fx', '--set', 'fx/04', 'status=done', code=1).stderr)
+            self.assertEqual(front_matter.parse(odd.read_text())['status'], 'implementing')
             # A recorded PR proves nothing by itself: done asks gh again.
             other = self.write_ticket('fx/02', status='implementing', extra=f'worker: inline\ndelivered_by: [{three}]\n')
             refused = self.cli('fx', '--set', 'fx/02', 'status=done', code=1)

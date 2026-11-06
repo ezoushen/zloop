@@ -304,6 +304,9 @@ class Phase(unittest.TestCase):
         self.assertEqual(self.phase('dispatch (inline)', code=2)[0], text.replace('phase: align', 'phase: refine'))
         new = shlex.join(['python3', str(COMMAND.resolve().parent / 'next_tickets.py'), '--repo', str(self.repo), 'run',
                           '--new', '<title>'])
+        # Review (Sonnet): a note in the board's folder is no ticket.
+        (self.repo / '.scratch' / 'run' / 'issues').mkdir()
+        (self.repo / '.scratch' / 'run' / 'issues' / 'README.md').write_text('# notes\nticket: none yet\n')
         for phase in ('dispatch', 'pr'):
             with self.subTest(phase=phase):
                 text, error = self.phase(phase, code=1)

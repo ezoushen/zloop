@@ -47,6 +47,7 @@ ROOT = Path.cwd()
 ISSUES = ROOT / ".scratch"
 LIVE = {"implementing", "reviewing", "fixing", "verifying"}
 TEMPLATE = Path(__file__).resolve().parents[1] / "skills" / "refine" / "ticket-template.md"
+PR_URL = re.compile(r"https://[^/\s]+/[^/\s]+/[^/\s]+/pull/[0-9]+")  # A pull request, by its own address.
 TERMINAL = {"done"}
 STATUSES = {"ready", "blocked"} | LIVE | TERMINAL
 try:
@@ -781,6 +782,9 @@ def unmerged(prs):
     """Why each PR does not deliver a ticket: gh reports it not merged, or cannot read it; none when all merged."""
     problems = []
     for url in prs:
+        if not PR_URL.fullmatch(str(url)):  # Never handed to gh: a number or a flag means something else there.
+            problems.append(f"{url} is not a pull request's URL")
+            continue
         try:
             result = subprocess.run(["gh", "pr", "view", url, "--json", "state,mergeCommit"], capture_output=True,
                                     text=True, timeout=60)
@@ -815,15 +819,15 @@ def new_ticket(slug, title, blocked_by, touches):
     issues = ISSUES / slug / "issues"
     issues.mkdir(parents=True, exist_ok=True)
     with state_files.locked(issues / ".new"):
-        tickets = load()  # Read under the lock: a parallel call may have written a ticket since.
-        taken = [int(t.split("/")[1]) for t in tickets if spec_of(t) == slug]
-        taken += [int(match[1]) for match in (re.match(r"([0-9]+)-", path.name) for path in issues.glob("*.md")) if match]
-        nn = f"{max(taken, default=0) + 1:02}"
+        tickets = load()  # Read under the lock: a parallel call wrote its ticket before letting go of it.
+        nn = f"{max((int(t.split('/')[1]) for t in tickets if spec_of(t) == slug), default=0) + 1:02}"
         words = "-".join(re.findall(r"[a-z0-9]+", title.lower()))[:60].strip("-") or "ticket"
         path = issues / f"{nn}-{words}.md"
         fields = {"ticket": f"{slug}/{nn}", "status": "ready", "blocked_by": blocked_by, "touches": touches,
                   "devices": [], "needs": [], "path": str(path.relative_to(ROOT))}
         if not check({**tickets, fields["ticket"]: fields}):
+            print("--new wrote nothing: the board with this ticket fails its check; fix what it names, then run it "
+                  "again", file=sys.stderr)
             sys.exit(2)
         block = TEMPLATE.read_text().split("```markdown\n", 1)[1].rsplit("```", 1)[0]
         body = block.split("\n---\n", 1)[1].replace("<slug>", slug)
@@ -968,7 +972,7 @@ def main(argv):
         parser.error("--counts may only be combined with --set")
     if args.pr and not args.accept:
         parser.error("--pr goes with --accept")
-    if not all(re.fullmatch(r"https://[^/\s]+/[^/\s]+/[^/\s]+/pull/[0-9]+", url) for url in args.pr):
+    if not all(PR_URL.fullmatch(url) for url in args.pr):
         parser.error("--pr takes a pull request's URL: https://<host>/<owner>/<repo>/pull/<number>")
     if args.max_live < 1:
         parser.error("--max-live must be positive")

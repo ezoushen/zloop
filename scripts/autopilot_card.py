@@ -81,6 +81,12 @@ def tracker_url(board):
     return bool(re.fullmatch(r'https?://[^/\s]+(?:/\S*)?', board))
 
 
+def ticket_files(issues):
+    """The files of a local board that are tickets: those whose front matter names one."""
+    return [path for path in issues.glob('*.md')
+            if re.match(r'---\n(?:(?!---\n).*\n)*?ticket:', path.read_text(errors='replace'))]
+
+
 def board_problem(card, state):
     """Why the run of `card` cannot work its board yet, or None: a tracker's URL holds its own tickets; a `local` board
     needs ticket files that pass the board's check."""
@@ -90,7 +96,7 @@ def board_problem(card, state):
     if board != 'local':
         return f"the card's `board:` is neither `local` nor a tracker's URL: {board!r}"
     slug, repo = card.parent.name, card.resolve().parents[2]
-    if not list((card.parent / 'issues').glob('*.md')):
+    if not ticket_files(card.parent / 'issues'):
         new = shlex.join(['python3', str(TICKETS), '--repo', str(repo), slug, '--new', '<title>'])
         return f'the local board of {slug} has no tickets: write each with `{new}`, then set the phase'
     check = subprocess.run([sys.executable, str(TICKETS), '--repo', str(repo), slug, '--check'],

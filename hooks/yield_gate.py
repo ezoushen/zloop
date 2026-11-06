@@ -340,12 +340,6 @@ def card_state(path):
     return state
 
 
-def ticket_files(issues):
-    """The files of a local board that are tickets: those whose front matter names one."""
-    return [path for path in issues.glob('*.md')
-            if re.match(r'---\n(?:(?!---\n).*\n)*?ticket:', path.read_text(errors='replace'))]
-
-
 def board_gaps(root, path, state):
     """What `autopilot_card.py phase` would refuse in a run card's State written by hand: a phase none of the four,
     or dispatch or pr with no board, or with no ticket on its local board."""
@@ -360,7 +354,7 @@ def board_gaps(root, path, state):
     if board != 'local':
         return [f"{path}: this session's autopilot run is in {phase} with no board: write `board: local` or the "
                 "tracker's URL in the card's State"]
-    if ticket_files(path.parent / 'issues'):
+    if cards.ticket_files(path.parent / 'issues'):
         return []
     new = shlex.join(['python3', str(ROOT / 'scripts/next_tickets.py'), '--repo', str(root), path.parent.name, '--new',
                       '<title>'])
