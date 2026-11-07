@@ -342,8 +342,8 @@ class PanelState(unittest.TestCase):
         issues = workstream / 'issues'
         ticket(issues / '01-a.md', 'demo/01', status='done', accepted=False)
         ticket(issues / '02-b.md', 'demo/02')
-        refusal = ('demo/01: status done with no acceptance; accept it with --accept demo/01, or --accept demo/01 --pr '
-                   '<url> when PRs delivered it, or --accept demo/01 --run <url> when a successful CI run proves it')
+        refusal = ('demo/01: status done with no acceptance; accept it with --accept demo/01, or --accept demo/01 '
+                   '--delivered-by <url> for a merged PR or successful CI run')
         self.assertEqual([row['text'] for row in self.snapshot()['rows']], [
             'demo · dispatch', f'board fails its check: {refusal}', '2 tickets · 1 done · 0 blocked · 1 ready · 0 live'])
         # This workstream's problem comes first, then how many more the board has.
@@ -351,8 +351,8 @@ class PanelState(unittest.TestCase):
         self.assertEqual([f'board fails its check: {refusal} (+1 more)'], self.row_texts(self.snapshot(), 'blocker'))
         # Another workstream's problem is this one's blocker while it has work left, since the scheduler starts none.
         ticket(issues / '01-a.md', 'demo/01', status='done')
-        other = ('alpha/01: status done with no acceptance; accept it with --accept alpha/01, or --accept alpha/01 --pr '
-                 '<url> when PRs delivered it, or --accept alpha/01 --run <url> when a successful CI run proves it')
+        other = ('alpha/01: status done with no acceptance; accept it with --accept alpha/01, or --accept alpha/01 '
+                 '--delivered-by <url> for a merged PR or successful CI run')
         self.assertEqual([f'board fails its check: {other}'], self.row_texts(self.snapshot(), 'blocker'))
         # A ticket the board blocks comes after it.
         ticket(issues / '03-c.md', 'demo/03', status='blocked', blocker='no credential')
@@ -416,8 +416,8 @@ class PanelState(unittest.TestCase):
         card(self.scratch / 'demo' / 'autopilot.md', terminal='merged')
         ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='done', accepted=False)
         ticket(self.scratch / 'alpha' / 'issues' / '01-a.md', 'alpha/one')
-        refusal = ('demo/01: status done with no acceptance; accept it with --accept demo/01, or --accept demo/01 --pr '
-                   '<url> when PRs delivered it, or --accept demo/01 --run <url> when a successful CI run proves it')
+        refusal = ('demo/01: status done with no acceptance; accept it with --accept demo/01, or --accept demo/01 '
+                   '--delivered-by <url> for a merged PR or successful CI run')
         self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), [f'board fails its check: {refusal} (+1 more)'])
         # A ticket of it waiting on one in that workstream waits on a ticket the board cannot judge, not one missing.
         ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='done', blocked_by='alpha/02')
@@ -486,8 +486,7 @@ class PanelState(unittest.TestCase):
         ticket(issues / '02-b.md', 'demo/02', status='done', accepted=False)
         self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), [
             'board fails its check: demo/02: status done with no acceptance; accept it with --accept demo/02, or '
-            '--accept demo/02 --pr <url> when PRs delivered it, or --accept demo/02 --run <url> when a successful CI run '
-            'proves it'])
+            '--accept demo/02 --delivered-by <url> for a merged PR or successful CI run'])
         # Review (Sonnet): what the delivery check cannot read is said, as the stop check says it, and the rows stay.
         ticket(issues / '02-b.md', 'demo/02', status='done')
         review.parent.mkdir(parents=True, exist_ok=True)
@@ -871,8 +870,7 @@ class PanelState(unittest.TestCase):
         ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='done', accepted=False)
         self.assertEqual(self.row_texts(PANEL.snapshot(worktree, 'S', time.time()), 'blocker'), [
             'board fails its check: demo/01: status done with no acceptance; accept it with --accept demo/01, or '
-            '--accept demo/01 --pr <url> when PRs delivered it, or --accept demo/01 --run <url> when a successful CI '
-            'run proves it'])
+            '--accept demo/01 --delivered-by <url> for a merged PR or successful CI run'])
 
     def test_an_allowance_pause_names_the_card_timers_resume(self):
         card(self.scratch / 'demo' / 'autopilot.md', terminal='paused-allowance')
@@ -895,6 +893,13 @@ class PanelState(unittest.TestCase):
         (self.scratch / 'alpha' / 'reports').mkdir(parents=True)
         (self.scratch / 'alpha' / 'reports' / 'orchestrator.json').write_text('[]')
         self.assertEqual('alpha', self.snapshot('S')['workstream'])
+
+    def test_a_binding_with_non_string_sessions_cannot_hide_this_sessions_worker(self):
+        card(self.scratch / 'alpha' / 'autopilot.md', session='S')
+        attempts(self.scratch / 'alpha' / 'reports' / 'workers.sqlite', [live('ticket-1/1')])
+        orchestrator(self.scratch / 'alpha', [7])
+        self.assertEqual(['▶ builder · zloop-panel/01 · sonnet · quiet 30s'],
+                         self.row_texts(self.snapshot('S'), 'run'))
 
     def test_a_worker_this_session_registered_ties_its_workstream(self):
         # A run with no card, binding or journal, such as remediate's audit workers: the lifecycle records every host

@@ -8,6 +8,7 @@ concurrent commands runs one at a time and none loses another's update. The dire
 """
 import contextlib
 import fcntl
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -34,3 +35,23 @@ def locked(path):
     with open(path.with_name(path.name + '.lock'), 'a') as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         yield
+
+
+BINDING = 'orchestrator.json'
+
+
+def read_binding(path):
+    """The validated orchestrator binding, or None, and its raw text for attributing a malformed file."""
+    try:
+        raw = path.read_text(errors='replace')
+    except OSError:
+        return None, ''
+    try:
+        binding = json.loads(raw)
+        if (isinstance(binding, dict) and (binding.get('pane') is None or isinstance(binding['pane'], str))
+                and isinstance(binding.get('sessions'), list)
+                and all(isinstance(known, str) for known in binding['sessions'])):
+            return binding, raw
+    except ValueError:
+        pass
+    return None, raw

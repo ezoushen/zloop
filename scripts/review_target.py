@@ -127,20 +127,6 @@ def resolve(args):
                 autofix=args.autofix, comments=args.comments, review_level=args.effort)
 
 
-def saved_binding(path):
-    """The binding saved at path, None when there is none; a file that is not a whole binding is refused."""
-    if not path.is_file():
-        return None
-    try:
-        binding = json.loads(path.read_text())
-        assert isinstance(binding['sessions'], list) and isinstance(binding['resolution'], dict)
-        assert 'repo' in binding and 'target' in binding
-    except (ValueError, KeyError, TypeError, AssertionError):
-        raise ValueError(f'{path}: not a whole review binding; remove it and rerun the same start command '
-                         '(the report is kept)') from None
-    return binding
-
-
 def orphaned_binding(report, main):
     """The binding of a report left without one (its start stopped between the two writes), with no session bound
     yet; a report that is not whole is refused."""
@@ -178,7 +164,11 @@ def start(args):
                                                   '--input', str(directory / f'{action}.json')])
     directory.mkdir(parents=True, exist_ok=True)
     with state_files.locked(binding_path):
-        previous = saved_binding(binding_path)
+        previous, _ = state_files.read_binding(binding_path)
+        if binding_path.is_file() and (previous is None or not isinstance(previous.get('resolution'), dict)
+                                       or 'repo' not in previous or 'target' not in previous):
+            raise ValueError(f'{binding_path}: not a whole review binding; remove it and rerun the same start command '
+                             '(the report is kept)')
         if previous is None and report.is_file():
             previous = orphaned_binding(report, main)
         if (report.exists() or previous) and (

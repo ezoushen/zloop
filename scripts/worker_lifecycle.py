@@ -887,10 +887,9 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
         # A native record, and a read-only agent's other checkout, are read before the write lock is taken too.
         target = get(db, attempt)
         try:
-            if target['runtime'] != 'opencode':
-                located = native_settings.working_directory(data['native'], target['runtime'], target['native_session'])
             observation = native_settings.observe(data['native'], target['runtime'], target['native_session'],
                 None if not submitting and target['execution_snapshot'].get('native_dispatch') else target['worktree'])
+            located = observation.get('cwd')
         except (OSError, ValueError) as error:
             raise ValueError(f'{error}; record startup with native: the session record of registered worker '
                              f'{target["native_session"]} (OpenCode: opencode session export)') from None

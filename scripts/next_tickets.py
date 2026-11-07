@@ -9,7 +9,7 @@ Actions: --board, --counts, --check, --accept TICKET,
 --set TICKET status=blocked also needs blocker=REASON, which the ticket's front matter keeps. Entering implementing
 records start: (the workstream branch head) when the ticket has none; start never changes once recorded. A passing
 --accept records accepted: (the head it accepted); status=done needs it, merged into the workstream branch.
---accept TICKET --pr URL / --run URL accepts it instead by the PRs gh reports merged and the CI runs gh reports
+--accept TICKET --delivered-by URL accepts it instead by the PRs gh reports merged and the CI runs gh reports
 successful, recorded as delivered_by:; status=done asks gh again.
 Only --set may be combined with --counts. --accept of a delegated ticket (its branch is not the workstream branch)
 needs the report a collected worker attempt of the workstream returned completed, unchanged since. It also runs the
@@ -147,8 +147,8 @@ def problems(tickets, refused=(), accepting=False):
     unread = {name for problem in refused for name in problem.unread}
     bad = list(refused) + [mine(t, f"status {fm.get('status')!r} is not one of {sorted(STATUSES)}")
                            for t, fm in tickets.items() if not isinstance(fm.get('status'), str) or fm['status'] not in STATUSES]
-    bad += [mine(t, f"status done with no acceptance; accept it with --accept {t}, or --accept {t} --pr <url> when PRs "
-                    f"delivered it, or --accept {t} --run <url> when a successful CI run proves it")
+    bad += [mine(t, f"status done with no acceptance; accept it with --accept {t}, or --accept {t} --delivered-by <url> "
+                    "for a merged PR or successful CI run")
             for t, fm in tickets.items() if fm.get('status') == 'done' and not accepting and not accepted(fm)]
     bad += [mine(t, f"blocked_by {dep} does not exist") for t, fm in tickets.items()
             for dep in fm.get("blocked_by", []) if dep not in tickets and dep not in unread]
@@ -1156,22 +1156,20 @@ def main(argv):
     actions.add_argument("--orchestrate", action="store_true", help="bind this session as the workstreams' orchestrator")
     actions.add_argument("--new", metavar="TITLE", help="write the workstream's next ticket from the template")
     parser.add_argument("--blocked-by", action="append", default=[], metavar="TICKET", help="with --new")
-    parser.add_argument("--pr", action="append", default=[], metavar="URL",
-                        help="with --accept: a PR that delivers the ticket, which gh must report merged")
-    parser.add_argument("--run", action="append", default=[], metavar="URL",
-                        help="with --accept: a CI run that proves the ticket, which gh must report successful")
+    parser.add_argument("--delivered-by", action="append", default=[], metavar="URL",
+                        help="with --accept: a PR gh reports merged or a CI run gh reports successful")
     parser.add_argument("--touches", action="append", default=[], metavar="AREA", help="with --new")
     parser.add_argument("--counts", action="store_true")
     parser.add_argument("--autofix", action="store_true", help="with --orchestrate: repairs are authorized")
     args = parser.parse_args(argv)
     if args.counts and any((args.check, args.board, args.accept, args.can_verify, args.delivery, args.orchestrate)):
         parser.error("--counts may only be combined with --set")
-    if (args.pr or args.run) and not args.accept:
-        parser.error("--pr and --run go with --accept")
-    if not all(PR_URL.fullmatch(url) for url in args.pr):
-        parser.error("--pr takes a pull request's URL: https://<host>/<owner>/<repo>/pull/<number>")
-    if not all(RUN_URL.fullmatch(url) for url in args.run):
-        parser.error("--run takes a CI run's URL: https://<host>/<owner>/<repo>/actions/runs/<number>")
+    if args.delivered_by and not args.accept:
+        parser.error("--delivered-by goes with --accept")
+    if not all(PR_URL.fullmatch(url) or RUN_URL.fullmatch(url) for url in args.delivered_by):
+        parser.error("--delivered-by takes a pull request's or a CI run's URL: "
+                     "https://<host>/<owner>/<repo>/pull/<number> or "
+                     "https://<host>/<owner>/<repo>/actions/runs/<number>")
     if args.max_live is None:
         try:
             args.max_live = live_cap()
@@ -1250,8 +1248,8 @@ def main(argv):
         sys.exit(1)
     if args.check:
         return
-    if args.accept and (args.pr or args.run):
-        sys.exit(0 if accept_delivered(tickets, args.accept, args.pr + args.run) else 1)
+    if args.accept and args.delivered_by:
+        sys.exit(0 if accept_delivered(tickets, args.accept, args.delivered_by) else 1)
     for name, fn in ((args.accept, accept), (args.can_verify, can_verify)):
         if name:
             sys.exit(0 if fn(tickets, name) else 1)

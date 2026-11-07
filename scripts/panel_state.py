@@ -11,11 +11,11 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_matter  # noqa: E402
 import next_tickets  # noqa: E402
+import state_files  # noqa: E402
 from worker_lifecycle import ENDED, PAUSED, card_sessions, card_state, confirmed, recorded_sessions  # noqa: E402
 
 SCRATCH = '.scratch'
 CARD = 'autopilot.md'
-ORCHESTRATOR = 'orchestrator.json'
 RUN_CAP = 3
 # The board's statuses of a ticket being worked on (next_tickets.py LIVE).
 LIVE_TICKET = ('implementing', 'reviewing', 'fixing', 'verifying')
@@ -289,14 +289,8 @@ def model_of(data):
 
 def bound_sessions(workstream):
     """The host sessions the workstream's orchestrator binding names, or None when it keeps no binding."""
-    try:
-        saved = json.loads((workstream / 'reports' / ORCHESTRATOR).read_text())
-    except (OSError, ValueError):
-        return None
-    if not isinstance(saved, dict):
-        return None
-    sessions = saved.get('sessions')
-    return [str(session) for session in sessions] if isinstance(sessions, list) else []
+    saved, _ = state_files.read_binding(workstream / 'reports' / state_files.BINDING)
+    return saved['sessions'] if saved is not None else None
 
 
 def registered_by(workstream, session_id):

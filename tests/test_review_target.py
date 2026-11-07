@@ -270,6 +270,17 @@ class ReviewTarget(unittest.TestCase):
                 self.assertTrue(binding.is_file() and report.is_file())
                 shutil.rmtree(report.parent)
 
+    def test_a_binding_with_non_string_sessions_is_refused_without_changing_the_report(self):
+        first = self.launch()
+        report, binding = Path(first['report']), Path(first['binding'])
+        before = report.read_bytes()
+        saved = json.loads(binding.read_text())
+        saved['sessions'] = [7]
+        binding.write_text(json.dumps(saved))
+        refused = self.launch(code=2)
+        self.assertIn(f'{binding}: not a whole review binding; remove it and rerun the same start command', refused)
+        self.assertEqual(report.read_bytes(), before)
+
     def test_a_truncated_report_without_its_binding_is_refused_naming_the_report(self):
         # Audit A5: the report alone cannot say which target it belongs to when it is cut short.
         first = self.launch()

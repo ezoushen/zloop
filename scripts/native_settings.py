@@ -76,7 +76,7 @@ def packet_reply(path, runtime, session, attempt, *, parents=None):
 
 
 def observe(path, runtime, session, worktree):
-    """Return observed controls and the source path; unknown controls stay absent. A `worktree` holds the
+    """Return observed controls, cwd and source path; unknown controls stay absent. A `worktree` holds the
     record's directory to it; None (a native child's record names its orchestrator's directory, which moves) checks
     none."""
     path = Path(path)
@@ -127,10 +127,10 @@ def observe(path, runtime, session, worktree):
         settings = {key: value for key, value in settings.items()
                     if isinstance(value, str) and value.strip() or isinstance(value, list) and value}
         return {'observed': settings, 'session': session, 'worktree': worktree and str(Path(worktree).resolve()),
-                'source': str(path)}
+                'cwd': directory if isinstance(directory, str) and directory.strip() else None, 'source': str(path)}
     if runtime not in ('claude', 'codex', 'pi'):
         raise ValueError('Unsupported native evidence runtime')
-    latest, header, mode = None, None, None
+    latest, header, mode, directory = None, None, None, None
     entries = {}
     with path.open('rb') as stream:
         for line in stream:
@@ -139,6 +139,8 @@ def observe(path, runtime, session, worktree):
             row = json.loads(line)
             if not isinstance(row, dict):
                 raise ValueError('Native evidence record must be an object')
+            if runtime == 'claude' and session == (row.get('agentId') or row.get('sessionId')):
+                directory = row.get('cwd', directory)
             if runtime == 'claude' and row.get('type') == 'assistant':
                 if not isinstance(row.get('message'), dict):
                     raise ValueError('Unsupported native assistant schema')
@@ -153,9 +155,11 @@ def observe(path, runtime, session, worktree):
                 latest = row['payload']
                 if not isinstance(latest, dict):
                     raise ValueError('Unsupported native turn schema')
+                directory = latest.get('cwd', directory)
             elif runtime == 'pi':
                 if row.get('type') == 'session':
                     header = row
+                    directory = row.get('cwd')
                 else:
                     if not isinstance(row.get('message', {}), dict):
                         raise ValueError('Unsupported native message schema')
@@ -205,7 +209,8 @@ def observe(path, runtime, session, worktree):
     if runtime == 'claude' and latest and latest.get('isSidechain'):
         identity = latest.get('agentId')
     if latest is None or session not in (identity, (header or {}).get('agent_path')):
-        raise ValueError('Native evidence does not belong to the registered session')
+        raise ValueError(f'Native evidence does not belong to the registered session {session}: the record '
+                         + (f'is session {identity}' if identity else 'names no session'))
     if worktree:
         if not isinstance(latest.get('cwd'), str):
             raise ValueError('Native evidence worktree does not match the assignment')
@@ -238,7 +243,7 @@ def observe(path, runtime, session, worktree):
     settings = {key: value for key, value in settings.items()
                 if isinstance(value, str) and value.strip() or isinstance(value, list) and value}
     return {'observed': settings, 'session': session, 'worktree': worktree and str(Path(worktree).resolve()),
-            'source': str(path)}
+            'cwd': directory if isinstance(directory, str) and directory.strip() else None, 'source': str(path)}
 
 
 def outside(cwd, worktree, runtime):
@@ -254,42 +259,6 @@ def outside(cwd, worktree, runtime):
             return None
         if (directory / '.git').exists():
             return 'Native evidence belongs to a nested repository'
-
-
-def working_directory(path, runtime, session):
-    """The working directory a native child's own record gives it, or None when the record names none: the latest
-    `cwd` of a Claude transcript's rows for the session (a subagent's rows name it as `agentId`), the latest
-    `turn_context` cwd of a Codex rollout (its `id`, or a native child's `agent_path`), a Pi session header's cwd."""
-    path = Path(path)
-    if not path.is_absolute():
-        raise ValueError('Native evidence path must be absolute')
-    if runtime not in ('claude', 'codex', 'pi'):
-        raise ValueError('Unsupported native evidence runtime')
-    found, cwd, named = False, None, None
-    with path.open('rb') as stream:
-        for line in stream:
-            if not line.endswith(b'\n'):
-                raise ValueError('Native evidence has an incomplete record; retry observation before work')
-            row = json.loads(line)
-            if not isinstance(row, dict):
-                raise ValueError('Native evidence record must be an object')
-            payload = row.get('payload') if isinstance(row.get('payload'), dict) else {}
-            if runtime == 'claude':
-                named = named or row.get('agentId') or row.get('sessionId')
-                if session == (row.get('agentId') or row.get('sessionId')):
-                    found, cwd = True, row.get('cwd', cwd)
-            elif runtime == 'codex' and row.get('type') == 'session_meta':
-                named = payload.get('agent_path') or payload.get('id')
-                found = session in (payload.get('id'), payload.get('agent_path'))
-            elif runtime == 'codex' and row.get('type') == 'turn_context':
-                cwd = payload.get('cwd', cwd)
-            elif runtime == 'pi' and row.get('type') == 'session':
-                named = row.get('id')
-                found, cwd = row.get('id') == session, row.get('cwd')
-    if not found:
-        raise ValueError(f'Native evidence does not belong to the registered session {session}: the record '
-                         + (f'is session {named}' if named else 'names no session'))
-    return cwd if isinstance(cwd, str) and cwd.strip() else None
 
 
 def session_id(path, runtime):

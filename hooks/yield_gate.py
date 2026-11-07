@@ -60,8 +60,6 @@ LAUNCHES = '.scratch/herdr-launches.jsonl'
 # is kept in a file per session here.
 HOLDS = '.scratch/holds'
 MAX_HOLDS = 3
-# scripts/next_tickets.py --orchestrate records here, in a workstream's reports/, the session that orchestrates it.
-BINDING = 'orchestrator.json'
 
 
 class Reminder(str):
@@ -147,7 +145,7 @@ def gaps(cwd, session=None):
 
 def binding_state(state, pane, session):
     """Whether the binding of a run state's workstream names this session."""
-    owner = state.with_name('review.json' if state.parent.parent.name == 'reviews' else BINDING)
+    owner = state.with_name('review.json' if state.parent.parent.name == 'reviews' else script('state_files').BINDING)
     return read_binding(owner, pane, session)[1]
 
 
@@ -392,7 +390,7 @@ def stale_tabs(pane, session, runs):
     listed, missing = {}, []
     for state, (saved_attempts, _, registered) in runs.items():
         # An unreadable binding decides nothing here (undelivered names it); the registering pane does.
-        binding, mine = read_binding(state.with_name(BINDING), pane, session)
+        binding, mine = read_binding(state.with_name(script('state_files').BINDING), pane, session)
         bound = mine if binding else None
         try:
             held = open_holds(state)
@@ -461,7 +459,7 @@ def undelivered(root, pane, session, named):
     """Name each workstream this session was bound to orchestrate (next_tickets.py --orchestrate) whose delivery fails,
     except those in `named`: a run card already names them."""
     missing = []
-    for path in sorted(root.glob(f'.scratch/*/reports/{BINDING}')):
+    for path in sorted(root.glob(f'.scratch/*/reports/{script("state_files").BINDING}')):
         slug = path.parent.parent.name
         binding, mine = read_binding(path, pane, session)
         if not mine:
@@ -510,29 +508,11 @@ def awaited(state):
 
 
 def read_binding(path, pane, session):
-    """(binding, mine) for a dispatch binding file: the binding, or None when it is missing or cannot be read, and
-    whether it names this session. An unreadable one names it only when its raw text holds this pane or host session,
-    since only such a session could be its orchestrator."""
-    try:
-        text = path.read_text(errors='replace')
-    except OSError:  # Missing, or not a file.
-        return None, False
-    try:
-        binding = json.loads(text)
-    except ValueError:
-        binding = None
-    if (isinstance(binding, dict) and (binding.get('pane') is None or isinstance(binding['pane'], str))
-            and isinstance(binding.get('sessions'), list)
-            and all(isinstance(known, str) for known in binding['sessions'])):
-        return binding, orchestrates(binding, pane, session)
-    return None, names(text, pane, session)
-
-
-def orchestrates(binding, pane, session):
-    """Whether a dispatch binding ({pane, sessions}) names this session: as for a launch, by host session alone when
-    both sides know one."""
-    return any(same_orchestrator({'pane': binding['pane'], 'session': known}, pane, session)
-               for known in binding['sessions'] or [None])
+    """The binding and whether it names this session; malformed text holds only the IDs it names whole."""
+    binding, raw = script('state_files').read_binding(path)
+    return binding, (any(same_orchestrator({'pane': binding.get('pane'), 'session': known}, pane, session)
+                         for known in binding['sessions'] or [None]) if binding is not None
+                     else names(raw, pane, session))
 
 
 def same_orchestrator(theirs, pane, session):

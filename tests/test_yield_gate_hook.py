@@ -1438,8 +1438,8 @@ class DeliveryHold(GateRepo):
         path = self.repo / '.scratch/fix/issues/01-task.md'
         path.write_text(re.sub(r'accepted.*\n', '', path.read_text()))
         self.assertEqual(self.check(pane='w1:p1'), [self.held(
-            'fix', 'fix/01: status done with no acceptance; accept it with --accept fix/01, or --accept fix/01 --pr <url> '
-                   'when PRs delivered it, or --accept fix/01 --run <url> when a successful CI run proves it')])
+            'fix', 'fix/01: status done with no acceptance; accept it with --accept fix/01, or --accept fix/01 --delivered-by'
+                   ' <url> for a merged PR or successful CI run')])
 
     def test_a_workstream_the_card_and_the_autofix_binding_both_hold_is_named_once(self):
         self.bind(pane='w1:p1', autofix=True, CLAUDE_CODE_SESSION_ID='host-1')
@@ -2457,8 +2457,8 @@ class AutopilotCardHold(GateRepo):
         ours.unlink()
         ticket.write_text(accepted.replace(f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n", ''))
         self.assertEqual(self.check(session='host-1'), held(
-            'run/01: status done with no acceptance; accept it with --accept run/01, or --accept run/01 --pr <url> when '
-            'PRs delivered it, or --accept run/01 --run <url> when a successful CI run proves it'))
+            'run/01: status done with no acceptance; accept it with --accept run/01, or --accept run/01 --delivered-by'
+            ' <url> for a merged PR or successful CI run'))
         ticket.write_text(accepted)
         # Review (Sonnet): after the merge the pr procedure deletes the workstream branch; a finished workstream (its
         # branch gone, its reviewed and E2E heads in main) is delivered, though `--delivery` now needs the branch.

@@ -260,8 +260,8 @@ class BoardCLI(unittest.TestCase):
         # ticket carries what only an acceptance writes: an accepted commit and report digest, or merged PRs.
         merged = 'https://github.com/o/configs/pull/1'
         path = self.write_ticket('fx/01', status='done', accepted=False)
-        refusal = ('fx/01: status done with no acceptance; accept it with --accept fx/01, or --accept fx/01 --pr <url> '
-                   'when PRs delivered it, or --accept fx/01 --run <url> when a successful CI run proves it')
+        refusal = ('fx/01: status done with no acceptance; accept it with --accept fx/01, or --accept fx/01 --delivered-by '
+                   '<url> for a merged PR or successful CI run')
         for args, code in ((('--check',), 1), (('--counts',), 1), ((), 1), (('--delivery',), 1), (('--new', 'Next'), 2)):
             with self.subTest(args=args):
                 self.assertIn(refusal, self.cli('fx', *args, code=code).stderr)
@@ -291,9 +291,9 @@ class BoardCLI(unittest.TestCase):
         self.assertNotIn('status done with no acceptance', tried)
         self.write_ticket('fx/02', status='done', accepted=False)
         with self.gh({merged: ('MERGED', 'c' * 40)}):
-            self.cli('fx', '--accept', 'fx/01', '--pr', merged)
+            self.cli('fx', '--accept', 'fx/01', '--delivered-by', merged)
             self.assertEqual(front_matter.parse(path.read_text())['delivered_by'], [merged])
-            self.cli('fx', '--accept', 'fx/02', '--pr', merged)
+            self.cli('fx', '--accept', 'fx/02', '--delivered-by', merged)
         self.cli('fx', '--check')
 
     def test_a_done_ticket_whose_acceptance_fails_again_leaves_done(self):
@@ -363,23 +363,23 @@ class BoardCLI(unittest.TestCase):
                   five: ('MERGED', None)}
         path = self.write_ticket('fx/01', status='implementing', extra='worker: inline\n')
         with self.gh(merged):
-            refused = self.cli('fx', '--accept', 'fx/01', '--pr', one, '--pr', two, code=1)
+            refused = self.cli('fx', '--accept', 'fx/01', '--delivered-by', one, '--delivered-by', two, code=1)
             self.assertIn(f'fx/01: {two} is OPEN, not merged', refused.stderr)
-            refused = self.cli('fx', '--accept', 'fx/01', '--pr', 'https://github.com/o/configs/pull/9', code=1)
+            refused = self.cli('fx', '--accept', 'fx/01', '--delivered-by', 'https://github.com/o/configs/pull/9', code=1)
             self.assertIn('fx/01: gh cannot read https://github.com/o/configs/pull/9', refused.stderr)
             for url, problem in ((four, 'is CLOSED, not merged'), (five, 'names no merge commit')):
                 with self.subTest(url=url):
-                    refused = self.cli('fx', '--accept', 'fx/01', '--pr', url, code=1)
+                    refused = self.cli('fx', '--accept', 'fx/01', '--delivered-by', url, code=1)
                     self.assertIn(f'fx/01: {url} {problem}', refused.stderr)
             # Review (Sonnet): only a PR's own URL is evidence; a number, a flag or a second line is not.
             for value in ('12', '--repo=cli/cli', f'{one}\nstatus: done'):
                 with self.subTest(value=value):
-                    self.cli('fx', '--accept', 'fx/01', f'--pr={value}', code=2)
+                    self.cli('fx', '--accept', 'fx/01', f'--delivered-by={value}', code=2)
             self.assertNotIn('delivered_by', path.read_text())
             self.assertIn('needs a passing --accept', self.cli('fx', '--set', 'fx/01', 'status=done', code=1).stderr)
         merged[two] = ('MERGED', 'b' * 40)
         with self.gh(merged):
-            self.cli('fx', '--accept', 'fx/01', '--pr', one, '--pr', two)
+            self.cli('fx', '--accept', 'fx/01', '--delivered-by', one, '--delivered-by', two)
             self.assertEqual(front_matter.parse(path.read_text())['delivered_by'], [one, two])
             self.cli('fx', '--set', 'fx/01', 'status=done')
             self.assertEqual(front_matter.parse(path.read_text())['status'], 'done')
@@ -392,12 +392,12 @@ class BoardCLI(unittest.TestCase):
             refused = self.cli('fx', '--set', 'fx/02', 'status=done', code=1)
             self.assertIn(f'fx/02: {three} is OPEN, not merged', refused.stderr)
             self.assertEqual(front_matter.parse(other.read_text())['status'], 'implementing')
-            # --pr belongs to --accept.
-            self.cli('fx', '--check', '--pr', one, code=2)
+            # --delivered-by belongs to --accept.
+            self.cli('fx', '--check', '--delivered-by', one, code=2)
             # Review (Codex): a block list of PRs is replaced whole, so an accepted ticket names only what was accepted.
             listed = self.write_ticket('fx/03', status='implementing',
                                        extra=f'worker: inline\ndelivered_by:\n  - {three}\n\n  # and\n  - {two}\n')
-            self.cli('fx', '--accept', 'fx/03', '--pr', one)
+            self.cli('fx', '--accept', 'fx/03', '--delivered-by', one)
             self.assertEqual(front_matter.parse(listed.read_text())['delivered_by'], [one])
             self.cli('fx', '--set', 'fx/03', 'status=done')
 
@@ -420,17 +420,17 @@ class BoardCLI(unittest.TestCase):
                                  (erred, 'gh cannot read'),
                                  (unknown, 'gh cannot read')):
                 with self.subTest(url=url):
-                    refused = self.cli('fx', '--accept', 'fx/01', '--run', url, code=1)
+                    refused = self.cli('fx', '--accept', 'fx/01', '--delivered-by', url, code=1)
                     self.assertIn(f'fx/01: {url} {problem}' if problem != 'gh cannot read' else f'fx/01: gh cannot read {url}',
                                   refused.stderr)
-            # Only a run's own URL is evidence: not a number, a PR, a job inside a run or a second line.
+            # A delivery URL names a whole PR or run, never a job, number or second line.
             # Review (Codex): the run's id is a number, so no flag reaches gh in its place.
-            for value in ('42', pr, f'{ok}/job/7', f'{ok}\nstatus: done', 'https://github.com/o/jose/actions/runs/--help',
+            for value in ('42', f'{ok}/job/7', f'{ok}\nstatus: done', 'https://github.com/o/jose/actions/runs/--help',
                           'https://github.com/o/jose/actions/runs/abc'):
                 with self.subTest(value=value):
-                    self.cli('fx', '--accept', 'fx/01', f'--run={value}', code=2)
+                    self.cli('fx', '--accept', 'fx/01', f'--delivered-by={value}', code=2)
             self.assertNotIn('delivered_by', path.read_text())
-            self.cli('fx', '--accept', 'fx/01', '--run', ok, '--pr', pr)
+            self.cli('fx', '--accept', 'fx/01', '--delivered-by', ok, '--delivered-by', pr)
             self.assertEqual(sorted(front_matter.parse(path.read_text())['delivered_by']), sorted([pr, ok]))
             self.cli('fx', '--set', 'fx/01', 'status=done')
             self.assertEqual(front_matter.parse(path.read_text())['status'], 'done')
@@ -446,8 +446,8 @@ class BoardCLI(unittest.TestCase):
             refused = self.cli('fx', '--set', 'fx/03', 'status=done', code=1)
             self.assertIn(f'fx/03: {failed} is completed (failure), not a successful run', refused.stderr)
             self.assertEqual(front_matter.parse(later.read_text())['status'], 'implementing')
-        # --run belongs to --accept.
-        self.cli('fx', '--check', '--run', ok, code=2)
+        # --delivered-by belongs to --accept.
+        self.cli('fx', '--check', '--delivered-by', ok, code=2)
 
     def test_an_interrupted_orchestrator_binding_write_leaves_the_old_binding_whole(self):
         # Audit A1: the binding is what holds the orchestrator at stop; a write cut short must not leave it empty.
