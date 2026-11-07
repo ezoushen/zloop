@@ -133,7 +133,7 @@ def next_row(workstream, state, draft, scheduled):
     if problems:
         return None
     try:
-        first = next((fm['ticket'] for fm in next_tickets.ready(board, workstream.name)), None)
+        first = next((fm['ticket'] for fm in next_tickets.ready(board, workstream.name, next_tickets.live_cap())), None)
     except Exception as error:  # A prerequisite's state it cannot read: say so, and keep the other rows.
         return {'kind': 'next', 'text': f'next: unknown, the board cannot tell: {type(error).__name__}: {error}'}
     return {'kind': 'next', 'text': f'next: {first}'} if first else None

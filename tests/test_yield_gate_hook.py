@@ -2567,6 +2567,13 @@ class AutopilotCardHold(GateRepo):
                        packet=str(support.assignment_file(self.execution.parent, 'ticket')))
         self.lifecycle('startup', 'workstream/01/1', native=str(self.native('workstream/01/1')))
         pidfile, request = self.state.parent / 'wait.pid', self.state.parent / 'wait.json'
+        def stop_wait_child():
+            if pidfile.exists():
+                try:
+                    os.killpg(int(pidfile.read_text()), 9)
+                except ProcessLookupError:
+                    pass
+        self.addCleanup(stop_wait_child)
         request.write_text(json.dumps({'argv': [sys.executable, '-c',
             f'import os,time; open({str(pidfile)!r}, "w").write(str(os.getpid())); time.sleep(30)'], 'timeout': 40,
             'notify': {'argv': [sys.executable, '-c', 'pass', '{receipt}'], 'timeout': 2}}))

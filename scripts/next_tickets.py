@@ -497,6 +497,18 @@ def unblocked(tickets, name, known):
     return True
 
 
+def live_cap():
+    """The positive live cap from MAX_LIVE, or the default; refuse an invalid setting."""
+    value = os.environ.get('MAX_LIVE', MAX_LIVE)
+    try:
+        cap = int(value)
+        if cap >= 1:
+            return cap
+    except ValueError:
+        pass
+    raise ValueError(f'MAX_LIVE must be a positive integer, got {value!r}')
+
+
 def ready(tickets, slug=None, max_live=MAX_LIVE):
     live = [fm for fm in tickets.values() if fm["status"] in LIVE]
     busy_areas = {a for fm in live for a in fm.get("touches", [])}
@@ -1162,10 +1174,9 @@ def main(argv):
         parser.error("--run takes a CI run's URL: https://<host>/<owner>/<repo>/actions/runs/<number>")
     if args.max_live is None:
         try:
-            args.max_live = int(os.environ.get("MAX_LIVE", MAX_LIVE))
-            assert args.max_live >= 1
-        except (ValueError, AssertionError):
-            parser.error(f"MAX_LIVE must be a positive integer, got {os.environ.get('MAX_LIVE')!r}")
+            args.max_live = live_cap()
+        except ValueError as error:
+            parser.error(str(error))
     if args.max_live < 1:
         parser.error("--max-live must be positive")
     if args.slug and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", args.slug):

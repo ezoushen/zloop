@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """The launch logger records each `herdr agent start` a session runs, in the main checkout, without blocking the command."""
 import json
-import shutil
 import time
 import unittest
 
@@ -91,8 +90,6 @@ class LaunchLogger(GateRepo):
         (self.repo / '.scratch/herdr-launches.jsonl').mkdir()
         self.serve()
         self.launch('herdr agent start builder-2 --kind codex --pane w1:p5')
-
-    @unittest.skipUnless(shutil.which('node'), 'Node.js runs the Pi extension')
 
     def test_the_launch_logger_asks_the_callers_own_server_through_its_socket_without_a_session_option(self):
         # Rule (one Herdr transport): a server the caller's own HERDR_SOCKET_PATH is the socket of is asked through it,
