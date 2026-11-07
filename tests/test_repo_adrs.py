@@ -69,7 +69,10 @@ class RepoAdrs(unittest.TestCase):
         entries = re.findall(r'^- \[\d{4}\]\((\d{4}-[^)]+\.md)\) (.+)$', accepted, re.M)
         self.assertEqual(16, len(entries))
         for name, text in entries:
+            # ADR 0001's title predates the glossary's avoided "effort"; an ADR is never rewritten, so its index
+            # entry is the one place that says "workstream".
             title = (ROOT / 'docs/adr' / name).read_text().splitlines()[0].removeprefix('# ')
+            title = title.replace('when an effort lands', 'when a workstream lands')
             with self.subTest(adr=name):
                 self.assertTrue(text.startswith(title + ':'), text)
 

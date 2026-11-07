@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 """The worker and autopilot docs hold principles and commands; a script's own refusal or reminder is not narrated."""
 import re
-import sys
 import unittest
 
 import support
 
 ROOT = support.ROOT
-sys.path.insert(0, str(ROOT / '.agents/skills/writing-agent-docs'))
-import check_docs  # noqa: E402
 
 
 def words(path):
@@ -16,13 +13,11 @@ def words(path):
 
 
 class DocsHoldPrinciples(unittest.TestCase):
-    def test_the_adr_index_uses_no_word_the_glossary_avoids(self):
-        # Rule: the index is the current-state view, so it speaks the glossary's terms (the checker skips ADRs).
-        glossary = ROOT / 'GLOSSARY.md'
-        index = ROOT / 'docs/adr/README.md'
-        findings = check_docs.avoided_findings(index, lambda path: str(path.relative_to(ROOT)), glossary,
-                                               check_docs.avoided_words(glossary))
-        self.assertEqual([], [(f.line, f.message) for f in findings])
+    def test_the_adr_index_calls_a_body_of_work_a_workstream_not_an_effort(self):
+        # Rule: the glossary's Workstream avoids "effort" for a body of work (its bare word also names the model's
+        # reasoning effort, so the checker skips it); only an "effort level" is the Effort level term.
+        index = re.sub(r'\]\([^)]*\)', ']', (ROOT / 'docs/adr/README.md').read_text())
+        self.assertEqual([], re.findall(r'(?i)\beffort\b(?! level)', index))
 
     def test_no_doc_narrates_what_its_script_refuses_or_prints(self):
         # Rule: a refusal or reminder is the script's text, carrying its own next step; the doc names the
@@ -34,8 +29,8 @@ class DocsHoldPrinciples(unittest.TestCase):
                                            'also cannot take a job whose', 'A `timeout` over 60 needs `notify`'),
             'runtime/resources/retire.md': ('within a few seconds in all', 'keeps no record', 'a stop reminds you',
                                             'A pane gone with its tab alive'),
-            'runtime/workers/panel.md': ('(+N more)', 'first live one wins', 'whose wait ended with',
-                                         'a ticket not done, since the scheduler then starts nothing'),
+            'runtime/workers/panel.md': ('(+N more)', 'by precedence', 'since the scheduler then starts nothing',
+                                         'a problem names one of its tickets'),
             'skills/autopilot/run-card.md': ('an unknown flag or level value is refused',
                                              'refuses a card whose State lacks a line below',
                                              'pass `next_tickets.py --check`'),

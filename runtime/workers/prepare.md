@@ -9,21 +9,9 @@ the yield hooks read only that location. Use the maintained
 only return evidence. If the orchestrator itself cannot write
 coordination state, preserve the gap and use supported native waits and reports.
 
-The hooks also append each `herdr agent start` a session runs, including behind `timeout`,
-`env` or a shell's `-c` string, to the main checkout's `.scratch/herdr-launches.jsonl`
-(time, agent name, pane, the session's Herdr pane and host session, and the pane's cwd
-when Herdr reports it). A launch is named at stop, even after its pane closed, until an
-attempt names its pane or agent and, as [wait](wait.md) says, comes from its orchestrator:
-registration records the registering Herdr pane and host session. A launch inside a
-heredoc or backticks is not logged, nor one whose pane or name a shell expands (`$pane`); the
-live-agent check still names such a worker.
-A launch or live agent that needs no attempt (it failed, its pane was closed at a trust
-dialog, a probe) is accounted for by running the command the stop message prints,
-`python3 <plugin root>/hooks/herdr_launch.py dismiss --pane <pane> --session <host session>
---reason "<why>"` (or `--name <agent>`), in the checkout. The reason is required, and so is
-`--session` outside Herdr; the dismissal covers only this orchestrator's launches logged
-before it. A dismissed pane still open holds the stop; close it, or dismiss with `--keep "<why>"`
-in place of `--reason` to keep it on purpose.
+The hooks log each `herdr agent start` a session runs to `.scratch/herdr-launches.jsonl` in the main
+checkout. A launch no attempt accounts for holds the stop, even after its pane closed; the stop message names it and the
+command that dismisses it (`hooks/herdr_launch.py dismiss`, with the reason it requires), as [wait](wait.md) says.
 
 Launch every worker with `ZLOOP_WORKER=<slug>/<assignment>` in its environment (in
 Herdr, the Herdr guide's tab recipe sets it). For the Herdr
@@ -68,19 +56,16 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
 
    Pass the event file with `record --state /absolute/reports/workers.sqlite
    --input /absolute/register.json`; registration takes only the fields named here (plus `native`, a Pi child's
-   session record) and refuses any other by name. Assignment IDs identify a ticket and bounded
+   session record). Assignment IDs identify a ticket and bounded
    job scope; attempt IDs identify retries. The execution snapshot must carry
    `agent` and `job`, and supplies the requested settings. `packet` is the exact
-   assignment text sent to the worker; registration refuses it when it lacks
-   `adapter`, `agent_file`, `job_file`, `plugin_root`, `repo` or any of the job's
-   inputs as `name: value`. A repair attempt adds `repairs`, naming the collected
+   assignment text sent to the worker, naming the job's inputs as `name: value`. A repair attempt adds `repairs`, naming the collected
    attempt whose work it fixes. When `wake-triage` is enabled, add `journal`, the
    absolute session decisions journal. A worker started through Herdr adds
    `"herdr": {"session": "<herdr session>"}` (`herdr session list` names it), unless
    its `worker` is a `session/pane/name` handle; registration reads its pane, tab,
-   workspace and name from Herdr, waiting up to 5 s per call, refuses a session,
-   `tab_id`, `pane_id`, name, `runtime` or `native_session` that Herdr or the handle
-   contradicts, and refuses a tab the worker shares or the orchestrator's.
+   workspace and name from Herdr and refuses what Herdr or the handle contradicts, or a tab the worker shares
+   or the orchestrator's.
 
    When the snapshot applied a decision-model recommendation, the helper records
    that decision for you: its action at registration, its execution at verified
@@ -110,9 +95,7 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    }
    ```
 
-   A `timeout` over 60 needs `notify`: the helper refuses a longer wait before invoking
-   the worker, since nothing would wake the host. `notify.argv` is any literal argv with
-   one whole `{receipt}` argument and a `timeout` of at most 45. With no named parent agent
+   `notify.argv` is any literal argv with one whole `{receipt}` argument. With no named parent agent
    (an unnamed orchestrator pane, or a subagent whose prompt would reach the user's
    session), use a command that only records the receipt, such as `["echo", "{receipt}"]`;
    it wakes nobody, so read the receipt with `status`.
@@ -143,10 +126,8 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
 
 Same-assignment repair or recheck may retain context only after collecting the old
 result, acknowledging its receipts and recording `retain` with a reason and next
-use. Register the new attempt and verify its settings again. Reusing a native
-session across tickets, repositories or agents is rejected even if its pane changed.
-A reused worker also cannot take a job whose `independent_of` lists a job it already
-did: a worker that did a diff-review cannot then take a reproduce job.
+use. Register the new attempt and verify its settings again. A native session is never
+reused across tickets, repositories or agents, nor for a job that must be independent of one it did.
 Pass a compact handoff: accepted decisions, pinned base/head, worktree, source/test
 entry points, applicable evidence, unresolved risks and next action. Cache savings
 do not justify carrying an unrelated conversation into a review.

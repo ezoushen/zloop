@@ -21,31 +21,20 @@ It reads, read-only: the workstream's run card (`.scratch/<slug>/autopilot.md`),
 (`.scratch/<slug>/issues/`), with the whole local board as `next_tickets.py` loads and checks it. A session working in a worktree still reads its main checkout's state. An unreadable
 state file drops only the rows it would have supplied.
 
-Which workstream is this session's: one a record ties to it, in this order — its `reports/orchestrator.json` naming this
-session (the binding `next_tickets.py --orchestrate` writes), the run card naming it, its decision journal, or a
-worker attempt this session registered (the `session` the lifecycle records). Of those, the first live one wins,
-else the first. A workstream no record ties to this session is another session's, however recent, so a session just
-opened shows none. A workstream need not have a card: any of these records is enough, and the headline then has no phase.
+Which workstream is this session's: one a record ties to it (the `reports/orchestrator.json` binding that
+`next_tickets.py --orchestrate` writes, the run card, its decision journal, or a worker attempt this session registered);
+the first live one wins, else the first. A workstream no record ties to this session is another session's, so a session
+just opened shows none. A card is not required.
 
-Live means the card is unconfirmed, or an attempt is live, or a blocker is recorded, or the card is still open or
-stopped on `waiting-on-user`, `paused-allowance`, `paused-by-user` or `blocked`. A run that reached `delivered`,
-`delivered-local` or `merged`, is quiet only while nothing is live or blocked beneath it; one
-that records a delivered state on a `local` board, confirmed and naming this session, stays while its workstream is not
-delivered, as the stop check holds it.
+Live means the run is not quietly over: its card is unconfirmed or open or stopped on a state that waits for the user,
+an attempt is live or a blocker is recorded. A delivered run is quiet once nothing beneath it is live or blocked; on a
+`local` board it stays while its workstream is not delivered, as the stop check holds it.
 
-Rows are ordered by what the person needs first: the headline, then running workers and waiting ones (three each, the
-rest of both under one `+N more`), a waiting one being a worker whose result is ready to collect, whose wait ended with
-nothing collected and no new wait (`wait ended`: nothing watches it) or that is `retained` open until a later
-attempt of its conversation uses it; an attempt whose conversation any attempt closed shows no row. Then one blocker by precedence (the run's own stop first, then the board's failed check, then `not delivered:` and the
-first of what keeps a delivered state from holding, with `(+N more)`, then a blocked ticket), the
-next step, and
-the counts: the tickets' tally, or for a workstream without tickets `done:` and, per job of its workers, the
-assignments whose result completed; a job with a plan (`worker_lifecycle.py plan`) counts only its planned
-assignments, over the plan's size, even before its first worker. The failed check is this workstream's blocker when a
-problem names one of its tickets, or it has a ticket not done, since the scheduler then starts nothing: it shows the
-first problem, this workstream's first, with `(+N more)`. The next step is the scheduler's first ready pick for the
-workstream (`next_tickets.py <slug>`: blockers met, no area a live ticket holds, the live cap), none while the check fails. A board the
-scheduler cannot read is said so in the row it would have supplied, and the other rows stay.
+Rows go by what the person needs first: the headline, running workers and waiting ones (three each, the rest of both
+under one `+N more`), one blocker, the next step, then the counts. A waiting worker is one whose result is ready to
+collect, whose wait ended with nothing watching it, or that is retained for a later attempt. The next step is the
+scheduler's first ready pick (`next_tickets.py <slug>`). A source the panel cannot read is said so in the row it
+would have supplied, and the other rows stay.
 Each host tones a row by its kind — after Pi's cut to the terminal's width (the Claude Code pane wraps a long row
 onto the lines under it instead), so the words stay identical and styling cannot widen a line —
 and a run row keeps the default style:
@@ -81,8 +70,7 @@ card is worse than none.
 ## Scope
 
 The panel only shows: its one control expands `+N more`, and it has no control of the run; pausing, taking over and
-resuming stay the user's own acts. It reports the workstream the session runs, not other sessions' work: its run and wait rows come only from attempts
-registered by a session the workstream's binding names (this session when it keeps none), and it reads no other
+resuming stay the user's own acts. It reports the workstream the session runs, not other sessions' work, and reads no other
 checkout's state. Allowance, spend
 and context figures are not part of it.
 

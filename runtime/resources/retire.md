@@ -18,20 +18,13 @@ Outside a pane, the host must verify that the target is its owned worker. Job re
 creation ownership are still host-verified assertions; the helper cannot inspect
 all native worker jobs or authenticate ownership claims.
 
-Retire, `record closed` and the reap judge Herdr's answer for the recorded tab and pane alike. The tab (else the
-pane) confirmed absent, or no server running, means gone; a pane listed holding another conversation means the
-worker is replaced. Either ends the attempt: `retire` and `record closed` record it, and at a stop (or on demand with
-`worker_lifecycle.py reap --state ... [--session ...]`) the gate records `closed` itself for an owned attempt whose
-result is collected, with that answer as the evidence, and for a retained native subagent of a run whose card ended
-`delivered`, `delivered-local` or `merged`, deferring an acceptance still unsettled, within a few seconds in all (the rest,
-and an attempt whose state another command holds locked, waits for the next stop); a closure the lifecycle refuses is a
-stop gap carrying its refusal. Retire refuses a replaced pane and names the reap, so it never closes the other worker's
-pane. A pane Herdr lists with no agent in it (the worker exited) or holding this attempt's conversation is open: retire closes the
-recorded pane and confirms its tab gone, and `record closed` refuses it, naming retire. A pane gone with its tab alive
-(another pane joined it), a conversation this attempt cannot tell from its own, or an answer that is an error or none
-closes nothing: close the remaining panes or the tab, then retire again. A retirement interrupted after its pane
-closed keeps no record: the next retire or reap sees the tab gone and records the closure. For an attempt that
-recorded no Herdr pane, `record closed` with native evidence is the way. Native pane IDs are not reused. Retirement closes the shared native
+Retire, `record closed` and the reap judge Herdr's answer for the recorded tab and pane alike: the tab (else the
+pane) confirmed absent, or no server running, means gone, and a pane holding another conversation means the worker
+is replaced. Either ends the attempt. At a stop, or on demand with `worker_lifecycle.py reap --state ... [--session ...]`,
+the gate records `closed` itself for an owned attempt whose result is collected, and for a retained native subagent of
+a run whose card ended; a closure the lifecycle refuses is a stop gap carrying its reason. Closing by hand
+is `record closed` with the evidence: Herdr's answer, or native evidence for an attempt with no Herdr pane.
+Native pane IDs are not reused. Retirement closes the shared native
 conversation for all its historical attempts; `status` includes `native_closed_by`
 on each historical attempt to identify that final attempt. Earlier retained
 attempts no longer reserve its live handle,
@@ -44,8 +37,6 @@ transports, close through the installed lifecycle tool, confirm closure, then
 record `closed` with native evidence. The helper requires a
 collected report (intact when the result is completed) and acknowledged receipts. Retain only a stated next use
 or a concrete runtime/ownership limitation, with `retain`, `reason`, `next_use` and
-evidence. Once nothing of its run is unfinished, no later attempt took the worker and no design hold waits on its
-assignment, a stop reminds you of a retained Herdr worker you own whose tab is open: reuse it, raise the hold or retire
-it.
+evidence.
 An unsupported close operation leaves capacity unavailable until the
 runtime confirms release. Existing user panes stay with their owner.

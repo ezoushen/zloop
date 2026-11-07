@@ -337,7 +337,6 @@ class TabRecipe(unittest.TestCase):
         shared = ' '.join((support.ROOT / 'runtime/workers/prepare.md').read_text().split())
         self.assertIn('"herdr": {"session"', shared)
         self.assertIn('herdr session list', shared)
-        self.assertIn('up to 5 s', shared)
         self.assertNotIn('herdr tab create', shared)
         for text in (guide, shared):
             self.assertNotIn('pane split', text)

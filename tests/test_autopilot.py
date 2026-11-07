@@ -299,17 +299,8 @@ class EffortLevels(unittest.TestCase):
         start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
         for phrase in ('records both effort levels', "keeps the card's levels unless a level flag is given"):
             self.assertIn(phrase, start)
-        card = prose(CARD)
-        for phrase in ('`--effort` sets both steps, and a split flag overrides it for its step',
-                       'A start with no level writes these defaults', 'never a level typed earlier',
-                       "a take-over keeps the card's levels unless a flag is given", '`max` runs only when the user asks',
-                       'an unknown flag or level value is refused',
-                       'a take-over of a card without the two lines or with a line that is not a level'):
-            self.assertIn(phrase, card)
-        # Rule: explicit flags win over a dispatch's recorded levels; without flags the dispatch resumes unchanged.
-        self.assertIn('a take-over with level flags changes the card and the dispatch it re-enters records those '
-                      "levels anew; without them it resumes the dispatch with the levels its setup recorded, which "
-                      "equal the card's", card)
+        # Rule: the level semantics are stated once, in the skill and the dispatch skill; the card only records them.
+        self.assertIn("the levels its setup recorded", prose(ROOT / 'skills/dispatch/SKILL.md'))
 
     def test_the_run_passes_both_levels_to_dispatch_beside_autofix(self):
         # Rule: dispatch receives the card's levels, and its handoff runs the review at the review level.

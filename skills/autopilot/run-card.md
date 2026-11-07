@@ -2,26 +2,13 @@
 
 The file autopilot writes to `.scratch/<slug>/autopilot.md` before it goes hands-off.
 It holds what the run may do and when it ends, so the stop condition survives
-compaction. Fill every section; the user confirms it once. The State always records
-both effort levels on their own lines, `dispatch-effort:` and `review-effort:`,
-defaults included (medium and high), as the start or a take-over set them, so the user
-confirms them with the card. `--effort` sets both steps, and a split flag overrides it for
-its step. A start with no level writes these defaults, never a level typed earlier; a
-take-over keeps the card's levels unless a flag is given; a take-over with level flags changes the
-card and the dispatch it re-enters records those levels anew; without them it resumes the dispatch
-with the levels its setup recorded, which equal the card's. `max` runs only when the user
-asks, an unknown flag or level value is refused, and so is a take-over of a card without
-the two lines or with a line that is not a level.
+compaction. Fill every section; the user confirms it once. The State always records both effort levels on their own lines, `dispatch-effort:` and `review-effort:`,
+defaults included (medium and high), so the user confirms them with the card; the start or a take-over sets them
+([autopilot](SKILL.md)).
 
 Record the user's confirmation from the shell of the session running the autopilot, with
-`python3 "<plugin_root>/scripts/autopilot_card.py" confirm <card> --words "<the user's words>"`: it writes
-`confirmed:` and `session:`, which the panel and the stop hook go by, and refuses a card whose State lacks a
-line below. A take-over names its own session on `session:` the same way. Set `phase:` with
-`autopilot_card.py phase <card> <align|refine|dispatch|pr>`: dispatch and pr need the tickets of the board on
-`board:`, `local` ticket files that pass `next_tickets.py --check`, or a tracker's URL. A card that records
-`delivered`, `delivered-local` or `merged` names its board, and on a `local` one holds the stop until its workstream is
-delivered: its own tickets done and passing the check, and the evidence `next_tickets.py <slug> --delivery` judges, or
-its branch deleted after the merge with its reviewed heads in main.
+`python3 "<plugin_root>/scripts/autopilot_card.py" confirm <card> --words "<the user's words>"`, and set `phase:` with
+`autopilot_card.py phase <card> <align|refine|dispatch|pr>`; each refuses what it cannot record and says what to add.
 
 ```markdown
 # <slug> — autopilot run card

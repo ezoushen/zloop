@@ -123,8 +123,7 @@ report that boundary for a separate implementation task.
    --finding <ID>`, one or more `--finding` per call.
    Use a builder's [repair](../review/jobs/repair.md) job when delegated, supplying
    confirmed IDs, accepted seams, test/comment-only boundaries and this procedure. Each assignment's `findings:`
-   line lists its IDs: registration refuses one outside the plan or held by another assignment, and collection
-   settles each as `repaired`, `open` or `runtime-bug`; a stop with no repair running names the unassigned. Otherwise
+   line lists its IDs. Otherwise
    apply the same bounded steps directly. For tests: follow the kind's Repair, with an
    expected result from an independent source and, for an expected failure, a check
    of the claimed rule's own reason; then run it against the real implementation.
