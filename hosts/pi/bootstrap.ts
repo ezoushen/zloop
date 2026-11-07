@@ -362,9 +362,9 @@ export default function (pi) {
       session = ctx.sessionManager.getSessionId();
       const output = execFileSync("python3", [`${root}/hooks/yield_gate.py`, "stop", ctx.cwd, session],
         { encoding: "utf8", timeout: 20000 });
-      verdict = JSON.parse(output);  // The check words the hold as the Stop hooks do and counts its own repeats.
+      verdict = JSON.parse(output);
       failed = false;
-    } catch (error) {  // A broken check never passes silently, but holds once, and only a retry clears it.
+    } catch (error) {
       if (failed) return undefined;
       failed = true;
       verdict = { hold: true, missing: [`could not check workers: ${error.message.trim()}`] };

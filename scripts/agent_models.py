@@ -439,7 +439,7 @@ def ask_route(repo, host, reports, timeout, cwd=None):
         return {'status': 'no_route', 'reason': reason}
     if routed.returncode:
         raise ValueError(reason)
-    result = json.loads(routed.stdout)  # Its own status, selection_required, or none: a resolved route.
+    result = json.loads(routed.stdout)
     return {'status': result.get('status', 'resolved'), 'result': result}
 
 

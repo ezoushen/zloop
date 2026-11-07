@@ -54,7 +54,7 @@ def starts(command):
     """Yield (Herdr session or None, agent name, pane) for each `herdr [--session S] agent start` the command runs. A
     command that names HERDR_SOCKET_PATH yields none: which server it runs in cannot be read from the text, and the
     stop check's scan finds the agent."""
-    if 'HERDR_SOCKET' in command:  # Also a name the shell expands, as HERDR_SOCKET_{PATH,X}.
+    if 'HERDR_SOCKET' in command:
         return
     for tokens, _ in pr_body.logical_lines(command):
         start = 0

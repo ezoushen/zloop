@@ -1680,7 +1680,7 @@ def retire_worker(db, state, attempt, request):
     evidence = request.get('jobs_evidence')
     require(isinstance(evidence, list) and evidence and all(text(x) for x in evidence),
             'Retirement requires reconciled owned-job evidence')
-    require_closable(db, saved, acceptance)  # Refuse before Herdr is asked, not after.
+    require_closable(db, saved, acceptance)
     placed = saved.get('herdr') or {}
     recorded = (session, pane) == (placed.get('session'), placed.get('pane_id'))
     line, found, held = herdr_state(saved, session, pane, placed.get('tab_id') if recorded else None)
@@ -1795,7 +1795,6 @@ def require_ended(db, attempt, acceptance):
     placed = saved.get('herdr')
     if not placed:
         return
-    # Herdr is asked only about a closure the lifecycle would record: it refuses the others itself, naming their command.
     require((saved['runtime'], saved['native_session']) not in closed_sessions(db), 'Native conversation already closed')
     require_closable(db, saved, acceptance)
     pane, script, state = placed['pane_id'], shlex.quote(str(Path(__file__).resolve())), shlex.quote(state_path(db))

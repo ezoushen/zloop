@@ -113,7 +113,7 @@ def gaps(cwd, session=None):
     pane = os.environ.get('HERDR_PANE_ID')
     module, missing, runs = None, [], {}
     for state in states(root):
-        try:  # Each run state is read once for the whole stop; what cannot be read is named here, skipped below.
+        try:
             runs[state] = read_state(state)
         except Exception as error:
             runs[state] = error
@@ -132,14 +132,14 @@ def gaps(cwd, session=None):
         db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
         try:
             missing += [f'{state}: {gap}' for gap in module.yield_gaps(db, orchestrated, saved_attempts)]
-        except Exception as error:  # Named to whoever it could hide a gap from: its orchestrator and its workers' own.
+        except Exception as error:
             if any(orchestrated(saved) for saved in saved_attempts) or unreadable_holds(state, pane, session, bound):
                 missing.append(Unchecked(f'{state}: cannot be read ({error}); fix or remove it'))
         finally:
             db.close()
     # Every session answers for its own launches; a worker (its launch set ZLOOP_WORKER) not for its siblings.
     readable_runs = {state: run for state, run in runs.items() if not isinstance(run, Exception)}
-    named = set()  # The workstreams a run card names undelivered: the autofix hold does not name them again.
+    named = set()
     stale, cards = stale_tabs(pane, session, readable_runs), unfinished_runs(root, session, named)
     return (missing + unregistered(root, pane, session, readable_runs, siblings=not os.environ.get('ZLOOP_WORKER')),
             stale + undelivered(root, pane, session, named) + cards + unreviewed(root, pane, session))
@@ -606,7 +606,7 @@ def unregistered(root, pane, session, runs, siblings=True):
     each unreadable log line it names; and each pane of a launch it dismissed that is still open, unless dismissed
     with `--keep`."""
     attempts = [saved for saved_attempts, _, _ in runs.values() for saved in saved_attempts]
-    by_name = {}  # The attempts by what their worker names: a launch looks up its pane and agent, never scanning the rest.
+    by_name = {}
     for saved in attempts:
         by_name.setdefault(named(saved['worker']), []).append(saved)
     placed = {(server_of(saved), named(saved['worker'])) for saved in attempts}
