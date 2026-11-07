@@ -10,6 +10,7 @@ import random
 import re
 import sqlite3
 import subprocess
+import sys
 import time
 import agent_defs
 import allowance
@@ -417,11 +418,29 @@ def expand_model(name, catalog, runtimes, host, target_runtime=None):
     return None, f'No configured route from {host!r} to model runtimes {ordered} in this environment'
 
 
-def no_route(reason, host):
-    """Whether a refusal of `--route` says only that no runtime of the job's configured model is reachable from
-    `host` in this environment: the one refusal under which a review may be local."""
-    return re.fullmatch(rf'Model .+: No configured route from {host!r} to model runtimes \[.*\] in this environment',
-                        reason) is not None
+class NoRoute(ValueError):
+    """The one `--route` refusal, by its exit status, under which a review may be local: no reachable runtime."""
+    exit_status = 3
+
+
+def route_argv(repo, host, reports):
+    """The command asking the router for `host`'s diff-review, on the plugin's python, which has jsonschema."""
+    python = Path(__file__).resolve().parents[1] / '.venv/bin/python'
+    return [str(python) if python.is_file() else sys.executable, str(Path(__file__).resolve()), '--repo', str(repo),
+            '--host', host, '--route', '--job', 'diff-review', '--reports', str(reports)]
+
+
+def ask_route(repo, host, reports, timeout, cwd=None):
+    """What the router says of `host`'s diff-review: {'status': 'resolved' | 'selection_required', 'result'} or {'status':
+    'no_route', 'reason'}; any other failure raises ValueError, a router silent past `timeout` s TimeoutExpired."""
+    routed = subprocess.run(route_argv(repo, host, reports), cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    reason = routed.stderr.strip() or routed.stdout.strip() or f'agent_models.py exited {routed.returncode}'
+    if routed.returncode == NoRoute.exit_status:
+        return {'status': 'no_route', 'reason': reason}
+    if routed.returncode:
+        raise ValueError(reason)
+    result = json.loads(routed.stdout)  # Its own status, selection_required, or none: a resolved route.
+    return {'status': result.get('status', 'resolved'), 'result': result}
 
 
 def profile_entry(profile, agent, job, job_pool=None):
@@ -592,7 +611,7 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
             raise ValueError(f'Model {name!r}: {full}')
         resolved, detail = expand_model(name, catalog, runtimes, host, target_runtime)
         if resolved is None:
-            raise ValueError(f'Model {name!r}: {detail}')
+            raise NoRoute(f'Model {name!r}: {detail}')
         if spent(name, detail['target_runtime']):
             raise ValueError(f'Model {name!r}: {critical(name, detail["target_runtime"])}')
         instance = resolved
@@ -1123,7 +1142,7 @@ def main():
             result['native_profile'] = native_profile(result)
         print(json.dumps(result, indent=2))
     except (OSError, ValueError) as error:
-        parser.exit(2, f'{error}\n')
+        parser.exit(getattr(error, 'exit_status', 2), f'{error}\n')
 
 
 if __name__ == '__main__':

@@ -49,8 +49,7 @@ ROOT = Path.cwd()
 ISSUES = ROOT / ".scratch"
 LIVE = {"implementing", "reviewing", "fixing", "verifying"}
 TEMPLATE = Path(__file__).resolve().parents[1] / "skills" / "refine" / "ticket-template.md"
-ROUTER = Path(__file__).resolve().with_name("agent_models.py")
-# Seconds the router may take when a local review is judged: once per checkout and host in a process (ROUTED), and
+# Seconds the router may take when a local review is judged: once per host in a process (ROUTED), and
 # not again once it went unanswered, inside the hosts' 20 s stop hook and the panel's 8 s read.
 ROUTE_TIMEOUT = 5
 ROUTED = {}
@@ -396,43 +395,36 @@ def local_review_problems(binding):
             or not isinstance(report, str)):
         return ['review_by: local counts only where review_target.py found no reviewer route for its host; launch the '
                 'reviewer it routes and name its attempt in review_by']
-    if (str(ROOT), host) not in ROUTED:
-        ROUTED[str(ROOT), host] = rerouted(host, str(Path(report).parent))
-    return ROUTED[str(ROOT), host]
+    if host not in ROUTED:
+        ROUTED[host] = rerouted(host, Path(report).parent)
+    return ROUTED[host]
 
 
 def rerouted(host, reports):
-    """What the router, asked now for `host`'s diff-review in this checkout as `review_target.py` asks it (a reviewer
-    starting its own process takes the review's reports folder), says of a local review: [] when it still finds no
-    reviewer, else why the review does not count."""
+    """What the router, asked now for `host`'s diff-review as `review_target.py` asks it, says of a local review: []
+    when it still finds no reviewer, else why the review does not count."""
     silent = [f'review_by: local cannot be judged, the router did not answer within {ROUTE_TIMEOUT} s']
     if silent in ROUTED.values():  # One wait for a router that does not answer, however many hosts ask.
         return silent
-    python = ROUTER.parents[1] / '.venv' / 'bin' / 'python'  # The router validates its configuration with jsonschema.
+    import agent_models  # Only here: the router's call, on a stop that holds no local review never imported.
     try:
-        routed = subprocess.run([str(python) if python.is_file() else sys.executable, str(ROUTER), '--repo', str(ROOT),
-                                 '--host', host, '--route', '--job', 'diff-review', '--reports', reports],
-                                capture_output=True, text=True, timeout=ROUTE_TIMEOUT)
-        found = json.loads(routed.stdout) if routed.returncode == 0 else None
+        route = agent_models.ask_route(ROOT, host, reports, ROUTE_TIMEOUT)
     except subprocess.TimeoutExpired:
         return silent
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         return [f'review_by: local cannot be judged, the router failed: {error}']
-    if found is not None and found.get('status') == 'selection_required':
+    found = route.get('result')
+    if route['status'] == 'no_route':
+        return []
+    if route['status'] == 'selection_required':
         return [f"review_by: local, but the router has reviewers for {host} to choose from "
                 f"({', '.join(found.get('eligible_candidates') or [])}): choose one with --candidate on the route "
                 'command, launch it and name its attempt in review_by']
-    if found is not None:
-        where = (f'a {host} native subagent' if found.get('native_dispatch') else
-                 f"{found.get('target_runtime', 'its runtime')} ({(found.get('settings') or {}).get('model', 'its model')}) "
-                 f"through {found.get('executor')}")
-        return [f'review_by: local, but the router now routes diff-review from {host} to {where}: launch that reviewer '
-                'and name its attempt in review_by']
-    reason = (routed.stderr or routed.stdout).strip()
-    import agent_models  # Only here: the router's own reading of its refusal.
-    if routed.returncode == 2 and agent_models.no_route(reason, host):
-        return []
-    return [f"review_by: local cannot be judged, the router failed: {reason or f'exit {routed.returncode}'}"]
+    where = (f'a {host} native subagent' if found.get('native_dispatch') else
+             f"{found.get('target_runtime', 'its runtime')} ({(found.get('settings') or {}).get('model', 'its model')}) "
+             f"through {found.get('executor')}")
+    return [f'review_by: local, but the router now routes diff-review from {host} to {where}: launch that reviewer '
+            'and name its attempt in review_by']
 
 
 def verdict_problems(slug, key, fm):

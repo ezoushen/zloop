@@ -169,20 +169,9 @@ def start(args):
                  else main / '.scratch/reviews' / identity)
     report = directory / ('spec-review.md' if args.workstream else 'review.md')
     state, binding_path = directory / 'workers.sqlite', directory / 'review.json'
-    route_argv = [sys.executable, str(ROOT / 'scripts/agent_models.py'), '--repo', str(main),
-                  '--host', args.host, '--route', '--job', 'diff-review', '--reports', str(directory)]
-    routed = subprocess.run(route_argv, cwd=repo, text=True, capture_output=True, timeout=30)
-    if routed.returncode:
-        reason = routed.stderr.strip() or routed.stdout.strip() or f'agent_models.py exited {routed.returncode}'
-        if routed.returncode != 2 or not agent_models.no_route(reason, args.host):
-            raise ValueError(reason)
-        route = {'status': 'no_route', 'reason': reason}
-    else:
-        route = {'status': 'resolved', 'result': json.loads(routed.stdout)}
-    if route.get('result', {}).get('status') == 'selection_required':
-        route['status'] = 'selection_required'
+    route = agent_models.ask_route(main, args.host, directory, 30, cwd=repo)
     lifecycle = [sys.executable, str(ROOT / 'scripts/worker_lifecycle.py')]
-    commands = {'route': shlex.join(route_argv)}
+    commands = {'route': shlex.join(agent_models.route_argv(main, args.host, directory))}
     for action, verb in (('register', 'record'), ('submit', 'submit'), ('collect', 'collect')):
         commands[action] = shlex.join(lifecycle + [verb, '--state', str(state),
                                                   *([] if action == 'register' else ['--attempt', '<attempt>']),
