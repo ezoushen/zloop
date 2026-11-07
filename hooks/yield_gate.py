@@ -231,8 +231,9 @@ def unreviewed(root, pane, session):
                                (saved.get('result') or {}).get('status') in ('failed', 'blocked', 'cancelled')
                                for saved in attempts):
                 continue
-            problems = list(dict.fromkeys(routed + board.review_by_problems(fields, attempts, binding)))
+            problems = board.review_by_problems(fields, attempts, binding)
             if problems:
+                problems = list(dict.fromkeys(routed + problems))  # Why the blocker does not release it, too.
                 live = [saved for saved in attempts if not saved.get('result')]
                 action = ('route' if blocker else
                           'collect' if any(saved.get('submitted') or saved.get('submission_requested') for saved in live)

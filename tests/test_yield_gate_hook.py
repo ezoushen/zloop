@@ -259,6 +259,34 @@ class ReviewHold(GateRepo):
             self.assertEqual(decision['decision'], 'block')
             self.assertIn(self.command, decision['reason'])
 
+    def test_a_completed_reviewer_releases_a_blocked_report(self):
+        # Review (Codex): a blocker beside a completed collected reviewer at the report's head is that review's evidence;
+        # the router's reason for a local review is not asked of it.
+        self.review(review_by='review/1', blocker='the staging device is offline')
+        self.collected()
+        self.assertEqual(self.check(session='host-1'), [])
+
+    def test_the_router_is_asked_for_each_host_once_and_answers_for_that_host_alone(self):
+        # Review (Codex): one stop asks the router once per host; Codex finding no reviewer must not speak for Pi.
+        home = Path(self.tmp.name) / 'home'
+        home.mkdir()
+        config = self.repo / '.zloop/executors.json'
+        config.parent.mkdir()
+        config.write_text(json.dumps(NO_CODEX_REVIEWER))  # Pi's runtime reviews; nothing reaches it from Codex.
+        self.binding.unlink()
+        for name, host in (('one', 'codex'), ('two', 'pi')):
+            report = self.repo / f'.scratch/reviews/{name}/review.md'
+            report.parent.mkdir(parents=True)
+            report.write_text(f"---\nreview_head: {'a' * 40}\nreview_by: local\nblocker: none\n---\n")
+            report.with_name('review.json').write_text(json.dumps({
+                'pane': 'w1:p1', 'sessions': ['host-1'], 'report': str(report), 'state': str(report.with_name('workers.sqlite')),
+                'host': host, 'route': {'status': 'no_route', 'reason': 'none then'},
+                'next_commands': {'route': 'the route command'}}))
+        gaps = self.check(session='host-1', env={'HOME': str(home)})
+        self.assertEqual(len(gaps), 1, gaps)
+        self.assertIn('.scratch/reviews/two/review.md: review_by: local, but the router now routes diff-review from pi to',
+                      gaps[0])
+
     def test_a_blocker_releases_after_a_diff_reviewer_settles_without_completing(self):
         self.review(blocker='reviewer could not complete')
         for status in ('failed', 'blocked', 'cancelled'):
