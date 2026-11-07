@@ -2,7 +2,9 @@
 """Retain worker attempts, wait receipts and design holds until the host collects them."""
 
 import argparse
+from contextlib import contextmanager
 import errno
+import fcntl
 import hashlib
 import json
 import math
@@ -852,7 +854,26 @@ def unmet_needs(saved, evidence):
     return capability_probe.unmet(needs, reports, saved['worktree'])
 
 
+@contextmanager
+def registration_retirement_lock(db):
+    """Exclude registration during native retirement; process exit releases the lock."""
+    with open(state_path(db) + '.lifecycle.lock', 'a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError('Worker registration or retirement is in progress; retry this command once it finishes') from None
+        yield
+
+
 def record(db, data, refuse_changes=False, submitting=False, waiting=30):
+    """Validate and persist an event, excluding native retirement while registering."""
+    if data.get('kind') == 'register':
+        with registration_retirement_lock(db):
+            return record_event(db, data, refuse_changes, submitting, waiting)
+    return record_event(db, data, refuse_changes, submitting, waiting)
+
+
+def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
     kind, attempt = data.get('kind'), data.get('attempt')
     require(text(attempt), 'Event requires attempt')
     # A read-only worktree is read before the write lock is taken; the result check and any refusal use that one read.
@@ -1633,6 +1654,12 @@ RELEASED = 'released: not owned by this orchestrator, its pane is left open'
 
 
 def retire(db, state, attempt, request):
+    """End a native conversation while excluding continuation registration."""
+    with registration_retirement_lock(db):
+        return retire_worker(db, state, attempt, request)
+
+
+def retire_worker(db, state, attempt, request):
     """End the attempt's native conversation once it is collected: close its owned Herdr pane and confirm the pane and
     its tab gone, or, for a worker the orchestrator does not own, record its release and leave its pane alone."""
     saved = get(db, attempt)
@@ -1667,7 +1694,8 @@ def retire(db, state, attempt, request):
     require(found not in ('unknown', 'silent'), unconfirmed % line)
     require(found == 'mine' or recorded,
             f"Pane {pane} is not this attempt's recorded Herdr pane, so Herdr's answer for it ({line}) does not end its "
-            'worker: inspect the worker, then record its closure with `record`')
+            + (f"worker: retire again with session: {placed['session']} and pane: {placed['pane_id']} in the request"
+               if placed else 'worker: inspect and close its actual pane, then record its closure with `record`'))
     if found == 'mine':
         require(held.get('agent') == saved['runtime'], 'Native pane no longer holds the registered runtime')
         require(held.get('agent_status') in ('idle', 'done'), 'Native worker is active or blocked; retain it for inspection')
@@ -1705,21 +1733,18 @@ def herdr_get(session, kind, target, timeout):
 
 def herdr_state(saved, session, pane, tab=None, deadline=None):
     """(Herdr's answer as one line, what it shows of the attempt's worker, the pane Herdr lists) for a pane and, when
-    one is recorded, its tab; every closure of a Herdr worker judges it here. The state: `gone` (the tab, else the
-    pane, is confirmed absent), `replaced` (the pane holds another conversation), `exited` (the pane is listed with no
+    one is recorded, its tab; every closure of a Herdr worker judges it here. The state: `gone` (the pane and any
+    recorded tab are confirmed absent), `replaced` (the pane holds another conversation), `exited` (the pane is listed with no
     agent), `mine` (it holds this attempt's conversation), `unsure` (it holds an agent whose conversation this attempt
     cannot tell from its own), `silent` (a server that did not answer) or `unknown` (any other answer, such as a tab
-    still listed with no such pane). The pane is asked only once the tab is listed; `deadline` (a monotonic time)
-    bounds the calls."""
+    still listed with no such pane). The pane is asked even if the recorded tab is absent or its lookup fails;
+    `deadline` (a monotonic time) bounds the calls."""
     def budget():
         return min(LOOKUP_SECONDS, deadline - time.monotonic()) if deadline else LOOKUP_SECONDS
     line = None
+    tab_absent = not tab
     if tab:
-        line, _, absent = herdr_get(session, 'tab', tab, budget())
-        if absent:
-            return line, 'gone', {}
-        if absent is None:
-            return line, 'silent', {}
+        line, _, tab_absent = herdr_get(session, 'tab', tab, budget())
     if budget() <= 0:
         return line, 'unknown', {}
     answer, held, absent = herdr_get(session, 'pane', pane, budget())
@@ -1727,7 +1752,7 @@ def herdr_state(saved, session, pane, tab=None, deadline=None):
     if absent is None:
         return answer, 'silent', {}
     if absent:
-        return (answer, 'gone', {}) if not tab else (line, 'unknown', {})
+        return (line, 'gone', {}) if tab_absent else (line, 'unknown', {})
     identity = held.get('agent_session') if isinstance(held.get('agent_session'), dict) else {}
     named = conversation_named(saved, identity)
     if not held:

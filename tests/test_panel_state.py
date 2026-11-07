@@ -155,9 +155,7 @@ class PanelState(unittest.TestCase):
         self.assertIn('paused-by-user', blockers[0])
         self.assertNotIn('no approval', blockers[0])
 
-    def test_a_scheduler_setting_the_panel_does_not_use_cannot_silence_it(self):
-        # Review (Sonnet): the panel imports the scheduler, which exited at import on a MAX_LIVE it refuses, so the panel
-        # printed nothing; the scheduler still refuses it where it schedules.
+    def test_an_invalid_live_cap_keeps_the_panel_visible_without_advertising_a_ticket(self):
         card(self.scratch / 'demo' / 'autopilot.md')
         ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01')
         for value in ('0', 'abc'):
@@ -166,7 +164,8 @@ class PanelState(unittest.TestCase):
                 result = subprocess.run([sys.executable, '-B', str(support.script('panel_state.py')), '--repo',
                                          str(self.repo), '--session-id', 'S'], capture_output=True, text=True, env=env)
                 self.assertEqual((result.returncode, [row['text'] for row in json.loads(result.stdout)['rows']]),
-                                 (0, ['demo · dispatch', 'next: demo/01',
+                                 (0, ['demo · dispatch', f'next: unknown, the board cannot tell: ValueError: '
+                                      f'MAX_LIVE must be a positive integer, got {value!r}',
                                       '1 ticket · 0 done · 0 blocked · 1 ready · 0 live']))
                 refused = subprocess.run([sys.executable, '-B', str(support.script('next_tickets.py')), '--repo',
                                           str(self.repo), 'demo'], capture_output=True, text=True, env=env)
@@ -277,6 +276,25 @@ class PanelState(unittest.TestCase):
         ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='ready')
         orchestrator(self.scratch / 'demo', ['S'])
         self.assertTrue(self.snapshot()['active'])
+
+    def test_panel_and_scheduler_share_the_environment_live_cap(self):
+        subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
+        card(self.scratch / 'demo' / 'autopilot.md')
+        issues = self.scratch / 'demo' / 'issues'
+        ticket(issues / '01-a.md', 'demo/01', status='implementing', worker='inline', touches='one')
+        ticket(issues / '02-b.md', 'demo/02', touches='two')
+        for cap, expected in (('1', []), ('2', ['demo/02'])):
+            with self.subTest(cap=cap):
+                env = dict(os.environ, MAX_LIVE=cap)
+                scheduled = subprocess.run([sys.executable, '-B', str(support.script('next_tickets.py')),
+                    '--repo', str(self.repo), 'demo'], env=env, capture_output=True, text=True)
+                panel = subprocess.run([sys.executable, '-B', str(support.script('panel_state.py')),
+                    '--repo', str(self.repo), '--session-id', 'S'], env=env, capture_output=True, text=True)
+                self.assertEqual(scheduled.returncode, 0, scheduled.stderr)
+                self.assertEqual(panel.returncode, 0, panel.stderr)
+                self.assertEqual([row['ticket'] for row in json.loads(scheduled.stdout)], expected)
+                self.assertEqual(self.row_texts(json.loads(panel.stdout), 'next'),
+                                 [f'next: {name}' for name in expected])
 
     def test_a_ready_ticket_is_the_next_row(self):
         card(self.scratch / 'demo' / 'autopilot.md')

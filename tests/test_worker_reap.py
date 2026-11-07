@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""`worker_lifecycle.py reap` closes the attempts whose status is already decided: a collected worker whose Herdr tab
-is confirmed gone or whose pane holds another conversation, and a retained native subagent whose run ended."""
+"""`worker_lifecycle.py reap` closes a collected worker whose Herdr pane and recorded tab are confirmed gone or whose
+pane holds another conversation, and a retained native subagent whose run ended."""
 
 import json
 import os
@@ -106,15 +106,14 @@ class Reap(WorkerLifecycleCase):
                 self.assertIsNone(self.closed())
 
     def test_the_server_the_callers_socket_names_is_asked_through_that_socket(self):
-        # Live (OpenCode on an isolated XDG_CONFIG_HOME): `--session default` found no socket there and answered with a
-        # non-JSON error, so nothing closed; the server HERDR_SOCKET_PATH names is reached through the socket itself.
         self.placed()
         self.tab_closed()
         self.native_env = dict(self.native_env or os.environ,
                                HERDR_SOCKET_PATH=str(self.root / 'herdr' / 'sessions' / 'fixture-session' / 'herdr.sock'))
         (self.root / 'herdr-argv.log').write_text('')
         self.assertEqual(['ticket-1/1'], [row['attempt'] for row in self.cli('reap')['closed']])
-        self.assertEqual(['tab get tab-1'], (self.root / 'herdr-argv.log').read_text().splitlines())
+        self.assertEqual(['tab get tab-1', 'pane get pane-1'],
+                         (self.root / 'herdr-argv.log').read_text().splitlines())
         # A socket outside Herdr's layout names no server: the recorded one is asked by name.
         self.setUp()
         self.placed()
@@ -123,7 +122,7 @@ class Reap(WorkerLifecycleCase):
                                HERDR_SOCKET_PATH=str(self.root / 'sessions' / 'fixture-session' / 'herdr.sock'))
         (self.root / 'herdr-argv.log').write_text('')
         self.cli('reap')
-        self.assertEqual(['--session fixture-session tab get tab-1'],
+        self.assertEqual(['--session fixture-session tab get tab-1', '--session fixture-session pane get pane-1'],
                          (self.root / 'herdr-argv.log').read_text().splitlines())
 
     def test_a_herdr_server_that_is_not_running_confirms_the_tab_gone(self):
@@ -382,13 +381,13 @@ class Reap(WorkerLifecycleCase):
                                                  f'{self.quoted()} --event-id {receipt}`)'), error)
 
     def slow_herdr(self, delay):
-        """A `herdr` that answers every tab of the `slow` server `tab_not_found`, `delay` seconds after it is asked."""
+        """A `herdr` that answers each target not found, `delay` seconds after it is asked."""
         directory = self.root / 'slow-bin'
         directory.mkdir()
         (directory / 'herdr').write_text('#!' + sys.executable + f'''
 import json, sys, time
 time.sleep({delay!r})
-print(json.dumps({{'error': {{'code': 'tab_not_found'}}}}), file=sys.stderr)
+print(json.dumps({{'error': {{'code': sys.argv[-3] + '_not_found'}}}}), file=sys.stderr)
 sys.exit(1)
 ''')
         (directory / 'herdr').chmod(0o700)
@@ -430,9 +429,7 @@ if 'tab' in sys.argv:
         return found, time.monotonic() - began
 
     def test_one_reap_stays_inside_a_total_budget_and_leaves_the_rest_for_the_next_stop(self):
-        # A stop has 20 s: five lookups that each answer after 2.5 s would take 12.5 s, so the reap spends a few
-        # seconds in all, closes what it confirmed, and the next stop takes up the rest.
-        self.slow_herdr(2.5)
+        self.slow_herdr(1.25)
         self.collected_on_slow_server(5)
         found, seconds = self.timed_reap()
         self.assertLess(seconds, 8)
