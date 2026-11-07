@@ -494,10 +494,8 @@ def awaited(state):
     except Exception:  # A state that cannot be read shows no running wait.
         return False
     closed = {(saved['runtime'], saved['native_session']) for saved in saved_attempts if saved.get('closed')}
-    return any((saved.get('submitted') or saved.get('submission_requested')) and not saved.get('result')
-               and (saved['runtime'], saved['native_session']) not in closed and module.watching(saved)
-               and module.process_stamp(saved['monitor']['pid']) == saved['monitor']['stamp']
-               and saved['monitor'].get('notify') for saved in saved_attempts)
+    return any(not saved.get('result') and (saved['runtime'], saved['native_session']) not in closed
+               and module.watching(saved) and not module.wake_gap(saved) for saved in saved_attempts)
 
 
 def read_binding(path, pane, session):

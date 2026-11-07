@@ -275,6 +275,17 @@ def watching(data):
     return monitor.get('state') == 'running'
 
 
+def wake_gap(data):
+    """Why a running wait of an attempt will not wake the host, None when it will: the wait process is the recorded
+    one and has a wake channel."""
+    monitor = data['monitor']
+    if process_stamp(monitor['pid']) != monitor['stamp']:
+        return 'wait process lost'
+    if not monitor.get('notify'):
+        return 'wait has no wake channel'
+    return None
+
+
 def wait_running(data):
     pgid = data.get('monitor', {}).get('wait_pid')
     if pgid is None:
@@ -352,10 +363,8 @@ def yield_gaps(db, include=None, rows=None):
                                'native: its session record, or `collect` a cancelled result if it never started')
             continue
         if watching(saved):
-            if process_stamp(monitor['pid']) != monitor['stamp']:
-                missing.append(f"{saved['attempt']}: wait process lost")
-            elif not monitor.get('notify'):
-                missing.append(f"{saved['attempt']}: wait has no wake channel")
+            if gap := wake_gap(saved):
+                missing.append(f"{saved['attempt']}: {gap}")
         else:
             # Only the current wait's unconsumed receipt can still wake the host.
             current = [row for row in receipts if monitor.get('state') == 'finished'

@@ -2928,6 +2928,36 @@ class AutopilotCardHold(GateRepo):
         os.killpg(int(pidfile.read_text()), 9)
         self.assertEqual(self.check(session='host-1'), [f'{self.state}: workstream/01/1: wait process lost', self.gap(path)])
 
+    def test_a_native_child_with_recorded_startup_and_an_armed_notified_wait_lets_the_run_yield(self):
+        # Rule: the card hold asks the lifecycle's own liveness rule. A native child never records `submitted` (it got
+        # its assignment with its spawn), so a wait armed on it that will wake the host is as good as any: the run
+        # yields, and holds again once the wait is lost.
+        path = self.card(slug='workstream')
+        child = self.state.parent / 'child-execution.json'
+        child.write_text(json.dumps(dict(json.loads(self.execution.read_text()), native_dispatch=True)))
+        self.lifecycle('register', 'workstream/01/1', assignment='workstream/01', repo=str(self.repo), worktree=str(self.repo),
+                       head='head-1', execution=str(child), runtime='claude', worker='helper-1',
+                       native_session='native-1', owned=True,
+                       packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        self.lifecycle('startup', 'workstream/01/1', native=str(self.native('workstream/01/1')))
+        pidfile, request = self.state.parent / 'wait.pid', self.state.parent / 'wait.json'
+        request.write_text(json.dumps({'argv': [sys.executable, '-c',
+            f'import os,time; open({str(pidfile)!r}, "w").write(str(os.getpid())); time.sleep(30)'], 'timeout': 40,
+            'notify': {'argv': [sys.executable, '-c', 'pass', '{receipt}'], 'timeout': 2}}))
+        watcher = subprocess.Popen([sys.executable, '-B', str(LIFECYCLE), 'watch', '--state', str(self.state),
+                                    '--attempt', 'workstream/01/1', '--input', str(request)], stdout=subprocess.PIPE,
+                                   text=True, env=self.env('w1:p1'))
+        self.addCleanup(lambda: watcher.poll() is None and (watcher.kill(), watcher.communicate()))
+        deadline = time.monotonic() + 5
+        while not pidfile.exists() and time.monotonic() < deadline:
+            time.sleep(.02)
+        self.assertTrue(pidfile.exists())
+        self.assertEqual(self.check(session='host-1'), [])
+        watcher.kill()
+        watcher.communicate(timeout=5)
+        os.killpg(int(pidfile.read_text()), 9)
+        self.assertEqual(self.check(session='host-1'), [self.gap(path)])  # The lifecycle names no worker gap for it.
+
 
 if __name__ == '__main__':
     unittest.main()
