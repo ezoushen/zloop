@@ -133,7 +133,7 @@ export async function panelTick(ctx, found, view = {}) {
 async function readPanelSnapshot(root, repo, session) {
   try {
     const { stdout } = await execFileAsync("python3",
-      ["-B", join(root, "scripts", "panel_state.py"), "--repo", repo, "--session-id", session, "--json"],
+      ["-B", join(root, "scripts", "panel_state.py"), "--repo", repo, "--session-id", session],
       { encoding: "utf8", timeout: 8000 });
     return JSON.parse(stdout);
   } catch {

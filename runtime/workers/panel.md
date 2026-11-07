@@ -8,11 +8,11 @@ quiet, what blocks it and what comes next. Pi and Claude Code draw it from the s
 `scripts/panel_state.py` answers for one checkout and one session:
 
 ```sh
-python3 -B scripts/panel_state.py --repo <main checkout> --session-id <host session> [--json]
+python3 -B scripts/panel_state.py --repo <main checkout> --session-id <host session>
 ```
 
-Text mode prints one row per line and nothing when the workstream is not live. `--json` prints
-`{"active", "workstream", "phase", "draft", "rows": [{"kind", "text"}], "more", "strip"}`, with `kind` one of `headline`,
+It prints one JSON line,
+`{"active", "workstream", "rows": [{"kind", "text"}], "more", "strip"}`, with `kind` one of `headline`,
 `run`, `wait`, `blocker`, `next`, `counts`, `more`, and `more` every run and wait row a `+N more` row stands for. Hosts render
 only these words; they never re-derive a fact.
 
@@ -29,7 +29,7 @@ opened shows none. A workstream need not have a card: any of these records is en
 
 Live means the card is unconfirmed, or an attempt is live, or a blocker is recorded, or the card is still open or
 stopped on `waiting-on-user`, `paused-allowance`, `paused-by-user` or `blocked`. A run that reached `delivered`,
-`delivered-local` or `merged`, or set `phase: ended`, is quiet only while nothing is live or blocked beneath it; one
+`delivered-local` or `merged`, is quiet only while nothing is live or blocked beneath it; one
 that records a delivered state on a `local` board, confirmed and naming this session, stays while its workstream is not
 delivered, as the stop check holds it.
 
@@ -43,8 +43,8 @@ the counts: the tickets' tally, or for a workstream without tickets `done:` and,
 assignments whose result completed; a job with a plan (`worker_lifecycle.py plan`) counts only its planned
 assignments, over the plan's size, even before its first worker. The failed check is this workstream's blocker when a
 problem names one of its tickets, or it has a ticket not done, since the scheduler then starts nothing: it shows the
-first problem, this workstream's first, with `(+N more)`. The next step is the first ready ticket whose blockers the
-board counts as met (each done, and one of another workstream integrated), none while the check fails. A board the
+first problem, this workstream's first, with `(+N more)`. The next step is the scheduler's first ready pick for the
+workstream (`next_tickets.py <slug>`: blockers met, no area a live ticket holds, the live cap), none while the check fails. A board the
 scheduler cannot read is said so in the row it would have supplied, and the other rows stay.
 Each host tones a row by its kind — after truncation, so the words stay identical and styling cannot widen a line —
 and a run row keeps the default style:

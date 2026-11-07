@@ -70,7 +70,7 @@ async function readSnapshot($, cwd) {
   try {
     const session = await $.session.id();
     const run = await $.process.run(
-      ["python3", "-B", `${$.plugin.root}/scripts/panel_state.py`, "--repo", cwd, "--session-id", session, "--json"],
+      ["python3", "-B", `${$.plugin.root}/scripts/panel_state.py`, "--repo", cwd, "--session-id", session],
       { cwd, timeoutMs: 8000 });
     if (run.exitCode !== 0 || !run.stdout) return null;
     return JSON.parse(run.stdout);

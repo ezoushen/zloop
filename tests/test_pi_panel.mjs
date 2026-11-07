@@ -23,7 +23,7 @@ function recording() {
 }
 
 const snapshot = (rows, extra = {}) => ({
-  active: true, workstream: "demo", phase: "dispatch", draft: false, strip: "demo · dispatch · 1 running", rows, ...extra,
+  active: true, workstream: "demo", strip: "demo · dispatch · 1 running", rows, ...extra,
 });
 
 const widgets = (calls) => calls.filter((entry) => entry.call === "widget");

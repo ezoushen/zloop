@@ -38,11 +38,12 @@ def orchestrator(workstream, sessions):
     return path
 
 
-def ticket(path, name, status='ready', blocker=None, worker='', title='a behaviour', blocked_by='', accepted=True):
-    """A local ticket with the front matter the board reads, titled as the template titles one; a done one carries the
-    acceptance fields `--accept` writes, unless `accepted` is False."""
+def ticket(path, name, status='ready', blocker=None, worker='', title='a behaviour', blocked_by='', accepted=True, touches=None):
+    """A local ticket with the front matter the board reads, titled as the template titles one, touching an area of its
+    own number unless `touches` names one; a done one carries the acceptance fields `--accept` writes, unless
+    `accepted` is False."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines = ['---', f'ticket: {name}', f'status: {status}', f'blocked_by: [{blocked_by}]', 'touches: [scripts]',
+    lines = ['---', f'ticket: {name}', f'status: {status}', f'blocked_by: [{blocked_by}]', f"touches: [{touches or 'area-' + name.split('/')[-1]}]",
              'devices: []', 'model: standard', f'worker: {worker}'.rstrip()]
     if blocker:
         lines.append(f'blocker: {blocker}')
@@ -95,18 +96,15 @@ class PanelState(unittest.TestCase):
         self.assertTrue(found['active'])
         self.assertEqual('demo', found['workstream'])
         self.assertNotIn('effort', found)
-        self.assertEqual('dispatch', found['phase'])
         self.assertEqual(['demo · dispatch'], self.row_texts(found, 'headline'))
 
 
-    def test_an_ended_phase_draws_nothing(self):
-        # Only the phase says ended: the terminal state is empty, so each rule is exercised on its own.
-        card(self.scratch / 'demo' / 'autopilot.md', phase='ended', terminal='')
-        found = self.snapshot()
-        self.assertFalse(found['active'])
-        self.assertEqual([], found['rows'])
-        self.assertIsNone(found['strip'])
-        self.assertEqual('', PANEL.render_text(found))
+    def test_the_snapshot_carries_only_what_a_renderer_reads(self):
+        # Rule: no field in the snapshot that no host reads (renderers read active, workstream, rows, more, strip).
+        card(self.scratch / 'demo' / 'autopilot.md', phase='dispatch')
+        self.assertEqual({'active', 'workstream', 'rows', 'more', 'strip'}, set(self.snapshot()))
+        card(self.scratch / 'demo' / 'autopilot.md', terminal='delivered')
+        self.assertEqual({'active', 'workstream', 'rows', 'more', 'strip'}, set(self.snapshot()))
 
     def test_a_delivered_run_with_nothing_live_draws_nothing(self):
         # Only the terminal state says delivered: the phase is still dispatch. The ready ticket shows the terminal
@@ -198,16 +196,16 @@ class PanelState(unittest.TestCase):
                 env = dict(os.environ, MAX_LIVE=value)
                 result = subprocess.run([sys.executable, '-B', str(support.script('panel_state.py')), '--repo',
                                          str(self.repo), '--session-id', 'S'], capture_output=True, text=True, env=env)
-                self.assertEqual((result.returncode, result.stdout), (0, 'demo · dispatch\nnext: demo/01\n'
-                                                                      '1 ticket · 0 done · 0 blocked · 1 ready · 0 live\n'))
+                self.assertEqual((result.returncode, [row['text'] for row in json.loads(result.stdout)['rows']]),
+                                 (0, ['demo · dispatch', 'next: demo/01',
+                                      '1 ticket · 0 done · 0 blocked · 1 ready · 0 live']))
                 refused = subprocess.run([sys.executable, '-B', str(support.script('next_tickets.py')), '--repo',
                                           str(self.repo), 'demo'], capture_output=True, text=True, env=env)
                 self.assertEqual((refused.returncode, refused.stderr.strip().splitlines()[-1]),
                                  (2, f'next_tickets.py: error: MAX_LIVE must be a positive integer, got {value!r}'))
         # A valid one still caps what the scheduler starts.
         subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
-        second = ticket(self.scratch / 'demo' / 'issues' / '02-b.md', 'demo/02')
-        second.write_text(second.read_text().replace('touches: [scripts]', 'touches: [docs]'))
+        ticket(self.scratch / 'demo' / 'issues' / '02-b.md', 'demo/02')
         started = subprocess.run([sys.executable, '-B', str(support.script('next_tickets.py')), '--repo', str(self.repo),
                                   'demo'], capture_output=True, text=True, env=dict(os.environ, MAX_LIVE='1'))
         self.assertEqual([found['ticket'] for found in json.loads(started.stdout)], ['demo/01'])
@@ -218,7 +216,7 @@ class PanelState(unittest.TestCase):
         broken.parent.mkdir(parents=True, exist_ok=True)
         broken.write_bytes(b'not a database')
         result = subprocess.run([sys.executable, '-B', str(support.script('panel_state.py')),
-                                 '--repo', str(self.repo), '--session-id', 'S', '--json'],
+                                 '--repo', str(self.repo), '--session-id', 'S'],
                                 capture_output=True, text=True)
         self.assertEqual(0, result.returncode, result.stderr)
         found = json.loads(result.stdout)
@@ -290,7 +288,6 @@ class PanelState(unittest.TestCase):
     def test_a_draft_card_says_its_confirmation_is_missing(self):
         card(self.scratch / 'demo' / 'autopilot.md', phase='align', confirmed='no')
         found = self.snapshot()
-        self.assertTrue(found['draft'])
         self.assertIn('draft', self.row_texts(found, 'headline')[0])
         self.assertEqual(['awaiting your confirmation'], self.row_texts(found, 'next'))
 
@@ -326,8 +323,8 @@ class PanelState(unittest.TestCase):
         # a live ticket of the workstream holds (the scheduler starts none of it) is not advertised.
         card(self.scratch / 'demo' / 'autopilot.md')
         issues = self.scratch / 'demo' / 'issues'
-        ticket(issues / '01-a.md', 'demo/01', status='implementing', worker='inline')  # Every ticket touches scripts.
-        ticket(issues / '02-b.md', 'demo/02')
+        ticket(issues / '01-a.md', 'demo/01', status='implementing', worker='inline', touches='scripts')
+        ticket(issues / '02-b.md', 'demo/02', touches='scripts')
         self.assertEqual([], self.row_texts(self.snapshot(), 'next'))
 
     def test_the_next_row_names_only_a_ready_ticket_whose_blockers_are_done(self):
@@ -609,7 +606,6 @@ class PanelState(unittest.TestCase):
         # run-card.md writes `confirmed: no | <date> "<the user's words>"`; a date and words are the confirmation.
         card(self.scratch / 'demo' / 'autopilot.md', phase='dispatch', confirmed='2026-10-27 "Confirmed, go"')
         found = self.snapshot()
-        self.assertFalse(found['draft'])
         self.assertNotIn('draft', self.row_texts(found, 'headline')[0])
 
     def test_a_supervised_worker_is_a_run_row_not_a_wait(self):
@@ -805,7 +801,7 @@ class PanelState(unittest.TestCase):
         self.assertEqual([], self.row_texts(self.snapshot(), 'run'))
 
     def test_another_sessions_worker_alone_does_not_keep_a_workstream_live(self):
-        card(self.scratch / 'demo' / 'autopilot.md', session='S', phase='ended', terminal='delivered')
+        card(self.scratch / 'demo' / 'autopilot.md', session='S', terminal='delivered')
         attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite',
                  [dict(live('12/ticket-2'), session='T', sessions=['T'])])
         self.assertFalse(self.snapshot()['active'])
@@ -825,14 +821,14 @@ class PanelState(unittest.TestCase):
         self.assertEqual([], self.row_texts(found, 'wait'))
 
     def test_a_live_worker_keeps_the_panel_up_after_the_card_ended(self):
-        card(self.scratch / 'demo' / 'autopilot.md', phase='ended', terminal='delivered')
+        card(self.scratch / 'demo' / 'autopilot.md', terminal='delivered')
         attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [live('12/ticket-1')])
         found = self.snapshot()
         self.assertTrue(found['active'])
         self.assertEqual(1, len(self.row_texts(found, 'run')))
 
     def test_a_blocked_ticket_keeps_the_panel_up_after_the_card_ended(self):
-        card(self.scratch / 'demo' / 'autopilot.md', phase='ended', terminal='delivered')
+        card(self.scratch / 'demo' / 'autopilot.md', terminal='delivered')
         ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='blocked', blocker='no approval')
         found = self.snapshot()
         self.assertTrue(found['active'])
@@ -851,7 +847,6 @@ class PanelState(unittest.TestCase):
         os.utime(newer, (later, later))
         found = self.snapshot('S')
         self.assertEqual('gamma', found['workstream'])
-        self.assertIsNone(found['phase'])
         self.assertTrue(found['active'])
 
     def test_a_workstream_nothing_binds_to_this_session_is_not_shown(self):
@@ -861,7 +856,7 @@ class PanelState(unittest.TestCase):
         attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [live('12/ticket-1')])
         ticket(self.scratch / 'omega' / 'issues' / '01-a.md', 'omega/01', status='ready')
         found = self.snapshot('fresh')
-        self.assertEqual({'active': False, 'workstream': None, 'phase': None, 'draft': False, 'rows': [], 'more': [],
+        self.assertEqual({'active': False, 'workstream': None, 'rows': [], 'more': [],
                           'strip': None},
                          found)
 
@@ -936,7 +931,7 @@ class PanelState(unittest.TestCase):
 
     def test_of_the_workstreams_tied_to_this_session_a_live_one_wins_then_the_binding_order(self):
         # The session dispatched alpha, which has delivered, and now runs remediate workers: they are what is live.
-        card(self.scratch / 'alpha' / 'autopilot.md', session='unknown', phase='ended', terminal='delivered')
+        card(self.scratch / 'alpha' / 'autopilot.md', session='unknown', terminal='delivered')
         orchestrator(self.scratch / 'alpha', ['S'])
         state = attempts(self.scratch / 'remediate-x' / 'reports' / 'workers.sqlite',
                          [dict(live('1/audit-1'), session='S', sessions=['S'])])
@@ -960,7 +955,7 @@ class PanelState(unittest.TestCase):
     def test_another_sessions_worker_ties_nothing_to_this_session(self):
         attempts(self.scratch / 'theirs' / 'reports' / 'workers.sqlite',
                  [dict(live('1/ticket-1'), session='T', sessions=['T'])])
-        self.assertEqual({'active': False, 'workstream': None, 'phase': None, 'draft': False, 'rows': [], 'more': [],
+        self.assertEqual({'active': False, 'workstream': None, 'rows': [], 'more': [],
                           'strip': None},
                          self.snapshot('S'))
         self.assertEqual('theirs', self.snapshot('T')['workstream'])
@@ -972,7 +967,7 @@ class PanelState(unittest.TestCase):
         db.execute('INSERT INTO attempts VALUES (?, ?)', ('1/ticket-2', json.dumps(['S'])))
         db.commit()
         db.close()
-        self.assertEqual({'active': False, 'workstream': None, 'phase': None, 'draft': False, 'rows': [], 'more': [],
+        self.assertEqual({'active': False, 'workstream': None, 'rows': [], 'more': [],
                           'strip': None},
                          self.snapshot('S'))
 

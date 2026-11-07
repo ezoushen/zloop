@@ -564,8 +564,6 @@ def accept(tickets, name):
     if not accepted({**fm, **withdrawn}):
         if fm.get("status") == "done":  # Done only while accepted.
             withdrawn.update(status="blocked", blocker="its acceptance failed again; restore the evidence, then --accept it")
-        elif fm.get("lent") == "done":  # Lent to the E2E sentinel: it keeps its devices, and returns only accepted.
-            withdrawn["lent"] = None
     if withdrawn:
         write_fields(fm, withdrawn)
     return False
@@ -1057,19 +1055,12 @@ def set_field(tickets, name, assignments):
         fields["start"] = commit_of(branch_ref(workstream) or "refs/heads/main")
         if not fields["start"]:
             sys.exit(f"{name}: no workstream branch ({workstream}) or main to record the start of implementing from")
-    # The E2E sentinel lends a done ticket to `verifying` and gives it back; only a ticket lent that way returns
-    # to done without its acceptance.
-    if fields.get("status") == "verifying" and fm.get("status") == "done":
-        fields["lent"] = "done"
-    elif fm.get("status") == "verifying" and fields.get("status", "verifying") != "verifying":
-        fields["lent"] = None
-    if fields.get("status") == "done" and fm.get("status") != "done" and fm.get("lent") != "done" \
-            and fm.get("delivered_by"):
+    if fields.get("status") == "done" and fm.get("status") != "done" and fm.get("delivered_by"):
         # Delivered by PRs and CI runs: gh says each is merged or successful now, whatever the front matter records.
         problems = unproven(delivered(fm))
         if problems:
             sys.exit("\n".join(f"{name}: {problem}" for problem in problems))
-    elif fields.get("status") == "done" and fm.get("status") != "done" and fm.get("lent") != "done":
+    elif fields.get("status") == "done" and fm.get("status") != "done":
         accepted = fm.get("accepted") or ""
         if not re.fullmatch("[0-9a-f]{40}", accepted) or not re.fullmatch("[0-9a-f]{64}", fm.get("accepted_report") or ""):
             sys.exit(f"{name}: status=done needs a passing --accept first")
@@ -1087,7 +1078,6 @@ def set_field(tickets, name, assignments):
                  f"--set {name} status=blocked blocker=<reason>")
     if fields.get("status", "blocked") != "blocked":
         # A ticket leaving `blocked` drops its reason.
-        fields.pop("blocker", None)
         fields["blocker"] = None
     write_fields(fm, fields)
     for key, value in fields.items():
@@ -1097,7 +1087,7 @@ def set_field(tickets, name, assignments):
 
 def write_fields(fm, fields):
     """Write each field to a ticket's front matter; None removes the field. Only status, blocker, start, accepted,
-    accepted_report, lent and delivered_by may be added; another key must already be in the template."""
+    accepted_report and delivered_by may be added; another key must already be in the template."""
     path = ROOT / fm["path"]
     text = path.read_text()
     head = re.match(r"---\n.*?(?=\n---(?:\n|$))", text, re.S)[0]  # What front_matter.parse reads as the block.
@@ -1110,7 +1100,7 @@ def write_fields(fm, fields):
             head = re.sub(rf"\n{re.escape(key)}:[^\n]*{items}", "", head)
         elif pattern.search(head):
             head = pattern.sub(lambda match: f"{match[1]} {value}", head, count=1)
-        elif key in ('status', 'blocker', 'start', 'accepted', 'accepted_report', 'lent', 'delivered_by'):
+        elif key in ('status', 'blocker', 'start', 'accepted', 'accepted_report', 'delivered_by'):
             head += f'\n{key}: {value}'
         else:
             sys.exit(f"{fm['ticket']}: no front-matter key {key!r}")

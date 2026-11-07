@@ -118,14 +118,12 @@ def live_workstream(state, attempts, blocker, draft, found_tickets):
         return True
     if not state:
         return any(fields.get('status') in ('ready', 'blocked', *LIVE_TICKET) for _, fields in found_tickets)
-    if state.get('phase') == 'ended':
-        return False
     return not state.get('terminal')
 
 
 def next_row(workstream, state, draft, scheduled):
-    """The one step the person or the run takes next, or None when nothing follows: a ready ticket of the workstream
-    whose blockers the board counts as met, none while the board fails its check."""
+    """The one step the person or the run takes next, or None when nothing follows: the scheduler's first ready pick
+    for the workstream, none while the board fails its check."""
     if draft:
         return {'kind': 'next', 'text': 'awaiting your confirmation'}
     if state.get('terminal') in PAUSED:
@@ -134,10 +132,8 @@ def next_row(workstream, state, draft, scheduled):
     board, _, problems = scheduled
     if problems:
         return None
-    known = {}
     try:
-        first = next((name for name in sorted(board) if next_tickets.spec_of(name) == workstream.name
-                      and board[name].get('status') == 'ready' and next_tickets.unblocked(board, name, known)), None)
+        first = next((fm['ticket'] for fm in next_tickets.ready(board, workstream.name)), None)
     except Exception as error:  # A prerequisite's state it cannot read: say so, and keep the other rows.
         return {'kind': 'next', 'text': f'next: unknown, the board cannot tell: {type(error).__name__}: {error}'}
     return {'kind': 'next', 'text': f'next: {first}'} if first else None
@@ -364,13 +360,11 @@ def snapshot(repo, session_id, now):
         if live:
             break
     if chosen is None:
-        return {'active': False, 'workstream': None, 'phase': None, 'draft': False, 'rows': [], 'more': [],
-                'strip': None}
+        return {'active': False, 'workstream': None, 'rows': [], 'more': [], 'strip': None}
     workstream, state, found_tickets, draft, blocker, attempts, live, scheduled = chosen
     phase = state.get('phase') or None
     if not live:
-        return {'active': False, 'workstream': workstream.name, 'phase': phase, 'draft': draft, 'rows': [], 'more': [],
-                'strip': None}
+        return {'active': False, 'workstream': workstream.name, 'rows': [], 'more': [], 'strip': None}
     headline = f'{workstream.name} · {phase}' if phase else workstream.name
     rows = [{'kind': 'headline', 'text': headline + (' · draft' if draft else '')}]
     running, waiting = inline_rows(found_tickets), []
@@ -395,24 +389,17 @@ def snapshot(repo, session_id, now):
     closer = (blocker or step or {}).get('text', '')
     strip = ' · '.join(part for part in (f'{workstream.name} · {phase}' if phase else workstream.name,
                                          f'{len(running)} running' if running else '', closer) if part)
-    return {'active': True, 'workstream': workstream.name, 'phase': phase, 'draft': draft, 'rows': rows,
-            'more': hidden, 'strip': strip or None}
-
-
-def render_text(found):
-    """The snapshot as the lines a host prints when it asks for text."""
-    return '\n'.join(row['text'] for row in found['rows'])
+    return {'active': True, 'workstream': workstream.name, 'rows': rows, 'more': hidden, 'strip': strip or None}
 
 
 def main():
     parser = argparse.ArgumentParser(description='Report the panel rows for a session\'s workstream.')
     parser.add_argument('--repo', required=True)
     parser.add_argument('--session-id', required=True)
-    parser.add_argument('--json', action='store_true')
     parser.add_argument('--now', type=float)
     args = parser.parse_args()
     found = snapshot(Path(args.repo), args.session_id, args.now if args.now is not None else time.time())
-    sys.stdout.write(json.dumps(found) + '\n' if args.json else (render_text(found) + '\n' if found['rows'] else ''))
+    sys.stdout.write(json.dumps(found) + '\n')
 
 
 if __name__ == '__main__':

@@ -312,13 +312,13 @@ class BoardCLI(unittest.TestCase):
         self.assertEqual((fm['status'], fm.get('accepted'), fm.get('accepted_report')), ('blocked', None, None))
         self.assertEqual(fm['blocker'], 'its acceptance failed again; restore the evidence, then --accept it')
         self.cli('fx', '--check')
-        # Review (Sonnet, Codex): a ticket the E2E sentinel lent to `verifying` is no longer lent, so it cannot return to
-        # done with no acceptance, and stays verifying, so the E2E run keeps the devices it holds.
+        # Review (Sonnet, Codex): a ticket the E2E sentinel lent to `verifying` cannot return to done with no acceptance,
+        # and stays verifying, so the E2E run keeps the devices it holds.
         lent = self.write_ticket('fx/03', status='done', devices='ios')
         self.cli('fx', '--set', 'fx/03', 'status=verifying')
         self.cli('fx', '--accept', 'fx/03', code=1)
         fm = front_matter.parse(lent.read_text())
-        self.assertEqual((fm['status'], fm.get('lent'), fm.get('accepted')), ('verifying', None, None))
+        self.assertEqual((fm['status'], fm.get('accepted')), ('verifying', None))
         self.cli('fx', '--set', 'fx/03', 'status=done', code=1)
         self.cli('fx', '--check')
         # A ticket its merged PRs accept stays done whatever a branch acceptance finds.
@@ -792,14 +792,26 @@ class BoardCLI(unittest.TestCase):
         assert ('inline/01: no collected worker attempt returned .scratch/inline/reports/01.md'
                 in refused.stderr), refused.stderr
 
-    def test_a_done_ticket_lent_to_e2e_as_verifying_returns_to_done(self):
-        # The E2E sentinel: a done ticket, accepted before acceptance was recorded, is set verifying and back.
-        self.write_ticket('inline/01', 'done')
+    def test_a_done_ticket_lent_to_e2e_as_verifying_returns_to_done_only_as_accepted_as_ever(self):
+        # The E2E sentinel: a done ticket is set verifying and back. The way back is the one done gate, so a report
+        # revised meanwhile is refused as it is anywhere else.
+        self.write_ticket('inline/01', 'implementing', extra='worker:\n')
         self.write_ticket('inline/02', 'implementing', touches='docs')
-        self.cli('inline', '--set', 'inline/01', 'status=verifying')
+        base = self.commit('base')
+        self.git('switch', '-q', '-c', 'feat/inline')
+        work = self.commit('ticket work')
+        self.write_report(base, 'feat/inline', [work])
+        self.cli('inline', '--accept', 'inline/01')
+        self.cli('inline', '--set', 'inline/01', 'status=done')
         self.cli('inline', '--set', 'inline/01', 'status=verifying')
         self.cli('inline', '--set', 'inline/01', 'status=done')
         self.cli('inline', '--check')  # Review (Codex): the round trip keeps the ticket's acceptance.
+        report = self.root / '.scratch/inline/reports/01.md'
+        kept = report.read_text()
+        self.cli('inline', '--set', 'inline/01', 'status=verifying')
+        report.write_text(kept + '- [x] added while verifying\n')
+        refused = self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
+        assert 'inline/01: the report changed after its --accept; accept it again' in refused.stdout + refused.stderr
         # A ticket that was never done does not become done through the sentinel.
         self.cli('inline', '--set', 'inline/02', 'status=verifying')
         refused = self.cli('inline', '--set', 'inline/02', 'status=done', code=1)
@@ -1635,11 +1647,13 @@ class BoardCLI(unittest.TestCase):
         self.commit('later/01 lands on main')
         self.cli('onmain', '--delivery')
         assert self.ready_names('later') == ['later/01', 'later/02']
+        # A report naming no branch, or one that is no branch, records its branch deleted with every reviewed head in
+        # main: finished, so --delivery passes as the stop check does; it still releases no dependent.
         review.write_text(evidence.replace('workstream_branch: main\n', ''))
-        self.cli('onmain', '--delivery', code=1)
+        self.cli('onmain', '--delivery')
         assert self.ready_names('later') == []
         review.write_text(evidence.replace('workstream_branch: main', 'workstream_branch: main~1'))
-        self.cli('onmain', '--delivery', code=1)
+        self.cli('onmain', '--delivery')
         review.write_text(evidence)
         later_review, later_evidence = self.deliver('later', 'main', start, start)
         later_review.write_text(later_evidence.replace('workstream_branch: main', 'workstream_branch: main~1'))
