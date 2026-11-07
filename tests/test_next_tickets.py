@@ -1846,5 +1846,28 @@ class BoardCLI(unittest.TestCase):
         refused = self.cli('fx', '--delivery', code=1).stderr
         assert refused == 'fx: tickets not done: fx/02 (implementing), fx/03 (blocked)\n', refused
 
+    def test_delivery_of_a_finished_workstream_passes_as_the_stop_check_does(self):
+        # Rule: --delivery judges a workstream with the shared undelivered reader, so one finished (branch deleted,
+        # reviewed heads in main) passes instead of failing on the branch it no longer has.
+        self.merged_on_remote('fx')
+        self.cli('fx', '--delivery')
+
+    def test_delivery_is_judged_on_its_own_workstream_whatever_another_board_file_holds(self):
+        # Rule: another workstream's refused ticket file or failing ticket never fails this workstream's delivery;
+        # the stop hold names --delivery as the command to run until it passes.
+        self.write_ticket('fx/01', 'done')
+        self.write_ticket('other/01', 'done', accepted=False)
+        (self.root / '.scratch/broken/issues').mkdir(parents=True)
+        (self.root / '.scratch/broken/issues/01-bad.md').write_text('---\nticket: Not A Ticket\n---\n')
+        start = self.commit('start')
+        self.git('switch', '-q', '-c', 'feat/fx')
+        head = self.commit('reviewed work')
+        self.git('switch', '-q', 'main')
+        self.deliver('fx', 'feat/fx', start, head)
+        self.cli('fx', '--delivery')
+        refused = self.cli('broken', '--delivery', code=1).stderr
+        assert refused.startswith('broken: it cannot be checked: '), refused
+        assert 'status done with no acceptance' in self.cli('other', '--delivery', code=1).stderr
+
 if __name__ == '__main__':
     unittest.main()
