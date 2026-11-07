@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """The panel's fact source: which workstream is live, and the rows a host draws for it."""
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -386,6 +387,10 @@ class PanelState(unittest.TestCase):
         ticket(scratch / 'demo' / 'issues' / '02-b.md', 'demo/two', status='done')  # Its own refused ticket is its own.
         self.assertEqual(self.row_texts(PANEL.snapshot(repo, 'S', time.time()), 'blocker'), [
             f"board fails its check: {scratch / 'demo' / 'issues' / '02-b.md'}: invalid ticket id 'demo/two'"])
+        # Review (Sonnet): so it is under a relative repository path.
+        with contextlib.chdir(repo):
+            self.assertEqual(self.row_texts(PANEL.snapshot(Path('.'), 'S', time.time()), 'blocker'), [
+                "board fails its check: .scratch/demo/issues/02-b.md: invalid ticket id 'demo/two'"])
 
     def test_another_workstreams_refused_file_hides_none_of_this_workstreams_problems(self):
         # Review (Codex): the scheduler refuses the whole board on one file, so another workstream's refused file left
@@ -396,6 +401,24 @@ class PanelState(unittest.TestCase):
         refusal = ('demo/01: status done with no acceptance; accept it with --accept demo/01, or --accept demo/01 --pr '
                    '<url> when PRs delivered it, or --accept demo/01 --run <url> when a successful CI run proves it')
         self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), [f'board fails its check: {refusal} (+1 more)'])
+        # A ticket of it waiting on one in that workstream waits on a ticket the board cannot judge, not one missing.
+        ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='done', blocked_by='alpha/02')
+        (self.scratch / 'alpha' / 'issues' / '02-b.md').write_text(
+            '---\nticket: alpha/02\nstatus: done\nblocked_by: []\ntouches: invalid\ndevices: []\n---\n')
+        self.assertFalse(self.snapshot()['active'])
+
+    def test_a_ticket_file_the_panel_cannot_read_leaves_it_its_rows(self):
+        # Review (Codex): the board's check names a ticket file it cannot read, but the panel read the file again itself
+        # and the PermissionError erased the whole panel.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        issues = self.scratch / 'demo' / 'issues'
+        ticket(issues / '01-a.md', 'demo/01')
+        unreadable = ticket(issues / '02-b.md', 'demo/02')
+        unreadable.chmod(0)
+        self.addCleanup(unreadable.chmod, 0o644)
+        self.assertEqual([row['text'] for row in self.snapshot()['rows']], [
+            'demo · dispatch', f"board fails its check: {unreadable}: cannot be read: [Errno 13] Permission denied: "
+                               f"'{unreadable}'", '1 ticket · 0 done · 0 blocked · 1 ready · 0 live'])
 
     def test_a_ticket_whose_fields_are_written_as_lists_leaves_the_panel_its_rows(self):
         # Review (Codex): the panel compared and joined a ticket's fields as text, so this workstream's status or ticket

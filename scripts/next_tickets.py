@@ -27,7 +27,6 @@ branch merged into main and the target workstream branch. --check detects missin
 edges and cycles between tickets or workstreams. One orchestrator per checkout.
 """
 import argparse
-from graphlib import CycleError, TopologicalSorter
 import hashlib
 import json
 import math
@@ -62,10 +61,10 @@ MEASURE_TIMEOUT = 600  # seconds a measurement command may run unless its entry 
 SESSION_VARIABLES = ("CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "PI_SESSION_ID", "OPENCODE_SESSION_ID")
 
 
-def load(spared=None):
+def load(spared=None, left_out=None):
     """The board's tickets by name. Exits naming a ticket file it refuses; with `spared`, a refused file of another
-    workstream is left out instead, so that workstream can still be judged (a ticket waiting on it then waits on a
-    ticket that does not exist)."""
+    workstream is left out instead, its workstream added to the set `left_out` when one is given, so that workstream
+    can still be judged."""
     tickets = {}
     for path in sorted(ISSUES.glob("*/issues/*.md")):
         refusal = None
@@ -86,6 +85,8 @@ def load(spared=None):
         elif fm and set(fm) & {"blocked_by", "touches", "devices", "worker"}:
             refusal = f"{path}: missing ticket front matter"
         if refusal and spared and path.parent.parent.name != spared:
+            if left_out is not None:
+                left_out.add(path.parent.parent.name)
             continue
         if refusal:
             sys.exit(refusal)
@@ -126,19 +127,20 @@ def concerns(problem, slug):
         return any(spec_of(name) == slug for name in rest.split(" -> "))
     if head == "workstream dependency cycle":
         return slug in rest.split(" -> ")
-    return problem.startswith(f"{slug}/") or f"{os.sep}.scratch{os.sep}{slug}{os.sep}issues{os.sep}" in head
+    return problem.startswith(f"{slug}/") or f"{os.sep}.scratch{os.sep}{slug}{os.sep}issues{os.sep}" in os.sep + head
 
 
-def problems(tickets, accepting=False):
+def problems(tickets, accepting=False, left_out=()):
     """What makes the board invalid, [] when nothing does. A done ticket needs its acceptance, except while `--accept`
-    runs (`accepting`): it gives those tickets their acceptance, one at a time."""
+    runs (`accepting`): it gives those tickets their acceptance, one at a time. A blocker in a workstream with a file
+    `load` left out is not called missing: the board cannot tell."""
     bad = [f"{t}: status {fm.get('status')!r} is not one of {sorted(STATUSES)}"
            for t, fm in tickets.items() if not isinstance(fm.get('status'), str) or fm['status'] not in STATUSES]
     bad += [f"{t}: status done with no acceptance; accept it with --accept {t}, or --accept {t} --pr <url> when PRs "
             f"delivered it, or --accept {t} --run <url> when a successful CI run proves it" for t, fm in tickets.items()
             if fm.get('status') == 'done' and not accepting and not accepted(fm)]
     bad += [f"{t}: blocked_by {dep} does not exist" for t, fm in tickets.items()
-           for dep in fm.get("blocked_by", []) if dep not in tickets]
+           for dep in fm.get("blocked_by", []) if dep not in tickets and spec_of(dep) not in left_out]
     allowed = ", ".join(capability_probe.NEEDS)
     for t, fm in tickets.items():
         if "needs" in fm and not isinstance(fm["needs"], list):
@@ -156,16 +158,57 @@ def problems(tickets, accepting=False):
         graphs["workstream"][spec_of(t)].update(spec_of(d) for d in fm.get("blocked_by", [])
                                            if spec_of(d) != spec_of(t))
     for label, graph in graphs.items():
-        graph = {node: set(edges) for node, edges in graph.items()}
-        while True:  # Every cycle is named: one edge of each found is set aside before looking again.
-            try:
-                tuple(TopologicalSorter(graph).static_order())
-                break
-            except CycleError as error:
-                cycle = error.args[1]
-                bad.append(f"{label} dependency cycle: {' -> '.join(cycle)}")
-                graph[cycle[1]].discard(cycle[0])
+        bad += [f"{label} dependency cycle: {' -> '.join(cycle)}" for cycle in cycles(graph)]
     return bad
+
+
+def cycles(graph):
+    """Cycles of `graph` (each node to the nodes it waits on) that together pass through every node on one, each a
+    path of nodes, each blocking the next, back to its first: every ticket or workstream in a cycle is named."""
+    after, left = {}, {node: set(blockers) for node, blockers in graph.items()}
+    for node, blockers in graph.items():
+        for blocker in blockers:
+            after.setdefault(blocker, set()).add(node)
+            left.setdefault(blocker, set())
+    free = [node for node, blockers in left.items() if not blockers]
+    while free:  # What can be ordered is on no cycle; what is left is on one or waits on one.
+        node = free.pop()
+        for waiter in after.get(node, set()):
+            left[waiter].discard(node)
+            if not left[waiter]:
+                free.append(waiter)
+        del left[node]
+    found, named = [], set()
+    for start in sorted(left):
+        if start in named:
+            continue
+        came, queue = {start: None}, [start]
+        for node in queue:  # Breadth first, the queue growing as it goes: the shortest way from start back to it.
+            if start in after.get(node, set()):
+                path = [node]
+                while came[path[-1]] is not None:
+                    path.append(came[path[-1]])
+                found.append([*reversed(path), start])
+                named.update(path)
+                break
+            for waiter in sorted(after.get(node, set()) & left.keys()):
+                if waiter not in came:
+                    came[waiter] = node
+                    queue.append(waiter)
+    return found
+
+
+def judged(slug):
+    """The board and what its check refuses, as they bear on workstream `slug`: (tickets, problems). Another
+    workstream's file the board refuses is one problem, and the rest of the board is still checked; a file of its own
+    the board refuses exits naming it, as `load` does."""
+    try:
+        tickets = load()
+    except SystemExit as refusal:
+        left_out = set()
+        tickets = load(spared=slug, left_out=left_out)
+        return tickets, [str(refusal.code)] + problems(tickets, left_out=left_out)
+    return tickets, problems(tickets)
 
 
 def spec_of(name):

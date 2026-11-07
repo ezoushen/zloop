@@ -91,8 +91,13 @@ def tracker_url(board):
 
 def ticket_files(issues):
     """The files of a local board that are tickets as the board reads them: a front matter with a `ticket:` key, whose
-    value the board's own check judges."""
-    return [path for path in issues.glob('*.md') if 'ticket' in (front_matter.parse(path.read_text(errors='replace')) or {})]
+    value the board's own check judges, or a file it cannot read, which that check names."""
+    def ticket(path):
+        try:
+            return 'ticket' in (front_matter.parse(path.read_text(errors='replace')) or {})
+        except OSError:
+            return True
+    return [path for path in issues.glob('*.md') if ticket(path)]
 
 
 def board_problem(card, state):

@@ -2804,6 +2804,12 @@ class AutopilotCardHold(GateRepo):
         unreadable.chmod(0)
         self.addCleanup(unreadable.chmod, 0o644)
         self.assertEqual(self.check(session='host-1'), [])
+        # Review (Codex): a ticket of it waiting on one in another workstream's refused file waits on a ticket the board
+        # cannot judge, not on one missing, so leaving that file out makes no problem of its own.
+        ours = issues / '02-task.md'
+        ours.write_text(accepted.replace('run/01', 'run/02').replace('blocked_by: []', 'blocked_by: [other/03]'))
+        self.assertEqual(self.check(session='host-1'), [])
+        ours.unlink()
         # A cycle between this workstream and another is its own.
         ours = issues / '02-task.md'
         ours.write_text(accepted.replace('run/01', 'run/02').replace('blocked_by: []', 'blocked_by: [other/01]'))
@@ -2827,6 +2833,19 @@ class AutopilotCardHold(GateRepo):
         cycle = self.check(session='host-1')
         self.assertEqual(len(cycle), 1)
         self.assertIn('while its workstream is not delivered: ticket dependency cycle: run/02 -> run/02; finish', cycle[0])
+        # Review (Codex): nor does a cycle sharing an edge with this one, as alpha/01 <- beta/01 <- alpha/01 shares
+        # beta/01 <- alpha/01 with alpha/01 <- run/02 <- beta/01 <- alpha/01.
+        beta = self.repo / '.scratch/beta/issues'
+        beta.mkdir(parents=True)
+        for written, name, waits in ((alpha / '01-task.md', 'alpha/01', 'beta/01, run/02'),
+                                     (alpha / '02-task.md', 'alpha/02', ''), (beta / '01-task.md', 'beta/01', 'alpha/01')):
+            written.write_text(f'---\nticket: {name}\nstatus: done\nblocked_by: [{waits}]\ntouches: []\ndevices: []\n'
+                            f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
+        ours.write_text(accepted.replace('run/01', 'run/02').replace('blocked_by: []', 'blocked_by: [beta/01]'))
+        cycle = self.check(session='host-1')
+        self.assertEqual(len(cycle), 1)
+        self.assertRegex(cycle[0], r'ticket dependency cycle: [^;]*run/02')
+        self.assertRegex(cycle[0], r'workstream dependency cycle: [^;]*run')
         ours.unlink()
         ticket.write_text(accepted.replace(f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n", ''))
         self.assertEqual(self.check(session='host-1'), held(
@@ -2860,6 +2879,15 @@ class AutopilotCardHold(GateRepo):
             f"{path}: this session's autopilot run records `terminal: merged` while its workstream is not delivered: "
             "it cannot be checked: no such table: attempts; finish what it names, or record the terminal state that "
             "fits"])
+        # Review (Sonnet): a ticket file of its own that cannot be read is named as the board names it, not raised.
+        unreadable = issues / '02-task.md'
+        unreadable.write_text('---\nticket: run/02\n---\n')
+        unreadable.chmod(0)
+        self.addCleanup(unreadable.chmod, 0o644)
+        self.assertEqual(self.check(session='host-1'), [
+            f"{path}: this session's autopilot run records `terminal: merged` while its workstream is not delivered: "
+            f"it cannot be checked: {unreadable}: cannot be read: [Errno 13] Permission denied: '{unreadable}'; finish "
+            "what it names, or record the terminal state that fits"])
 
     def test_a_live_worker_with_a_running_wait_lets_the_run_yield_but_a_lost_one_does_not(self):
         # Rule: a yield while a worker of the card's workstream holds a running wait that will wake the host is not an end;

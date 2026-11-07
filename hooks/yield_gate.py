@@ -384,8 +384,8 @@ def delivery_gaps(root, path, state):
     try:
         module = script('next_tickets')
         module.ROOT, module.ISSUES = root, root / '.scratch'
-        tickets = module.load(spared=slug)  # load() exits on a ticket of this workstream it refuses.
-        problems = [problem for problem in module.problems(tickets) if module.concerns(problem, slug)]
+        tickets, found = module.judged(slug)  # Exits on a ticket of this workstream it refuses.
+        problems = [problem for problem in found if module.concerns(problem, slug)]
         undone = [f"{name} ({fm.get('status')})" for name, fm in tickets.items()
                   if module.spec_of(name) == slug and fm.get('status') != 'done']
         problems += [f"tickets not done: {', '.join(undone)}"] if undone else []

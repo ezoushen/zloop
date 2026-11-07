@@ -62,9 +62,14 @@ def activity(workstream):
 def tickets(workstream):
     """The workstream's local tickets, in name order, with their front matter as text: a value written as a list is
     shown, never compared as one, so a ticket the check names cannot erase the panel."""
-    found = [(path, {key: value if isinstance(value, str) else str(value)
-                     for key, value in (front_matter.parse(path.read_text(errors='replace')) or {}).items()})
-             for path in sorted((workstream / 'issues').glob('*.md'))]
+    found = []
+    for path in sorted((workstream / 'issues').glob('*.md')):
+        try:
+            text = path.read_text(errors='replace')
+        except OSError:  # The board's check names a ticket file it cannot read.
+            continue
+        found.append((path, {key: value if isinstance(value, str) else str(value)
+                             for key, value in (front_matter.parse(text) or {}).items()}))
     return [(path, fields) for path, fields in found if fields.get('ticket')]  # A note beside them is no ticket.
 
 
@@ -147,12 +152,8 @@ def board_of(repo, slug):
     another workstream that the scheduler refuses is one problem, and this workstream's board is still checked."""
     next_tickets.ROOT, next_tickets.ISSUES = repo, repo / SCRATCH
     try:
-        try:
-            board, refused = next_tickets.load(), []
-        except SystemExit as refusal:
-            board, refused = next_tickets.load(spared=slug), [str(refusal.code)]
-        return board, refused + next_tickets.problems(board)
-    except SystemExit as refusal:  # load() names a ticket of this workstream it refuses.
+        return next_tickets.judged(slug)
+    except SystemExit as refusal:  # It names a ticket of this workstream it refuses.
         return {}, [str(refusal.code)]
     except Exception as error:  # A board it cannot read: say so, and keep the other rows.
         return {}, [f'the board cannot be read: {type(error).__name__}: {error}']
