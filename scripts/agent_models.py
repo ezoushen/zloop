@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import random
+import re
 import sqlite3
 import subprocess
 import time
@@ -414,6 +415,13 @@ def expand_model(name, catalog, runtimes, host, target_runtime=None):
                           'executor_source': (runtime_source + '.executors.' + context if context in executors
                                               else 'built-in')}
     return None, f'No configured route from {host!r} to model runtimes {ordered} in this environment'
+
+
+def no_route(reason, host):
+    """Whether a refusal of `--route` says only that no runtime of the job's configured model is reachable from
+    `host` in this environment: the one refusal under which a review may be local."""
+    return re.fullmatch(rf'Model .+: No configured route from {host!r} to model runtimes \[.*\] in this environment',
+                        reason) is not None
 
 
 def profile_entry(profile, agent, job, job_pool=None):

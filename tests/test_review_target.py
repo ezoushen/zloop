@@ -339,6 +339,8 @@ class ReviewTarget(unittest.TestCase):
         self.assertIn('No configured route', result['route']['reason'])
         binding = json.loads(Path(result['binding']).read_text())
         self.assertEqual(binding['route'], result['route'])
+        # User (2026-11-07): delivery asks the router again for this host before local review counts.
+        self.assertEqual(binding['host'], 'codex')
         config.write_text(json.dumps({'agents': {'reviewer': {'candidates': {
             'first': {'executor': {'type': 'subagent'}}, 'second': {'executor': {'type': 'subagent'}}}}}}))
         selected = self.launch('--workstream', 'fx')

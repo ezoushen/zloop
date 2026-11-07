@@ -189,6 +189,11 @@ const ctx = {{ cwd: {json.dumps(str(self.repo))}, sessionManager: {{ getSessionI
         return f"{self.repo / '.scratch/herdr-launches.jsonl'}: {agent} (pane {pane}): launched without a registered attempt"
 
 
+NO_CODEX_REVIEWER = {'models': {'local': {'description': 'Local reviewer', 'runtimes': {'pi': {'id': 'local/reviewer'}}}},
+                     'runtimes': {'pi': {'executors': {'pi': {'type': 'subagent'}}}},
+                     'agents': {'reviewer': {'model': 'local'}}}
+
+
 class ReviewHold(GateRepo):
     def setUp(self):
         super().setUp()
@@ -313,18 +318,39 @@ class ReviewHold(GateRepo):
                 review_gaps = [gap for gap in gaps if str(self.report) in gap]
                 self.assertEqual(len(review_gaps), 1)
                 review_gap = review_gaps[0]
-                self.assertIn('review_by: local names no collected worker attempt', review_gap)
+                self.assertIn('review_by: local counts only where review_target.py found no reviewer route', review_gap)
                 self.assertIn(self.command, review_gap)
 
-    def test_local_review_releases_only_with_a_recorded_no_route(self):
+    def test_local_review_releases_only_while_the_router_still_finds_no_reviewer_for_its_host(self):
+        # User (2026-11-07, "re-ask the router, but would prefer the same host"): Pi reviewed its own work and wrote the
+        # no_route record by hand while the router routed it a reviewer; a review the orchestrator did itself counts
+        # only while the router, asked again for the host the review started from, still finds none.
+        home = Path(self.tmp.name) / 'home'  # No user routing configuration.
+        home.mkdir()
+        env = {'HOME': str(home)}
         self.review(review_by='local')
-        gaps = self.check(session='host-1')
-        self.assertEqual(len(gaps), 1)
-        self.assertIn('review_by: local names no collected worker attempt', gaps[0])
+        recorded = ('review_by: local counts only where review_target.py found no reviewer route for its host; launch '
+                    'the reviewer it routes and name its attempt in review_by')
         binding = json.loads(self.binding.read_text())
-        binding['route'] = {'status': 'no_route', 'reason': 'no reachable reviewer executor'}
-        self.binding.write_text(json.dumps(binding))
-        self.assertEqual(self.check(session='host-1'), [])
+        for route, host in (({'status': 'resolved'}, 'codex'), ({'status': 'no_route', 'reason': 'inline by order'}, None)):
+            with self.subTest(route=route, host=host):
+                self.binding.write_text(json.dumps(dict(binding, route=route, **({'host': host} if host else {}))))
+                gaps = self.check(session='host-1', env=env)
+                self.assertEqual(len(gaps), 1)
+                self.assertIn(recorded, gaps[0])
+        self.binding.write_text(json.dumps(dict(binding, route={'status': 'no_route', 'reason': 'none then'}, host='codex')))
+        gaps = self.check(session='host-1', env=env)  # The router routes codex's reviewer to a native subagent now.
+        self.assertEqual(len(gaps), 1)
+        self.assertIn('review_by: local, but the router now routes diff-review from codex to a codex native subagent: '
+                      'launch that reviewer and name its attempt in review_by', gaps[0])
+        config = self.repo / '.zloop/executors.json'
+        config.parent.mkdir()
+        config.write_text(json.dumps(NO_CODEX_REVIEWER))
+        self.assertEqual(self.check(session='host-1', env=env), [])
+        config.write_text('{broken')
+        gaps = self.check(session='host-1', env=env)
+        self.assertEqual(len(gaps), 1)
+        self.assertIn('review_by: local cannot be judged, the router failed: ', gaps[0])
 
     def test_a_live_reviewer_with_an_armed_wait_yields_until_its_wait_is_lost(self):
         self.collected()
@@ -1828,6 +1854,36 @@ class DeliveryHold(GateRepo):
         own = self.repo / '.scratch/fix/issues/02-task.md'
         own.write_text('---\nticket: fix/two\nstatus: done\nblocked_by: []\ntouches: []\ndevices: []\n---\n')
         self.assertEqual(self.check(pane='w1:p1'), [f"could not check delivery of fix: {own}: invalid ticket id 'fix/two'"])
+
+    def test_a_local_review_is_delivery_evidence_only_while_the_router_finds_no_reviewer(self):
+        # User (2026-11-07): Pi's maven-cache-split delivery passed on a review report Pi wrote itself, with a hand-written
+        # no_route record, while the router routed a Pi reviewer; --delivery and the stop check now ask the router again.
+        home = Path(self.tmp.name) / 'home'
+        home.mkdir()
+        env = {'HOME': str(home)}
+        self.bind(pane='w1:p1', autofix=True)
+        (self.repo / '.scratch/fix/issues/01-task.md').write_text(  # Accepted, so `--delivery` passes the board's check.
+            '---\nticket: fix/01\nstatus: done\nblocked_by: []\ntouches: [t01]\ndevices: []\n'
+            f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
+        self.review(delivered=True, review_by='local')
+        record = self.report.with_name('review.json')
+        record.write_text(json.dumps({'route': {'status': 'no_route', 'reason': 'inline by order'}, 'host': 'codex'}))
+        routed = ('review_by: local, but the router now routes diff-review from codex to a codex native subagent: launch '
+                  'that reviewer and name its attempt in review_by')
+        gaps = self.check(pane='w1:p1', env=env)
+        self.assertEqual(len(gaps), 1)
+        self.assertIn(routed, gaps[0])
+        delivery = subprocess.run([sys.executable, '-B', str(TICKETS), '--repo', str(self.repo), 'fix', '--delivery'],
+                                  capture_output=True, text=True, env=self.env(None, **env))
+        self.assertEqual(delivery.returncode, 1, delivery.stdout + delivery.stderr)
+        self.assertIn(routed, delivery.stdout + delivery.stderr)
+        config = self.repo / '.zloop/executors.json'
+        config.parent.mkdir()
+        config.write_text(json.dumps(NO_CODEX_REVIEWER))
+        self.assertEqual(self.check(pane='w1:p1', env=env), [])
+        delivery = subprocess.run([sys.executable, '-B', str(TICKETS), '--repo', str(self.repo), 'fix', '--delivery'],
+                                  capture_output=True, text=True, env=self.env(None, **env))
+        self.assertEqual(delivery.returncode, 0, delivery.stdout + delivery.stderr)
 
     def test_a_recorded_blocker_lets_the_orchestrator_stop(self):
         # Rules 1 and 4: `blocker: <reason>` in the review report records why delivery cannot progress, and with it the

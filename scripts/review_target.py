@@ -12,6 +12,7 @@ import subprocess
 import sys
 from urllib.parse import urlsplit
 
+import agent_models
 import state_files
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -173,8 +174,7 @@ def start(args):
     routed = subprocess.run(route_argv, cwd=repo, text=True, capture_output=True, timeout=30)
     if routed.returncode:
         reason = routed.stderr.strip() or routed.stdout.strip() or f'agent_models.py exited {routed.returncode}'
-        if routed.returncode != 2 or not re.fullmatch(
-                rf'Model .+: No configured route from {args.host!r} to model runtimes \[.*\] in this environment', reason):
+        if routed.returncode != 2 or not agent_models.no_route(reason, args.host):
             raise ValueError(reason)
         route = {'status': 'no_route', 'reason': reason}
     else:
@@ -221,8 +221,8 @@ def start(args):
             content = front + '\n---\n' + body
         if not report.is_file() or not previous or previous['resolution'] != resolved:
             state_files.write_atomic(report, content)
-        binding = dict(pane=pane, sessions=sessions, report=str(report), state=str(state),
-                       repo=str(main), target=args.target, resolution=resolved, route=route, next_commands=commands)
+        binding = dict(pane=pane, sessions=sessions, report=str(report), state=str(state), repo=str(main),
+                       target=args.target, resolution=resolved, host=args.host, route=route, next_commands=commands)
         state_files.write_atomic(binding_path, json.dumps(binding, indent=2) + '\n')
         if 'result' in route:
             state_files.write_atomic(directory / 'execution.json', json.dumps(route['result'], indent=2) + '\n')

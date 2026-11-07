@@ -48,6 +48,8 @@ ROOT = Path.cwd()
 ISSUES = ROOT / ".scratch"
 LIVE = {"implementing", "reviewing", "fixing", "verifying"}
 TEMPLATE = Path(__file__).resolve().parents[1] / "skills" / "refine" / "ticket-template.md"
+ROUTER = Path(__file__).resolve().with_name("agent_models.py")
+ROUTE_TIMEOUT = 10  # seconds the router may take when a local review is judged, inside the hosts' 20 s stop hook
 PR_URL = re.compile(r"https://[^/\s]+/[^/\s]+/[^/\s]+/pull/[0-9]+")  # A pull request, by its own address.
 RUN_URL = re.compile(r"https://([^/\s]+/[^/\s]+/[^/\s]+)/actions/runs/([0-9]+)")  # A CI run, by its own address.
 TERMINAL = {"done"}
@@ -343,12 +345,10 @@ VERDICTS = {"review_by": {"review_status": "clean", "documentation_status": "pas
             "e2e_by": {"e2e_status": "passed", "e2e_head": None}}
 
 
-def review_by_problems(fm, attempts, route=None):
-    """Why review_by lacks completed collected diff-review attempts at review_head, or allowed local review.
-
-    Local review requires a recorded no_route result with its reason."""
-    if fm.get('review_by') == 'local' and (route or {}).get('status') == 'no_route' and route.get('reason'):
-        return []
+def review_by_problems(fm, attempts, binding=None):
+    """Why review_by lacks completed collected diff-review attempts at review_head, or allowed local review."""
+    if fm.get('review_by') == 'local':
+        return local_review_problems(binding or {})
     collected = {saved['attempt']: saved for saved in attempts if saved.get('result')}
     names = fm.get('review_by') or 'missing'
     problems = []
@@ -365,6 +365,35 @@ def review_by_problems(fm, attempts, route=None):
     return problems
 
 
+def local_review_problems(binding):
+    """Why a review the orchestrator did itself does not count. It counts only where `review_target.py` found no
+    reviewer route for its host and the router, asked again now, still finds none: a reviewer it routes, on the same
+    host where it can, is the one to launch."""
+    host = binding.get('host')
+    if (binding.get('route') or {}).get('status') != 'no_route' or host not in worker_lifecycle.TOP_LEVEL:
+        return ['review_by: local counts only where review_target.py found no reviewer route for its host; launch the '
+                'reviewer it routes and name its attempt in review_by']
+    python = ROUTER.parents[1] / '.venv' / 'bin' / 'python'  # The router validates its configuration with jsonschema.
+    try:
+        routed = subprocess.run([str(python) if python.is_file() else sys.executable, str(ROUTER), '--repo', str(ROOT),
+                                 '--host', host, '--route', '--job', 'diff-review'],
+                                capture_output=True, text=True, timeout=ROUTE_TIMEOUT)
+        found = json.loads(routed.stdout) if routed.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        return [f'review_by: local cannot be judged, the router failed: {error}']
+    if found is not None:
+        where = (f'a {host} native subagent' if found.get('native_dispatch') else
+                 f"{found.get('target_runtime', 'its runtime')} ({(found.get('settings') or {}).get('model', 'its model')}) "
+                 f"through {found.get('executor')}")
+        return [f'review_by: local, but the router now routes diff-review from {host} to {where}: launch that reviewer '
+                'and name its attempt in review_by']
+    reason = (routed.stderr or routed.stdout).strip()
+    import agent_models  # Only here: the router's own reading of its refusal.
+    if routed.returncode == 2 and agent_models.no_route(reason, host):
+        return []
+    return [f"review_by: local cannot be judged, the router failed: {reason or f'exit {routed.returncode}'}"]
+
+
 def verdict_problems(slug, key, fm):
     """Each status the review report records must be the one every named worker attempt returned, as collected,
     with its report still saying so; e2e_by may name run_check logs of checks the orchestrator ran instead."""
@@ -372,7 +401,7 @@ def verdict_problems(slug, key, fm):
     if key == 'review_by':
         binding_path = ISSUES / slug / 'reports' / 'review.json'
         binding = json.loads(binding_path.read_text()) if binding_path.is_file() else {}
-        problems = review_by_problems(fm, saved_attempts, binding.get('route'))
+        problems = review_by_problems(fm, saved_attempts, binding)
         if problems or fm.get('review_by') == 'local':
             return problems
     attempts = {saved["attempt"]: saved for saved in saved_attempts if saved.get("result")}

@@ -50,6 +50,7 @@ Pass the target, `--base`, `--autofix`, `--comments`, `--effort <level>` and an 
 The script records the [level](levels.md), writes the
 [report](report.md) and returns its state, reviewer route and next commands.
 A configured reviewer owns the assessment; the host coordinates it and preserves the user's decisions.
+The host reviews itself (`review_by: local`) only where the route found no reviewer: delivery asks the router again.
 Review one target per procedure execution.
 No implementation worker may still write the target.
 Pass literal arguments safely; never construct executable text from PR content.

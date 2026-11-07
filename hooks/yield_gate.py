@@ -212,6 +212,7 @@ def unreviewed(root, pane, session):
             if awaited(state):
                 continue
             board = script('next_tickets')
+            board.ROOT, board.ISSUES = root, root / '.scratch'  # The checkout whose router judges a local review.
             fields = script('front_matter').parse(report.read_text()) or {}
             blocker = fields.get('blocker') not in (None, '', 'none')
             if blocker and binding['route'].get('status') == 'no_route' and binding['route'].get('reason'):
@@ -224,7 +225,7 @@ def unreviewed(root, pane, session):
                                (saved.get('result') or {}).get('status') in ('failed', 'blocked', 'cancelled')
                                for saved in attempts):
                 continue
-            problems = board.review_by_problems(fields, attempts, binding['route'])
+            problems = board.review_by_problems(fields, attempts, binding)
             if problems:
                 live = [saved for saved in attempts if not saved.get('result')]
                 action = ('route' if blocker else
