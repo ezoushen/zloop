@@ -137,7 +137,7 @@ class Outcomes(WorkerLifecycleCase):
                   'claude/opus': {'attempts': 2, 'review_defects': 3, 'repair_rounds': 1}}
         self.assertEqual(result['census'], census)
         saved = self.cli('status', '--attempt', 'ticket-1/repair-3')['attempts'][0]
-        self.assertEqual((saved['premise'], saved['census']), (premise, census))
+        self.assertEqual(premise, saved['premise'])
 
     def test_collection_keeps_the_verdict_fields_a_report_gives_unquoted_and_nothing_else(self):
         # Rule: a report's own review and E2E fields reach the collected result without their quotes or backticks;

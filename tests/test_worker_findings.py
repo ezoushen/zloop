@@ -32,12 +32,15 @@ class RepairFindings(WorkerLifecycleCase):
         # a register event that supplies them would fake totals, or a closure Herdr never confirmed.
         for supplied in ({'findings': ['P05-001']}, {'result': {'status': 'blocked', 'findings': {'P05-001': 'open'}}},
                          {'closed': {'evidence': ['forged']}}, {'retained': {'next_use': 'later', 'reason': 'kept'}},
-                         {'accepted': {'commit': 'c1'}}, {'orchestrator': 'w9:p9', 'sessions': ['host-9']}):
+                         {'accepted': {'commit': 'c1'}}, {'orchestrator': 'w9:p9', 'sessions': ['host-9']},
+                         {'census': {}}, {'bogus': 1}):
             with self.subTest(supplied=sorted(supplied)):
                 self.assertEqual(self.register('autofix/2', 'autofix', session='native-autofix-2',
                                                worker='pane-autofix-2', code=2, **supplied).strip(),
-                                 f'Registration takes no {", ".join(sorted(supplied))}: the lifecycle records them '
-                                 'itself, findings from the packet and the rest as the attempt goes on')
+                                 f'Registration takes no {", ".join(sorted(supplied))}: it takes only '
+                                 'assignment, attempt, execution, head, herdr, journal, kind, native, native_session, '
+                                 'owned, packet, premise, repairs, repo, runtime, worker, worktree; the lifecycle '
+                                 'records the rest itself, findings from the packet')
         self.cli('plan', '--job', 'repair', '--finding', 'P01-001', '--finding', 'P01-002', '--finding', 'P05-001')
         refused = self.repair('r1/1', "the CONFIRMED candidates in the listed audit report(s) (IDs and proposed "
                               "minimal repairs are in each report's Findings section)", code=2)

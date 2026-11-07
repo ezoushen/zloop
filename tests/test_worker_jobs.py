@@ -78,13 +78,6 @@ class Jobs(WorkerLifecycleCase):
         self.completed('review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
         self.assertTrue(self.cli('gate', '--attempt', 'review-1/1', '--stage', 'accept', '--revision', head)['complete'])
 
-    def forget_untracked(self, attempt):
-        """Make a registration read as one made before the snapshot listed untracked files."""
-        with sqlite3.connect(self.state) as db:
-            data = json.loads(db.execute('SELECT data FROM attempts WHERE id = ?', (attempt,)).fetchone()[0])
-            del data['worktree_baseline']['untracked']
-            db.execute('UPDATE attempts SET data = ? WHERE id = ?', (json.dumps(data), attempt))
-
     def fake_git(self, vanish=None, extra=None, probe_lock=False):
         """A `git` ahead of the real one for the CLI: it logs each call, and after `ls-files --others` deletes
         `vanish` (a file gone between its listing and its hashing) and adds the raw name `extra` to the listing.
@@ -375,31 +368,6 @@ sys.exit(process.returncode)
                       'at registration; read-only work cannot be verified); record the result with its gap', error)
         self.assertNotIn('restore it', error)
 
-    def test_a_registration_without_untracked_files_does_not_count_a_new_untracked_file(self):
-        head = self.checkout()
-        report = self.review(head)
-        self.forget_untracked('review-1/1')
-        (self.worktree / 'notes.txt').write_text('scratch\n')
-        self.cli('collect', '--attempt', 'review-1/1', '--input', self.collect_request(head, report))
-        self.assertTrue(self.cli('gate', '--attempt', 'review-1/1', '--stage', 'accept', '--revision', head)['complete'])
-
-    def test_a_registration_without_untracked_files_still_catches_head_and_tracked_changes_and_says_so(self):
-        head = self.checkout()
-        for number, change in enumerate(('commit', 'edit'), 1):
-            with self.subTest(change=change):
-                attempt = f'review-{number}/1'
-                report = self.review(head, attempt, f'native-{number}')
-                self.forget_untracked(attempt)
-                (self.worktree / 'code.py').write_text('x = 2\n')
-                if change == 'commit':
-                    self.git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qam', 'reviewer edit')
-                reason = (f'HEAD moved from {head} to {self.git("rev-parse", "HEAD")}' if change == 'commit'
-                          else 'tracked files differ from their state at registration')
-                error = self.cli('collect', '--attempt', attempt, '--input', self.collect_request(head, report, attempt), code=2)
-                self.assertIn('Collection requires an unchanged worktree for a read-only agent '
-                              f'({reason}; untracked files were not recorded at registration)', error)
-                self.git('reset', '-q', '--hard', head)
-
     @unittest.skipIf(os.geteuid() == 0, 'root reads any file')
     def test_an_untracked_file_the_agent_cannot_read_is_held_to_a_stable_marker(self):
         head = self.checkout()
@@ -673,37 +641,6 @@ sys.exit(process.returncode)
         self.assertEqual(process.returncode, 2, process.stdout)
         self.assertIn('Collection requires an unchanged worktree for a read-only agent (submodule a/checkout is not '
                       'the checkout it was at registration); record the result with its gap', process.stderr)
-
-    @unittest.skipIf(os.geteuid() == 0, 'root reads any directory')
-    def test_a_registration_from_before_nested_checkouts_were_recorded_is_compared_as_it_was_recorded(self):
-        head = self.checkout()
-        self.lock(self.worktree / 'locked')
-        subprocess.run(['git', 'init', '-q', str(self.worktree / 'nested')], check=True)
-        for number, added in enumerate((None, 'notes.txt', 'locked nested'), 1):
-            with self.subTest(added=added):
-                attempt = f'review-{number}/1'
-                report = self.review(head, attempt, f'native-{number}')
-                # Then: no submodules, no record of a directory Git could not open, a nested repository as a marker.
-                with sqlite3.connect(self.state) as db:
-                    data = json.loads(db.execute('SELECT data FROM attempts WHERE id = ?', (attempt,)).fetchone()[0])
-                    baseline = data['worktree_baseline']
-                    del baseline['submodules'], baseline['untracked']['locked/']
-                    baseline['untracked']['nested/'] = 'unreadable:EISDIR'
-                    db.execute('UPDATE attempts SET data = ? WHERE id = ?', (json.dumps(data), attempt))
-                if added == 'notes.txt':
-                    (self.worktree / added).write_text('scratch\n')
-                elif added:
-                    # Git cannot open it now, so it leaves the listing, as it did for the older code.
-                    (self.worktree / 'nested').chmod(0)
-                    self.addCleanup((self.worktree / 'nested').chmod, 0o700)
-                request = self.collect_request(head, report, attempt)
-                if not added:
-                    self.cli('collect', '--attempt', attempt, '--input', request)
-                    continue
-                error = self.cli('collect', '--attempt', attempt, '--input', request, code=2)
-                reason = {'notes.txt': 'an untracked file appeared: notes.txt); restore it and collect again',
-                          'locked nested': 'an untracked file was deleted: nested/); record the result with its gap'}
-                self.assertIn(f'Collection requires an unchanged worktree for a read-only agent ({reason[added]}', error)
 
     @unittest.skipIf(os.geteuid() == 0, 'root reads any directory')
     def test_a_checkout_whose_top_cannot_be_listed_is_named_partly_checked_and_held_to_its_status(self):

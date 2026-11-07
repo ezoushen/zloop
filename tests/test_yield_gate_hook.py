@@ -2201,6 +2201,7 @@ class StaleTabs(HerdrWorkers):
         self.register(attempt=attempt, worker=worker, native_session=session, assignment=assignment)
         self.collect(attempt)
         self.acknowledge()
+        self.serve(tabs={'default': []})  # Herdr shows its tab gone, as every closure of a Herdr worker needs.
         self.lifecycle('closed', attempt, evidence=['herdr agent get tautrep17 and pane get w2W:pB8 both not found'])
 
     @staticmethod
@@ -2300,7 +2301,9 @@ class StaleTabs(HerdrWorkers):
             subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'ack', '--state', str(self.state), '--event-id',
                             str(receipt['id'])], check=True, capture_output=True, env=self.env())
         self.assertEqual(self.check(pane='w1:p1'), [self.gap()])
+        self.serve(tabs={'default': []})  # The closure is recorded once Herdr reports the tab gone.
         self.lifecycle('closed', evidence=['retirement proof: pane_not_found, tab_not_found'])
+        self.serve(tabs={'default': [self.tab]})  # The same ID listed again, as after a restart.
         self.assertEqual(self.check(pane='w1:p1'), [])
         self.serve(fail='connection refused')
         self.assertEqual(self.check(pane='w1:p1'), [])

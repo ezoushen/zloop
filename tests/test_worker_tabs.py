@@ -270,16 +270,14 @@ class HerdrTabs(WorkerLifecycleCase):
         self.herdr_fixture()
         self.register(worker='builder-1', herdr={'session': 'fixture-session'})
         request = self.collected()
-        for answer, panes in (('"pane_count": 1', 1), ('"code": "server_unavailable"', None)):
+        for answer, panes in (('tab get tab-1: listed', 1), ('tab get tab-1: server_unavailable', None)):
             with self.subTest(answer=answer):
                 self.herdr_fixture(tab_survives=True, tab_panes=panes)
                 error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
-                self.assertIn('Tab tab-1 is not confirmed closed after its worker pane closed', error)
+                self.assertIn('Native closure is not confirmed', error)
                 self.assertIn(answer, error)
                 self.assertIn('close the remaining panes or the tab, then retire again', error)
-                attempt = self.cli('status')['attempts'][0]
-                self.assertNotIn('closed', attempt)
-                self.assertIn('reconcile native retirement', attempt['attention'])
+                self.assertNotIn('closed', self.cli('status')['attempts'][0])
         self.herdr_fixture()
         self.assertTrue(self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request))['closed'])
         self.assertIn('closed', self.cli('status')['attempts'][0])
@@ -293,7 +291,7 @@ class HerdrTabs(WorkerLifecycleCase):
         request = self.collected()
         self.herdr_fixture(agent_tab='tab-2', tab_survives=True)
         error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
-        self.assertIn('Tab tab-1 is not confirmed closed after its worker pane closed', error)
+        self.assertIn('Native closure is not confirmed (herdr --session fixture-session tab get tab-1: listed)', error)
         self.herdr_fixture(agent_tab='tab-2')
         self.assertTrue(self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request))['closed'])
 
@@ -306,17 +304,17 @@ class HerdrTabs(WorkerLifecycleCase):
         self.assertTrue(self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request))['closed'])
         self.assertIn('closed', self.cli('status')['attempts'][0])
 
-    def test_a_resumed_retirement_with_no_recorded_tab_finishes_on_the_pane_rule_alone(self):
-        # Rule: a retirement of such an attempt that was interrupted after the pane closed finishes on
-        # pane_not_found alone when it resumes.
+    def test_a_resumed_retirement_with_no_recorded_placement_is_recorded_by_hand(self):
+        # Rule: Herdr's absence of a pane the attempt never recorded does not end its worker for retire, which names the
+        # hand record; with no placement recorded, that record asks Herdr nothing.
         self.register()
         request = self.collected()
         self.herdr_fixture(verify_error='server_unavailable', tab_survives=True)
         self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
-        self.assertNotIn('closed', self.cli('status')['attempts'][0])
         self.herdr_fixture(tab_survives=True)
-        self.assertTrue(self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request))['closed'])
-        self.assertEqual((self.root / 'native-closed').read_text(), 'closed\n')
+        error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+        self.assertIn("is not this attempt's recorded Herdr pane", error)
+        self.assertIn('closure with `record`', error)
 
 
 class TabRecipe(unittest.TestCase):

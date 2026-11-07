@@ -76,13 +76,14 @@ def packet_reply(path, runtime, session, attempt, *, parents=None):
 
 
 def observe(path, runtime, session, worktree):
-    """Return observed controls and the source prefix identity; unknown controls stay absent."""
+    """Return observed controls and the source prefix identity; unknown controls stay absent. A `worktree` holds the
+    record's directory to it; None (a native child's record names its orchestrator's directory, which moves) checks
+    none."""
     path = Path(path)
     if not path.is_absolute():
         raise ValueError('Native evidence path must be absolute')
     if runtime == 'opencode':
-        raw = path.read_bytes()
-        exported = json.loads(raw)
+        exported = json.loads(path.read_bytes())
         if not isinstance(exported, dict) or not isinstance(exported.get('info'), dict):
             raise ValueError('Unsupported native export schema')
         info, messages = exported['info'], exported.get('messages')
@@ -118,25 +119,23 @@ def observe(path, runtime, session, worktree):
                and part.get('state', {}).get('status') == 'error'
                for item in turn if item['role'] == 'assistant' for part in item['parts']):
             raise ValueError('OpenCode startup has a failed tool call; inspect it before work')
-        if not isinstance(directory, str) or Path(directory).resolve() != Path(worktree).resolve():
+        if worktree and (not isinstance(directory, str) or Path(directory).resolve() != Path(worktree).resolve()):
             raise ValueError('Native evidence worktree does not match the assignment')
         provider, model = latest['provider'], latest['model']
         settings = {'runtime': runtime, 'model': provider + '/' + model if provider and model else None,
                     'effort': latest['variant'], 'permissions': info.get('permissions')}
         settings = {key: value for key, value in settings.items()
                     if isinstance(value, str) and value.strip() or isinstance(value, list) and value}
-        return {'observed': settings, 'session': session, 'worktree': str(Path(worktree).resolve()),
-                'source': str(path), 'source_bytes': len(raw), 'source_sha256': hashlib.sha256(raw).hexdigest()}
+        return {'observed': settings, 'session': session, 'worktree': worktree and str(Path(worktree).resolve()),
+                'source': str(path)}
     if runtime not in ('claude', 'codex', 'pi'):
         raise ValueError('Unsupported native evidence runtime')
-    digest, size, latest, header, mode = hashlib.sha256(), 0, None, None, None
+    latest, header, mode = None, None, None
     entries = {}
     with path.open('rb') as stream:
         for line in stream:
             if not line.endswith(b'\n'):
                 raise ValueError('Native evidence has an incomplete record; retry observation before work')
-            digest.update(line)
-            size += len(line)
             row = json.loads(line)
             if not isinstance(row, dict):
                 raise ValueError('Native evidence record must be an object')
@@ -207,14 +206,15 @@ def observe(path, runtime, session, worktree):
         identity = latest.get('agentId')
     if latest is None or session not in (identity, (header or {}).get('agent_path')):
         raise ValueError('Native evidence does not belong to the registered session')
-    if not isinstance(latest.get('cwd'), str):
-        raise ValueError('Native evidence worktree does not match the assignment')
-    problem = outside(latest['cwd'], worktree, runtime)
-    if problem:
-        raise ValueError(problem)
-    if header and (not isinstance(header.get('cwd'), str)
-                   or Path(header['cwd']).resolve() != Path(worktree).resolve()):
-        raise ValueError('Native evidence session worktree does not match the assignment')
+    if worktree:
+        if not isinstance(latest.get('cwd'), str):
+            raise ValueError('Native evidence worktree does not match the assignment')
+        problem = outside(latest['cwd'], worktree, runtime)
+        if problem:
+            raise ValueError(problem)
+        if header and (not isinstance(header.get('cwd'), str)
+                       or Path(header['cwd']).resolve() != Path(worktree).resolve()):
+            raise ValueError('Native evidence session worktree does not match the assignment')
     effort = latest.get('perTurnEffort') if runtime == 'claude' else None
     if effort is None:
         effort = latest.get('effort')
@@ -237,8 +237,8 @@ def observe(path, runtime, session, worktree):
         settings['tools'] = latest.get('tools')
     settings = {key: value for key, value in settings.items()
                 if isinstance(value, str) and value.strip() or isinstance(value, list) and value}
-    return {'observed': settings, 'session': session, 'worktree': str(Path(worktree).resolve()),
-            'source': str(path), 'source_bytes': size, 'source_sha256': digest.hexdigest()}
+    return {'observed': settings, 'session': session, 'worktree': worktree and str(Path(worktree).resolve()),
+            'source': str(path)}
 
 
 def outside(cwd, worktree, runtime):
@@ -290,19 +290,6 @@ def working_directory(path, runtime, session):
         raise ValueError(f'Native evidence does not belong to the registered session {session}: the record '
                          + (f'is session {named}' if named else 'names no session'))
     return cwd if isinstance(cwd, str) and cwd.strip() else None
-
-
-def pi_session_id(path):
-    """The session id a Pi session record's header names."""
-    path = Path(path)
-    if not path.is_absolute() or not path.is_file():
-        raise ValueError('native must be the absolute path of the child\'s session record')
-    with path.open('rb') as stream:
-        for line in stream:
-            row = json.loads(line)
-            if isinstance(row, dict) and row.get('type') == 'session' and isinstance(row.get('id'), str):
-                return row['id']
-    raise ValueError(f'{path} has no session header')
 
 
 def session_id(path, runtime):

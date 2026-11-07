@@ -19,6 +19,7 @@ import decisions
 
 
 SCRIPT = support.script('worker_lifecycle.py')
+UNSET = object()  # A fixture argument left to its default.
 
 
 class WorkerLifecycleCase(unittest.TestCase):
@@ -180,18 +181,21 @@ class WorkerLifecycleCase(unittest.TestCase):
     def herdr_fixture(self, native_session='native-1', verify_error='pane_not_found', caller=None, tab_panes=1,
                       caller_tab='caller-tab', tab_survives=False, agent_tab='tab-1',
                       agent_delay=0, tab_delay=0, during_delay=None, lock_probe=None,
-                      agent_kind='claude', session_kind='id', tab_gone_error='tab_not_found', pane_session=None,
+                      agent_kind='claude', session_kind='id', tab_gone_error='tab_not_found', pane_session=UNSET,
                       agent_name='builder-1', agent_exited=False, servers=('fixture-session',), empty_panes=(),
-                      close_failures=0, pane_delay=0):
-        # during_delay: an argv the fixture runs while a delayed call waits, recording its exit code in
+                      close_failures=0, pane_delay=0, agent_status='idle'):
+        # during_delay: an argv the fixture runs once, while the first delayed call waits, recording its exit code in
         # during-delay.json, so a test can act inside that wait without racing its own thread against it.
         # lock_probe: a state database the fixture tries to write-lock, in its own process and without waiting,
         # while a delayed call waits, recording whether it could; it needs no new interpreter, so load cannot delay it.
-        # pane_session: the conversation Herdr reports in pane-1 (None: no agent there); agent_name: the name Herdr
+        # pane_session: the conversation Herdr reports in pane-1 (None: no agent there; by default the worker's own
+        # native_session, unless agent_exited); agent_status: its status; agent_name: the name Herdr
         # reports for the agent in pane-1, which follows its occupant; agent_exited: pane-1 holds no agent (its
         # worker exited and left the pane), so `agent get` finds none; servers: the Herdr servers that answer, each
         # alike (the first is the worker's); empty_panes: other panes Herdr lists, each holding no agent;
         # close_failures: how many `pane close` calls fail before one succeeds; pane_delay: seconds `pane get` waits.
+        if pane_session is UNSET:
+            pane_session = None if agent_exited else native_session
         directory = self.root / 'bin'
         directory.mkdir(exist_ok=True)
         executable = directory / 'herdr'
@@ -216,7 +220,7 @@ for command,delay in ((['agent','get'],{agent_delay!r}),(['tab','get'],{tab_dela
             except sqlite3.OperationalError as error:
                 code,output=1,str(error)
             Path({str(self.root / 'during-delay.json')!r}).write_text(json.dumps({{'code':code,'output':output}}))
-        if {during_delay!r}:
+        if {during_delay!r} and not Path({str(self.root / 'during-delay.json')!r}).exists():
             import subprocess
             done=subprocess.run({during_delay!r},capture_output=True,text=True)
             Path({str(self.root / 'during-delay.json')!r}).write_text(json.dumps({{'code':done.returncode,'output':done.stdout+done.stderr}}))
@@ -249,7 +253,7 @@ elif args[2:4]==['pane','get'] and args[4:5] and args[4] in {list(empty_panes)!r
 elif args[2:]==['pane','get','pane-1']:
     if marker.exists():
         print(json.dumps({{'error':{{'code':{verify_error!r}}}}}),file=sys.stderr);sys.exit(1)
-    occupant={{'agent':{agent_kind!r},'agent_session':{{'kind':{session_kind!r},'value':{pane_session!r}}}}}
+    occupant={{'agent':{agent_kind!r},'agent_status':{agent_status!r},'agent_session':{{'kind':{session_kind!r},'value':{pane_session!r}}}}}
     print(json.dumps({{'result':{{'pane':{{'pane_id':'pane-1','tab_id':{agent_tab!r},
         **(occupant if {pane_session is not None!r} else {{}})}}}}}}))
 else: sys.exit(3)

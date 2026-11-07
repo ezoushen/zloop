@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 
 from lifecycle_case import WorkerLifecycleCase
@@ -110,6 +111,21 @@ class NativeProof(WorkerLifecycleCase):
         path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
         self.cli('collect', '--attempt', attempt, '--input', request)
         self.assertEqual(self.cli('status', '--attempt', attempt)['attempts'][0]['result']['status'], 'completed')
+
+    def test_a_claude_native_child_collects_after_its_orchestrator_changed_directory(self):
+        # Live (simplify/06, 2026-11-07): a Claude subagent's transcript records its orchestrator's directory, not the
+        # worker's, so after a resume the orchestrator stood elsewhere and collection was refused for a worktree the
+        # record never claimed. The record's directory is not a check of the worker.
+        self.register()
+        self.ready()
+        record = self.native_paths['ticket-1/1']
+        elsewhere = Path(tempfile.mkdtemp(prefix='zloop moved '))
+        self.addCleanup(elsewhere.rmdir)
+        record.write_text(record.read_text().replace(json.dumps(str(self.root)), json.dumps(str(elsewhere))))
+        report = self.root / 'report.md'
+        report.write_text('Completed assignment at head-1\n')
+        self.completed(status='completed', head='head-1', report=str(report), evidence=['checks.log@head-1'])
+        self.assertEqual('completed', self.cli('status')['attempts'][0]['result']['status'])
 
     def test_registration_refuses_every_registering_host_session_as_a_worker(self):
         for runtime in ('claude', 'codex', 'pi', 'opencode'):

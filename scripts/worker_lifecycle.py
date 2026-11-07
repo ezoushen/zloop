@@ -205,12 +205,10 @@ def assigned_findings(db, assignment, value):
     return named
 
 
-# What the lifecycle records on an attempt itself, from its packet, its host and its later events: never a register
-# event's to supply.
-RECORDED = {'findings', 'result', 'closed', 'retained', 'accepted', 'declined', 'acceptance_deferred', 'submitted',
-            'submission_requested', 'monitor', 'startup_evidence', 'observed', 'observed_cwd', 'verified',
-            'retirement_requested', 'checkout_baselines', 'worktree_baseline', 'orchestrator', 'sessions',
-            'launch_sessions', 'decision', 'needs', 'ticket', 'requested', 'agent', 'job', 'execution_snapshot'}
+# The fields of a register event, in its own order: every other field of an attempt the lifecycle records itself, from
+# its packet, its host and its later events.
+REGISTERED = ('assignment', 'attempt', 'execution', 'head', 'herdr', 'journal', 'kind', 'native', 'native_session',
+              'owned', 'packet', 'premise', 'repairs', 'repo', 'runtime', 'worker', 'worktree')
 SETTLED = ('repaired', 'open', 'runtime-bug')  # What a repair attempt's result says of each finding it holds.
 
 
@@ -586,8 +584,6 @@ def unsettled(saved):
 def return_check(saved, report, now):
     """What a completed result owes its job and agent: the job's report sections, and an untouched
     worktree for an agent that writes nothing (`now` is its observed_state)."""
-    if saved.get('job') not in DEFINITIONS['jobs']:
-        return [], None  # Registered before agents and jobs existed.
     lines, fenced = [], None
     for line in report.read_text(errors='replace').splitlines():
         fence = re.match(r' {0,3}(`{3,}|~{3,})(.*)$', line)
@@ -644,14 +640,10 @@ def checkout_change(baseline, now):
         return None
     if now is None:
         return 'worktree state unreadable at collection', False
-    # A registration from before untracked files were recorded is held to HEAD and tracked changes only.
-    legacy = 'untracked' not in baseline
-    note = '; untracked files were not recorded at registration' if legacy else ''
     if now['head'] != baseline['head']:
-        return f'HEAD moved from {baseline["head"]} to {now["head"]}{note}', True
+        return f'HEAD moved from {baseline["head"]} to {now["head"]}', True
     # A submodule is compared before the tracked changes its own changes also show in, so the reason names it.
-    for link in sorted(set(baseline.get('submodules', {})) | set(now['submodules'])
-                       if 'submodules' in baseline else ()):
+    for link in sorted(set(baseline['submodules']) | set(now['submodules'])):
         old, new = baseline['submodules'].get(link), now['submodules'].get(link)
         if old == new:
             continue
@@ -659,15 +651,8 @@ def checkout_change(baseline, now):
         return ((f'in submodule {link}: {found[0]}', found[1]) if found
                 else (f'submodule {link} is not the checkout it was at registration', False))
     if now['changes'] != baseline['changes']:
-        return f'tracked files differ from their state at registration{note}', True
-    if legacy:
-        return None
+        return 'tracked files differ from their state at registration', True
     before, after = baseline['untracked'], now['untracked']
-    if 'submodules' not in baseline:
-        # Recorded before nested checkouts and directories Git cannot open were: a nested checkout was a marker and
-        # such a directory was left out, so they are compared that way.
-        after = {name: 'unreadable:EISDIR' if is_checkout(entry) else entry for name, entry in after.items()
-                 if not isinstance(entry, dict) or is_checkout(entry)}
     if appeared := sorted(set(after) - set(before)):
         return f'an untracked file appeared: {appeared[0]}', True
     if deleted := sorted(set(before) - set(after)):
@@ -845,16 +830,11 @@ def unmet_needs(saved, evidence):
 
     The worker's own probe is a JSON file named in the result evidence; the orchestrator's environment says
     nothing about a sandboxed worker's."""
-    packet = Path(saved.get('packet') or '')
     job = DEFINITIONS['jobs'][saved['job']]
     if 'ticket' not in job['inputs']:
         return None
-    # The needs and ticket registration validated, whatever the assignment file says now; an attempt registered
-    # before they were saved falls back to the file.
-    declared, ticket = set(saved.get('needs') or []), saved.get('ticket')
-    if ticket is None and packet.is_file():
-        ticket = agent_defs.input_value(job, packet.read_text(errors='replace'), 'ticket')
-    declared |= set(capability_probe.ticket_needs(ticket))
+    # The needs and ticket registration validated, whatever the assignment file says now.
+    declared = set(saved.get('needs') or []) | set(capability_probe.ticket_needs(saved.get('ticket')))
     known = [need for need in capability_probe.NEEDS if need in declared]
     needs = known + sorted(declared - set(known))  # An unknown need is never met.
     reports = []
@@ -871,7 +851,7 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
     require(text(attempt), 'Event requires attempt')
     # A read-only worktree is read before the write lock is taken; the result check and any refusal use that one read.
     now = observed_state(get(db, attempt)) if kind == 'result' and data.get('status') == 'completed' else None
-    located = elsewhere = observation = None
+    located = elsewhere = observation = weighed = None
     if kind == 'startup':
         require('observed' not in data and 'evidence' not in data,
                 'record startup takes native: the absolute worker session record, not observed or evidence')
@@ -883,8 +863,7 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
             if target['runtime'] != 'opencode':
                 located = native_settings.working_directory(data['native'], target['runtime'], target['native_session'])
             observation = native_settings.observe(data['native'], target['runtime'], target['native_session'],
-                located if not submitting and target['execution_snapshot'].get('native_dispatch') and located
-                else target['worktree'])
+                None if not submitting and target['execution_snapshot'].get('native_dispatch') else target['worktree'])
         except (OSError, ValueError) as error:
             raise ValueError(f'{error}; record startup with native: the session record of registered worker '
                              f'{target["native_session"]} (OpenCode: opencode session export)') from None
@@ -905,8 +884,7 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
                 f'Completion requires the startup session record; set native: {native}')
         try:
             native_settings.observe(data['native'], target['runtime'], target['native_session'],
-                target.get('observed_cwd', target['worktree']) if target['execution_snapshot'].get('native_dispatch')
-                else target['worktree'])
+                None if target['execution_snapshot'].get('native_dispatch') else target['worktree'])
         except (OSError, ValueError) as error:
             raise ValueError(f'{error}; collect with native: {native}, the registered worker session record '
                              '(OpenCode: a fresh opencode session export)') from None
@@ -939,10 +917,13 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
     db.execute('BEGIN IMMEDIATE')
     with db:
         if kind == 'register':
+            extra = sorted(set(data) - set(REGISTERED))
+            require(not extra, f'Registration takes no {", ".join(extra)}: it takes only {", ".join(REGISTERED)}; the '
+                               'lifecycle records the rest itself, findings from the packet')
             require(not any(row['attempt'] == attempt for row in attempts(db)), 'Attempt already registered')
             if data.get('runtime') == 'pi' and text(data.get('native')):
                 # A Pi child's session record names its session; a pi-subagents run id is not it.
-                named = native_settings.pi_session_id(data['native'])
+                named = native_settings.session_id(data['native'], 'pi')
                 require(data.setdefault('native_session', named) == named,
                         f"native_session {data['native_session']} is not the session {named} the native record names")
             for key in ('assignment', 'repo', 'worktree', 'head', 'worker', 'native_session', 'runtime'):
@@ -981,9 +962,6 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
             missing = agent_defs.missing_inputs(job, packet.read_text(errors='replace'))
             require(not missing, f'The {execution["job"]} assignment lacks {", ".join(missing)}; write each as '
                                  f'`name: value` (see {job["path"]})')
-            supplied = sorted(RECORDED & set(data))
-            require(not supplied, f'Registration takes no {", ".join(supplied)}: the lifecycle records them itself, '
-                                  'findings from the packet and the rest as the attempt goes on')
             if execution['job'] == 'repair' and planned_findings(db):
                 data['findings'] = assigned_findings(db, data['assignment'], agent_defs.input_value(
                     job, packet.read_text(errors='replace'), 'findings'))
@@ -1010,7 +988,6 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
                     require(previous['job'] not in job['independent_of'],
                             f'A {execution["job"]} job must be independent of {previous["job"]}: '
                             'this worker already did that job, so start a fresh worker')
-                    require(not previous.get('retirement_requested'), 'Native retirement is in progress')
                     require(previous.get('result') and previous.get('retained')
                             and not watching(previous) and not pending(db, previous['attempt']),
                             'Same-assignment reuse requires collected result, explicit retention and no live wait')
@@ -1055,18 +1032,16 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
             if 'journal' in data:
                 require(text(data['journal']) and Path(data['journal']).is_absolute(),
                         'journal must be an absolute decisions journal path')
-            require('census' not in data, 'Registration computes the census; an event cannot supply it')
             require('premise' not in data or text(data['premise']), 'premise must be a sentence')
             if 'repairs' in data:
                 require(text(data['repairs']), 'repairs names the attempt whose work this one repairs')
                 require(get(db, data['repairs']).get('result'), 'A repaired attempt must be collected first')
                 if fixes_in_chain(db, data['repairs']) >= 2:
-                    found = census(db)
+                    weighed = census(db)
                     require(text(data.get('premise')),
                             'This repair fixes a fix of a fix; it needs premise: the one assumption the earlier '
                             'fixes shared. Weigh it against this census of collected work per route: '
-                            + json.dumps(found))
-                    saved['census'] = found
+                            + json.dumps(weighed))
             if execution.get('backend'):
                 # A local backend's slot is shared by every workstream on this machine.
                 capacity.acquire(execution['backend'], execution.get('capacity') or {},
@@ -1246,7 +1221,7 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
     return {'event_id': event_id, 'attempt': attempt, 'verified': saved['verified'],
             **({'partly_checked': partly} if partly else {}),
             **({'journal': journal} if journal else {}), **({'repairs': repaired} if repaired else {}),
-            **({'census': saved['census']} if kind == 'register' and 'census' in saved else {}),
+            **({'census': weighed} if weighed else {}),
             **({'ledger': unrecorded} if unrecorded else {})}
 
 
@@ -1648,14 +1623,23 @@ def caller_pane(session, purpose, timeout=15):
     return None
 
 
+RELEASED = 'released: not owned by this orchestrator, its pane is left open'
+
+
 def retire(db, state, attempt, request):
-    """Close the bound owned Herdr pane only after collection, then confirm it and its tab are absent."""
+    """End the attempt's native conversation once it is collected: close its owned Herdr pane and confirm the pane and
+    its tab gone, or, for a worker the orchestrator does not own, record its release and leave its pane alone."""
     saved = get(db, attempt)
-    require(saved['owned'], 'Existing user worker is not a cleanup target')
-    require(saved.get('result') and not watching(saved) and not pending(db, attempt)
-            and not wait_running(saved), 'Collect result, acknowledge receipts and reconcile owned waits before retirement')
-    declined = declining(saved, request.get('acceptance'))
-    require(report_owed(saved, declined), 'Retain an intact report before retirement, or decline the attempt')
+    closure = closed_sessions(db).get((saved['runtime'], saved['native_session']))
+    if closure:
+        return {'attempt': attempt, 'closed': True, 'native_closed_by': closure['attempt'],
+                'evidence': closure['closed']['evidence']}
+    acceptance = request.get('acceptance')
+    if not saved['owned']:
+        require_closable(db, saved, acceptance)
+        record(db, dict(kind='closed', attempt=attempt, evidence=[RELEASED],
+                        **({'acceptance': acceptance} if 'acceptance' in request else {})))
+        return {'attempt': attempt, 'closed': True, 'evidence': [RELEASED]}
     session, pane = request.get('session'), request.get('pane')
     require(text(session) and text(pane), 'Retirement requires explicit Herdr session and pane')
     require(pane != os.environ.get('HERDR_PANE_ID'), 'Caller pane is not a cleanup target')
@@ -1663,99 +1647,89 @@ def retire(db, state, attempt, request):
     evidence = request.get('jobs_evidence')
     require(isinstance(evidence, list) and evidence and all(text(x) for x in evidence),
             'Retirement requires reconciled owned-job evidence')
-    closure = closed_sessions(db).get((saved['runtime'], saved['native_session']))
-    if closure:
-        return {'attempt': attempt, 'closed': True, 'native_closed_by': closure['attempt'],
-                'evidence': closure['closed']['evidence']}
-    final_retirement(db, saved, declined)
-    settle(dict(saved), request.get('acceptance'))  # Refuse before the pane closes, not after.
-    previous = saved.get('retirement_requested')
-    if previous:
-        require(previous['session'] == session and previous['pane'] == pane,
-                'Reconcile the original retirement target')
-        require(process_stamp(previous['pid']) != previous['stamp'], 'Retirement already owned by a live process')
-    code, response = herdr(session, 'agent', 'get', pane)
-    present, exited = code == 0, False
-    if present:
-        agent = response['result']['agent']
-        identity = agent.get('agent_session', {})
-        require(isinstance(identity, dict), 'Invalid native conversation identity')
+    require_closable(db, saved, acceptance)  # Refuse before Herdr is asked, not after.
+    placed = saved.get('herdr') or {}
+    recorded = (session, pane) == (placed.get('session'), placed.get('pane_id'))
+    line, found, held = herdr_state(saved, session, pane, placed.get('tab_id') if recorded else None)
+    script, quoted = shlex.quote(str(Path(__file__).resolve())), shlex.quote(state_path(db))
+    if found == 'replaced' and recorded:
         # Another worker started in the recorded pane: closing the pane would close that one, and the reap closes this.
-        require(pane != (saved.get('herdr') or {}).get('pane_id') or conversation_named(saved, identity) is not False,
-                f"Pane {pane} now holds another conversation ({identity.get('value')}), so this attempt's worker is "
-                f"gone: close it with `python3 {shlex.quote(str(Path(__file__).resolve()))} reap --state "
-                f"{shlex.quote(state_path(db))}`")
-        require(agent.get('pane_id') == pane and agent.get('agent') == saved['runtime'],
-                'Native pane no longer holds the registered runtime')
-        require(saved['worker'] in (pane, agent.get('name'), f"{session}/{pane}/{agent.get('name')}"),
-                'Native target does not match the registered worker handle')
-        require(conversation_named(saved, identity), 'Native conversation no longer matches the attempt')
-        require(agent.get('agent_status') in ('idle', 'done'), 'Native worker is active or blocked; retain it for inspection')
-    else:
-        # The worker exited in its own pane: Herdr lists the pane with no agent in it, so closing it ends no worker. A
-        # retirement already under way that finds the pane gone has nothing left to close.
-        identity = None
-        code, response = herdr(session, 'pane', 'get', pane)
-        listed = (response.get('result') or {}).get('pane') if code == 0 else None
-        placed = saved.get('herdr') or {}
-        exited = ((session, pane) == (placed.get('session'), placed.get('pane_id')) and isinstance(listed, dict)
-                  and not listed.get('agent'))
-        require(previous or exited, 'Inspect the missing native worker before recording closure')
-    if present or exited:
-        db.execute('BEGIN IMMEDIATE')
-        with db:
-            saved = get(db, attempt)
-            # Another command may have accepted the attempt, or changed its report, while Herdr was asked.
-            declined = declining(saved, request.get('acceptance'))
-            require(report_owed(saved, declined),
-                    'Retain an intact report before retirement, or decline the attempt')
-            final_retirement(db, saved, declined)
-            current = saved.get('retirement_requested')
-            require(not current or process_stamp(current['pid']) != current['stamp'],
-                    'Retirement already owned by a live process')
-            stamp = process_stamp(os.getpid())
-            require(stamp, 'Cannot establish retirement process identity')
-            saved['retirement_requested'] = dict(session=session, pane=pane, pid=os.getpid(),
-                                                  stamp=stamp, native_identity=identity)
-            save(db, saved)
-            event(db, attempt, 'retirement-started', saved['retirement_requested'])
+        raise ValueError(f"Pane {pane} now holds another conversation ({held['agent_session'].get('value')}), so this "
+                         f"attempt's worker is gone: close it with `python3 {script} reap --state {quoted}`")
+    require(found not in ('replaced', 'unsure'), 'Native conversation no longer matches the attempt')
+    unconfirmed = 'Native closure is not confirmed (%s): close the remaining panes or the tab, then retire again'
+    require(found not in ('unknown', 'silent'), unconfirmed % line)
+    require(found == 'mine' or recorded,
+            f"Pane {pane} is not this attempt's recorded Herdr pane, so Herdr's answer for it ({line}) does not end its "
+            'worker: inspect the worker, then record its closure with `record`')
+    if found == 'mine':
+        require(held.get('agent') == saved['runtime'], 'Native pane no longer holds the registered runtime')
+        require(held.get('agent_status') in ('idle', 'done'), 'Native worker is active or blocked; retain it for inspection')
+    if found != 'gone':
+        require_closable(db, get(db, attempt), acceptance)  # Another command may have changed it while Herdr answered.
         code, response = herdr(session, 'pane', 'close', pane)
         require(code == 0 and response.get('result', {}).get('type') == 'ok',
-                'Native close failed; reconcile the original pane before retrying')
-    code, response = herdr(session, 'pane', 'get', pane)
-    require(code != 0 and response.get('error', {}).get('code') == 'pane_not_found',
-            'Native closure is not confirmed; preserve the original retirement target')
-    # Closing a tab's only pane closes the tab; a tab that survives still holds another pane. An attempt
-    # registered without a Herdr identity has no recorded tab and keeps the pane rule alone.
-    tab, tab_response = saved.get('herdr', {}).get('tab_id'), None
-    if tab:
-        code, tab_response = herdr(session, 'tab', 'get', tab)
-        require(code != 0 and tab_response.get('error', {}).get('code') == 'tab_not_found',
-                f'Tab {tab} is not confirmed closed after its worker pane closed: {json.dumps(tab_response)}; '
-                'closure is not recorded: close the remaining panes or the tab, then retire again')
+                'Native close failed; retire it again once the pane is reconciled')
+        line, found, _ = herdr_state(saved, session, pane, placed.get('tab_id') if recorded else None)
+    require(found == 'gone', unconfirmed % line)
     directory = state.parent / (state.name + '.native')
     directory.mkdir(mode=0o700, exist_ok=True)
     proof = directory / (uuid.uuid4().hex + '.json')
-    proof.write_text(json.dumps(dict(session=session, pane=pane, confirmation=response, tab=tab,
-                                     tab_confirmation=tab_response, jobs_evidence=evidence), indent=2) + '\n')
+    proof.write_text(json.dumps(dict(session=session, pane=pane, confirmation=line, jobs_evidence=evidence), indent=2)
+                     + '\n')
     record(db, dict(kind='closed', attempt=attempt, evidence=[str(proof), *evidence],
-                    **({'acceptance': request['acceptance']} if 'acceptance' in request else {})))
+                    **({'acceptance': acceptance} if 'acceptance' in request else {})))
     return {'attempt': attempt, 'closed': True, 'evidence': str(proof)}
 
 
-def herdr_answer(placed, timeout=LOOKUP_SECONDS):
-    """(Herdr's answer for the worker's tab, else pane, as one line, whether that confirms it gone, None when the server
-    gave no answer): only a not-found answer for it, or a server that is not running, confirms it; a listing or any
-    other error does not."""
-    kind, target = ('tab', placed['tab_id']) if placed.get('tab_id') else ('pane', placed['pane_id'])
-    command = f"herdr --session {placed['session']} {kind} get {target}"
+def herdr_get(session, kind, target, timeout):
+    """(Herdr's answer to `<kind> get <target>` as one line, what it lists, whether the answer is a definite absence:
+    the kind not found, or a server not running; None when the server gave no answer)."""
+    command = f'herdr --session {session} {kind} get {target}'
     try:
-        code, response = herdr(placed['session'], kind, 'get', target, timeout=timeout)
+        code, response = herdr(session, kind, 'get', target, timeout=timeout)
     except (OSError, ValueError) as error:
-        return f'{command}: no answer ({error})', None
+        return f'{command}: no answer ({error})', {}, None
+    if code == 0:
+        return f'{command}: listed', (response.get('result') or {}).get(kind) or {}, False
     error = response.get('error')
-    answer = (error.get('code') if isinstance(error, dict) else None) if code else 'listed'
-    return f'{command}: {answer}', bool(code) and answer in (f'{kind}_not_found', 'server_not_running')
+    answer = error.get('code') if isinstance(error, dict) else None
+    return f'{command}: {answer}', {}, answer in (f'{kind}_not_found', 'server_not_running')
+
+
+def herdr_state(saved, session, pane, tab=None, deadline=None):
+    """(Herdr's answer as one line, what it shows of the attempt's worker, the pane Herdr lists) for a pane and, when
+    one is recorded, its tab; every closure of a Herdr worker judges it here. The state: `gone` (the tab, else the
+    pane, is confirmed absent), `replaced` (the pane holds another conversation), `exited` (the pane is listed with no
+    agent), `mine` (it holds this attempt's conversation), `unsure` (it holds an agent whose conversation this attempt
+    cannot tell from its own), `silent` (a server that did not answer) or `unknown` (any other answer, such as a tab
+    still listed with no such pane). The pane is asked only once the tab is listed; `deadline` (a monotonic time)
+    bounds the calls."""
+    def budget():
+        return min(LOOKUP_SECONDS, deadline - time.monotonic()) if deadline else LOOKUP_SECONDS
+    line = None
+    if tab:
+        line, _, absent = herdr_get(session, 'tab', tab, budget())
+        if absent:
+            return line, 'gone', {}
+        if absent is None:
+            return line, 'silent', {}
+    if budget() <= 0:
+        return line, 'unknown', {}
+    answer, held, absent = herdr_get(session, 'pane', pane, budget())
+    line = line or answer
+    if absent is None:
+        return answer, 'silent', {}
+    if absent:
+        return (answer, 'gone', {}) if not tab else (line, 'unknown', {})
+    identity = held.get('agent_session') if isinstance(held.get('agent_session'), dict) else {}
+    named = conversation_named(saved, identity)
+    if not held:
+        return answer, 'unknown', {}
+    if named is False:
+        return f"herdr --session {session} pane get {pane}: holds another conversation ({identity['value']})", \
+            'replaced', held
+    return line, 'exited' if not held.get('agent') else 'mine' if named else 'unsure', held
 
 
 def conversation_named(saved, identity):
@@ -1775,37 +1749,17 @@ def conversation_named(saved, identity):
     return False if kind == 'id' or kind == 'path' and source else None
 
 
-def pane_answer(saved, timeout=LOOKUP_SECONDS):
-    """(Herdr's answer for the worker's pane, as one line, whether it shows the pane holding another conversation, which
-    confirms the worker gone though its tab lives on; None when the server gave no answer)."""
-    placed = saved['herdr']
-    command = f"herdr --session {placed['session']} pane get {placed['pane_id']}"
-    try:
-        code, response = herdr(placed['session'], 'pane', 'get', placed['pane_id'], timeout=timeout)
-    except (OSError, ValueError) as error:
-        return f'{command}: no answer ({error})', None
-    identity = ((response.get('result') or {}).get('pane') or {}).get('agent_session') if code == 0 else None
-    identity = identity if isinstance(identity, dict) else {}
-    if conversation_named(saved, identity) is False:
-        return f'{command}: holds another conversation ({identity["value"]})', True
-    return command, False
-
-
 def require_closable(db, saved, acceptance):
-    """Refuse a closure the lifecycle would not record: each attempt of the conversation settled, this one collected
-    with no receipt outstanding, its report intact or declined, owned, and its acceptance settled."""
-    declined = declining(saved, acceptance)
-    final_retirement(db, saved, declined)
-    require(saved.get('result') and not watching(saved) and not pending(db, saved['attempt']),
-            'Collect result and acknowledge receipts before retaining or closing')
-    require(report_owed(saved, declined), 'Retain an intact report before retaining or closing, or decline the attempt')
-    require(saved['owned'], 'Existing user worker is not a cleanup target')
+    """Refuse a closure the lifecycle would not record, whoever asks (retire, collect, `record closed`, the reap): each
+    attempt of the conversation collected with its report settled and nothing waiting, and this one's acceptance
+    settled."""
+    final_retirement(db, saved, declining(saved, acceptance))
     settle(dict(saved), acceptance)
 
 
 def require_ended(db, attempt, acceptance):
-    """Refuse a closure recorded by hand for a Herdr worker whose own pane Herdr shows still holding its conversation:
-    retire ends it, by closing that pane."""
+    """Refuse a closure recorded by hand for a Herdr worker that Herdr does not show ended: retire ends it, by closing
+    its pane."""
     saved = get(db, attempt)
     placed = saved.get('herdr')
     if not placed:
@@ -1815,26 +1769,20 @@ def require_ended(db, attempt, acceptance):
     require_closable(db, saved, acceptance)
     pane, script, state = placed['pane_id'], shlex.quote(str(Path(__file__).resolve())), shlex.quote(state_path(db))
     retire = f'`python3 {script} retire --state {state} --attempt {attempt} --input <request>`'
-    try:
-        code, response = herdr(placed['session'], 'pane', 'get', pane, timeout=LOOKUP_SECONDS)
-        error = (response.get('error') or {}).get('code') if code else None
-        unknown = None if not code or error in ('pane_not_found', 'server_not_running') else \
-            f'pane get answered {error}'
-    except (OSError, ValueError) as failure:
-        unknown = str(failure)
-    require(not unknown, f"Herdr cannot confirm whether pane {pane} still holds this attempt's conversation "
-                         f'({unknown}); record the closure once it does, or retire the worker with {retire}')
-    listed = ((response.get('result') or {}).get('pane') or {}) if code == 0 else {}
-    identity = listed.get('agent_session') if isinstance(listed.get('agent_session'), dict) else {}
+    line, found, held = herdr_state(saved, placed['session'], pane, placed.get('tab_id'))
+    identity = held.get('agent_session') if isinstance(held.get('agent_session'), dict) else {}
     named = ''.join(f'{word} ' for word in server_option(placed['session']))
-    if listed.get('agent') and conversation_named(saved, identity) is None:
-        raise ValueError(f"Herdr pane {pane} in tab {placed['tab_id']} holds a conversation "
-                         f"({identity.get('value') or 'Herdr names none'}) "
-                         "this attempt cannot tell from its own: once you have checked it is this attempt's worker, "
-                         f'close it with `herdr {named}pane close {pane}`, then record the closure')
-    require(not (listed.get('agent') and conversation_named(saved, identity)),
-            f"Herdr pane {pane} in tab {placed['tab_id']} still holds this attempt's conversation, so its worker has "
-            f'not ended: retire it with {retire}, which closes that pane and records the closure')
+    require(found not in ('unknown', 'silent'),
+            f"Herdr cannot confirm whether pane {pane} still holds this attempt's conversation ({line}); record the "
+            f'closure once it does, or retire the worker with {retire}')
+    require(found != 'unsure', f"Herdr pane {pane} in tab {placed['tab_id']} holds a conversation "
+                               f"({identity.get('value') or 'Herdr names none'}) this attempt cannot tell from its own: "
+                               "once you have checked it is this attempt's worker, close it with "
+                               f'`herdr {named}pane close {pane}`, then record the closure')
+    require(found not in ('mine', 'exited'),
+            f"Herdr pane {pane} in tab {placed['tab_id']} " + ("still holds this attempt's conversation, so its worker "
+            "has not ended" if found == 'mine' else 'is open with no worker in it') + f': retire it with {retire}, which '
+            'closes that pane and records the closure')
 
 
 def state_fields(text):
@@ -1900,21 +1848,15 @@ def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
             left.append({'attempt': saved['attempt'], 'reason': 'out of time for this stop; left for the next'})
             continue
         if saved.get('herdr'):
-            server = saved['herdr']['session']
+            placed = saved['herdr']
+            server = placed['session']
             if server in silent:  # Asked once: a server that does not answer is not asked for each of its workers.
                 left.append({'attempt': saved['attempt'], 'reason': f'herdr --session {server}: no answer earlier'})
                 continue
-            evidence, gone = herdr_answer(saved['herdr'], min(LOOKUP_SECONDS, deadline - time.monotonic()))
-            why = 'its Herdr tab is gone'
-            if gone is False and time.monotonic() < deadline:
-                # The tab lives on, perhaps with another worker started in the pane: that one's conversation there
-                # confirms this worker gone.
-                answer, replaced = pane_answer(saved, min(LOOKUP_SECONDS, deadline - time.monotonic()))
-                if replaced:
-                    evidence, gone, why = answer, True, 'its Herdr pane holds another conversation'
-                elif replaced is None:
-                    evidence, gone = answer, None
-            if gone is None:
+            evidence, found, _ = herdr_state(saved, server, placed['pane_id'], placed.get('tab_id'), deadline)
+            gone = found in ('gone', 'replaced')
+            why = 'its Herdr tab is gone' if found == 'gone' else 'its Herdr pane holds another conversation'
+            if found == 'silent':
                 silent.add(server)
         elif saved.get('retained') and terminal in ENDED:
             evidence, gone, why = f'{card}: terminal: {terminal}', True, f'its run card ended {terminal}'
@@ -1927,22 +1869,15 @@ def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
         acceptance = ({'acceptance': {'decision': 'deferred', 'reason': f'closed by reap: {why}'}}
                       if unsettled(saved) else {})
         # SQLite's own wait for a lock sleeps in whole seconds and overshoots the budget, so no closure waits on one: a
-        # locked state is polled until the deadline, and the machine-wide ledgers are left for the next write.
+        # locked state leaves the attempt for the next stop, and the machine-wide ledgers are left for the next write.
         db.execute('PRAGMA busy_timeout = 0')
-        done_now = None
-        while done_now is None:
-            try:
-                done_now = record(db, dict(kind='closed', attempt=saved['attempt'], evidence=[evidence], **acceptance),
-                                  waiting=0)
-            except ValueError as error:  # The lifecycle's own refusal, for the host to settle.
-                refused.append({'attempt': saved['attempt'], 'reason': str(error)})
-                break
-            except sqlite3.OperationalError as error:
-                if time.monotonic() >= deadline:  # Still locked for the whole budget: the next stop.
-                    left.append({'attempt': saved['attempt'], 'reason': str(error)})
-                    break
-                time.sleep(0.1)
-        if done_now is None:
+        try:
+            record(db, dict(kind='closed', attempt=saved['attempt'], evidence=[evidence], **acceptance), waiting=0)
+        except ValueError as error:  # The lifecycle's own refusal, for the host to settle.
+            refused.append({'attempt': saved['attempt'], 'reason': str(error)})
+            continue
+        except sqlite3.OperationalError as error:
+            left.append({'attempt': saved['attempt'], 'reason': str(error)})
             continue
         closed.append({'attempt': saved['attempt'], 'evidence': [evidence]})
         done.add(key)
@@ -1955,10 +1890,9 @@ def collect(db, state, attempt, request):
     require(isinstance(disposition, dict), 'Collection disposition must be an object')
     require(disposition.get('kind') in ('retire', 'retain'), 'Collection requires retirement or explicit retention')
     saved = get(db, attempt)
-    paneless = (disposition['kind'] == 'retire' and not saved.get('herdr')
+    paneless = (disposition['kind'] == 'retire' and saved['owned'] and not saved.get('herdr')
                 and not any(disposition.get(key) for key in ('session', 'pane')))
     if disposition['kind'] == 'retire':
-        require(saved['owned'], 'Existing user worker is not a cleanup target')
         require(not paneless or isinstance(disposition.get('evidence'), list) and disposition['evidence']
                 and all(text(x) for x in disposition['evidence']),
                 'A worker with no Herdr pane (a native subagent) retires on disposition evidence: pass evidence '
@@ -2015,8 +1949,6 @@ def status(db, attempt=None):
                 attention.append('arm independent wait or collect native result')
             if saved.get('result') and not saved.get('retained'):
                 attention.append('close owned worker or record same-assignment retention')
-            if saved.get('retirement_requested'):
-                attention.append('reconcile native retirement')
         if saved.get('acceptance_deferred') and unsettled(saved):
             attention.append('record acceptance or decline')
         if any(row['payload'].get('notify') and row['payload'].get('delivery', {}).get('state') != 'sent'
@@ -2025,7 +1957,7 @@ def status(db, attempt=None):
         summary = {key: saved[key] for key in ('attempt', 'assignment', 'agent', 'job', 'worker', 'native_session',
                    'herdr', 'head', 'requested', 'observed', 'observed_cwd', 'verified', 'monitor', 'result',
                    'accepted', 'declined', 'acceptance_deferred', 'retained', 'closed',
-                   'retirement_requested', 'premise', 'census', 'findings') if key in saved}
+                   'premise', 'findings') if key in saved}
         if saved.get('observed_cwd') and native_settings.outside(saved['observed_cwd'], saved['worktree'],
                                                                  saved['runtime']):
             summary['warnings'] = [f"the native record puts the worker in {saved['observed_cwd']}, outside its "

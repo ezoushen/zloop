@@ -67,7 +67,8 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    ```
 
    Pass the event file with `record --state /absolute/reports/workers.sqlite
-   --input /absolute/register.json`. Assignment IDs identify a ticket and bounded
+   --input /absolute/register.json`; registration takes only the fields named here (plus `native`, a Pi child's
+   session record) and refuses any other by name. Assignment IDs identify a ticket and bounded
    job scope; attempt IDs identify retries. The execution snapshot must carry
    `agent` and `job`, and supplies the requested settings. `packet` is the exact
    assignment text sent to the worker; registration refuses it when it lacks

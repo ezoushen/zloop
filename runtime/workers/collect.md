@@ -66,7 +66,8 @@ Collection persists the report and its digest, acknowledges only that attempt's
 wait/result receipts, then performs the chosen disposition. A completed collection
 straight after a settled, triaged wake records that wake's `done` label. To retain context,
 use `disposition` with `kind: retain`, `reason`, `next_use` and `evidence`. A native subagent with no
-Herdr pane retires with `kind: retire` and `evidence` instead of `session`, `pane` and `jobs_evidence`.
+Herdr pane retires with `kind: retire` and `evidence` instead of `session`, `pane` and `jobs_evidence`; a worker registered
+`owned: false` is released by `kind: retire` alone, with its pane left open ([retire](../resources/retire.md)).
 Retention may preserve a pending design-hold receipt; it does not acknowledge the
 escalation, permit reuse, clear the hold or authorize dependent work. Mismatch and
 hold receipts need explicit acknowledgement after the orchestrator consumes them.

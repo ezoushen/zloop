@@ -473,14 +473,16 @@ if 'tab' in sys.argv:
              'reason': 'herdr --session slow pane get pane-1: no answer (Expecting value: line 1 column 1 (char 0))'},
             {'attempt': 'ticket-2/1', 'reason': 'herdr --session slow: no answer earlier'}]}, self.cli('reap'))
 
-    def test_a_closure_does_not_wait_on_a_locked_state_beyond_the_budget(self):
+    def test_a_closure_that_finds_the_state_locked_is_left_for_the_next_stop_without_waiting(self):
+        # Rule: a stop is held for its few seconds by the Herdr answers, not by a lock another command holds; the
+        # attempt is named open and the next stop closes it.
         self.placed()
         self.tab_closed()
         writer = sqlite3.connect(self.state, isolation_level=None)
         writer.execute('BEGIN IMMEDIATE')
         self.addCleanup(writer.close)
         found, seconds = self.timed_reap()
-        self.assertLess(seconds, 8)
+        self.assertLess(seconds, 3)
         self.assertEqual(([], ['ticket-1/1']), (found['closed'], [row['attempt'] for row in found['open']]))
         writer.execute('ROLLBACK')
         self.assertEqual(['ticket-1/1'], [row['attempt'] for row in self.cli('reap')['closed']])
