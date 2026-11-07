@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The panel's fact source: which workstream is live, and the rows a host draws for it."""
 import contextlib
+import functools
 import json
 import shlex
 import os
@@ -18,16 +19,7 @@ import support
 PANEL = support.load_script('panel_state.py')
 
 
-def card(path, phase='dispatch', session='S', terminal='', confirmed='yes 2026-10-27 "go"', resume='`autopilot --take-over`',
-         board=None):
-    """A run card with the State section the panel reads; `board:` only when given."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text('\n'.join([
-        f'# {path.parent.name} — autopilot run card', '', '## Goal', 'a goal', '',
-        '## State', f'confirmed: {confirmed}', f'session: {session}', 'auto-merge: no',
-        *([f'board: {board}'] if board else []),
-        f'phase: {phase}', f'terminal: {terminal}', 'history:', 'evidence:', 'timer:', f'resume: {resume}', '']))
-    return path
+card = functools.partial(support.run_card, session='S', confirmed='yes 2026-10-27 "go"', board=None)
 
 
 def orchestrator(workstream, sessions):
@@ -38,37 +30,12 @@ def orchestrator(workstream, sessions):
     return path
 
 
-def ticket(path, name, status='ready', blocker=None, worker='', title='a behaviour', blocked_by='', accepted=True, touches=None):
-    """A local ticket with the front matter the board reads, titled as the template titles one, touching an area of its
-    own number unless `touches` names one; a done one carries the acceptance fields `--accept` writes, unless
-    `accepted` is False."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = ['---', f'ticket: {name}', f'status: {status}', f'blocked_by: [{blocked_by}]', f"touches: [{touches or 'area-' + name.split('/')[-1]}]",
-             'devices: []', 'model: standard', f'worker: {worker}'.rstrip()]
-    if blocker:
-        lines.append(f'blocker: {blocker}')
-    if status == 'done' and accepted:
-        lines += [f"accepted: {'a' * 40}", f"accepted_report: {'b' * 64}"]
-    lines += ['---', f"# {name.split('/')[-1]}: {title}", '', '**Story:** a story.', '']
-    path.write_text('\n'.join(lines))
-    return path
+def ticket(path, name, **fields):
+    """A local ticket at `path`, as the board reads one."""
+    return support.ticket_file(None, name, path=path, **fields)
 
 
-def attempts(state, rows):
-    """A workers.sqlite holding the attempts and their newest event times given."""
-    state.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(state)
-    db.execute('CREATE TABLE IF NOT EXISTS attempts (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
-    db.execute('CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, attempt TEXT NOT NULL, '
-               'kind TEXT NOT NULL, payload TEXT NOT NULL, acknowledged INTEGER NOT NULL)')
-    for row in rows:
-        db.execute('INSERT OR REPLACE INTO attempts VALUES (?, ?)', (row['attempt'], json.dumps(row)))
-        last = row.pop('_quiet_seconds', 30)
-        db.execute('INSERT INTO events (attempt, kind, payload, acknowledged) VALUES (?, ?, ?, ?)',
-                   (row['attempt'], 'register', json.dumps({'recorded_at': time.time() - last, 'attempt': row['attempt']}), 1))
-    db.commit()
-    db.close()
-    return state
+attempts = support.write_attempts
 
 
 def live(attempt, assignment='zloop-panel/01', agent='builder', model='sonnet', quiet=30):

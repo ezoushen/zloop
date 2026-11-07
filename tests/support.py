@@ -3,6 +3,7 @@ import importlib.util
 import os
 import re
 import shlex
+import sqlite3
 from pathlib import Path
 import sys
 from native_records import assistant_turn, session_record, user_message
@@ -30,6 +31,78 @@ def load_script(filename, name=None):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+# What Claude Code, Codex, Pi and OpenCode export to the orchestrator's shell as their session ID.
+SESSION_VARIABLES = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID', 'OPENCODE_SESSION_ID')
+
+
+def without_host_sessions(env=None):
+    """A copy of env (default: the current environment) with no host session ID, as in a shell no host started."""
+    return {key: value for key, value in (os.environ if env is None else env).items() if key not in SESSION_VARIABLES}
+
+
+def ticket_file(repo, name, status='ready', *, blocked_by='', touches=None, devices='', worker='', title='a behaviour',
+                extra='', blocker=None, accepted=True, path=None):
+    """A local ticket `name` ('slug/NN') under repo's `.scratch/slug/issues/` with the front matter the board reads,
+    touching an area of its own number unless `touches` names one; a done one carries the acceptance fields `--accept`
+    writes, unless `accepted` is False. `extra` is raw front-matter lines (each ending in a newline); `path` names the
+    file instead of the numbered one (repo may then be None)."""
+    slug, number = name.split('/')
+    path = Path(path or Path(repo) / '.scratch' / slug / 'issues' / f'{number}-task.md')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ['---', f'ticket: {name}', f'status: {status}', f'blocked_by: [{blocked_by}]',
+             f"touches: [{touches or 'area-' + number}]", f'devices: [{devices}]', 'model: standard',
+             f'worker: {worker}'.rstrip()]
+    if blocker:
+        lines.append(f'blocker: {blocker}')
+    if status == 'done' and accepted:
+        lines += [f"accepted: {'a' * 40}", f"accepted_report: {'b' * 64}"]
+    path.write_text('\n'.join(lines) + '\n' + extra + f"---\n# {number}: {title}\n\n**Story:** a story.\n")
+    return path
+
+
+def run_card(path, slug=None, *, confirmed='2026-10-27 "go"', session='host-1', terminal='', evidence='',
+             phase='dispatch', board='local', resume='`autopilot --take-over`', **extra):
+    """A run card at `path` with the State section the panel, the stop hook and reap read; `board:` only when given
+    (None leaves it out) and `extra` fields after the standard ones."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fields = dict(confirmed=confirmed, session=session, **{'auto-merge': 'no'}, **({'board': board} if board else {}),
+                  phase=phase, terminal=terminal, history='', evidence=evidence, timer='', resume=resume, **extra)
+    path.write_text(f'# {slug or path.parent.name} \u2014 autopilot run card\n\n## Goal\nx\n\n## State\n'
+                    + ''.join(f'{key}: {value}\n'.replace(': \n', ':\n') for key, value in fields.items()))
+    return path
+
+
+def attempt_row(repo, **fields):
+    """An attempt row of a live Claude worker of repo, as the lifecycle records one; `fields` replace or add."""
+    return dict(dict(attempt='ticket-1/1', assignment='ticket-1', repo=str(repo), runtime='claude',
+                     native_session='n-1', worker='w-1', owned=True), **fields)
+
+
+def write_attempts(state, rows, events=True):
+    """A run state at `state` holding rows (a `_quiet_seconds` key, default 30, sets how long ago the row's register
+    event was); with `events` False the state has no events table at all."""
+    import json
+    import time
+    state = Path(state)
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.unlink(missing_ok=True)
+    db = sqlite3.connect(state)
+    db.execute('CREATE TABLE attempts (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
+    if events:
+        db.execute('CREATE TABLE events (id INTEGER PRIMARY KEY, attempt TEXT NOT NULL, kind TEXT NOT NULL, '
+                   'payload TEXT NOT NULL, acknowledged INTEGER NOT NULL)')
+    for row in rows:
+        quiet = row.pop('_quiet_seconds', 30)
+        db.execute('INSERT INTO attempts VALUES (?, ?)', (row['attempt'], json.dumps(row)))
+        if events:
+            db.execute('INSERT INTO events (attempt, kind, payload, acknowledged) VALUES (?, ?, ?, ?)',
+                       (row['attempt'], 'register', json.dumps({'recorded_at': time.time() - quiet, 'attempt': row['attempt']}), 1))
+    db.commit()
+    db.close()
+    return state
 
 
 def wait_until(condition, what, limit=120):

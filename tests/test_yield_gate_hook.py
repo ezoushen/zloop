@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """The Stop hook keeps a host working while a lifecycle worker could finish unseen."""
-import calendar
 import json
 import os
 from pathlib import Path
@@ -10,191 +9,17 @@ import shutil
 import sqlite3
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
-from unittest.mock import patch
 
 import support
-from native_records import session_record
+from gate_case import GateRepo
 
 ROOT = support.ROOT
 HOOK = ROOT / 'hooks' / 'yield_gate.py'
 LAUNCH = ROOT / 'hooks' / 'herdr_launch.py'
 LIFECYCLE = ROOT / 'scripts' / 'worker_lifecycle.py'
 TICKETS = ROOT / 'scripts' / 'next_tickets.py'
-# What Claude Code, Codex and Pi export to the orchestrator's shell as their session ID; the test run's own are dropped.
-SESSION_VARIABLES = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID')
-
-
-class GateRepo(unittest.TestCase):
-    """A repository whose sessions reach a stub `herdr` on PATH, never a live Herdr server."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix='zloop yield ')
-        self.addCleanup(self.tmp.cleanup)
-        # Outcomes go to a ledger under the state home; keep the user's ledger out of tests.
-        self.enterContext(patch.dict(os.environ, {'XDG_STATE_HOME': str(Path(self.tmp.name) / 'state'),
-                                                 'CODEX_SESSION_ID': 'codex-host'}))
-        self.repo = Path(self.tmp.name).resolve() / 'project'
-        self.repo.mkdir()
-        self.registrations = {}
-        subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
-        self.state = self.repo / '.scratch/workstream/reports/workers.sqlite'
-        self.execution = self.repo / '.scratch/workstream/reports/execution.json'
-        self.execution.parent.mkdir(parents=True)
-        self.execution.write_text(json.dumps({'agent': 'builder', 'job': 'ticket', 'settings': {'model': 'sonnet'}}))
-        self.bin = Path(self.tmp.name) / 'bin'
-        self.bin.mkdir()
-        self.served = self.bin / 'herdr.json'
-        self.serve()
-        # `agent list` and `agent get` answer with the served agents; `pane get` with the served panes and `tab list`
-        # and `tab get` with the served tabs of the `--session` server; `pane current` finds no pane there. As real
-        # Herdr does, `tab list` answers server_not_running for a session that serves no tabs, and workspace_not_found
-        # for a workspace with none.
-        stub = self.bin / 'herdr'
-        stub.write_text(f'#!{sys.executable}\n' + f'''
-import json, sys, time
-served = json.load(open({str(self.served)!r}))
-args, session = sys.argv[1:], 'default'
-open({str(self.bin / 'argv')!r}, 'a').write(' '.join(args) + '\\n')
-if args[:1] == ['--session']:
-    session, args = args[1], args[2:]
-open({str(self.bin / 'calls')!r}, 'a').write(session + ' ' + ' '.join(args) + '\\n')
-if served['hang'] or served.get('hang_panes') and args[:2] == ['pane', 'get']:
-    time.sleep(30)
-if served['fail']:
-    print(json.dumps({{'error': {{'code': 'server_unavailable', 'message': served['fail']}}}}), file=sys.stderr)
-    sys.exit(1)
-if args == ['agent', 'list']:
-    print(json.dumps({{'result': {{'agents': served['agents'], 'type': 'agent_list'}}}}))
-elif args[:2] == ['pane', 'get'] and args[2] in served['panes'].get(session, {{}}):
-    print(json.dumps({{'result': {{'pane': served['panes'][session][args[2]], 'type': 'pane_info'}}}}))
-elif args[:2] in (['pane', 'get'], ['pane', 'current']):
-    print(json.dumps({{'error': {{'code': 'pane_not_found'}}}}), file=sys.stderr)
-    sys.exit(1)
-elif args[:2] == ['agent', 'get'] and any(args[2] in (a['name'], a['pane_id']) for a in served['agents']):
-    agent = next(a for a in served['agents'] if args[2] in (a['name'], a['pane_id']))
-    print(json.dumps({{'result': {{'agent': agent, 'type': 'agent_info'}}}}))
-elif args[:2] == ['tab', 'list'] and session not in served['tabs']:
-    print(json.dumps({{'error': {{'code': 'server_not_running', 'message': 'no server for ' + session}}}}),
-          file=sys.stderr)
-    sys.exit(1)
-elif args[:3] == ['tab', 'list', '--workspace'] and not any(tab['workspace_id'] == args[3]
-                                                            for tab in served['tabs'][session]):
-    print(json.dumps({{'error': {{'code': 'workspace_not_found', 'message': args[3]}}}}), file=sys.stderr)
-    sys.exit(1)
-elif args[:3] == ['tab', 'list', '--workspace']:
-    tabs = [tab for tab in served['tabs'][session] if tab['workspace_id'] == args[3]]
-    print(json.dumps({{'result': {{'tabs': tabs, 'type': 'tab_list'}}}}))
-elif args[:2] == ['tab', 'get'] and any(tab['tab_id'] == args[2] for tab in served['tabs'].get(session, [])):
-    print(json.dumps({{'result': {{'tab': {{'tab_id': args[2], 'pane_count': 1}}, 'type': 'tab_info'}}}}))
-elif args[:2] == ['tab', 'get']:
-    print(json.dumps({{'error': {{'code': 'tab_not_found' if session in served['tabs'] else 'server_not_running'}}}}),
-          file=sys.stderr)
-    sys.exit(1)
-else:
-    sys.exit(3)
-''')
-        stub.chmod(0o700)
-
-    def serve(self, agents=(), panes=None, fail=None, hang=False, tabs=None, hang_panes=False):
-        """What the stub Herdr server reports: live agents, panes and tabs by server, or a failure; `hang_panes` hangs
-        `pane get` alone."""
-        self.served.write_text(json.dumps({'agents': list(agents), 'panes': panes or {}, 'tabs': tabs or {},
-                                           'fail': fail, 'hang': hang, 'hang_panes': hang_panes}))
-
-    def env(self, pane='w1:p1', **values):
-        """The environment of a session in Herdr pane `pane` of workspace w1, or outside Herdr when None."""
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith('HERDR_') and key not in ('ZLOOP_WORKER', *SESSION_VARIABLES)}
-        env['PATH'] = f"{self.bin}{os.pathsep}{env['PATH']}"
-        return dict(env, **({'HERDR_PANE_ID': pane, 'HERDR_WORKSPACE_ID': 'w1'} if pane else {}), **values)
-
-    def lifecycle(self, kind, attempt='ticket-1/1', pane='w1:p1', env=None, **fields):
-        if kind == 'register':
-            packet = Path(fields['packet'])
-            packet.write_text(f'attempt: {attempt}\n' + packet.read_text())
-        event = self.state.parent / 'event.json'
-        event.write_text(json.dumps(dict(kind=kind, attempt=attempt, **fields)))
-        done = subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'record', '--state', str(self.state),
-                               '--input', str(event)], check=True, capture_output=True, env=self.env(pane, **(env or {})))
-        if kind == 'result':
-            # Collection acknowledges the result receipt; one left unacknowledged is a yield gap of its own.
-            subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'ack', '--state', str(self.state), '--event-id',
-                            str(json.loads(done.stdout)['event_id'])], check=True, capture_output=True)
-        if kind == 'register':
-            self.registrations[attempt] = fields
-
-    def native(self, attempt='ticket-1/1'):
-        """The registered fixture worker's session record, outside the checkout it may only read."""
-        saved = self.registrations[attempt]
-        return session_record(self.execution.parent / (attempt.replace('/', '-') + '.jsonl'), saved['runtime'],
-                              saved['native_session'], saved['worktree'], effort=None)
-
-    def stop(self, cwd=None, active=False, env=None, pane='w1:p1', host='claude', session=None):
-        payload = {'hook_event_name': 'Stop', 'cwd': str(cwd or self.repo), 'stop_hook_active': active,
-                   **({'session_id': session} if session else {})}
-        result = subprocess.run([sys.executable, str(HOOK), host], input=json.dumps(payload),
-                                capture_output=True, text=True, env=self.env(pane, **(env or {})), timeout=20)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return json.loads(result.stdout) if result.stdout.strip() else None
-
-    def held_once_with_retry_advice(self, session):
-        """Rule: a check that could not run holds one stop and says to retry, not to register or dismiss anything."""
-        reason = self.stop(session=session)['reason']
-        self.assertIn('retry the stop', reason)
-        self.assertNotIn('Register each launched worker', reason)
-        self.assertNotIn('decision', self.stop(session=session, active=True) or {})
-
-    def check(self, cwd=None, pane='w1:p1', session=None, env=None):
-        """The gaps `yield_gate.py check <cwd> [session]` reports: what `stop` names, without counting the stop."""
-        result = subprocess.run([sys.executable, str(HOOK), 'check', str(cwd or self.repo), *filter(None, [session])],
-                                capture_output=True, text=True, timeout=20, env=self.env(pane, **(env or {})))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return json.loads(result.stdout)['missing']
-
-
-    def pi(self, body, pane=None, env=None):
-        """Run `body` with Pi's extension `handlers` (the last of each event) and a `ctx` for session pi-1 here."""
-        script = f"""
-const bootstrap = await import({json.dumps((ROOT / 'hosts/pi/bootstrap.ts').as_uri())});
-const handlers = {{}};
-bootstrap.default({{ on: (event, handler) => {{ handlers[event] = handler; }}, registerTool() {{}}, registerCommand() {{}},
-                   registerShortcut() {{}} }});
-const ctx = {{ cwd: {json.dumps(str(self.repo))}, sessionManager: {{ getSessionId: () => 'pi-1' }} }};
-{body}
-"""
-        result = subprocess.run(['node', '--input-type=module', '-e', script], capture_output=True, text=True,
-                                timeout=60, env=self.env(pane, **(env or {})))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return json.loads(result.stdout)
-
-    def bind(self, pane='w1:p1', slug='fix', autofix=False, code=0, **sessions):
-        """Run dispatch's binding for workstream `slug` (None: every workstream), with `--autofix` when `autofix`, as an
-        orchestrator in Herdr pane `pane` (None: outside Herdr) whose host exports `sessions` (a SESSION_VARIABLES name
-        to its value); the finished process, which must exit `code`."""
-        result = subprocess.run([sys.executable, '-B', str(TICKETS), '--repo', str(self.repo), *filter(None, [slug]),
-                                 '--orchestrate', *(['--autofix'] if autofix else [])],
-                                capture_output=True, text=True, env=self.env(pane, **sessions), timeout=20)
-        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
-        return result
-
-    def launch(self, command, cwd=None, pane='w1:p1', session='host-1', env=None):
-        """Run the Bash PreToolUse hook as Claude or Codex does before `command`."""
-        payload = {'hook_event_name': 'PreToolUse', 'tool_name': 'Bash', 'tool_input': {'command': command},
-                   'cwd': str(cwd or self.repo), 'session_id': session}
-        result = subprocess.run([sys.executable, str(LAUNCH)], input=json.dumps(payload), capture_output=True,
-                                text=True, env=self.env(pane, **(env or {})), timeout=20)
-        # The hook never blocks the command: no decision and a clean exit, whatever happened.
-        self.assertEqual((result.returncode, result.stdout), (0, ''), result.stderr)
-
-    def logged(self):
-        log = self.repo / '.scratch/herdr-launches.jsonl'
-        return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
-
-    def gap(self, agent, pane):
-        return f"{self.repo / '.scratch/herdr-launches.jsonl'}: {agent} (pane {pane}): launched without a registered attempt"
 
 
 NO_CODEX_REVIEWER = {'models': {'local': {'description': 'Local reviewer', 'runtimes': {'pi': {'id': 'local/reviewer'}}}},
@@ -778,66 +603,6 @@ class UnregisteredWorkers(GateRepo):
     def live(name, pane, cwd):
         return f'Herdr agent {name} (pane {pane}) runs in {cwd} without a registered attempt'
 
-    def test_each_herdr_agent_start_is_logged_in_the_main_checkout_for_its_orchestrator(self):
-        # Rule 1: time, agent name, pane, the Herdr server session it ran in (None for the default one), orchestrator
-        # (its Herdr pane and host session, each when known) and the pane's cwd as the named Herdr server reports it; a
-        # command that only mentions a launch records nothing.
-        self.serve(panes={'s1': {'w1:p5': {'pane_id': 'w1:p5', 'cwd': str(self.worktree)}},
-                          'default': {'w1:p5': {'pane_id': 'w1:p5', 'cwd': '/elsewhere'}}})
-        before = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-        self.launch('herdr --session s1 agent start builder-1 --kind codex --pane w1:p5 -- -m x', cwd=self.worktree)
-        self.launch('git commit -qm "herdr agent start x --pane w1:p5" && echo herdr agent start y --pane w1:p5\n'
-                    'FOO=1 herdr agent start reviewer-2 --kind claude --pane w1:p6', pane=None)
-        after = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-        logged = self.logged()
-        for record in logged:
-            self.assertTrue(before <= record.pop('time') <= after)
-        self.assertEqual(logged, [
-            {'agent': 'builder-1', 'pane': 'w1:p5', 'herdr_session': 's1',
-             'orchestrator': {'pane': 'w1:p1', 'session': 'host-1'}, 'cwd': str(self.worktree)},
-            {'agent': 'reviewer-2', 'pane': 'w1:p6', 'herdr_session': 'default',
-             'orchestrator': {'pane': None, 'session': 'host-1'}}])
-
-    def test_one_command_with_many_launches_stays_inside_the_hook_timeout(self):
-        # Review 7: the Herdr lookups of one hook run share a budget inside the hosts' hook timeout, so a hung
-        # Herdr still leaves every launch logged (cwd unknown) before the host kills the hook.
-        limit = min(hook['timeout'] for path in ('hooks/hooks.json', 'hosts/codex/hooks.json')
-                    for entry in json.loads((ROOT / path).read_text())['hooks']['PreToolUse']
-                    for hook in entry['hooks'] if hook['command'].endswith('hooks/herdr_launch.py"'))
-        self.serve(hang=True)
-        started = time.monotonic()
-        self.launch(' && '.join(f'herdr agent start b-{index} --kind codex --pane w1:p{index}' for index in range(1, 6)))
-        self.assertLess(time.monotonic() - started, limit - 2)
-        self.assertEqual([{key: value for key, value in record.items() if key not in ('time', 'orchestrator', 'herdr_session')}
-                          for record in self.logged()],
-                         [{'agent': f'b-{index}', 'pane': f'w1:p{index}'} for index in range(1, 6)])
-
-    def test_launches_behind_wrappers_and_shell_strings_are_logged(self):
-        # Review 5: `timeout`, `env` with its options, `--session=S` and a shell's `-c` string still run a launch.
-        self.serve(panes={'s1': {pane: {'pane_id': pane, 'cwd': str(self.worktree)} for pane in ('w1:p14', 'w1:p16')}})
-        for command in ('timeout 60 herdr agent start a-1 --kind codex --pane w1:p11',
-                        'timeout -s KILL -k 5 60 herdr agent start a-2 --kind codex --pane w1:p12',
-                        'env -u HERDR_PANE_ID -i FOO=1 herdr agent start a-3 --kind codex --pane w1:p13',
-                        'herdr --session=s1 agent start a-4 --kind codex --pane w1:p14',
-                        'sh -c "herdr agent start a-5 --kind codex --pane w1:p15"',
-                        "bash -lc 'cd /tmp && herdr --session s1 agent start a-6 --kind codex --pane w1:p16'",
-                        'bash -c "timeout 30 herdr agent start a-7 --kind codex --pane w1:p17" && echo done'):
-            self.launch(command, pane=None)
-        self.assertEqual([(record['agent'], record['pane'], record.get('cwd')) for record in self.logged()], [
-            ('a-1', 'w1:p11', None), ('a-2', 'w1:p12', None), ('a-3', 'w1:p13', None),
-            ('a-4', 'w1:p14', str(self.worktree)), ('a-5', 'w1:p15', None), ('a-6', 'w1:p16', str(self.worktree)),
-            ('a-7', 'w1:p17', None)])
-
-    def test_a_start_herdr_would_refuse_or_only_explain_is_not_logged(self):
-        # Rule: `herdr agent start` needs a name and a pane, and with --help only prints its usage, so none of these
-        # starts an agent; logged, each would hold its orchestrator for a worker nothing can register or dismiss.
-        for command in ('herdr agent start a-1 --kind codex --pane w1:p11 --help',
-                        'herdr agent start a-4 -h --kind codex --pane w1:p14',
-                        'herdr agent start --kind codex --pane w1:p12', 'herdr agent start a-2 --kind codex',
-                        'herdr agent start a-3 --kind codex --pane w1:p13'):
-            self.launch(command, pane=None)
-        self.assertEqual([(record['agent'], record['pane']) for record in self.logged()], [('a-3', 'w1:p13')])
-
     def test_a_logged_launch_with_no_name_or_pane_is_named_only_to_its_orchestrator(self):
         # Rule: an older hook logged such a line; no registration or dismissal can match it, so the stop names the line
         # to remove, and only to the session that logged it.
@@ -869,21 +634,6 @@ class UnregisteredWorkers(GateRepo):
         self.assertEqual(self.check(session='host-1'), [self.gap('w1', 'w1:p5'),
                                                         self.live('real-1', 'w1:p6', self.worktree)])
 
-    def test_logging_never_blocks_the_command_even_when_herdr_or_the_log_fails(self):
-        # Rule 1: a hung Herdr still leaves a record with the cwd unknown; an unwritable log only loses the record.
-        self.serve(hang=True)
-        started = time.monotonic()
-        self.launch('herdr agent start builder-1 --kind codex --pane w1:p5')
-        self.assertLess(time.monotonic() - started, 10)
-        self.assertEqual([{key: value for key, value in record.items() if key != 'time'} for record in self.logged()],
-                         [{'agent': 'builder-1', 'pane': 'w1:p5', 'herdr_session': 'default',
-                           'orchestrator': {'pane': 'w1:p1', 'session': 'host-1'}}])
-        (self.repo / '.scratch/herdr-launches.jsonl').unlink()
-        (self.repo / '.scratch/herdr-launches.jsonl').mkdir()
-        self.serve()
-        self.launch('herdr agent start builder-2 --kind codex --pane w1:p5')
-
-    @unittest.skipUnless(shutil.which('node'), 'Node.js runs the Pi extension')
     def test_pi_logs_launches_from_bash_and_bg_run_without_blocking_them(self):
         # Rule 1 on Pi: its tool_call covers bash and bg_run; the orchestrator's session is Pi's session ID.
         verdicts = self.pi("""
@@ -993,15 +743,6 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.register('default/w1:p9/other', 'ticket-6/1', pane='w1:p3', session='host-2')
         self.assertEqual(self.check(session='host-1'), [])
 
-    def test_the_launch_logger_asks_the_callers_own_server_through_its_socket_without_a_session_option(self):
-        # Rule (one Herdr transport): a server the caller's own HERDR_SOCKET_PATH is the socket of is asked through it,
-        # as the lifecycle and the stop check ask it, so an isolated config that holds no `s1` name still gives the cwd.
-        self.serve(panes={'default': {'w1:p5': {'pane_id': 'w1:p5', 'cwd': str(self.worktree)}}})
-        self.launch('herdr --session s1 agent start builder-1 --kind codex --pane w1:p5', pane=None,
-                    env={'HERDR_SOCKET_PATH': '/home/u/.config/herdr/sessions/s1/herdr.sock'})
-        self.assertEqual((self.bin / 'argv').read_text().splitlines(), ['pane get w1:p5'])
-        self.assertEqual(self.logged()[0]['cwd'], str(self.worktree))
-
     def test_a_pi_subagents_child_binds_and_registers_under_the_same_sessions(self):
         # Rule (one exported-session reader): the sessions a binding names are the ones registration records, parent
         # included, so the card, the binding and the attempt of one run agree; an attempt records `sessions` alone.
@@ -1019,31 +760,6 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         saved = json.loads(db.execute('SELECT data FROM attempts').fetchone()[0])
         db.close()
         self.assertEqual((bound, saved['sessions'], 'session' in saved), (['pi-child', 'pi-parent'],) * 2 + (False,))
-
-    def test_a_command_that_names_the_socket_variable_anywhere_logs_no_launch(self):
-        # Rule: the logger reads no shell. A command that sets, unsets, exports or prefixes HERDR_SOCKET_PATH may run its
-        # launch on a server the text cannot settle, so nothing is logged; the stop check's live-agent scan names it.
-        sock = lambda name: f'/home/u/.config/herdr/sessions/{name}/herdr.sock'
-        for command in (f"HERDR_SOCKET_PATH={sock('s2')} herdr agent start a --pane w1:p5",
-                        f"env HERDR_SOCKET_PATH={sock('s2')} herdr agent start a --pane w1:p5",
-                        f"HERDR_SOCKET_PATH={sock('s2')} herdr --session s3 agent start a --pane w1:p5",
-                        f"HERDR_SOCKET_PATH={sock('s2')} env -u HERDR_SOCKET_PATH herdr agent start a --pane w1:p5",
-                        f"HERDR_SOCKET_PATH={sock('s2')} env -i herdr agent start a --pane w1:p5",
-                        f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'herdr agent start a --pane w1:p5'",
-                        f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'unset HERDR_SOCKET_PATH; herdr agent start a --pane w1:p5'",
-                        f"bash -c 'export HERDR_SOCKET_PATH={sock('s3')}; herdr agent start a --pane w1:p5'",
-                        f"HERDR_SOCKET_PATH={sock('s2')}; herdr agent start a --pane w1:p5",
-                        f"HERDR_SOCKET_PATH={sock('s2')} bash -c '(\n  unset HERDR_SOCKET_PATH\n)\nherdr agent start a --pane w1:p5'",
-                        f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'while false; do unset HERDR_SOCKET_PATH; done\n"
-                        "herdr agent start a --pane w1:p5'",
-                        f"env -u HERDR_SOCKET_PATH bash -c 'HERDR_SOCKET_PATH={sock('s3')}\nherdr agent start a --pane w1:p5'",
-                        f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'env -u HERDR_SOCKET_PATH\nherdr agent start a --pane w1:p5'",
-                        # Review 6: a name the shell expands still names the variable.
-                        f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'unset HERDR_SOCKET_{{PATH,UNUSED}}; herdr agent start a --pane w1:p5'"):
-            with self.subTest(command=command):
-                before = len(self.logged())
-                self.launch(command, pane=None, env={'HERDR_SOCKET_PATH': sock('s4')})
-                self.assertEqual(before, len(self.logged()))
 
     def test_a_registration_with_a_placement_hides_a_live_agent_only_in_its_server_and_tab(self):
         # Review 2: a bare name registered on another Herdr server (or in another tab) is not the default server's
