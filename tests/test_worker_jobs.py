@@ -27,8 +27,7 @@ class Jobs(WorkerLifecycleCase):
         return self.commit('base', files or {'code.py': 'x = 1\n'})
 
     def git(self, *args):
-        return subprocess.run(['git', '-C', str(self.worktree), *args], check=True,
-                              capture_output=True, text=True).stdout.strip()
+        return super().git(self.worktree, *args)
 
     def commit(self, message, files):
         for name, content in files.items():
@@ -112,14 +111,6 @@ sys.exit(process.returncode)
 ''')
         executable.chmod(0o700)
         self.native_env = dict(os.environ, PATH=str(directory) + os.pathsep + os.environ['PATH'])
-
-    def collect_request(self, head, report, attempt='review-1/1'):
-        request = self.root / 'collect.json'
-        request.write_text(json.dumps({
-            'status': 'completed', 'head': head, 'report': str(report), 'evidence': ['review.md'],
-            **self.completion_evidence(attempt),
-            'disposition': {'kind': 'retain', 'reason': 'recheck', 'next_use': 'recheck', 'evidence': ['review.md']}}))
-        return str(request)
 
     def test_registration_needs_a_known_job_done_by_its_agent(self):
         self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'builder',

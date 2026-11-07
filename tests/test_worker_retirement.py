@@ -13,10 +13,7 @@ from lifecycle_case import SCRIPT, WorkerLifecycleCase
 
 class Retirement(WorkerLifecycleCase):
     def test_old_attempt_cannot_retire_an_unfinished_continuation(self):
-        self.register()
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled()
         self.record('retain', reason='same-assignment recheck', next_use='recheck', evidence=['report'])
         self.register('ticket-1/2')
         self.herdr_fixture()
@@ -28,10 +25,7 @@ class Retirement(WorkerLifecycleCase):
         self.assertFalse((self.root / 'native-closed').exists())
 
     def test_retirement_resolves_moved_caller_identity(self):
-        self.register()
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled()
         self.herdr_fixture(caller='pane-1')
         self.native_env['HERDR_PANE_ID'] = 'old-caller-id'
         request = self.root / 'retire.json'
@@ -63,11 +57,8 @@ class Retirement(WorkerLifecycleCase):
         self.assertTrue(report.is_file())
 
     def collect_request(self, report, disposition):
-        request = self.root / 'collect.json'
-        request.write_text(json.dumps({'status': 'completed', 'head': 'head-1', 'report': str(report),
-                                       **self.completion_evidence(), 'evidence': ['current report checked'],
-                                       'disposition': disposition}))
-        return request
+        return super().collect_request('head-1', report, 'ticket-1/1', disposition=disposition,
+                                       evidence=['current report checked'])
 
     def test_a_native_subagent_with_no_herdr_pane_retires_on_its_evidence(self):
         # A native subagent has no pane to close: collect records it closed with the request's evidence, and refuses
@@ -115,10 +106,7 @@ class Retirement(WorkerLifecycleCase):
         # after the same collected-result and receipt checks; its pane is the user's, and the panel stops showing it.
         self.state = self.root / '.scratch' / 'ws' / 'reports' / 'workers.sqlite'
         self.state.parent.mkdir(parents=True)
-        self.register(owned=False)
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled(owned=False)
         self.record('retain', reason='User-owned worker', next_use='Return control to owner', evidence=['receipt'])
         self.assertEqual(1, len(self.panel_rows()))
         self.herdr_fixture()
@@ -155,10 +143,7 @@ class Retirement(WorkerLifecycleCase):
         self.assertNotIn('closed', self.cli('status')['attempts'][0])
 
     def test_retirement_rejects_the_caller_pane(self):
-        self.register()
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled()
         self.herdr_fixture()
         self.native_env['HERDR_PANE_ID'] = 'pane-1'
         request = self.root / 'retire.json'
@@ -170,10 +155,7 @@ class Retirement(WorkerLifecycleCase):
         self.assertFalse((self.root / 'native-closed').exists())
 
     def test_retirement_rejects_a_replaced_native_conversation(self):
-        self.register()
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled()
         self.herdr_fixture(native_session='different-native-session')
         request = self.root / 'retire.json'
         request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1',
@@ -186,10 +168,7 @@ class Retirement(WorkerLifecycleCase):
         # Live (stforestkit, remediate-taut-534): the next attempt's worker was started in this worker's pane. Retire
         # leaves that pane alone and names the reap, which Herdr's answer for the pane lets close the attempt.
         self.herdr_fixture()
-        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
         self.herdr_fixture(native_session='native-2', agent_name='builder-2', pane_session='native-2')
         request = self.root / 'retire.json'
         request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1',
@@ -239,10 +218,7 @@ class Retirement(WorkerLifecycleCase):
         # Review (Sonnet): a failed close leaves nothing recorded that stops the retry from closing the pane the
         # exited worker left, as it does not for a worker still in its pane.
         self.herdr_fixture()
-        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
         self.herdr_fixture(agent_exited=True, close_failures=1)
         request = self.root / 'retire.json'
         request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1',
@@ -259,10 +235,7 @@ class Retirement(WorkerLifecycleCase):
         # Review (Sonnet): the reap closes nothing Herdr cannot identify, so retire names it only for another
         # conversation; an identity with no value keeps the refusal that the conversation no longer matches.
         self.herdr_fixture()
-        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
         self.herdr_fixture(native_session='', pane_session='')
         request = self.root / 'retire.json'
         request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1',
@@ -296,16 +269,10 @@ class Retirement(WorkerLifecycleCase):
         self.assertEqual((self.root / 'native-closed').read_text(), 'closed\n')
 
     def test_final_retirement_releases_worker_handle_of_earlier_retained_attempts(self):
-        self.register()
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled()
         self.record('retain', reason='Same-assignment recheck needed', next_use='final recheck',
                     evidence=['review report'])
-        self.register('ticket-1/2')
-        self.ready('ticket-1/2')
-        self.collect('ticket-1/2')
-        self.acknowledge()
+        self.settled('ticket-1/2')
         self.herdr_fixture()
         request = self.root / 'retire.json'
         request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1',
@@ -320,10 +287,7 @@ class Retirement(WorkerLifecycleCase):
         self.register('ticket-3/1', 'ticket-3', 'native-1', 'different-pane', code=2)
 
     def test_report_must_survive_retirement_and_gate_checks_closed_worker(self):
-        self.register()
-        self.ready()
-        report = self.collect()
-        self.acknowledge()
+        report = self.settled()
         report.unlink()
         self.cli('gate', '--attempt', 'ticket-1/1', '--stage', 'accept', '--revision', 'head-1', code=1)
         self.record('closed', code=2, evidence=['native pane closure confirmed'])
@@ -336,10 +300,7 @@ class Retirement(WorkerLifecycleCase):
 
     def test_retiring_a_worker_whose_report_changed_declines_it(self):
         # As closing does: a changed report can never be accepted, and its worker still retires once declined.
-        self.register()
-        self.ready()
-        report = self.collect()
-        self.acknowledge()
+        report = self.settled()
         report.write_text(report.read_text() + 'changed after collection\n')
         self.herdr_fixture()
         request = self.root / 'retire.json'
@@ -353,10 +314,7 @@ class Retirement(WorkerLifecycleCase):
     def test_retirement_rechecks_the_decline_once_its_herdr_wait_is_over(self):
         # Review: an attempt accepted, and its report changed, while retirement waited on Herdr is not declined by
         # the request; it owes no intact report any more, so it retires, still accepted.
-        self.register()
-        self.ready()
-        report = self.collect()
-        self.acknowledge()
+        report = self.settled()
         accepted = self.root / 'accepted.json'
         accepted.write_text(json.dumps({'kind': 'accepted', 'attempt': 'ticket-1/1', 'commit': 'merge-1',
                                         'evidence': ['git log merge-1']}))
@@ -442,10 +400,7 @@ class Retirement(WorkerLifecycleCase):
         # that pane, ends such a worker; a pane Herdr shows gone, empty or holding another conversation has no worker.
         deferred = {'decision': 'deferred', 'reason': 'acceptance checks pending'}
         self.herdr_fixture()
-        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
         self.herdr_fixture(pane_session='native-1')
         error = self.record('closed', code=2, evidence=['herdr agent get worker-5: agent_not_found'],
                             acceptance=deferred)
@@ -496,10 +451,7 @@ class Retirement(WorkerLifecycleCase):
         # Codex review: Herdr names a Pi worker's conversation by the path of its session record, which the attempt's
         # startup observed: the same conversation, so retire ends it.
         self.herdr_fixture(session_kind='path')
-        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
         self.herdr_fixture(session_kind='path', pane_session=str(self.native_paths['ticket-1/1']))
         error = self.record('closed', code=2, evidence=['pane closed'],
                             acceptance={'decision': 'deferred', 'reason': 'acceptance checks pending'})
@@ -539,24 +491,15 @@ class Retirement(WorkerLifecycleCase):
     def test_a_closure_by_hand_meets_a_missing_acceptance_before_herdr_is_asked(self):
         # Sonnet review: retire refuses it for the same reason, so naming retire first sends the host round in a loop.
         self.herdr_fixture()
-        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
         self.assertIn('Settle acceptance of the completed ticket attempt before closing it', self.closure_before_herdr())
 
     def test_a_closure_by_hand_meets_an_earlier_attempt_s_receipt_before_herdr_is_asked(self):
         # Codex review: the earlier attempt of the conversation holds a receipt to acknowledge, which retire names too.
         self.herdr_fixture()
-        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
         self.record('retain', reason='same-assignment recheck', next_use='recheck', evidence=['report'])
-        self.register('ticket-1/2', worker='builder-1', herdr={'session': 'fixture-session'})
-        self.ready('ticket-1/2')
-        self.collect('ticket-1/2')
-        self.acknowledge()
+        self.settled('ticket-1/2', worker='builder-1', herdr={'session': 'fixture-session'})
         brief = self.root / 'brief.md'
         brief.write_text('# Ruling\n')
         self.record('hold', reason='a ruling is needed', brief=str(brief), evidence=['finding'])
@@ -567,10 +510,7 @@ class Retirement(WorkerLifecycleCase):
     def test_a_herdr_worker_is_not_recorded_closed_while_herdr_cannot_say_where_it_is(self):
         # Neither a Herdr that does not answer nor one that answers with an error tells that the worker has ended.
         self.herdr_fixture()
-        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
         retire = (f'retire the worker with `python3 {SCRIPT} retire --state {shlex.quote(str(self.state.resolve()))} '
                   '--attempt ticket-1/1 --input <request>`')
         deferred = {'decision': 'deferred', 'reason': 'acceptance checks pending'}
@@ -589,10 +529,7 @@ class Retirement(WorkerLifecycleCase):
 
     def test_a_worker_the_orchestrator_does_not_own_is_recorded_closed_by_hand_as_a_release(self):
         # The same closability check serves every closure; only the pane is the user's, and nothing here touches it.
-        self.register(owned=False)
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled(owned=False)
         self.record('closed', evidence=['released to its user'],
                     acceptance={'decision': 'deferred', 'reason': 'acceptance checks pending'})
         self.assertEqual(['released to its user'], self.cli('status')['attempts'][0]['closed']['evidence'])
@@ -618,10 +555,7 @@ class ClosureJudgement(WorkerLifecycleCase):
     def shown(self, **fixture):
         """A collected Herdr worker whose pane Herdr then shows as the fixture arguments say."""
         self.herdr_fixture()
-        self.register(worker='builder-1', herdr={'session': 'fixture-session'})
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
         gone = fixture.pop('gone', False)
         self.herdr_fixture(**fixture)
         if gone:

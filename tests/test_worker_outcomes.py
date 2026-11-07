@@ -169,10 +169,7 @@ class Outcomes(WorkerLifecycleCase):
 
     def test_acceptance_refuses_an_attempt_whose_retained_report_changed(self):
         # The accept gate already reports a changed report; recording acceptance must refuse it too, and decline passes.
-        self.register()
-        self.ready()
-        report = self.collect()
-        self.acknowledge()
+        report = self.settled()
         report.write_text(report.read_text() + 'changed after collection\n')
         error = self.record('accepted', commit='merge-1', evidence=['git log merge-1'], code=2)
         self.assertIn('report changed after collection', error)
@@ -183,10 +180,7 @@ class Outcomes(WorkerLifecycleCase):
     def test_an_attempt_whose_report_changed_after_collection_closes_only_declined(self):
         # Live E2E 2026-10-26: a worker's report changed after it returned; that attempt can never be accepted, and
         # it must still be closable, as declined, so it does not stay open with no process behind it.
-        self.register()
-        self.ready()
-        report = self.collect()
-        self.acknowledge()
+        report = self.settled()
         report.write_text(report.read_text() + 'changed after collection\n')
         error = self.record('closed', evidence=['native session exited'], code=2,
                             acceptance={'decision': 'accepted', 'commit': 'merge-1', 'evidence': ['git log merge-1']})
@@ -198,15 +192,9 @@ class Outcomes(WorkerLifecycleCase):
 
     def test_a_conversation_closes_only_when_each_of_its_changed_reports_is_declined(self):
         # Two attempts of one native conversation: the earlier one's report changed and stays undeclined.
-        self.register()
-        self.ready()
-        earlier = self.collect()
-        self.acknowledge()
+        earlier = self.settled()
         self.record('retain', reason='Same-assignment recheck needed', next_use='recheck', evidence=['report'])
-        self.register('ticket-1/2')
-        self.ready('ticket-1/2')
-        self.collect('ticket-1/2')
-        self.acknowledge()
+        self.settled('ticket-1/2')
         earlier.write_text(earlier.read_text() + 'changed after collection\n')
         closing = dict(evidence=['native session exited'], acceptance={'decision': 'deferred', 'reason': 'pending'})
         self.assertIn('intact report', self.record('closed', 'ticket-1/2', code=2, **closing))
@@ -214,10 +202,7 @@ class Outcomes(WorkerLifecycleCase):
         self.record('closed', 'ticket-1/2', **closing)
 
     def test_closing_a_completed_ticket_settles_its_acceptance(self):
-        self.register()
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled()
         error = self.record('closed', evidence=['native session exited'], code=2)
         self.assertIn('acceptance', error)
         self.assertIn('Settle acceptance', self.record(
@@ -265,10 +250,7 @@ class Outcomes(WorkerLifecycleCase):
     def test_other_jobs_close_without_an_acceptance_decision(self):
         self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'reviewer', 'job': 'diff-review',
                                              'settings': {'model': 'sonnet', 'effort': 'high'}}))
-        self.register()
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled()
         self.record('closed', evidence=['native session exited'])
         self.assertEqual(self.cli('status')['attempts'][0]['attention'], [])
 
@@ -305,10 +287,7 @@ class Outcomes(WorkerLifecycleCase):
                          (['done'], 'objective', [str(report)]))
 
     def test_retiring_a_completed_ticket_settles_acceptance_before_closing_the_pane(self):
-        self.register()
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.settled()
         self.herdr_fixture()
         request = self.root / 'retire.json'
         retire = {'session': 'fixture-session', 'pane': 'pane-1', 'jobs_evidence': ['owned jobs stopped']}

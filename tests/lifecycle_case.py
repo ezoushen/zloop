@@ -23,6 +23,10 @@ UNSET = object()  # A fixture argument left to its default.
 
 
 class WorkerLifecycleCase(unittest.TestCase):
+    def git(self, checkout, *args):
+        return subprocess.run(['git', '-C', str(checkout), '-c', 'user.name=t', '-c', 'user.email=t@t', *args],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='zloop worker ')
         self.addCleanup(self.tmp.cleanup)
@@ -98,6 +102,16 @@ class WorkerLifecycleCase(unittest.TestCase):
         """Record a completed result backed by the fixture worker's turn."""
         return self.record('result', attempt, **self.completion_evidence(attempt), **fields)
 
+    def collect_request(self, head, report, attempt='review-1/1', *, disposition=None,
+                        evidence=('review.md',), native=None):
+        """Write a completed collection request, retaining the worker for recheck unless given a disposition."""
+        request = self.root / 'collect.json'
+        request.write_text(json.dumps(dict(status='completed', head=head, report=str(report), evidence=evidence,
+            **(self.completion_evidence(attempt) if native is None else {'native': str(native)}),
+            disposition=disposition if disposition is not None else {
+                'kind': 'retain', 'reason': 'recheck', 'next_use': 'recheck', 'evidence': ['review.md']})))
+        return str(request)
+
     def watch(self, attempt='ticket-1/1', script='print("idle")', code=0, timeout=2):
         path = self.root / 'wait.json'
         path.write_text(json.dumps({'argv': [sys.executable, '-c', script], 'timeout': timeout}))
@@ -114,6 +128,14 @@ class WorkerLifecycleCase(unittest.TestCase):
     def acknowledge(self):
         for receipt in self.cli('status')['pending']:
             self.cli('ack', '--event-id', str(receipt['id']))
+
+    def settled(self, attempt='ticket-1/1', **registration):
+        """A registered, prompted worker with its completed report collected and all receipts acknowledged."""
+        self.register(attempt, **registration)
+        self.ready(attempt)
+        report = self.collect(attempt)
+        self.acknowledge()
+        return report
 
     def routed(self, assignment='ticket-1/route', runtime='claude'):
         """Journal a recommended worker-selection decision and register its resolved route."""

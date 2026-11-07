@@ -3,7 +3,6 @@
 
 import json
 import os
-import subprocess
 import sys
 import unittest
 
@@ -838,10 +837,6 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
         self.assertIn('Native evidence does not belong to the registered session pi-child-7: the record '
                       'is session pi-child-8', refused)
 
-    def git(self, checkout, *args):
-        return subprocess.run(['git', '-C', str(checkout), '-c', 'user.name=t', '-c', 'user.email=t@t', *args],
-                              check=True, capture_output=True, text=True).stdout.strip()
-
     def two_checkouts(self):
         """A repository with a workstream worktree (feat/e4) and a detached review worktree at its base: E4's shape."""
         repo = (self.root / 'repo').resolve()
@@ -859,12 +854,7 @@ class NativeWorkingDirectory(WorkerLifecycleCase):
     def collect_request(self, head, attempt):
         report = self.root / 'review.md'
         report.write_text('## Coverage\n\n## Review round 1\n')
-        request = self.root / 'collect.json'
-        request.write_text(json.dumps({
-            'status': 'completed', 'head': head, 'report': str(report), 'evidence': ['review.md'],
-            **self.completion_evidence(attempt),
-            'disposition': {'kind': 'retain', 'reason': 'recheck', 'next_use': 'recheck', 'evidence': ['review.md']}}))
-        return str(request)
+        return super().collect_request(head, report, attempt)
 
     def test_a_read_only_pi_child_working_in_another_checkout_is_held_to_both(self):
         # Rule: a Pi child's session header is its own directory (`cwd:` at launch). A reviewer registered to the

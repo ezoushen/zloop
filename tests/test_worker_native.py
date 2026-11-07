@@ -257,12 +257,9 @@ class NativeProof(WorkerLifecycleCase):
     def result_request(self, attempt, path):
         report = self.root / (attempt.replace('/', '-') + '.md')
         report.write_text('## Implemented\n\nWorker report.\n')
-        request = self.root / 'collect.json'
-        request.write_text(json.dumps({'status': 'completed', 'head': 'head-1',
-            'report': str(report), 'evidence': ['checks'], 'native': str(path),
-            'disposition': {'kind': 'retain', 'reason': 'recheck', 'next_use': 'recheck',
-                            'evidence': ['report read']}}))
-        return str(request)
+        return self.collect_request('head-1', report, attempt, native=path, evidence=['checks'],
+                                    disposition={'kind': 'retain', 'reason': 'recheck', 'next_use': 'recheck',
+                                                 'evidence': ['report read']})
 
     def test_registration_requires_its_exact_attempt_line_in_the_packet(self):
         packet = self.packet()

@@ -22,10 +22,7 @@ class Reap(WorkerLifecycleCase):
     def placed(self, attempt='ticket-1/1', **fixture):
         """A collected attempt of the fixture's Herdr worker (session fixture-session, tab tab-1), its tab still open."""
         self.herdr_fixture(**fixture)
-        self.register(attempt, worker='builder-1', herdr={'session': 'fixture-session'})
-        self.ready(attempt)
-        self.collect(attempt)
-        self.acknowledge()
+        self.settled(attempt, worker='builder-1', herdr={'session': 'fixture-session'})
 
     def tab_closed(self):
         """The fixture's Herdr now answers that the worker's pane and tab are gone."""
@@ -357,20 +354,14 @@ class Reap(WorkerLifecycleCase):
         self.record('accepted', commit='abc123', evidence=['merged'])
         self.record('retain', reason='the repair round', next_use='fix round', evidence=['report'])
         (self.root / 'ticket-1-1.md').write_text('## Implemented\n\nRewritten after acceptance\n')
-        self.register('ticket-1/2', worker='builder-1', herdr={'session': 'fixture-session'})
-        self.ready('ticket-1/2')
-        self.collect('ticket-1/2')
-        self.acknowledge()
+        self.settled('ticket-1/2', worker='builder-1', herdr={'session': 'fixture-session'})
         self.tab_closed()
         self.assertEqual(['ticket-1/2'], [row['attempt'] for row in self.cli('reap')['closed']])
 
     def test_a_refusal_names_each_unsettled_attempt_with_what_it_lacks_and_the_command_that_settles_it(self):
         self.placed()
         self.record('retain', reason='the repair round', next_use='fix round', evidence=['report'])
-        self.register('ticket-1/2', worker='builder-1', herdr={'session': 'fixture-session'})
-        self.ready('ticket-1/2')
-        self.collect('ticket-1/2')
-        self.acknowledge()
+        self.settled('ticket-1/2', worker='builder-1', herdr={'session': 'fixture-session'})
         db = sqlite3.connect(self.state)
         data = json.loads(db.execute("SELECT data FROM attempts WHERE id = 'ticket-1/1'").fetchone()[0])
         result = data.pop('result')
