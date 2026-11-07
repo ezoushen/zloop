@@ -294,6 +294,19 @@ class Reap(WorkerLifecycleCase):
         self.assertEqual({'reason': 'closed by reap: its run card ended merged'},
                          self.cli('status')['attempts'][0]['acceptance_deferred'])
 
+    def test_a_card_with_a_statement_heading_and_no_state_ends_nothing(self):
+        # Rule: the State is the `## State` heading exactly; a `terminal: merged` under `## Statement` is no ended run.
+        card = self.run_card('')
+        card.write_text('# ws\n\n## Statement\nterminal: merged\nevidence: x\n')
+        self.retained()
+        self.assertEqual(NOTHING, self.cli('reap'))
+
+    def test_a_run_card_whose_terminal_is_the_templates_placeholder_ends_nothing(self):
+        # Rule: a `<placeholder>` value is empty, so the run has not ended.
+        self.run_card('<state, once ended>')
+        self.retained()
+        self.assertEqual(NOTHING, self.cli('reap'))
+
     def test_a_closure_the_lifecycle_refuses_is_reported_with_its_refusal_and_closes_nothing_else_wrongly(self):
         # Rule 3: a report that changed after collection cannot be closed over; reap names the refusal, exits 0 and
         # still closes the other attempts it may.

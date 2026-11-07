@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_matter  # noqa: E402
 import state_files  # noqa: E402
 import next_tickets  # noqa: E402
-from worker_lifecycle import SESSION_VARIABLES, host_sessions  # noqa: E402
+from worker_lifecycle import SESSION_VARIABLES, host_sessions, state_fields  # noqa: E402
 
 LEVELS = ('low', 'medium', 'high', 'xhigh', 'max')
 # The lines of the run card format's State, every one written before the user confirms the card.
@@ -44,11 +44,11 @@ TICKETS = Path(__file__).resolve().parent / 'next_tickets.py'
 
 
 def field(text, key):
-    """The value of the card's `key:` line, '' for a blank or `<placeholder>` value; exits when the card has no such line."""
-    match = re.search(rf'^{re.escape(key)}:[ \t]*(.*)$', text, re.M)
-    if not match:
+    """The value of the State's `key:` line, '' for a blank or `<placeholder>` value; exits when the card has no such line."""
+    fields = state_fields(text)
+    if key not in fields:
         sys.exit(f'the card has no `{key}:` line')
-    return '' if match.group(1).startswith('<') else match.group(1).strip()
+    return fields[key]
 
 
 def set_field(text, key, value):
