@@ -2858,6 +2858,14 @@ class AutopilotCardHold(GateRepo):
         self.card(phase='dispatch (inline)', session='host-2')
         self.assertEqual(self.check(session='host-1'), [])
 
+    def test_the_templates_unconfirmed_line_is_not_a_confirmation(self):
+        # Rule: a card is confirmed by a date and the user's words; the template's `no | <date> "<words>"` line, in any
+        # case, is not, and the panel reads the same.
+        for confirmed in ('no | <date> "<the user\'s words>"', 'No', 'no (waiting)'):
+            with self.subTest(confirmed=confirmed):
+                self.card(confirmed=confirmed)
+                self.assertEqual(self.check(session='host-1'), [])
+
     def test_a_confirmed_card_of_this_session_without_a_terminal_state_or_evidence_holds_the_stop(self):
         # Rule: no run ends silently. Only this session's confirmed card with `terminal:` or `evidence:` empty holds.
         path = self.card()
