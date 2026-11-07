@@ -11,7 +11,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_matter  # noqa: E402
 import next_tickets  # noqa: E402
-from worker_lifecycle import ENDED, card_state, recorded_sessions  # noqa: E402
+from worker_lifecycle import ENDED, PAUSED, card_sessions, card_state, confirmed, recorded_sessions  # noqa: E402
 
 SCRATCH = '.scratch'
 CARD = 'autopilot.md'
@@ -19,20 +19,12 @@ ORCHESTRATOR = 'orchestrator.json'
 RUN_CAP = 3
 # The board's statuses of a ticket being worked on (next_tickets.py LIVE).
 LIVE_TICKET = ('implementing', 'reviewing', 'fixing', 'verifying')
-# Terminal states that leave a resume step in the card's `resume:` line.
-PAUSED = ('waiting-on-user', 'paused-allowance', 'paused-by-user', 'blocked')
 BLOCKERS = {
     'paused-by-user': 'paused-by-user: you took control',
     'paused-allowance': 'paused-allowance: waiting for the window to reset',
     'waiting-on-user': 'waiting-on-user: one action on the pause list is needed',
     'blocked': 'blocked: no option fits the principles',
 }
-
-
-def claims(workstream):
-    """The session ids a run card records: each host session its confirming shell exported."""
-    recorded = card_state(workstream / CARD).get('session', '')
-    return [part.strip() for part in recorded.split(',') if part.strip() not in ('', 'unknown')]
 
 
 def workstreams(repo):
@@ -104,7 +96,7 @@ def blocker_row(workstream, state, found_tickets, scheduled, session_id):
     if own or (problems and any(fields.get('status') != 'done' for _, fields in found_tickets)):
         more = f' (+{len(problems) - 1} more)' if len(problems) > 1 else ''
         return {'kind': 'blocker', 'text': f'board fails its check: {(own or problems)[0]}{more}'}
-    held = not is_draft(state) and session_id in [name.strip() for name in state.get('session', '').split(',')]
+    held = confirmed(state) and session_id in card_sessions(state)
     if terminal in ENDED and state.get('board') == 'local' and held:  # A card the stop check holds this session to.
         try:
             gaps = next_tickets.undelivered(workstream.name, scheduled)
@@ -118,12 +110,6 @@ def blocker_row(workstream, state, found_tickets, scheduled, session_id):
             reason = fields.get('blocker') or 'blocked'
             return {'kind': 'blocker', 'text': f"blocked: {fields.get('ticket', path.stem)} · {reason}"}
     return None
-
-
-def is_draft(state):
-    """Whether the run card is unconfirmed: `run-card.md` writes `confirmed: no` or a date with the user's words."""
-    confirmed = state.get('confirmed', '')
-    return not confirmed or confirmed.lower().startswith('no')
 
 
 def live_workstream(state, attempts, blocker, draft, found_tickets):
@@ -338,7 +324,7 @@ def tied(repo, session_id):
     recorded = dict.fromkeys([
         *sorted((workstream for workstream in found if session_id in (bound_sessions(workstream) or [])), key=activity,
                 reverse=True),
-        *(workstream for workstream in found if session_id in claims(workstream)),
+        *(workstream for workstream in found if session_id in card_sessions(card_state(workstream / CARD))),
         *(workstream for workstream in found if any(workstream.glob(f'decisions-{session_id}*.jsonl'))
           or any((workstream / 'reports').glob(f'decisions-{session_id}*.jsonl')))])
     yield from recorded
@@ -371,7 +357,7 @@ def snapshot(repo, session_id, now):
         scheduled = board_of(main, workstream.name)
         state = card_state(workstream / CARD)
         found_tickets = tickets(workstream)
-        draft = is_draft(state) if state else False
+        draft = bool(state) and not confirmed(state)
         blocker = blocker_row(workstream, state, found_tickets, scheduled, session_id)
         bound = bound_sessions(workstream)
         attempts = live_attempts(workstream, now, set(bound) if bound is not None else {session_id})

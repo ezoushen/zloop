@@ -312,6 +312,7 @@ class PanelState(unittest.TestCase):
         path.parent.mkdir(parents=True)
         path.write_text('# demo\n\n## Statement\nconfirmed: yes\nsession: S\nterminal: delivered\n')
         ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='ready')
+        orchestrator(self.scratch / 'demo', ['S'])
         self.assertTrue(self.snapshot()['active'])
 
     def test_a_ready_ticket_is_the_next_row(self):

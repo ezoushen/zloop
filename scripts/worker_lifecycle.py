@@ -35,8 +35,11 @@ TAB_RECIPE = ('start the worker in a tab of its own: `herdr tab create --workspa
               'then register it')
 LOOKUP_SECONDS = 5  # Registration's wait on each Herdr call.
 REAP_SECONDS = 5  # All a stop's reap may spend, inside the hosts' 20 s hook timeout, which the gate's other checks share.
-# The terminal states of a run card after which nothing of the run is used again.
+# The terminal states a run card may record: ENDED after which nothing of the run is used again,
+# PAUSED leaving a resume step on the card's `resume:` line.
 ENDED = ('delivered', 'delivered-local', 'merged')
+PAUSED = ('waiting-on-user', 'paused-allowance', 'paused-by-user', 'blocked')
+TERMINAL_STATES = ENDED + PAUSED
 # Native write-scope controls: a launch requests them (its `verify`) and startup observes them.
 SCOPE = ('permission_mode', 'sandbox', 'approval', 'filesystem', 'tools', 'permissions')
 TOP_LEVEL = ('claude', 'codex', 'opencode', 'pi')  # Runtimes whose own process the resolver gives launch controls.
@@ -1815,19 +1818,36 @@ def require_ended(db, attempt, acceptance):
             f'not ended: retire it with {retire}, which closes that pane and records the closure')
 
 
-def card_state(path):
-    """The field lines of a run card's `## State` section, as `key: value`; an absent card has none."""
-    if not path.is_file():
-        return {}
-    sections = path.read_text(errors='replace').split('\n## State', 1)
-    if len(sections) < 2:
-        return {}
+def state_fields(text):
+    """The `key: value` lines of the State section (heading `## State` exactly) of a run card's text, '' for a blank or
+    placeholder (`<...>`) value; {} when it has none."""
+    heading = re.search(r'^## State[ \t]*$', text, re.M)
     fields = {}
-    for line in sections[1].split('\n## ', 1)[0].splitlines():
-        key, _, value = line.partition(':')
-        if key.strip() and ' ' not in key.strip():
-            fields[key.strip()] = value.strip()
+    for line in re.split(r'^## ', text[heading.end():], maxsplit=1, flags=re.M)[0].splitlines() if heading else []:
+        key, colon, value = line.partition(':')
+        if colon and re.fullmatch(r'[a-z-]+', key):
+            value = value.strip()
+            fields[key] = '' if value.startswith('<') else value
     return fields
+
+
+def card_state(path):
+    """The State of the run card at `path`; {} when it cannot be read or has none."""
+    try:
+        return state_fields(path.read_text(errors='replace'))
+    except OSError:
+        return {}
+
+
+def confirmed(state):
+    """Whether the card's user confirmed it: `confirmed:` holds a date and the user's words, not blank or `no` (as the
+    template's `no | <date> "<the user's words>"` begins)."""
+    return not re.match(r'(no\b|$)', state.get('confirmed', ''), re.I)
+
+
+def card_sessions(state):
+    """The host sessions the card names on `session:`."""
+    return [part.strip() for part in state.get('session', '').split(',') if part.strip() not in ('', 'unknown')]
 
 
 def recorded_sessions(data):

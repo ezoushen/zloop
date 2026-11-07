@@ -69,11 +69,7 @@ HOLDS = '.scratch/holds'
 MAX_HOLDS = 3
 # scripts/next_tickets.py --orchestrate records here, in a workstream's reports/, the session that orchestrates it.
 BINDING = 'orchestrator.json'
-# The states skills/autopilot/run-card.md lets a run end in.
-TERMINAL_STATES = ('delivered', 'delivered-local', 'merged', 'waiting-on-user', 'paused-allowance', 'paused-by-user',
-                   'blocked')
 # The ones that claim the work delivered: the card's workstream must be delivered on its local board.
-DELIVERED = ('delivered', 'delivered-local', 'merged')
 
 
 def lifecycle():
@@ -334,23 +330,6 @@ def recorded_sessions(saved):
         [saved['session']] if isinstance(saved.get('session'), str) else [])
 
 
-def card_state(path):
-    """The `key: value` lines of a run card's State section, '' for a blank or placeholder (`<...>`) value; {} when the
-    card cannot be read or has no State."""
-    try:
-        text = path.read_text(errors='replace')
-    except OSError:
-        return {}
-    state = {}
-    heading = re.search(r'^## State[ \t]*$', text, re.M)
-    for line in re.split(r'^## ', text[heading.end():], maxsplit=1, flags=re.M)[0].splitlines() if heading else []:
-        key, colon, value = line.partition(':')
-        if colon and re.fullmatch(r'[a-z-]+', key):
-            value = value.strip()
-            state[key] = '' if value.startswith('<') else value
-    return state
-
-
 def board_gaps(root, path, state):
     """What `autopilot_card.py phase` would refuse in a run card's State written by hand: a phase none of the four,
     or dispatch or pr with no board, or with no ticket on its local board."""
@@ -402,18 +381,18 @@ def unfinished_runs(root, session):
     what `autopilot_card.py phase` would refuse; and each that records a delivered state its local board refuses."""
     missing = []
     for path in sorted(root.glob('.scratch/*/autopilot.md')):
-        state = card_state(path)
-        if not (session and session in [part.strip() for part in state.get('session', '').split(',')]
-                and state.get('confirmed', 'no') not in ('', 'no')):
+        life = lifecycle()
+        state = life.card_state(path)
+        if not (session in life.card_sessions(state) and life.confirmed(state)):
             continue
-        if state.get('terminal') in TERMINAL_STATES and state.get('evidence'):
-            if state['terminal'] in DELIVERED:
+        if state.get('terminal') in life.TERMINAL_STATES and state.get('evidence'):
+            if state['terminal'] in life.ENDED:
                 missing += delivery_gaps(root, path, state)
             continue
         missing += board_gaps(root, path, state)
         if not awaited(path.with_name('reports') / 'workers.sqlite'):
             missing.append(f"{path}: this session's autopilot run has no terminal state or no evidence; record "
-                           f"`terminal:` as exactly one of {', '.join(f'`{name}`' for name in TERMINAL_STATES)} and "
+                           f"`terminal:` as exactly one of {', '.join(f'`{name}`' for name in life.TERMINAL_STATES)} and "
                            "`evidence:` in the card's State")
     return missing
 
