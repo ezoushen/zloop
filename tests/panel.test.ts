@@ -297,20 +297,22 @@ describe("zloop panel", () => {
     expect(await texts(band)).toEqual(["engine band"]);
   });
 
-  test("cuts rows to the pane's columns, wide characters included", async ($, on) => {
-    // A table that over-counts every letter would pass a "<= width" check, so the fitting and astral cases are exact.
-    const fitted = ["abc ✅", "🚀🚀🚀🚀"];
-    beneath(on, snapshot({ rows: fitted.map((text) => ({ kind: "run", text })) }));
+  test("a row longer than the pane is handed whole to Text, which wraps it instead of cutting it", async ($, on) => {
+    // Rule: a narrow pane continues a long row on the next lines; nothing is cut and no ellipsis is added.
+    const long = "▶ builder · zloop-panel/01 · sonnet · quiet 12m 🚀🚀🚀";
+    beneath(on, snapshot({ rows: [{ kind: "run", text: long }] }));
     await started($);
-    const wide = await pane($, { bodyColumns: 8 });
-    expect(await texts(wide)).toEqual(fitted);
-    await wide.unmount();
+    const nodes = await (await pane($, { bodyColumns: 10 })).findAll({ type: "Text" });
+    expect(nodes.map((node: any) => node.text)).toEqual([long]);
+    // Text's own wrap is the engine's default; "wrap" or unset both wrap, any truncate mode would cut.
+    expect([undefined, "wrap"]).toContain(nodes[0].props.wrap);
+  });
 
-    const cut = await texts(await pane($, { bodyColumns: 5 }));
-    expect(cut[0].endsWith("…")).toBe(true);
-    expect(cut[1].endsWith("…")).toBe(true);
-    const cells = [...cut[1]].reduce((total, character) => total + (character === "🚀" ? 2 : 1), 0);
-    expect(cells).toBeLessThanOrEqual(5);
+  test("a quiet notice longer than the pane is also handed whole", async ($, on) => {
+    beneath(on, snapshot({ active: false, strip: null }));
+    await started($);
+    const nodes = await (await pane($, { bodyColumns: 10 })).findAll({ type: "Text" });
+    expect(nodes.map((node: any) => node.text)).toEqual(["No zloop workstream is live in this session."]);
   });
 
   test("gives every row its kind's emphasis", async ($, on) => {

@@ -8,38 +8,6 @@ const REFRESH_MS = 2000;
 const PANE = "zloop-panel";
 const QUIET = "No zloop workstream is live in this session.";
 
-/** A character the terminal draws in two cells: East Asian wide and fullwidth blocks, and emoji presentation. */
-const WIDE = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6\u2300-\u23FF\u2600-\u27BF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}\u{20000}-\u{2FFFD}]/u;
-/** Characters that take no cell of their own: variation selectors and zero-width marks. */
-const ZERO = /[\u200B-\u200F\u2060\uFE0E\uFE0F]/u;
-
-/** The cells `character` occupies. */
-const cellsOf = (character) => {
-  if (ZERO.test(character)) return 0;
-  return WIDE.test(character) ? 2 : 1;
-};
-
-/** `text` cut to `width` terminal cells, ended with an ellipsis when anything was dropped. */
-function truncateCells(text, width) {
-  if (width <= 0) return "";
-  let out = "";
-  let used = 0;
-  for (const character of text) {
-    const cells = cellsOf(character);
-    if (used + cells > width) {
-      while (used > width - 1 && out) {
-        const dropped = [...out].pop();
-        out = out.slice(0, -dropped.length);
-        used -= cellsOf(dropped);
-      }
-      return `${out}…`;
-    }
-    out += character;
-    used += cells;
-  }
-  return out;
-}
-
 /** The emphasis each row kind takes; a run row keeps the default style. */
 const TONES = {
   headline: { bold: true },
@@ -160,14 +128,13 @@ export function register(on) {
     const more = facts && Array.isArray(facts.more) ? facts.more.filter(drawable) : [];
     const isExpanded = await read($, expanded);
     const C = $.ui.resolve(e);
-    const width = e?.props?.bodyColumns ?? 80;
-    if (!rows.length) return C.Text({ children: truncateCells(QUIET, width), color: "subtle" });
-    const text = (row) => C.Text({ children: truncateCells(row.text, width), ...(TONES[row.kind] ?? {}) });
+    // Text wraps a long row onto the lines under it (its default), so a narrow pane shows the whole row.
+    if (!rows.length) return C.Text({ children: QUIET, color: "subtle" });
+    const text = (row) => C.Text({ children: row.text, ...(TONES[row.kind] ?? {}) });
     // `+N more`, and `show fewer` in its place once pressed: a click, Enter under the focus, or `m` in the pane.
-    // A plain Button draws its hotkey and a colon before the label, three cells.
     const expander = (label) => C.Button({ key: "more", hotkey: "m", plain: true, dimColor: true,
                                            onPress: () => update($, expanded, (now) => !now),
-                                           children: truncateCells(label, width - 3) });
+                                           children: label });
     return C.Box({
       flexDirection: "column",
       children: rows.flatMap((row) => {
