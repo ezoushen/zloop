@@ -54,9 +54,9 @@ copy=~/.codex/plugins/cache/zloop-dev/zloop/0.3.0
 rm -rf "$copy/.venv" && python3 -m venv "$copy/.venv" && "$copy/.venv/bin/python" -m pip install -r "$copy/requirements.txt"
 ```
 
-Reinstalling from this checkout kept the hooks already approved trusted, and rebuilding
-`.venv` did not change that; review any native hook-trust prompt that appears. Check
-installation with
+A reinstall whose plugin files changed leaves the hooks `modified` (rebuilding `.venv`
+does not): Codex runs none of them until you approve them again in a Codex session.
+Check installation with
 `codex plugin list --marketplace zloop-dev --json` and the
 [native readers](development.md#native-checks). Also check runtime `skills/list` and
 `hooks/list`: a listed installation alone does not prove that its skills or hook were
