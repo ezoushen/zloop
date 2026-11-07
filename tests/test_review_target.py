@@ -54,7 +54,7 @@ class ReviewTarget(unittest.TestCase):
         return rt.parser().parse_args(['--repo', self.directory, *extra])
 
     def launch(self, *extra, code=0, host='codex', target='feature', identified=True, session='review-session',
-               interrupted=False, **env_extra):
+               interrupted=False, script=SCRIPT, **env_extra):
         env = {key: value for key, value in support.isolated_env(self.repo).items()
                if not key.startswith(('ZLOOP_', 'HERDR_')) and key not in
                ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID', 'OPENCODE_SESSION_ID')}
@@ -62,7 +62,7 @@ class ReviewTarget(unittest.TestCase):
         if identified:
             env.update(CODEX_SESSION_ID=session, HERDR_PANE_ID='w1:p9')
         # An interrupted start: every rename over a target fails, as when the process dies at that step.
-        runner = [sys.executable, '-c', INTERRUPTED, str(SCRIPT)] if interrupted else [sys.executable, str(SCRIPT)]
+        runner = [sys.executable, '-c', INTERRUPTED, str(script)] if interrupted else [sys.executable, str(script)]
         result = subprocess.run([*runner, '--repo', self.directory,
                                  *(['--host', host] if host else []),
                                  target, '--base', 'trunk', *extra], capture_output=True, text=True, env=env)
@@ -345,6 +345,22 @@ class ReviewTarget(unittest.TestCase):
             'first': {'executor': {'type': 'subagent'}}, 'second': {'executor': {'type': 'subagent'}}}}}}))
         selected = self.launch('--workstream', 'fx')
         self.assertEqual(selected['route']['status'], 'selection_required')
+
+    def test_the_router_exit_status_decides_no_route_whatever_its_refusal_says(self):
+        # One router call serves review start: exit 3 is no route in any wording; the old wording under another status,
+        # and any other failure, stop the start. The plugin's own interpreter answers, as it does at delivery.
+        old = "Model 'm': No configured route from 'codex' to model runtimes ['pi'] in this environment"
+        for status, refusal, recorded in ((3, 'nowhere for the reviewer to run', True), (2, old, False), (1, 'boom', False)):
+            with self.subTest(status=status):
+                root = Path(self.tmp.name) / f'stub{status}'
+                plugin = support.stub_router_plugin(root, status, refusal)
+                result = self.launch('--workstream', f'w{status}', script=plugin / 'scripts/review_target.py',
+                                     code=0 if recorded else 2)
+                if recorded:
+                    self.assertEqual(result['route'], {'status': 'no_route', 'reason': refusal})
+                else:
+                    self.assertIn(refusal, result)
+                self.assertIn('agent_models.py', (root / 'stub.log').read_text())
 
     def test_reviewer_configuration_errors_stop_start_without_recording_no_route(self):
         config = self.repo / '.zloop'

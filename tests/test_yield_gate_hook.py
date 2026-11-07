@@ -1951,6 +1951,30 @@ class DeliveryHold(GateRepo):
                                   capture_output=True, text=True, env=self.env(None, **env))
         self.assertEqual(delivery.returncode, 0, delivery.stdout + delivery.stderr)
 
+    def test_delivery_takes_no_route_from_the_router_exit_status_not_its_wording(self):
+        # One router call serves the delivery re-ask: exit 3 is no route in any wording, so a local review counts; the old
+        # wording under exit 2 and any other failure are named as failures; the plugin's interpreter answers.
+        old = "Model 'm': No configured route from 'codex' to model runtimes ['pi'] in this environment"
+        self.bind(pane='w1:p1', autofix=True)
+        (self.repo / '.scratch/fix/issues/01-task.md').write_text(
+            '---\nticket: fix/01\nstatus: done\nblocked_by: []\ntouches: [t01]\ndevices: []\n'
+            f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
+        self.review(delivered=True, review_by='local')
+        self.report.with_name('review.json').write_text(json.dumps({
+            'route': {'status': 'no_route', 'reason': 'none then'}, 'host': 'codex', 'report': str(self.report)}))
+        for status, refusal, counts in ((3, 'nowhere for the reviewer to run', True), (2, old, False), (1, 'boom', False)):
+            with self.subTest(status=status):
+                root = Path(self.tmp.name) / f'stub{status}'
+                plugin = support.stub_router_plugin(root, status, refusal)
+                delivery = subprocess.run([sys.executable, '-B', str(plugin / 'scripts/next_tickets.py'), '--repo',
+                                           str(self.repo), 'fix', '--delivery'], capture_output=True, text=True,
+                                          env=self.env(None))
+                self.assertEqual(delivery.returncode, 0 if counts else 1, delivery.stdout + delivery.stderr)
+                if not counts:
+                    self.assertIn(f'review_by: local cannot be judged, the router failed: {refusal}',
+                                  delivery.stdout + delivery.stderr)
+                self.assertIn('agent_models.py', (root / 'stub.log').read_text())
+
     def test_a_router_that_never_answers_costs_one_wait_per_host_within_the_stop_budget(self):
         # Review (Codex): each check asked the router again, ten seconds each: a stop holding a review, an autofix
         # delivery and a delivered card of one host took thirty seconds, past the hosts' 20 s hook budget.

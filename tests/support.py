@@ -2,6 +2,7 @@
 import importlib.util
 import os
 import re
+import shlex
 from pathlib import Path
 import sys
 from native_records import assistant_turn, session_record, user_message
@@ -46,6 +47,20 @@ def isolated_env(root, **values):
     root = Path(root)
     return dict(os.environ, XDG_STATE_HOME=str(root / 'state'), XDG_CONFIG_HOME=str(root / 'config'),
                 CODEX_HOME=str(root / 'codex'), **values)
+
+
+def stub_router_plugin(root, exit_status, refusal=''):
+    """A copy of the plugin (but its tests and checkout state) under `root` whose `.venv/bin/python` is a stub router: it logs its arguments to
+    `root/stub.log`, prints `refusal` to stderr and exits `exit_status`. Returns the plugin copy's path."""
+    import shutil
+    plugin = Path(root) / 'plugin'
+    shutil.copytree(ROOT, plugin, ignore=shutil.ignore_patterns('__pycache__', '.git', '.worktrees', '.scratch', '.venv',
+                                                                  'tests', 'node_modules', 'benchmarks'))
+    stub = plugin / '.venv/bin/python'
+    stub.parent.mkdir(parents=True)
+    stub.write_text(f'#!/bin/sh\necho "$@" >> {shlex.quote(str(Path(root) / "stub.log"))}\necho {shlex.quote(refusal)} >&2\nexit {exit_status}\n')
+    stub.chmod(0o755)
+    return plugin
 
 
 def assignment_file(root, job, text='', *, attempt='ticket-1/1'):
