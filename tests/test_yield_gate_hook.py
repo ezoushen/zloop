@@ -1813,6 +1813,22 @@ class DeliveryHold(GateRepo):
         for pane, session in (('w1:p1', 'host-2'), ('w1:p9', None), (None, 'host-2')):
             self.assertEqual(self.check(pane=pane, session=session), [], (pane, session))
 
+    def test_another_workstreams_ticket_the_board_refuses_holds_no_orchestrator(self):
+        # Review (Codex): sessions share the checkout, and another workstream's malformed or unreadable ticket made the
+        # bound orchestrator's delivery uncheckable, holding it for a file not its own; its own still holds it, named.
+        self.bind(pane='w1:p1')
+        other = self.repo / '.scratch/other/issues'
+        other.mkdir(parents=True)
+        (other / '01-task.md').write_text('---\nticket: other/one\nstatus: ready\nblocked_by: []\ntouches: []\n'
+                                          'devices: []\n---\n')
+        (other / '02-task.md').write_bytes(b'---\nticket: other/02\nstatus: \xff\n---\n')
+        self.assertEqual(self.check(pane='w1:p1'), [self.gap()])
+        self.review(delivered=True)
+        self.assertEqual(self.check(pane='w1:p1'), [])
+        own = self.repo / '.scratch/fix/issues/02-task.md'
+        own.write_text('---\nticket: fix/two\nstatus: done\nblocked_by: []\ntouches: []\ndevices: []\n---\n')
+        self.assertEqual(self.check(pane='w1:p1'), [f"could not check delivery of fix: {own}: invalid ticket id 'fix/two'"])
+
     def test_a_recorded_blocker_lets_the_orchestrator_stop(self):
         # Rules 1 and 4: `blocker: <reason>` in the review report records why delivery cannot progress, and with it the
         # orchestrator stops; `none`, the report template's value, and an empty value are no blocker.
@@ -2781,6 +2797,13 @@ class AutopilotCardHold(GateRepo):
                                           'devices: []\n---\n')
         (other / '03-task.md').write_text('---\nticket: other/03\nstatus: ready\nblocked_by: x\ntouches: []\ndevices: []\n---\n')
         self.assertEqual(self.check(session='host-1'), [])
+        # Review (Codex): nor is another workstream's file that cannot be read, as text or at all.
+        (other / '04-task.md').write_bytes(b'---\nticket: other/04\nstatus: \xff\n---\n')
+        unreadable = other / '05-task.md'
+        unreadable.write_text('---\nticket: other/five\n---\n')
+        unreadable.chmod(0)
+        self.addCleanup(unreadable.chmod, 0o644)
+        self.assertEqual(self.check(session='host-1'), [])
         # A cycle between this workstream and another is its own.
         ours = issues / '02-task.md'
         ours.write_text(accepted.replace('run/01', 'run/02').replace('blocked_by: []', 'blocked_by: [other/01]'))
@@ -2790,6 +2813,20 @@ class AutopilotCardHold(GateRepo):
         self.assertEqual(len(cycle), 1)
         self.assertRegex(cycle[0], r"while its workstream is not delivered: workstream dependency cycle: "
                                    r"(other -> run -> other|run -> other -> run); finish what it names")
+        ours.unlink()
+        (other / '01-task.md').write_text('---\nticket: other/01\nstatus: done\nblocked_by: []\ntouches: []\n'
+                                          f"devices: []\naccepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
+        # Review (Codex): the check names every cycle, so another workstream's cycle hides none of this one's.
+        alpha = self.repo / '.scratch/alpha/issues'
+        alpha.mkdir(parents=True)
+        for number, waits in (('01', '02'), ('02', '01')):
+            (alpha / f'{number}-task.md').write_text(
+                f'---\nticket: alpha/{number}\nstatus: done\nblocked_by: [alpha/{waits}]\ntouches: []\ndevices: []\n'
+                f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
+        ours.write_text(accepted.replace('run/01', 'run/02').replace('blocked_by: []', 'blocked_by: [run/02]'))
+        cycle = self.check(session='host-1')
+        self.assertEqual(len(cycle), 1)
+        self.assertIn('while its workstream is not delivered: ticket dependency cycle: run/02 -> run/02; finish', cycle[0])
         ours.unlink()
         ticket.write_text(accepted.replace(f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n", ''))
         self.assertEqual(self.check(session='host-1'), held(

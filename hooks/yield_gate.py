@@ -534,7 +534,7 @@ def herdr_error(result):
 
 def undelivered(root, pane, session):
     """Name each workstream this session was bound to orchestrate (next_tickets.py --orchestrate) whose delivery fails."""
-    board, tickets, missing = None, None, []
+    board, missing = None, []
     for path in sorted(root.glob(f'.scratch/*/reports/{BINDING}')):
         slug = path.parent.parent.name
         binding, mine = read_binding(path, pane, session)
@@ -546,9 +546,9 @@ def undelivered(root, pane, session):
             continue
         try:
             if board is None:
-                module = script('next_tickets')
-                module.ROOT, module.ISSUES = root, root / '.scratch'
-                board, tickets = module, module.load()  # load() exits on a board it refuses.
+                board = script('next_tickets')
+                board.ROOT, board.ISSUES = root, root / '.scratch'
+            tickets = board.load(spared=slug)  # load() exits on a ticket of this workstream it refuses.
             review = board.review_front_matter(slug) or {}
             # Only authorized repairs owe delivery, once every ticket is done; a recorded blocker is why it stops here.
             # Dispatch start records the authorization until the review report records its own (not a placeholder).

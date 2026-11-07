@@ -387,6 +387,31 @@ class PanelState(unittest.TestCase):
         self.assertEqual(self.row_texts(PANEL.snapshot(repo, 'S', time.time()), 'blocker'), [
             f"board fails its check: {scratch / 'demo' / 'issues' / '02-b.md'}: invalid ticket id 'demo/two'"])
 
+    def test_another_workstreams_refused_file_hides_none_of_this_workstreams_problems(self):
+        # Review (Codex): the scheduler refuses the whole board on one file, so another workstream's refused file left
+        # this one's board unchecked: its merged card's unaccepted ticket showed nothing.
+        card(self.scratch / 'demo' / 'autopilot.md', terminal='merged')
+        ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='done', accepted=False)
+        ticket(self.scratch / 'alpha' / 'issues' / '01-a.md', 'alpha/one')
+        refusal = ('demo/01: status done with no acceptance; accept it with --accept demo/01, or --accept demo/01 --pr '
+                   '<url> when PRs delivered it, or --accept demo/01 --run <url> when a successful CI run proves it')
+        self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), [f'board fails its check: {refusal} (+1 more)'])
+
+    def test_a_ticket_whose_fields_are_written_as_lists_leaves_the_panel_its_rows(self):
+        # Review (Codex): the panel compared and joined a ticket's fields as text, so this workstream's status or ticket
+        # id written as a list, which the check names, raised out of the snapshot and erased the whole panel.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        issues = self.scratch / 'demo' / 'issues'
+        ticket(issues / '01-a.md', 'demo/01', status='[done]')
+        statuses = "['blocked', 'done', 'fixing', 'implementing', 'ready', 'reviewing', 'verifying']"
+        self.assertEqual([row['text'] for row in self.snapshot()['rows']], [
+            'demo · dispatch', f"board fails its check: demo/01: status ['done'] is not one of {statuses}",
+            '1 ticket · 0 done · 0 blocked · 0 ready · 0 live'])
+        listed = ticket(issues / '01-a.md', '[demo/01]', status='implementing', worker='inline')
+        self.assertEqual([row['text'] for row in self.snapshot()['rows']], [
+            'demo · dispatch', "▶ inline · ['demo/01'] · a behaviour",
+            f"board fails its check: {listed}: invalid ticket id ['demo/01']", '1 ticket · 0 done · 0 blocked · 0 ready · 1 live'])
+
     def test_a_board_the_scheduler_cannot_read_still_leaves_the_panel_its_rows(self):
         # Review (Codex): a status written as a list on another workstream's ticket, or a prerequisite workstream whose
         # worker state lost its tables, raised out of the snapshot and erased the whole panel.
@@ -416,6 +441,7 @@ class PanelState(unittest.TestCase):
         db.close()
         self.assertEqual(self.row_texts(self.snapshot(), 'next'), [
             "next: unknown, the board cannot tell: AttributeError: 'NoneType' object has no attribute 'get'"])
+        ticket(issues / '01-a.md', 'demo/01')  # Waiting on nothing: another workstream's refusal is what it shows.
         listed = ticket(self.scratch / 'base' / 'issues' / '01-a.md', '[base/01]', status='done')
         self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), [
             f"board fails its check: {listed}: invalid ticket id ['base/01']"])
@@ -424,8 +450,8 @@ class PanelState(unittest.TestCase):
             f"board fails its check: {listed}: invalid ticket id 'base/one'"])
         listed.write_bytes(b'\xff---\n')
         self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), [
-            "board fails its check: the board cannot be read: UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff "
-            "in position 0: invalid start byte"])
+            f"board fails its check: {listed}: cannot be read: 'utf-8' codec can't decode byte 0xff in position 0: "
+            "invalid start byte"])
 
     def test_the_next_row_asks_about_another_workstreams_blocker_once_however_many_tickets_wait_on_it(self):
         # Review (Codex): the panel refreshes every two seconds, and each ready ticket behind the same other workstream's

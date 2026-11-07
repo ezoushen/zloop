@@ -60,8 +60,10 @@ def activity(workstream):
 
 
 def tickets(workstream):
-    """The workstream's local tickets, in name order, with their front matter."""
-    found = [(path, front_matter.parse(path.read_text(errors='replace')) or {})
+    """The workstream's local tickets, in name order, with their front matter as text: a value written as a list is
+    shown, never compared as one, so a ticket the check names cannot erase the panel."""
+    found = [(path, {key: value if isinstance(value, str) else str(value)
+                     for key, value in (front_matter.parse(path.read_text(errors='replace')) or {}).items()})
              for path in sorted((workstream / 'issues').glob('*.md'))]
     return [(path, fields) for path, fields in found if fields.get('ticket')]  # A note beside them is no ticket.
 
@@ -140,13 +142,17 @@ def next_row(workstream, state, draft, scheduled):
     return {'kind': 'next', 'text': f'next: {first}'} if first else None
 
 
-def board_of(repo):
-    """The checkout's local board as the scheduler reads it, with what its check refuses: (tickets, problems)."""
+def board_of(repo, slug):
+    """The checkout's local board as the scheduler reads it, with what its check refuses: (tickets, problems). A file of
+    another workstream that the scheduler refuses is one problem, and this workstream's board is still checked."""
     next_tickets.ROOT, next_tickets.ISSUES = repo, repo / SCRATCH
     try:
-        board = next_tickets.load()
-        return board, next_tickets.problems(board)
-    except SystemExit as refusal:  # load() names a ticket it refuses.
+        try:
+            board, refused = next_tickets.load(), []
+        except SystemExit as refusal:
+            board, refused = next_tickets.load(spared=slug), [str(refusal.code)]
+        return board, refused + next_tickets.problems(board)
+    except SystemExit as refusal:  # load() names a ticket of this workstream it refuses.
         return {}, [str(refusal.code)]
     except Exception as error:  # A board it cannot read: say so, and keep the other rows.
         return {}, [f'the board cannot be read: {type(error).__name__}: {error}']
@@ -350,8 +356,8 @@ def snapshot(repo, session_id, now):
     the first tied one, quiet."""
     chosen = None
     main = main_checkout(repo)
-    scheduled = board_of(main)
     for workstream in tied(main, session_id):
+        scheduled = board_of(main, workstream.name)
         state = card_state(workstream / CARD)
         found_tickets = tickets(workstream)
         draft = is_draft(state) if state else False
@@ -360,13 +366,13 @@ def snapshot(repo, session_id, now):
         attempts = live_attempts(workstream, now, set(bound) if bound is not None else {session_id})
         live = live_workstream(state, attempts, blocker, draft, found_tickets)
         if chosen is None or live:
-            chosen = workstream, state, found_tickets, draft, blocker, attempts, live
+            chosen = workstream, state, found_tickets, draft, blocker, attempts, live, scheduled
         if live:
             break
     if chosen is None:
         return {'active': False, 'workstream': None, 'phase': None, 'draft': False, 'rows': [], 'more': [],
                 'strip': None}
-    workstream, state, found_tickets, draft, blocker, attempts, live = chosen
+    workstream, state, found_tickets, draft, blocker, attempts, live, scheduled = chosen
     phase = state.get('phase') or None
     if not live:
         return {'active': False, 'workstream': workstream.name, 'phase': phase, 'draft': draft, 'rows': [], 'more': [],

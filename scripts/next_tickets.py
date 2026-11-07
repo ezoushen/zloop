@@ -68,8 +68,11 @@ def load(spared=None):
     ticket that does not exist)."""
     tickets = {}
     for path in sorted(ISSUES.glob("*/issues/*.md")):
-        fm = front_matter.parse(path.read_text())
         refusal = None
+        try:
+            fm = front_matter.parse(path.read_text())
+        except (OSError, ValueError) as error:  # Unreadable, or not text: refused like any other file.
+            fm, refusal = None, f"{path}: cannot be read: {error}"
         if fm and "ticket" in fm:
             if not isinstance(fm["ticket"], str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*/[0-9]+", fm["ticket"]):
                 refusal = f"{path}: invalid ticket id {fm['ticket']!r}"
@@ -153,10 +156,15 @@ def problems(tickets, accepting=False):
         graphs["workstream"][spec_of(t)].update(spec_of(d) for d in fm.get("blocked_by", [])
                                            if spec_of(d) != spec_of(t))
     for label, graph in graphs.items():
-        try:
-            tuple(TopologicalSorter(graph).static_order())
-        except CycleError as error:
-            bad.append(f"{label} dependency cycle: {' -> '.join(error.args[1])}")
+        graph = {node: set(edges) for node, edges in graph.items()}
+        while True:  # Every cycle is named: one edge of each found is set aside before looking again.
+            try:
+                tuple(TopologicalSorter(graph).static_order())
+                break
+            except CycleError as error:
+                cycle = error.args[1]
+                bad.append(f"{label} dependency cycle: {' -> '.join(cycle)}")
+                graph[cycle[1]].discard(cycle[0])
     return bad
 
 
