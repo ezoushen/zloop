@@ -204,6 +204,21 @@ def cycles(graph):
     return found
 
 
+def undelivered(slug, board=None):
+    """What keeps workstream `slug` from delivered, [] when nothing does: its own problems on the board's check, its
+    tickets not done, and the evidence `--delivery` judges, unless it finished (its branch deleted after the merge, its
+    reviewed heads in main). `board` is `judged(slug)` when the caller has it. Exits naming a ticket file of its own the
+    board refuses, as `load` does."""
+    tickets, found = board or judged(slug)
+    problems = [problem for problem in found if concerns(problem, slug)]
+    undone = [f"{name} ({fm.get('status')})" for name, fm in tickets.items()
+              if spec_of(name) == slug and fm.get('status') != 'done']
+    problems += [f"tickets not done: {', '.join(undone)}"] if undone else []
+    if not finished(slug):
+        problems += delivery_problems(slug)
+    return problems
+
+
 def judged(slug):
     """The board and what its check refuses, as they bear on workstream `slug`: (tickets, problems). Another
     workstream's file the board refuses is one problem, and the rest of the board is still checked; a file of its own

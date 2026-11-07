@@ -385,13 +385,7 @@ def delivery_gaps(root, path, state):
     try:
         module = script('next_tickets')
         module.ROOT, module.ISSUES = root, root / '.scratch'
-        tickets, found = module.judged(slug)  # Exits on a ticket of this workstream it refuses.
-        problems = [problem for problem in found if module.concerns(problem, slug)]
-        undone = [f"{name} ({fm.get('status')})" for name, fm in tickets.items()
-                  if module.spec_of(name) == slug and fm.get('status') != 'done']
-        problems += [f"tickets not done: {', '.join(undone)}"] if undone else []
-        if not module.finished(slug):
-            problems += module.delivery_problems(slug)
+        problems = module.undelivered(slug)  # Exits on a ticket of this workstream it refuses.
     except (Exception, SystemExit) as error:  # A check that cannot run is a named gap, never a pass.
         problems = [f'it cannot be checked: {error}']
     if not problems:

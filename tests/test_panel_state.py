@@ -17,12 +17,14 @@ import support
 PANEL = support.load_script('panel_state.py')
 
 
-def card(path, phase='dispatch', session='S', terminal='', confirmed='yes 2026-10-27 "go"', resume='`autopilot --take-over`'):
-    """A run card with the State section the panel reads."""
+def card(path, phase='dispatch', session='S', terminal='', confirmed='yes 2026-10-27 "go"', resume='`autopilot --take-over`',
+         board=None):
+    """A run card with the State section the panel reads; `board:` only when given."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text('\n'.join([
         f'# {path.parent.name} — autopilot run card', '', '## Goal', 'a goal', '',
         '## State', f'confirmed: {confirmed}', f'session: {session}', 'auto-merge: no',
+        *([f'board: {board}'] if board else []),
         f'phase: {phase}', f'terminal: {terminal}', 'history:', 'evidence:', 'timer:', f'resume: {resume}', '']))
     return path
 
@@ -440,6 +442,36 @@ class PanelState(unittest.TestCase):
         self.assertEqual([row['text'] for row in self.snapshot()['rows']], [
             'demo · dispatch', "▶ inline · ['demo/01'] · a behaviour",
             f"board fails its check: {listed}: invalid ticket id ['demo/01']", '1 ticket · 0 done · 0 blocked · 0 ready · 1 live'])
+
+    def test_a_run_that_records_a_delivered_state_its_workstream_has_not_reached_stays_on_screen(self):
+        # User (2026-11-07, "Go ahead"): a merged card whose board passed its check but still held a ready ticket showed no
+        # panel, while the stop check held its session; the panel names the first thing the stop check names.
+        workstream = self.scratch / 'demo'
+        issues = workstream / 'issues'
+        ticket(issues / '01-a.md', 'demo/01', status='done')
+        ticket(issues / '02-b.md', 'demo/02')
+        review = workstream / 'reports' / 'spec-review.md'
+        for terminal in ('delivered', 'delivered-local', 'merged'):
+            with self.subTest(terminal=terminal):
+                card(workstream / 'autopilot.md', phase='pr', terminal=terminal, board='local')
+                self.assertEqual([row['text'] for row in self.snapshot()['rows']], [
+                    'demo · pr', 'not delivered: tickets not done: demo/02 (ready) (+1 more)', 'next: demo/02',
+                    '2 tickets · 1 done · 0 blocked · 1 ready · 0 live'])
+        # Its tickets done, what is left is the delivery evidence.
+        ticket(issues / '02-b.md', 'demo/02', status='done')
+        self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), [f'not delivered: no review report at {review}'])
+        # It comes before a ticket the board blocks, one of the tickets not done; a run still going shows that ticket.
+        ticket(issues / '02-b.md', 'demo/02', status='blocked', blocker='no credential')
+        self.assertEqual(self.row_texts(self.snapshot(), 'blocker'),
+                         ['not delivered: tickets not done: demo/02 (blocked) (+1 more)'])
+        card(workstream / 'autopilot.md', phase='dispatch', board='local')
+        self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), ['blocked: demo/02 · no credential'])
+        # A tracker's board is the tracker's to judge, and a run that ended in another state is not held to it.
+        ticket(issues / '02-b.md', 'demo/02', status='done')
+        card(workstream / 'autopilot.md', phase='pr', terminal='merged', board='https://linear.app/team/project/x')
+        self.assertFalse(self.snapshot()['active'])
+        card(workstream / 'autopilot.md', phase='pr', terminal='blocked', board='local')
+        self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), ['blocked: no option fits the principles'])
 
     def test_a_board_the_scheduler_cannot_read_still_leaves_the_panel_its_rows(self):
         # Review (Codex): a status written as a list on another workstream's ticket, or a prerequisite workstream whose

@@ -11,7 +11,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_matter  # noqa: E402
 import next_tickets  # noqa: E402
-from worker_lifecycle import card_state, recorded_sessions  # noqa: E402
+from worker_lifecycle import ENDED, card_state, recorded_sessions  # noqa: E402
 
 SCRATCH = '.scratch'
 CARD = 'autopilot.md'
@@ -90,7 +90,8 @@ def inline_rows(found_tickets):
 
 def blocker_row(workstream, state, found_tickets, scheduled):
     """The one blocker worth showing, by precedence: the run's own stop first, then the board's check (when it names
-    this workstream, or this workstream has work the scheduler would start), then its tickets."""
+    this workstream, or this workstream has work the scheduler would start), then what keeps a run that records a
+    delivered state from it on a local board, as the stop check names it, then its tickets."""
     terminal = state.get('terminal', '')
     if terminal in BLOCKERS:
         text = BLOCKERS[terminal]
@@ -103,6 +104,14 @@ def blocker_row(workstream, state, found_tickets, scheduled):
     if own or (problems and any(fields.get('status') != 'done' for _, fields in found_tickets)):
         more = f' (+{len(problems) - 1} more)' if len(problems) > 1 else ''
         return {'kind': 'blocker', 'text': f'board fails its check: {(own or problems)[0]}{more}'}
+    if terminal in ENDED and state.get('board') == 'local':
+        try:
+            gaps = next_tickets.undelivered(workstream.name, scheduled)
+        except (Exception, SystemExit) as error:  # The stop check holds a run it cannot check; say so.
+            gaps = [f'it cannot be checked: {error}']
+        if gaps:
+            more = f' (+{len(gaps) - 1} more)' if len(gaps) > 1 else ''
+            return {'kind': 'blocker', 'text': f'not delivered: {gaps[0]}{more}'}
     for path, fields in found_tickets:
         if fields.get('status') == 'blocked':
             reason = fields.get('blocker') or 'blocked'

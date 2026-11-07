@@ -29,12 +29,14 @@ opened shows none. A workstream need not have a card: any of these records is en
 
 Live means the card is unconfirmed, or an attempt is live, or a blocker is recorded, or the card is still open or
 stopped on `waiting-on-user`, `paused-allowance`, `paused-by-user` or `blocked`. A run that reached `delivered`,
-`delivered-local` or `merged`, or set `phase: ended`, is quiet only while nothing is live or blocked beneath it.
+`delivered-local` or `merged`, or set `phase: ended`, is quiet only while nothing is live or blocked beneath it; one
+that records a delivered state on a `local` board stays while its workstream is not delivered, as the stop check holds it.
 
 Rows are ordered by what the person needs first: the headline, then running workers and waiting ones (three each, the
 rest of both under one `+N more`), a waiting one being a worker whose result is ready to collect, whose wait ended with
 nothing collected and no new wait (`wait ended`: nothing watches it) or that is `retained` open until a later
-attempt of its conversation uses it; an attempt whose conversation any attempt closed shows no row. Then one blocker by precedence (the run's own stop first, then the board's failed check, then a blocked ticket), the
+attempt of its conversation uses it; an attempt whose conversation any attempt closed shows no row. Then one blocker by precedence (the run's own stop first, then the board's failed check, then `not delivered:` and the
+first of what keeps a delivered state from holding, with `(+N more)`, then a blocked ticket), the
 next step, and
 the counts: the tickets' tally, or for a workstream without tickets `done:` and, per job of its workers, the
 assignments whose result completed; a job with a plan (`worker_lifecycle.py plan`) counts only its planned
