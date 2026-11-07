@@ -290,14 +290,12 @@ class Reap(WorkerLifecycleCase):
                          self.cli('status')['attempts'][0]['acceptance_deferred'])
 
     def test_a_card_with_a_statement_heading_and_no_state_ends_nothing(self):
-        # Rule: the State is the `## State` heading exactly; a `terminal: merged` under `## Statement` is no ended run.
         card = self.run_card('')
         card.write_text('# ws\n\n## Statement\nterminal: merged\nevidence: x\n')
         self.retained()
         self.assertEqual(NOTHING, self.cli('reap'))
 
     def test_a_run_card_whose_terminal_is_the_templates_placeholder_ends_nothing(self):
-        # Rule: a `<placeholder>` value is empty, so the run has not ended.
         self.run_card('<state, once ended>')
         self.retained()
         self.assertEqual(NOTHING, self.cli('reap'))
@@ -463,8 +461,6 @@ if 'tab' in sys.argv:
             {'attempt': 'ticket-2/1', 'reason': 'herdr --session slow: no answer earlier'}]}, self.cli('reap'))
 
     def test_a_closure_that_finds_the_state_locked_is_left_for_the_next_stop_without_waiting(self):
-        # Rule: a stop is held for its few seconds by the Herdr answers, not by a lock another command holds; the
-        # attempt is named open and the next stop closes it.
         self.placed()
         self.tab_closed()
         writer = sqlite3.connect(self.state, isolation_level=None)

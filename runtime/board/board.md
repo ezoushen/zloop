@@ -41,8 +41,7 @@ board. Malformed machine tickets remain errors; `--board` exposes invalid status
 and `--set` repairs them. Scheduling still validates all enrolled workstreams so a slug
 cannot bypass dependencies, area locks, device reservations or live capacity.
 For E2E, check `--can-verify <ticket>` before temporarily setting a done sentinel
-to `verifying`; restore `done` after completion/failure and actual device release; the way back is the ordinary done gate, so the
-accepted commit must still be in the workstream branch and the ticket's report unchanged since its `--accept`.
+to `verifying`; restore `done` after completion/failure and actual device release; the way back is the ordinary done gate.
 
 ## Remote board
 

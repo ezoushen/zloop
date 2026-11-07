@@ -305,8 +305,6 @@ class HerdrTabs(WorkerLifecycleCase):
         self.assertIn('closed', self.cli('status')['attempts'][0])
 
     def test_a_resumed_retirement_with_no_recorded_placement_is_recorded_by_hand(self):
-        # Rule: Herdr's absence of a pane the attempt never recorded does not end its worker for retire, which names the
-        # hand record; with no placement recorded, that record asks Herdr nothing.
         self.register()
         request = self.collected()
         self.herdr_fixture(verify_error='server_unavailable', tab_survives=True)

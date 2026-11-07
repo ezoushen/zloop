@@ -33,8 +33,8 @@ an attempt is live or a blocker is recorded. A delivered run is quiet once nothi
 Rows go by what the person needs first: the headline, running workers and waiting ones (three each, the rest of both
 under one `+N more`), one blocker, the next step, then the counts. A waiting worker is one whose result is ready to
 collect, whose wait ended with nothing watching it, or that is retained for a later attempt. The next step is the
-scheduler's first ready pick (`next_tickets.py <slug>`). A source the panel cannot read is said so in the row it
-would have supplied, and the other rows stay.
+scheduler's first ready pick (`next_tickets.py <slug>`). A board the scheduler cannot read is said so in its row,
+and the other rows stay.
 Each host tones a row by its kind — after Pi's cut to the terminal's width (the Claude Code pane wraps a long row
 onto the lines under it instead), so the words stay identical and styling cannot widen a line —
 and a run row keeps the default style:

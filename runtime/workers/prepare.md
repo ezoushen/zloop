@@ -9,9 +9,10 @@ the yield hooks read only that location. Use the maintained
 only return evidence. If the orchestrator itself cannot write
 coordination state, preserve the gap and use supported native waits and reports.
 
-The hooks log each `herdr agent start` a session runs to `.scratch/herdr-launches.jsonl` in the main
-checkout. A launch no attempt accounts for holds the stop, even after its pane closed; the stop message names it and the
-command that dismisses it (`hooks/herdr_launch.py dismiss`, with the reason it requires), as [wait](wait.md) says.
+The hooks log supported `herdr agent start` commands to `.scratch/herdr-launches.jsonl` in the main
+checkout. Commands naming `HERDR_SOCKET` are not logged and rely on the live-agent scan. A logged launch no attempt
+accounts for holds the stop even after its pane closed; the stop message names it and the command that dismisses it
+(`hooks/herdr_launch.py dismiss`, with the reason it requires), as [wait](wait.md) says.
 
 Launch every worker with `ZLOOP_WORKER=<slug>/<assignment>` in its environment (in
 Herdr, the Herdr guide's tab recipe sets it). For the Herdr
@@ -103,7 +104,7 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    `native` is the registered session's Claude/Pi JSONL, Codex rollout JSONL, or
    a current OpenCode export JSON file (`opencode session export <native session>` in OpenCode 2,
    `opencode export` in OpenCode 1). Obtain it from the installed native
-   interface. The helper retains settings and source hashes without copying conversation contents.
+   interface. The helper retains settings and the source path without copying conversation contents.
    Verify source provenance and exclusive ownership of native controls; refresh an
    OpenCode export before submission. A source snapshot cannot intercept subsequent
    manual changes or an in-memory Pi branch switch that has not been persisted.

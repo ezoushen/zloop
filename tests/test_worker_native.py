@@ -113,9 +113,6 @@ class NativeProof(WorkerLifecycleCase):
         self.assertEqual(self.cli('status', '--attempt', attempt)['attempts'][0]['result']['status'], 'completed')
 
     def test_a_claude_native_child_collects_after_its_orchestrator_changed_directory(self):
-        # Live (simplify/06, 2026-11-07): a Claude subagent's transcript records its orchestrator's directory, not the
-        # worker's, so after a resume the orchestrator stood elsewhere and collection was refused for a worktree the
-        # record never claimed. The record's directory is not a check of the worker.
         self.register()
         self.ready()
         record = self.native_paths['ticket-1/1']
@@ -145,7 +142,6 @@ class NativeProof(WorkerLifecycleCase):
                 self.assertEqual(self.cli('status')['attempts'], [])
 
     def test_registration_refuses_a_shell_with_neither_a_host_session_nor_a_herdr_pane(self):
-        # The stop hook holds only the session that registered a worker; a row that names none could be held by no one.
         bare = {name: value for name, value in support.without_host_sessions().items() if name != 'HERDR_PANE_ID'}
         self.native_env = bare
         error = self.register(code=2)

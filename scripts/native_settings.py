@@ -76,7 +76,7 @@ def packet_reply(path, runtime, session, attempt, *, parents=None):
 
 
 def observe(path, runtime, session, worktree):
-    """Return observed controls and the source prefix identity; unknown controls stay absent. A `worktree` holds the
+    """Return observed controls and the source path; unknown controls stay absent. A `worktree` holds the
     record's directory to it; None (a native child's record names its orchestrator's directory, which moves) checks
     none."""
     path = Path(path)

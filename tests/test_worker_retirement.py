@@ -102,8 +102,6 @@ class Retirement(WorkerLifecycleCase):
         return [row['text'] for row in json.loads(process.stdout)['rows'] if row['kind'] == 'wait']
 
     def test_retiring_a_worker_the_orchestrator_does_not_own_releases_it_without_touching_its_pane(self):
-        # Rule: every attempt ends through the tool. An unowned worker's closure is a release the lifecycle records
-        # after the same collected-result and receipt checks; its pane is the user's, and the panel stops showing it.
         self.state = self.root / '.scratch' / 'ws' / 'reports' / 'workers.sqlite'
         self.state.parent.mkdir(parents=True)
         self.settled(owned=False)
@@ -117,7 +115,7 @@ class Retirement(WorkerLifecycleCase):
         self.assertEqual((released['attempt'], released['closed']), ('ticket-1/1', True))
         self.assertEqual(['released: not owned by this orchestrator, its pane is left open'],
                          self.cli('status')['attempts'][0]['closed']['evidence'])
-        self.assertFalse((self.root / 'herdr-argv.log').exists())  # Herdr was asked nothing.
+        self.assertFalse((self.root / 'herdr-argv.log').exists())
         self.assertEqual([], self.panel_rows())
 
     def test_collecting_an_unowned_worker_with_a_retire_disposition_releases_it(self):
@@ -215,8 +213,6 @@ class Retirement(WorkerLifecycleCase):
         self.assertEqual([row.get('closed') is not None for row in self.cli('status')['attempts']], [True, False])
 
     def test_retiring_an_exited_worker_again_after_its_pane_failed_to_close_closes_it(self):
-        # Review (Sonnet): a failed close leaves nothing recorded that stops the retry from closing the pane the
-        # exited worker left, as it does not for a worker still in its pane.
         self.herdr_fixture()
         self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
         self.herdr_fixture(agent_exited=True, close_failures=1)
@@ -246,8 +242,6 @@ class Retirement(WorkerLifecycleCase):
         self.assertFalse((self.root / 'native-closed').exists())
 
     def test_native_closure_recovery_preserves_report_and_does_not_close_twice(self):
-        # A retirement interrupted after its pane closed, with its tab not yet confirmed gone, records nothing; the
-        # retry sees the pane gone, closes nothing again and records the closure.
         self.herdr_fixture(tab_gone_error='server_unavailable')
         self.register(worker='builder-1', herdr={'session': 'fixture-session'})
         self.ready()
@@ -411,7 +405,6 @@ class Retirement(WorkerLifecycleCase):
         self.assertNotIn('closed', self.cli('status')['attempts'][0])
         self.herdr_fixture(pane_session='native-2')
         self.record('closed', evidence=['pane-1 holds native-2'], acceptance=deferred)
-        # An empty pane (the worker exited) is open still: retire closes it, so the hand record is refused for it.
         self.herdr_fixture(native_session='native-2')
         self.register('ticket-2/1', 'ticket-2', session='native-2', worker='builder-1',
                       herdr={'session': 'fixture-session'})
@@ -421,7 +414,6 @@ class Retirement(WorkerLifecycleCase):
         self.herdr_fixture(native_session='native-2', pane_session=None)
         error = self.record('closed', 'ticket-2/1', code=2, evidence=['pane-1 holds no worker'], acceptance=deferred)
         self.assertIn('is open with no worker in it: retire it with', error)
-        # A pane Herdr no longer lists, with its tab.
         (self.root / 'native-closed').write_text('closed\n')
         self.record('closed', 'ticket-2/1', evidence=['pane-1 and its tab are gone'], acceptance=deferred)
 
@@ -458,8 +450,6 @@ class Retirement(WorkerLifecycleCase):
         self.assertIn("Herdr pane pane-1 in tab tab-1 still holds this attempt's conversation", error)
 
     def test_a_closure_by_hand_meets_the_lifecycle_s_own_refusals_before_herdr_is_asked(self):
-        # Sonnet review: an uncollected worker, or one with a receipt still to acknowledge, is refused for
-        # that, with its command, not sent to retire, which refuses it again.
         for number, (owned, collected, worker, refusal) in enumerate((
                 (True, False, 'builder-1', 'lacks a collected result'),
                 (True, True, 'fixture-session/pane-1/builder-1', 'acknowledged (`python3')), 1):
@@ -528,16 +518,12 @@ class Retirement(WorkerLifecycleCase):
         self.assertNotIn('closed', self.cli('status')['attempts'][0])
 
     def test_a_worker_the_orchestrator_does_not_own_is_recorded_closed_by_hand_as_a_release(self):
-        # The same closability check serves every closure; only the pane is the user's, and nothing here touches it.
         self.settled(owned=False)
         self.record('closed', evidence=['released to its user'],
                     acceptance={'decision': 'deferred', 'reason': 'acceptance checks pending'})
         self.assertEqual(['released to its user'], self.cli('status')['attempts'][0]['closed']['evidence'])
 
-# What Herdr shows of a collected worker's pane, as fixture arguments, and what each way to end the attempt does with it:
-# (retire's error or None when it closes, whether it closed the pane; the hand record's error or None; whether the reap
-# records the closure). The three judge one answer alike: an open pane with no worker is for retire to close; a pane
-# or tab Herdr shows gone, or a pane another conversation holds, ends the attempt without closing anything.
+# Pane fixture arguments, (retire error or None, pane closed), hand-record error or None, reap closure.
 CLOSURES = {
     'an empty pane the worker exited': (
         dict(agent_exited=True), (None, True), 'is open with no worker in it: retire it with', False),
@@ -600,8 +586,6 @@ class ClosureJudgement(WorkerLifecycleCase):
                 self.assertFalse(self.closes_pane())
 
     def test_a_retirement_interrupted_after_its_pane_closed_is_recorded_closed_by_the_next_reap(self):
-        # The pane closed and the closure never recorded: Herdr's answer for the tab is the evidence, with no retirement
-        # intent kept.
         self.shown(gone=True)
         found = self.cli('reap')
         self.assertEqual([{'attempt': 'ticket-1/1',

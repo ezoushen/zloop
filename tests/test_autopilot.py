@@ -299,7 +299,6 @@ class EffortLevels(unittest.TestCase):
         start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
         for phrase in ('records both effort levels', "keeps the card's levels unless a level flag is given"):
             self.assertIn(phrase, start)
-        # Rule: the level semantics are stated once, in the skill and the dispatch skill; the card only records them.
         self.assertIn("the levels its setup recorded", prose(ROOT / 'skills/dispatch/SKILL.md'))
 
     def test_the_run_passes_both_levels_to_dispatch_beside_autofix(self):

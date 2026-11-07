@@ -128,7 +128,6 @@ export function register(on) {
     const more = facts && Array.isArray(facts.more) ? facts.more.filter(drawable) : [];
     const isExpanded = await read($, expanded);
     const C = $.ui.resolve(e);
-    // Text wraps a long row onto the lines under it (its default), so a narrow pane shows the whole row.
     if (!rows.length) return C.Text({ children: QUIET, color: "subtle" });
     const text = (row) => C.Text({ children: row.text, ...(TONES[row.kind] ?? {}) });
     // `+N more`, and `show fewer` in its place once pressed: a click, Enter under the focus, or `m` in the pane.

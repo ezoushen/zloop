@@ -116,7 +116,6 @@ class BoardProblems(unittest.TestCase):
         return f'---\nticket: {name}\nstatus: {status}\nblocked_by: [{blocked}]\ntouches: []\ndevices: []\n---\n'
 
     def test_a_refused_file_is_returned_with_the_workstream_of_its_folder_and_the_rest_is_still_read(self):
-        # Rule: whose problem a refused file is comes from its folder, even when the checkout path holds `: `.
         scratch = self.board('a: copy', **{'demo__issues__01-a.md': self.text('demo/01'),
                                            'other__issues__01-a.md': self.text('other/one')})
         tickets, refused = nt.load()
@@ -477,7 +476,6 @@ class BoardCLI(unittest.TestCase):
         assert binding["sessions"] == ["host-2"], binding
 
     def test_a_board_with_refused_files_exits_naming_the_first_of_them_alone(self):
-        # Rule: the command line names one refused file, the first by path, and exits 1 before judging the rest.
         self.write_ticket('aa/01')
         for slug in ('bb', 'cc'):
             support.ticket_file(self.root, f'{slug}/one', path=self.root / '.scratch' / slug / 'issues' / '01-task.md')

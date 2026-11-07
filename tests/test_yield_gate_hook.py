@@ -1139,7 +1139,7 @@ console.log('null');
         support.write_attempts(self.state, rows, events)
 
     def ownerless(self, attempt='e/1', **fields):
-        """A live attempt with no recorded pane or host session and no wait: every session's gap unless bound."""
+        """A live attempt with no recorded pane or host session and no wait."""
         return support.attempt_row(self.repo, attempt=attempt, assignment='e/01', submitted=True, **fields)
 
     def test_a_malformed_session_list_breaks_no_other_sessions_check(self):
@@ -1358,7 +1358,6 @@ console.log(JSON.stringify([await settle(), await settle(), await settle()]));
         self.assertRegex(first['entries'][0]['content'],
                          r'\n- could not check workers: Command failed: python3 \S+/hooks/yield_gate\.py stop .+ pi-1\n'
                          r'python3: simulated crash\n')
-        # Rule: a crashed hook is a check that could not run, which registering or dismissing cannot clear: the retry advice.
         self.assertIn('retry the stop', first['entries'][0]['content'])
         self.assertIn('ZLOOP_YIELD_HOOK=off', first['entries'][0]['content'])
         self.assertNotIn('Register each launched worker', first['entries'][0]['content'])
@@ -1433,8 +1432,6 @@ class DeliveryHold(GateRepo):
         self.assertEqual(self.check(pane='w1:p1'), [])
 
     def test_the_autofix_hold_names_the_problems_the_board_finds_in_its_workstream(self):
-        # Rule: one reader says what keeps a workstream from delivered. A done ticket with no acceptance is a board
-        # problem of the workstream, named by the autofix hold as by the card hold and the panel.
         self.bind(pane='w1:p1')
         self.review(delivered=True)
         self.ticket('01', 'done')
@@ -1445,8 +1442,6 @@ class DeliveryHold(GateRepo):
                    'when PRs delivered it, or --accept fix/01 --run <url> when a successful CI run proves it')])
 
     def test_a_workstream_the_card_and_the_autofix_binding_both_hold_is_named_once(self):
-        # Rule: one gap per workstream. An autofix-bound workstream whose confirmed card records `merged` while its
-        # delivery fails is named by the card hold alone, with the problems the board names.
         self.bind(pane='w1:p1', autofix=True, CLAUDE_CODE_SESSION_ID='host-1')
         card = support.run_card(self.repo / '.scratch/fix/autopilot.md', phase='pr', terminal='merged', evidence='merged')
         gaps = self.check(pane='w1:p1', session='host-1')
@@ -1541,8 +1536,6 @@ class DeliveryHold(GateRepo):
         self.assertEqual(delivery.returncode, 0, delivery.stdout + delivery.stderr)
 
     def test_delivery_takes_no_route_from_the_router_exit_status_not_its_wording(self):
-        # One router call serves the delivery re-ask: exit 3 is no route in any wording, so a local review counts; the old
-        # wording under exit 2 and any other failure are named as failures; the plugin's interpreter answers.
         old = "Model 'm': No configured route from 'codex' to model runtimes ['pi'] in this environment"
         self.bind(pane='w1:p1', autofix=True)
         support.ticket_file(self.repo, 'fix/01', 'done', touches='t01')
@@ -1588,7 +1581,6 @@ class DeliveryHold(GateRepo):
         started = time.monotonic()
         gaps = self.check(pane='w1:p1', session='host-1', env={'HOME': str(home)})
         self.assertLess(time.monotonic() - started, 12)
-        # The workstream its autofix binding and its delivered card both hold is named once, by the card.
         self.assertEqual(len([gap for gap in gaps if 'review_by: local cannot be judged, the router did not answer '
                                                      'within 5 s' in gap]), 4, gaps)
 
@@ -2324,8 +2316,6 @@ class AutopilotCardHold(GateRepo):
         self.assertEqual(self.check(session='host-1'), [])
 
     def test_the_templates_unconfirmed_line_is_not_a_confirmation(self):
-        # Rule: a card is confirmed by a date and the user's words; the template's `no | <date> "<words>"` line, in any
-        # case, is not, and the panel reads the same.
         for confirmed in ('no | <date> "<the user\'s words>"', 'No', 'no (waiting)'):
             with self.subTest(confirmed=confirmed):
                 self.card(confirmed=confirmed)
@@ -2555,9 +2545,6 @@ class AutopilotCardHold(GateRepo):
         self.assertEqual(self.check(session='host-1'), [f'{self.state}: workstream/01/1: wait process lost', self.gap(path)])
 
     def test_a_native_child_with_recorded_startup_and_an_armed_notified_wait_lets_the_run_yield(self):
-        # Rule: the card hold asks the lifecycle's own liveness rule. A native child never records `submitted` (it got
-        # its assignment with its spawn), so a wait armed on it that will wake the host is as good as any: the run
-        # yields, and holds again once the wait is lost.
         path = self.card(slug='workstream')
         child = self.state.parent / 'child-execution.json'
         child.write_text(json.dumps(dict(json.loads(self.execution.read_text()), native_dispatch=True)))

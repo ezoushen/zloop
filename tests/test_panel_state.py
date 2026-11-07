@@ -70,7 +70,6 @@ class PanelState(unittest.TestCase):
 
 
     def test_the_snapshot_carries_only_what_a_renderer_reads(self):
-        # Rule: no field in the snapshot that no host reads (renderers read active, workstream, rows, more, strip).
         card(self.scratch / 'demo' / 'autopilot.md', phase='dispatch')
         self.assertEqual({'active', 'workstream', 'rows', 'more', 'strip'}, set(self.snapshot()))
         card(self.scratch / 'demo' / 'autopilot.md', terminal='delivered')
@@ -262,19 +261,16 @@ class PanelState(unittest.TestCase):
         self.assertEqual(['awaiting your confirmation'], self.row_texts(found, 'next'))
 
     def test_the_templates_unconfirmed_line_is_a_draft_whatever_its_case(self):
-        # Rule: the panel and the stop hook read one confirmation; `no | <date> "<words>"` and `No` are not one.
         for confirmed in ('no | <date> "<the user\'s words>"', 'No', 'no (waiting)'):
             with self.subTest(confirmed=confirmed):
                 card(self.scratch / 'demo' / 'autopilot.md', confirmed=confirmed)
                 self.assertEqual(['awaiting your confirmation'], self.row_texts(self.snapshot(), 'next'))
 
     def test_a_card_whose_terminal_is_the_templates_placeholder_has_not_ended(self):
-        # Rule: a `<placeholder>` value is empty, so the run is live; the stop hook reads it so.
         card(self.scratch / 'demo' / 'autopilot.md', terminal='<state, once ended>')
         self.assertTrue(self.snapshot()['active'])
 
     def test_a_card_with_a_statement_heading_and_no_state_has_no_state(self):
-        # Rule: the State is the `## State` heading exactly; `## Statement` holds none, so its `terminal:` ends nothing.
         path = self.scratch / 'demo' / 'autopilot.md'
         path.parent.mkdir(parents=True)
         path.write_text('# demo\n\n## Statement\nconfirmed: yes\nsession: S\nterminal: delivered\n')
@@ -289,8 +285,6 @@ class PanelState(unittest.TestCase):
         self.assertEqual(['next: demo/02'], self.row_texts(self.snapshot(), 'next'))
 
     def test_the_next_row_names_no_ready_ticket_in_an_area_a_live_ticket_holds(self):
-        # Rule: the next ticket is the scheduler's first ready pick for the workstream, so a ready ticket in an area
-        # a live ticket of the workstream holds (the scheduler starts none of it) is not advertised.
         card(self.scratch / 'demo' / 'autopilot.md')
         issues = self.scratch / 'demo' / 'issues'
         ticket(issues / '01-a.md', 'demo/01', status='implementing', worker='inline', touches='scripts')

@@ -346,8 +346,6 @@ class ReviewTarget(unittest.TestCase):
         self.assertEqual(selected['route']['status'], 'selection_required')
 
     def test_the_router_exit_status_decides_no_route_whatever_its_refusal_says(self):
-        # One router call serves review start: exit 3 is no route in any wording; the old wording under another status,
-        # and any other failure, stop the start. The plugin's own interpreter answers, as it does at delivery.
         old = "Model 'm': No configured route from 'codex' to model runtimes ['pi'] in this environment"
         for status, refusal, recorded in ((3, 'nowhere for the reviewer to run', True), (2, old, False), (1, 'boom', False)):
             with self.subTest(status=status):
@@ -400,8 +398,6 @@ class ReviewTarget(unittest.TestCase):
         self.assertEqual(json.loads(Path(result['binding']).read_text())['sessions'], ['opencode-1'])
 
     def test_a_review_started_in_a_pi_subagents_child_binds_the_sessions_registration_records(self):
-        # Rule (one exported-session reader): a Pi child's own session and its parent's, as lifecycle registration
-        # records them, so the stop hold binds the same sessions the review's workers register under.
         result = self.launch(identified=False, host='opencode', PI_SESSION_ID='pi-child', PI_SUBAGENT_CHILD='1',
                              PI_SUBAGENT_PARENT_SESSION='pi-parent')
         self.assertEqual(json.loads(Path(result['binding']).read_text())['sessions'], ['pi-child', 'pi-parent'])

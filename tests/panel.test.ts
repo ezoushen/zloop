@@ -300,13 +300,11 @@ describe("zloop panel", () => {
   });
 
   test("a row longer than the pane is handed whole to Text, which wraps it instead of cutting it", async ($, on) => {
-    // Rule: a narrow pane continues a long row on the next lines; nothing is cut and no ellipsis is added.
     const long = "▶ builder · zloop-panel/01 · sonnet · quiet 12m 🚀🚀🚀";
     beneath(on, snapshot({ rows: [{ kind: "run", text: long }] }));
     await started($);
     const nodes = await (await pane($, { bodyColumns: 10 })).findAll({ type: "Text" });
     expect(nodes.map((node: any) => node.text)).toEqual([long]);
-    // Text's own wrap is the engine's default; "wrap" or unset both wrap, any truncate mode would cut.
     expect([undefined, "wrap"]).toContain(nodes[0].props.wrap);
   });
 
