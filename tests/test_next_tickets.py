@@ -95,6 +95,69 @@ class Scheduling(unittest.TestCase):
         assert len(report_problems("# empty\n")) == 3
 
 
+class BoardProblems(unittest.TestCase):
+    """The reader and the check name each problem's workstreams, so no caller reads them out of its text."""
+
+    def board(self, folder='repo', **files):
+        """A board under a checkout named `folder`, each file (`slug/NN-x.md`) holding its front matter."""
+        root = Path(tempfile.mkdtemp()) / folder
+        self.addCleanup(shutil.rmtree, root.parent, True)
+        for name, text in files.items():
+            path = root / '.scratch' / name.replace('__', '/')
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        patcher = patch.multiple(nt, ROOT=root, ISSUES=root / '.scratch')
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return root / '.scratch'
+
+    @staticmethod
+    def text(name, blocked='', status='ready'):
+        return f'---\nticket: {name}\nstatus: {status}\nblocked_by: [{blocked}]\ntouches: []\ndevices: []\n---\n'
+
+    def test_a_refused_file_is_returned_with_the_workstream_of_its_folder_and_the_rest_is_still_read(self):
+        # Rule: whose problem a refused file is comes from its folder, even when the checkout path holds `: `.
+        scratch = self.board('a: copy', **{'demo__issues__01-a.md': self.text('demo/01'),
+                                           'other__issues__01-a.md': self.text('other/one')})
+        tickets, refused = nt.load()
+        self.assertEqual(sorted(tickets), ['demo/01'])
+        self.assertEqual([(problem.text, problem.slugs) for problem in refused],
+                         [(f"{scratch / 'other' / 'issues' / '01-a.md'}: invalid ticket id 'other/one'", ('other',))])
+
+    def test_an_unreadable_file_is_refused_as_its_workstreams(self):
+        scratch = self.board(**{'demo__issues__01-a.md': self.text('demo/01')})
+        (scratch / 'demo' / 'issues' / '02-b.md').write_bytes(b'\xff\xfe---\n')
+        _, refused = nt.load()
+        self.assertEqual([(problem.text.split(': cannot be read')[0], problem.slugs) for problem in refused],
+                         [(str(scratch / 'demo' / 'issues' / '02-b.md'), ('demo',))])
+
+    def test_a_ticket_problem_bears_on_its_workstream_and_a_cycle_on_each_workstream_it_lists(self):
+        self.board(**{'a__issues__01-a.md': self.text('a/01', 'b/01'), 'b__issues__01-b.md': self.text('b/01', 'a/01'),
+                      'c__issues__01-c.md': self.text('c/01', status='odd'),
+                      'd__issues__01-d.md': self.text('d/01', 'd/02'), 'd__issues__02-d.md': self.text('d/02', 'd/01')})
+        tickets, refused = nt.load()
+        found = {problem.text: problem.slugs for problem in nt.problems(tickets, refused)}
+        self.assertEqual(found["c/01: status 'odd' is not one of ['blocked', 'done', 'fixing', 'implementing', "
+                               "'ready', 'reviewing', 'verifying']"], ('c',))
+        cycles = {text.split(': ')[0]: slugs for text, slugs in found.items()}
+        self.assertEqual(sorted(cycles['workstream dependency cycle']), ['a', 'b'])
+        ticket_cycles = [slugs for text, slugs in found.items() if text.startswith('ticket dependency cycle')]
+        self.assertEqual(sorted(sorted(set(slugs)) for slugs in ticket_cycles), [['a', 'b'], ['d']])
+
+    def test_a_blocker_in_a_workstream_with_a_refused_file_is_not_called_missing(self):
+        # Rule: the board cannot tell whether the refused file held the blocker (the ticket its number or its text
+        # names); a blocker no refused file could hold is still missing.
+        self.board(**{'demo__issues__01-a.md': self.text('demo/01', 'other/01, other/one, other/99'),
+                      'other__issues__01-a.md': self.text('other/one')})
+        tickets, refused = nt.load()
+        self.assertEqual([problem.text for problem in nt.problems(tickets, refused) if 'does not exist' in problem.text],
+                         ['demo/01: blocked_by other/99 does not exist'])
+
+    def test_the_problems_of_a_workstream_are_those_that_list_it(self):
+        found = [nt.Problem('x', ('a',)), nt.Problem('y', ('b', 'a')), nt.Problem('z', ('b',))]
+        self.assertEqual(nt.bearing(found, 'a'), ['x', 'y'])
+
+
 class BoardCLI(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix='zloop-board-')
@@ -418,6 +481,16 @@ class BoardCLI(unittest.TestCase):
         self.orchestrate(CODEX_SESSION_ID="host-2")
         binding = json.loads((self.root / ".scratch/fx/reports/orchestrator.json").read_text())
         assert binding["sessions"] == ["host-2"], binding
+
+    def test_a_board_with_refused_files_exits_naming_the_first_of_them_alone(self):
+        # Rule: the command line names one refused file, the first by path, and exits 1 before judging the rest.
+        self.write_ticket('aa/01')
+        for slug in ('bb', 'cc'):
+            path = self.root / '.scratch' / slug / 'issues' / '01-task.md'
+            path.parent.mkdir(parents=True)
+            path.write_text(f'---\nticket: {slug}/one\nstatus: ready\nblocked_by: []\ntouches: []\ndevices: []\n---\n')
+        refused = self.cli('--check', code=1).stderr
+        self.assertEqual(refused, f"{self.root.resolve() / '.scratch/bb/issues/01-task.md'}: invalid ticket id 'bb/one'\n")
 
     def test_check_refuses_a_need_outside_the_probe_vocabulary_naming_the_allowed_needs(self):
         allowed = 'network, docker, setuid, repo-write, dev-fd'

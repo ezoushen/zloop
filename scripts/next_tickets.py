@@ -37,6 +37,7 @@ import shlex
 import sys
 import sqlite3
 import subprocess
+from collections import namedtuple
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -64,11 +65,13 @@ PRIORITY = [s for s in os.environ.get("TICKET_PRIORITY", "").split(",") if s]
 MEASURE_TIMEOUT = 600  # seconds a measurement command may run unless its entry sets timeout_seconds
 
 
-def load(spared=None, left_out=None):
-    """The board's tickets by name. Exits naming a ticket file it refuses; with `spared`, a refused file of another
-    workstream is left out instead, the tickets it may hold added to the set `left_out` when one is given, so that
-    workstream can still be judged."""
-    tickets = {}
+# What makes the board invalid, and the workstreams it bears on; a refused file also names the tickets it may hold.
+Problem = namedtuple("Problem", "text slugs unread", defaults=((),))
+
+
+def load():
+    """The board's tickets by name, and the ticket files it refuses as `Problem`s of their folder's workstream."""
+    tickets, refused = {}, []
     for path in sorted(ISSUES.glob("*/issues/*.md")):
         refusal = None
         try:
@@ -87,17 +90,21 @@ def load(spared=None, left_out=None):
                                 if not isinstance(fm.get(key), list)), None)
         elif fm and set(fm) & TICKET_KEYS:
             refusal = f"{path}: missing ticket front matter"
-        if refusal and spared and path.parent.parent.name != spared:
-            if left_out is not None:  # The ticket it names, and the one its file name numbers.
-                left_out.add(f"{path.parent.parent.name}/{path.name.split('-')[0]}")
-                if fm and isinstance(fm.get("ticket"), str):
-                    left_out.add(fm["ticket"])
-            continue
         if refusal:
-            sys.exit(refusal)
-        if fm and "ticket" in fm:
+            slug = path.parent.parent.name  # It may hold the ticket it names, and the one its file name numbers.
+            named = [fm["ticket"]] if fm and isinstance(fm.get("ticket"), str) else []
+            refused.append(Problem(refusal, (slug,), (f"{slug}/{path.name.split('-')[0]}", *named)))
+        elif fm and "ticket" in fm:
             fm["path"] = str(path.relative_to(ROOT))
             tickets[fm["ticket"]] = fm
+    return tickets, refused
+
+
+def load_whole():
+    """The board's tickets; exits naming the first file it refuses."""
+    tickets, refused = load()
+    if refused:
+        sys.exit(refused[0][0])
     return tickets
 
 
@@ -118,45 +125,43 @@ def accepted(fm):
 
 def check(tickets, accepting=False):
     """Print what makes the board invalid; whether it is valid."""
-    bad = problems(tickets, accepting)
-    for line in bad:
-        print(line, file=sys.stderr)
+    bad = problems(tickets, accepting=accepting)
+    for problem in bad:
+        print(problem.text, file=sys.stderr)
     return not bad
 
 
-def concerns(problem, slug):
-    """Whether a problem `problems()` names, or a refusal of `load()`, is the workstream's: it starts with one of its
-    tickets, a ticket cycle lists one, a workstream cycle lists the workstream, or it names a file in its folder."""
-    head, _, rest = problem.partition(": ")
-    if head == "ticket dependency cycle":
-        return any(spec_of(name) == slug for name in rest.split(" -> "))
-    if head == "workstream dependency cycle":
-        return slug in rest.split(" -> ")
-    # A refused file is named by its path, which may itself hold ": ".
-    return problem.startswith(f"{slug}/") or f"{os.sep}.scratch{os.sep}{slug}{os.sep}issues{os.sep}" in os.sep + problem
+def bearing(found, slug):
+    """The text of the problems among `found` that bear on workstream `slug`."""
+    return [problem.text for problem in found if slug in problem.slugs]
 
 
-def problems(tickets, accepting=False, left_out=()):
-    """What makes the board invalid, [] when nothing does. A done ticket needs its acceptance, except while `--accept`
-    runs (`accepting`): it gives those tickets their acceptance, one at a time. A blocker whose file `load` left out
-    is not called missing: the board cannot tell."""
-    bad = [f"{t}: status {fm.get('status')!r} is not one of {sorted(STATUSES)}"
-           for t, fm in tickets.items() if not isinstance(fm.get('status'), str) or fm['status'] not in STATUSES]
-    bad += [f"{t}: status done with no acceptance; accept it with --accept {t}, or --accept {t} --pr <url> when PRs "
-            f"delivered it, or --accept {t} --run <url> when a successful CI run proves it" for t, fm in tickets.items()
-            if fm.get('status') == 'done' and not accepting and not accepted(fm)]
-    bad += [f"{t}: blocked_by {dep} does not exist" for t, fm in tickets.items()
-           for dep in fm.get("blocked_by", []) if dep not in tickets and dep not in left_out]
+def mine(ticket, text):
+    return Problem(f"{ticket}: {text}", (spec_of(ticket),))
+
+
+def problems(tickets, refused=(), accepting=False):
+    """What makes the board invalid, [] when nothing does: the `refused` files `load` returned, then each problem. A
+    done ticket needs its acceptance, except while `--accept` runs (`accepting`): it gives those tickets their
+    acceptance, one at a time. A blocker a refused file may hold is not called missing: the board cannot tell."""
+    unread = {name for problem in refused for name in problem.unread}
+    bad = list(refused) + [mine(t, f"status {fm.get('status')!r} is not one of {sorted(STATUSES)}")
+                           for t, fm in tickets.items() if not isinstance(fm.get('status'), str) or fm['status'] not in STATUSES]
+    bad += [mine(t, f"status done with no acceptance; accept it with --accept {t}, or --accept {t} --pr <url> when PRs "
+                    f"delivered it, or --accept {t} --run <url> when a successful CI run proves it")
+            for t, fm in tickets.items() if fm.get('status') == 'done' and not accepting and not accepted(fm)]
+    bad += [mine(t, f"blocked_by {dep} does not exist") for t, fm in tickets.items()
+            for dep in fm.get("blocked_by", []) if dep not in tickets and dep not in unread]
     allowed = ", ".join(capability_probe.NEEDS)
     for t, fm in tickets.items():
         if "needs" in fm and not isinstance(fm["needs"], list):
-            bad.append(f"{t}: needs must be a bracketed list of {allowed}")
+            bad.append(mine(t, f"needs must be a bracketed list of {allowed}"))
         else:
-            bad += [f"{t}: needs {need!r} is not one of {allowed}" for need in fm.get("needs", [])
+            bad += [mine(t, f"needs {need!r} is not one of {allowed}") for need in fm.get("needs", [])
                     if need not in capability_probe.NEEDS]
-    bad += [f"{t}: no blocked_by key (write blocked_by: [] when nothing gates it)" for t, fm in tickets.items()
+    bad += [mine(t, "no blocked_by key (write blocked_by: [] when nothing gates it)") for t, fm in tickets.items()
             if "blocked_by" not in fm]
-    bad += [f"{t}: number differs from its filename {Path(fm['path']).name}" for t, fm in tickets.items()
+    bad += [mine(t, f"number differs from its filename {Path(fm['path']).name}") for t, fm in tickets.items()
             if not Path(fm["path"]).name.startswith(t.split("/")[-1] + "-")]
     graphs = {"ticket": {t: fm.get("blocked_by", []) for t, fm in tickets.items()},
               "workstream": {spec_of(t): set() for t in tickets}}
@@ -164,7 +169,8 @@ def problems(tickets, accepting=False, left_out=()):
         graphs["workstream"][spec_of(t)].update(spec_of(d) for d in fm.get("blocked_by", [])
                                            if spec_of(d) != spec_of(t))
     for label, graph in graphs.items():
-        bad += [f"{label} dependency cycle: {' -> '.join(cycle)}" for cycle in cycles(graph)]
+        bad += [Problem(f"{label} dependency cycle: {' -> '.join(cycle)}", tuple(sorted({spec_of(node) for node in cycle})))
+                for cycle in cycles(graph)]
     return bad
 
 
@@ -207,13 +213,14 @@ def cycles(graph):
 def undelivered(slug, board=None):
     """What keeps workstream `slug` from delivered, [] when nothing does: its own problems on the board's check, its
     tickets not done, and the evidence `--delivery` judges, unless it finished (its branch deleted after the merge, its
-    reviewed heads in main). `board` is `judged(slug)` when the caller has it. Exits naming a ticket file of its own the
-    board refuses, as `load` does."""
-    tickets, found = board or judged(slug)
+    reviewed heads in main). `board` is `judged()` when the caller has it."""
+    tickets, refused, found = board or judged()
+    if bearing(refused, slug):  # A ticket file of its own the board refuses: it cannot be judged.
+        return [f"it cannot be checked: {text}" for text in bearing(refused, slug)]
     if not any(spec_of(name) == slug for name in tickets):
         new = shlex.join(["python3", str(Path(__file__).resolve()), "--repo", str(ROOT), slug, "--new", "<title>"])
         return [f"its local board has no tickets: write each with `{new}`"]
-    problems = [problem for problem in found if concerns(problem, slug)]
+    problems = bearing(found, slug)
     undone = [f"{name} ({fm.get('status')})" for name, fm in tickets.items()
               if spec_of(name) == slug and fm.get('status') != 'done']
     problems += [f"tickets not done: {', '.join(undone)}"] if undone else []
@@ -222,17 +229,10 @@ def undelivered(slug, board=None):
     return problems
 
 
-def judged(slug):
-    """The board and what its check refuses, as they bear on workstream `slug`: (tickets, problems). Another
-    workstream's file the board refuses is one problem, and the rest of the board is still checked; a file of its own
-    the board refuses exits naming it, as `load` does."""
-    try:
-        tickets = load()
-    except SystemExit as refusal:
-        left_out = set()
-        tickets = load(spared=slug, left_out=left_out)
-        return tickets, [str(refusal.code)] + problems(tickets, left_out=left_out)
-    return tickets, problems(tickets)
+def judged():
+    """The board, its refused files and what its check refuses: (tickets, refused, problems)."""
+    tickets, refused = load()
+    return tickets, refused, problems(tickets, refused)
 
 
 def spec_of(name):
@@ -1005,7 +1005,7 @@ def new_ticket(slug, title, blocked_by, touches):
     issues = ISSUES / slug / "issues"
     issues.mkdir(parents=True, exist_ok=True)
     with state_files.locked(ISSUES / ".new-ticket"):  # One lock for the whole board: its check spans workstreams.
-        tickets = load()  # Read under the lock: a parallel call wrote its ticket before letting go of it.
+        tickets = load_whole()  # Read under the lock: a parallel call wrote its ticket before letting go of it.
         nn = f"{max((int(t.split('/')[1]) for t in tickets if spec_of(t) == slug), default=0) + 1:02}"
         words = "-".join(re.findall(r"[a-z0-9]+", title.lower()))[:60].strip("-") or "ticket"
         path = issues / f"{nn}-{words}.md"
@@ -1186,7 +1186,7 @@ def main(argv):
     common = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--git-common-dir"], capture_output=True, text=True)
     if root.returncode or Path(root.stdout.strip()).resolve() != ROOT or (ROOT / common.stdout.strip()).resolve() != ROOT / ".git":
         parser.error("--repo must name the main Git checkout, not a subdirectory or linked worktree")
-    tickets = load()
+    tickets = load_whole()
     if args.new is not None:
         title = args.new.strip()
         if not args.slug:
@@ -1230,7 +1230,7 @@ def main(argv):
             parser.error("--set needs a ticket and at least one assignment")
         set_field(tickets, args.set[0], args.set[1:])
         if args.counts:
-            board = load()
+            board = load_whole()
             if not check(board):
                 sys.exit(f"{args.set[0]}: set as asked; no counts while the board fails its check")
             print(counts({t: fm for t, fm in board.items() if t in selected}))
