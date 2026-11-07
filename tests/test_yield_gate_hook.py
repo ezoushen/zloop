@@ -1010,21 +1010,6 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.register('default/w1:p9/other', 'ticket-6/1', pane='w1:p3', session='host-2')
         self.assertEqual(self.check(session='host-1'), [])
 
-    def test_a_command_local_socket_path_names_the_server_a_launch_ran_in(self):
-        # Review 2: `HERDR_SOCKET_PATH=<s2 socket> herdr agent start ...` from a default-server shell runs in s2, so
-        # that is the server logged, and an s2 registration clears it; an explicit --session still wins.
-        s2 = '/home/u/.config/herdr/sessions/s2/herdr.sock'
-        self.launch(f'HERDR_SOCKET_PATH={s2} herdr agent start alpha --kind codex --pane w1:p5', pane=None)
-        self.launch(f'env -u X HERDR_SOCKET_PATH={s2} herdr agent start beta --kind codex --pane w1:p6', pane=None)
-        self.launch(f'HERDR_SOCKET_PATH={s2} herdr --session s3 agent start gamma --kind codex --pane w1:p7', pane=None)
-        self.launch('herdr agent start delta --kind codex --pane w1:p8', pane=None)
-        self.assertEqual([record['herdr_session'] for record in self.logged()], ['s2', 's2', 's3', 'default'])
-        self.serve()
-        self.register('s2/w1:p5/alpha', 'ticket-1/1', pane=None)
-        self.register('s2/w1:p6/beta', 'ticket-2/1', pane=None)
-        self.assertEqual(self.check(pane=None, session='host-1'),
-                         [self.gap('gamma', 'w1:p7'), self.gap('delta', 'w1:p8')])
-
     def test_the_launch_logger_asks_the_callers_own_server_through_its_socket_without_a_session_option(self):
         # Rule (one Herdr transport): a server the caller's own HERDR_SOCKET_PATH is the socket of is asked through it,
         # as the lifecycle and the stop check ask it, so an isolated config that holds no `s1` name still gives the cwd.
@@ -1052,38 +1037,17 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         db.close()
         self.assertEqual((bound, saved['sessions'], 'session' in saved), (['pi-child', 'pi-parent'],) * 2 + (False,))
 
-    def test_the_server_a_launch_ran_in_follows_assignments_into_shell_strings_and_env_resets(self):
-        # Review 3: an assignment before `bash -c '...'` reaches the launch inside it; `env -u HERDR_SOCKET_PATH`, `env -i`
-        # and an empty `HERDR_SOCKET_PATH=` run it on the default server whatever the logger's own environment names.
+    def test_a_command_that_names_the_socket_variable_anywhere_logs_no_launch(self):
+        # Rule: the logger reads no shell. A command that sets, unsets, exports or prefixes HERDR_SOCKET_PATH may run its
+        # launch on a server the text cannot settle, so nothing is logged; the stop check's live-agent scan names it.
         sock = lambda name: f'/home/u/.config/herdr/sessions/{name}/herdr.sock'
-        shell = f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'herdr agent start a%d --kind codex --pane w1:p%d'"
-        cases = [(shell, 's2'),
-                 (f"HERDR_SOCKET_PATH={sock('s2')} bash -c \"HERDR_SOCKET_PATH={sock('s3')} herdr agent start a%d --pane w1:p%d\"", 's3'),
-                 (f"HERDR_SOCKET_PATH={sock('s2')} env -u HERDR_SOCKET_PATH herdr agent start a%d --pane w1:p%d", 'default'),
-                 (f"HERDR_SOCKET_PATH={sock('s2')} env -i herdr agent start a%d --pane w1:p%d", 'default'),
-                 (f"HERDR_SOCKET_PATH={sock('s2')} env HERDR_SOCKET_PATH= herdr agent start a%d --pane w1:p%d", 'default'),
-                 (f"env -i HERDR_SOCKET_PATH={sock('s2')} herdr agent start a%d --pane w1:p%d", 's2'),
-                 (f"HERDR_SOCKET_PATH={sock('s2')} sh -c 'env -u HERDR_SOCKET_PATH herdr agent start a%d --pane w1:p%d'", 'default'),
-                 (f"HERDR_SOCKET_PATH={sock('s2')} env -u OTHER herdr agent start a%d --pane w1:p%d", 's2'),
-                 (f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'herdr agent start x%d --pane w1:p8'; "
-                  "herdr agent start a%d --pane w1:p%d", 's4'),
-                 # A shell the command starts keeps its own changes: the launch beside it runs on the logger's server.
-                 ("bash -c 'unset HERDR_SOCKET_PATH'; herdr agent start a%d --pane w1:p%d", 's4'),
-                 # Review 6: combined short options and the long unset form of env.
-                 (f"HERDR_SOCKET_PATH={sock('s2')} env -iv herdr agent start a%d --pane w1:p%d", 'default'),
-                 (f"HERDR_SOCKET_PATH={sock('s2')} env --unset=HERDR_SOCKET_PATH herdr agent start a%d --pane w1:p%d",
-                  'default')]
-        for number, (command, _) in enumerate(cases):
-            self.launch(command.replace('%d', str(number)), pane=None, env={'HERDR_SOCKET_PATH': sock('s4')})
-        self.assertEqual([record['herdr_session'] for record in self.logged() if not record['agent'].startswith('x')],
-                         [server for _, server in cases])
-
-    def test_a_launch_beside_a_statement_that_changes_the_socket_is_not_logged(self):
-        # Review 4 and 5: a body's own assignments, exports, unsets or bare `env` may change the server for the launches
-        # beside it in ways a reading of the text cannot settle (subshells, loops that never run, unexported variables),
-        # so those launches are not logged; the stop check's live-agent scan still names a real one.
-        sock = lambda name: f'/home/u/.config/herdr/sessions/{name}/herdr.sock'
-        for command in (f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'unset HERDR_SOCKET_PATH; herdr agent start a --pane w1:p5'",
+        for command in (f"HERDR_SOCKET_PATH={sock('s2')} herdr agent start a --pane w1:p5",
+                        f"env HERDR_SOCKET_PATH={sock('s2')} herdr agent start a --pane w1:p5",
+                        f"HERDR_SOCKET_PATH={sock('s2')} herdr --session s3 agent start a --pane w1:p5",
+                        f"HERDR_SOCKET_PATH={sock('s2')} env -u HERDR_SOCKET_PATH herdr agent start a --pane w1:p5",
+                        f"HERDR_SOCKET_PATH={sock('s2')} env -i herdr agent start a --pane w1:p5",
+                        f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'herdr agent start a --pane w1:p5'",
+                        f"HERDR_SOCKET_PATH={sock('s2')} bash -c 'unset HERDR_SOCKET_PATH; herdr agent start a --pane w1:p5'",
                         f"bash -c 'export HERDR_SOCKET_PATH={sock('s3')}; herdr agent start a --pane w1:p5'",
                         f"HERDR_SOCKET_PATH={sock('s2')}; herdr agent start a --pane w1:p5",
                         f"HERDR_SOCKET_PATH={sock('s2')} bash -c '(\n  unset HERDR_SOCKET_PATH\n)\nherdr agent start a --pane w1:p5'",

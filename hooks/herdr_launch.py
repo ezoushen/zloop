@@ -2,10 +2,10 @@
 """PreToolUse hook: log each `herdr agent start` a session runs, so the yield gate can name unregistered workers.
 
 It finds launches behind assignments, wrappers (`timeout`, `env` and their options) and a shell's `-c` string, not
-inside heredocs or backticks.
+inside heredocs or backticks; a command that names HERDR_SOCKET_PATH logs none.
 
 Appends one JSON line per launch to the main checkout's .scratch/herdr-launches.jsonl: the time, agent name and
-pane, the Herdr server session it ran in (`--session`, else the one its shell's HERDR_SOCKET_PATH names, else
+pane, the Herdr server session it ran in (`--session`, else the one the caller's own HERDR_SOCKET_PATH names, else
 `default`), the orchestrator (its HERDR_PANE_ID and host session ID) and the pane's cwd when Herdr reports it.
 Claude and Codex run it before Bash; Pi's extension passes its bash and bg_run calls. It never blocks the command.
 
@@ -33,25 +33,15 @@ LOOKUP_SECONDS = 4
 VALUED = {'-u', '--unset', '-C', '--chdir', '-P', '-S', '-s', '-k'}
 
 
-def runs(words, assigned=None):
-    """The words of the command a simple command runs, past assignments and wrappers with their options. `assigned`
-    holds the command's HERDR_SOCKET_PATH, as the assignments and `env` options before it leave it: its value, or ''
-    once `env -u HERDR_SOCKET_PATH`, `env -i` or an empty assignment unsets it."""
+def runs(words):
+    """The words of the command a simple command runs, past assignments and wrappers with their options."""
     while words:
         head = words[0]
         if pr_body.ASSIGNMENT.match(head) or head in pr_body.WRAPPERS - {'env'}:
-            if head.startswith('HERDR_SOCKET_PATH=') and assigned is not None:
-                assigned['HERDR_SOCKET_PATH'] = head.partition('=')[2]
             words = words[1:]
         elif head in ('env', 'timeout'):
             words = words[1:]
             while words and words[0].startswith('-'):
-                option = words[0]
-                if assigned is not None and head == 'env' and (
-                        option in ('-', '--ignore-environment') or re.fullmatch(r'-[0iv]*i[0iv]*', option)
-                        or option in ('-uHERDR_SOCKET_PATH', '--unset=HERDR_SOCKET_PATH')
-                        or option in ('-u', '--unset') and words[1:2] == ['HERDR_SOCKET_PATH']):
-                    assigned['HERDR_SOCKET_PATH'] = ''
                 words = words[2:] if words[0] in VALUED else words[1:]
             if head == 'timeout':
                 words = words[1:]  # The duration.
@@ -60,42 +50,24 @@ def runs(words, assigned=None):
     return words
 
 
-def changes_socket(tokens):
-    """Whether a statement may change HERDR_SOCKET_PATH for the statements beside it: it names the variable other than
-    in the prefix of a command it runs, or runs no command (assignments, `export`, an `env` that only prints); a shell
-    it starts keeps its own changes."""
-    if not any('HERDR_SOCKET' in token for token in tokens):  # Also a name the shell expands, as HERDR_SOCKET_{PATH,X}.
-        return False
-    words = runs(list(tokens))
-    return not words or (Path(words[0]).name not in SHELLS and any('HERDR_SOCKET' in word for word in words))
-
-
-def starts(command, assigned=None):
-    """Yield (Herdr session or None, agent name, pane) for each `herdr [--session S] agent start` the command runs;
-    `assigned` is the HERDR_SOCKET_PATH an enclosing command gave it. Beside a statement that may change it, no launch
-    is yielded: which server it runs in cannot be read from the text, and the stop check's scan finds the agent."""
-    statements = []
-    for tokens, _ in pr_body.logical_lines(command):
-        start = 0
-        for index, token in enumerate(tokens + [';']):
-            if token in pr_body.SEPARATORS or index == len(tokens):
-                statements.append(tokens[start:index])
-                start = index + 1
-    if any(changes_socket(statement) for statement in statements):
+def starts(command):
+    """Yield (Herdr session or None, agent name, pane) for each `herdr [--session S] agent start` the command runs. A
+    command that names HERDR_SOCKET_PATH yields none: which server it runs in cannot be read from the text, and the
+    stop check's scan finds the agent."""
+    if 'HERDR_SOCKET' in command:  # Also a name the shell expands, as HERDR_SOCKET_{PATH,X}.
         return
     for tokens, _ in pr_body.logical_lines(command):
         start = 0
         for index, token in enumerate(tokens + [';']):
             if token not in pr_body.SEPARATORS and index < len(tokens):
                 continue
-            environ = dict(assigned or {})
-            words, start = runs(tokens[start:index], environ), index + 1
+            words, start = runs(tokens[start:index]), index + 1
             if words and Path(words[0]).name in SHELLS:
                 for at, word in enumerate(words[1:], 1):  # The string a shell's `-c` runs.
                     if not word.startswith('-'):
                         break
                     if re.fullmatch(r'-[A-Za-z]*c[A-Za-z]*', word) and at + 1 < len(words):
-                        yield from starts(words[at + 1], environ)
+                        yield from starts(words[at + 1])
                         break
                 continue
             if not words or Path(words[0]).name != 'herdr':
@@ -107,10 +79,6 @@ def starts(command, assigned=None):
                 session, words = words[0].split('=', 1)[1], words[1:]
             if words[:2] != ['agent', 'start']:
                 continue
-            if session is None and 'HERDR_SOCKET_PATH' in environ:  # The server the command's own socket path names.
-                session = environ['HERDR_SOCKET_PATH']
-                session = session if any(char in session for char in '$`') else yield_gate.lifecycle().own_server(
-                    {'HERDR_SOCKET_PATH': session})
             words = words[2:words.index('--')] if '--' in words else words[2:]
             names, options, at = [], {}, 0
             while at < len(words):
