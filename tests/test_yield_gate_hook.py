@@ -140,8 +140,15 @@ else:
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout) if result.stdout.strip() else None
 
+    def held_once_with_retry_advice(self, session):
+        """Rule: a check that could not run holds one stop and says to retry, not to register or dismiss anything."""
+        reason = self.stop(session=session)['reason']
+        self.assertIn('retry the stop', reason)
+        self.assertNotIn('Register each launched worker', reason)
+        self.assertNotIn('decision', self.stop(session=session, active=True) or {})
+
     def check(self, cwd=None, pane='w1:p1', session=None, env=None):
-        """The gaps `yield_gate.py check <cwd> [session]` reports, as Pi's extension runs it."""
+        """The gaps `yield_gate.py check <cwd> [session]` reports: what `stop` names, without counting the stop."""
         result = subprocess.run([sys.executable, str(HOOK), 'check', str(cwd or self.repo), *filter(None, [session])],
                                 capture_output=True, text=True, timeout=20, env=self.env(pane, **(env or {})))
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -434,6 +441,11 @@ class ReviewHold(GateRepo):
         gaps = self.check(session='host-1')
         self.assertEqual(len(gaps), 1)
         self.assertIn('review_by: none names no collected worker attempt', gaps[0])
+
+    def test_a_review_that_could_not_be_checked_holds_once_with_the_retry_advice(self):
+        self.report.unlink()
+        self.assertIn('could not check review', self.check(session='host-1')[0])
+        self.held_once_with_retry_advice('host-1')
 
     def test_review_bindings_hold_only_their_session_else_their_pane(self):
         self.assertEqual(self.check(session='host-2'), [])
@@ -1421,6 +1433,12 @@ console.log('null');
         self.state.write_bytes(b'not a database ' + b'"orchestrator": "w1:p1"')
         self.assertRegex(self.check(session='host-1')[0], 'cannot be read')
 
+    def test_a_state_that_cannot_be_read_holds_once_with_the_retry_advice(self):
+        self.live_attempt('ticket-1/1', 'w1:p1', 'host-1')
+        self.state.write_bytes(b'not a database')
+        self.state.with_name('orchestrator.json').write_text(json.dumps({'pane': None, 'sessions': ['host-1']}))
+        self.held_once_with_retry_advice('host-1')
+
     def test_a_launch_is_cleared_by_its_hosts_registration_under_an_inherited_outer_session(self):
         # Rule: the attempt counts every host session its registrar exported, for launches as for its gaps.
         self.launch('herdr agent start builder-1 --kind codex --pane w1:p5', session='codex-inner')
@@ -1710,8 +1728,9 @@ class DeliveryHold(GateRepo):
     def ticket(self, number, status):
         path = self.repo / f'.scratch/fix/issues/{number}-task.md'
         path.parent.mkdir(parents=True, exist_ok=True)
+        accepted = f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n" if status == 'done' else ''
         path.write_text(f'---\nticket: fix/{number}\nstatus: {status}\nblocked_by: []\ntouches: [t{number}]\n'
-                        'devices: []\n---\n')
+                        f'devices: []\n{accepted}---\n')
 
     def review(self, delivered=False, **fields):
         """The review report's front matter: by default the Pi run's, or current and passed when `delivered`; `fields`
@@ -1751,6 +1770,32 @@ class DeliveryHold(GateRepo):
         self.assertIsNone(self.stop(pane='w1:p1', env={'ZLOOP_YIELD_HOOK': 'off'}))
         self.review(delivered=True)
         self.assertEqual(self.check(pane='w1:p1'), [])
+
+    def test_the_autofix_hold_names_the_problems_the_board_finds_in_its_workstream(self):
+        # Rule: one reader says what keeps a workstream from delivered. A done ticket with no acceptance is a board
+        # problem of the workstream, named by the autofix hold as by the card hold and the panel.
+        self.bind(pane='w1:p1')
+        self.review(delivered=True)
+        self.ticket('01', 'done')
+        path = self.repo / '.scratch/fix/issues/01-task.md'
+        path.write_text(re.sub(r'accepted.*\n', '', path.read_text()))
+        self.assertEqual(self.check(pane='w1:p1'), [self.held(
+            'fix', 'fix/01: status done with no acceptance; accept it with --accept fix/01, or --accept fix/01 --pr <url> '
+                   'when PRs delivered it, or --accept fix/01 --run <url> when a successful CI run proves it')])
+
+    def test_a_workstream_the_card_and_the_autofix_binding_both_hold_is_named_once(self):
+        # Rule: one gap per workstream. An autofix-bound workstream whose confirmed card records `merged` while its
+        # delivery fails is named by the card hold alone, with the problems the board names.
+        self.bind(pane='w1:p1', autofix=True, CLAUDE_CODE_SESSION_ID='host-1')
+        card = self.repo / '.scratch/fix/autopilot.md'
+        card.write_text('# fix \u2014 autopilot run card\n\n## Goal\nx\n\n## State\nconfirmed: 2026-10-27 "go"\n'
+                        'session: host-1\nauto-merge: no\nboard: local\nphase: pr\nterminal: merged\nhistory:\n'
+                        'evidence: merged\n')
+        gaps = self.check(pane='w1:p1', session='host-1')
+        self.assertEqual(len(gaps), 1, gaps)
+        self.assertTrue(gaps[0].startswith(f"{card}: this session's autopilot run records `terminal: merged` while its "
+                                           'workstream is not delivered: '), gaps)
+        self.assertIn('e2e_status: not-run (needs passed)', gaps[0])
 
     def test_outside_herdr_the_session_id_each_host_exports_binds_the_orchestrator(self):
         # Rule 3: Claude Code, Codex and Pi export their session ID to the orchestrator's shell; the binding records
@@ -1894,8 +1939,9 @@ class DeliveryHold(GateRepo):
         started = time.monotonic()
         gaps = self.check(pane='w1:p1', session='host-1', env={'HOME': str(home)})
         self.assertLess(time.monotonic() - started, 12)
+        # The workstream its autofix binding and its delivered card both hold is named once, by the card.
         self.assertEqual(len([gap for gap in gaps if 'review_by: local cannot be judged, the router did not answer '
-                                                     'within 5 s' in gap]), 5, gaps)
+                                                     'within 5 s' in gap]), 4, gaps)
 
     def test_a_recorded_blocker_lets_the_orchestrator_stop(self):
         # Rules 1 and 4: `blocker: <reason>` in the review report records why delivery cannot progress, and with it the
@@ -2011,7 +2057,8 @@ class DeliveryHold(GateRepo):
         # not done), so not it; named explicitly, it is held until finished by the definition above.
         path = self.repo / '.scratch/audit/issues/01-task.md'
         path.parent.mkdir(parents=True)
-        path.write_text('---\nticket: audit/01\nstatus: done\nblocked_by: []\ntouches: [a]\ndevices: []\n---\n')
+        path.write_text('---\nticket: audit/01\nstatus: done\nblocked_by: []\ntouches: [a]\ndevices: []\n'
+                        f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
         report = self.repo / '.scratch/audit/reports/spec-review.md'
         report.parent.mkdir(parents=True)
         report.write_text(f'---\nreview_status: clean\ndocumentation_status: passed\nreview_base: {self.start}\n'
@@ -2862,15 +2909,21 @@ class AutopilotCardHold(GateRepo):
         (issues / '01-task.md').write_bytes(b'\xff---\n')
         path = self.card(terminal='merged', evidence='PR 1 merged', phase='pr')
         self.assertEqual(self.check(session='host-1'), [
-            f"{path}: this session's autopilot run records `terminal: merged` while its workstream is not delivered: "
-            f"it cannot be checked: {issues / '01-task.md'}: cannot be read: 'utf-8' codec can't decode byte 0xff in "
-            "position 0: invalid start byte; finish what it names, or record the terminal state that fits"])
+            "could not check delivery of run: "
+            f"{issues / '01-task.md'}: cannot be read: 'utf-8' codec can't decode byte 0xff in position 0: invalid start "
+            "byte"])
         # Review (Codex): so is one holding a ticket's keys but no `ticket:`, which `--new` exits on as well.
         (issues / '01-task.md').write_text('---\nstatus: ready\nblocked_by: []\ntouches: []\ndevices: []\n---\n')
         self.assertEqual(self.check(session='host-1'), [
-            f"{path}: this session's autopilot run records `terminal: merged` while its workstream is not delivered: "
-            f"it cannot be checked: {issues / '01-task.md'}: missing ticket front matter; finish what it names, or "
-            "record the terminal state that fits"])
+            "could not check delivery of run: "
+            f"{issues / '01-task.md'}: missing ticket front matter"])
+
+    def test_a_card_delivery_that_could_not_be_checked_holds_once_with_the_retry_advice(self):
+        issues = self.repo / '.scratch/run/issues'
+        issues.mkdir(parents=True)
+        (issues / '01-task.md').write_bytes(b'\xff---\n')
+        self.card(terminal='merged', evidence='PR 1 merged', phase='pr')
+        self.held_once_with_retry_advice('host-1')
 
     def test_a_delivery_that_cannot_be_checked_still_holds_the_stop(self):
         # Review (Codex, Sonnet): a check that cannot run is a named gap, never a pass.
@@ -2879,9 +2932,8 @@ class AutopilotCardHold(GateRepo):
         (issues / '01-task.md').write_text('---\nticket: run/one\nstatus: done\nblocked_by: []\ntouches: []\ndevices: []\n---\n')
         path = self.card(terminal='merged', evidence='PR 1 merged', phase='pr')
         self.assertEqual(self.check(session='host-1'), [
-            f"{path}: this session's autopilot run records `terminal: merged` while its workstream is not delivered: "
-            f"it cannot be checked: {issues / '01-task.md'}: invalid ticket id 'run/one'; finish what it names, or "
-            "record the terminal state that fits"])
+            "could not check delivery of run: "
+            f"{issues / '01-task.md'}: invalid ticket id 'run/one'"])
         # Review (Sonnet): so is a check that raises on the way, here a worker state with no tables.
         (issues / '01-task.md').write_text('---\nticket: run/01\nstatus: done\nblocked_by: []\ntouches: []\ndevices: []\n'
                                            f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
@@ -2891,18 +2943,16 @@ class AutopilotCardHold(GateRepo):
                                                 'e2e_status: passed\nreview_by: review/run/1\ne2e_by: e2e/run/1\n---\n')
         sqlite3.connect(reports / 'workers.sqlite').close()
         self.assertEqual(self.check(session='host-1'), [
-            f"{path}: this session's autopilot run records `terminal: merged` while its workstream is not delivered: "
-            "it cannot be checked: no such table: attempts; finish what it names, or record the terminal state that "
-            "fits"])
+            "could not check delivery of run: "
+            "no such table: attempts"])
         # Review (Sonnet): a ticket file of its own that cannot be read is named as the board names it, not raised.
         unreadable = issues / '02-task.md'
         unreadable.write_text('---\nticket: run/02\n---\n')
         unreadable.chmod(0)
         self.addCleanup(unreadable.chmod, 0o644)
         self.assertEqual(self.check(session='host-1'), [
-            f"{path}: this session's autopilot run records `terminal: merged` while its workstream is not delivered: "
-            f"it cannot be checked: {unreadable}: cannot be read: [Errno 13] Permission denied: '{unreadable}'; finish "
-            "what it names, or record the terminal state that fits"])
+            "could not check delivery of run: "
+            f"{unreadable}: cannot be read: [Errno 13] Permission denied: '{unreadable}'"])
 
     def test_a_live_worker_with_a_running_wait_lets_the_run_yield_but_a_lost_one_does_not(self):
         # Rule: a yield while a worker of the card's workstream holds a running wait that will wake the host is not an end;

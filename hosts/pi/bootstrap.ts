@@ -364,7 +364,7 @@ export default function (pi) {
         { encoding: "utf8", timeout: 20000 });
       verdict = JSON.parse(output);  // The check words the hold as the Stop hooks do and counts its own repeats.
       failed = false;
-    } catch (error) {  // A broken check never passes silently, but holds once.
+    } catch (error) {  // A broken check never passes silently, but holds once, and only a retry clears it.
       if (failed) return undefined;
       failed = true;
       verdict = { hold: true, missing: [`could not check workers: ${error.message.trim()}`] };
@@ -373,7 +373,6 @@ export default function (pi) {
       return { entries: [{ type: "custom_message", customType: "zloop_yield_gate", content: verdict.notice, display: true }], continue: false };
     }
     if (!verdict.hold) return undefined;
-    // Without a reason the hook itself crashed: a check that could not run, which only a retry clears.
     const content = verdict.reason ?? "Stopping now leaves these gaps:\n"
       + verdict.missing.map((gap) => `- ${gap}\n`).join("")
       + "A check that could not run clears when it runs again: retry the stop once it can, or run with "

@@ -276,14 +276,11 @@ def watching(data):
 
 
 def wake_gap(data):
-    """Why a running wait of an attempt will not wake the host, None when it will: the wait process is the recorded
-    one and has a wake channel."""
+    """Why a running wait of an attempt will not wake the host, None when it will."""
     monitor = data['monitor']
     if process_stamp(monitor['pid']) != monitor['stamp']:
         return 'wait process lost'
-    if not monitor.get('notify'):
-        return 'wait has no wake channel'
-    return None
+    return None if monitor.get('notify') else 'wait has no wake channel'
 
 
 def wait_running(data):

@@ -20,16 +20,16 @@ every ticket done and delivery failing, until it is finished (branch deleted, re
 main or on the remote's main, E2E passed at a head in main). A session is also held while a
 confirmed autopilot run card (.scratch/<slug>/autopilot.md) naming it lacks one terminal state or its
 evidence, or records delivered, delivered-local or merged while its workstream is not delivered on its local board
-(another workstream's problems hold nothing). A review binding beside a standalone or workstream report holds its session until the report names a
+(another workstream's problems hold nothing; a workstream the autofix hold also names is named only here). A review binding beside a standalone or workstream report holds its session until the report names a
 completed collected diff-review attempt at review_head, names local review, or records a blocker with a launched
 diff-review attempt in its state at review_head settled failed, blocked or cancelled; local review and a blocker without
 a reviewer count only where review_target.py found no reviewer route for the recorded host and the router, asked
 again, still finds none. Launch evidence is a Herdr placement, verified startup or recorded submission.
 The review, delivery and card holds do not apply while a live worker of that state holds a running
-wait that will wake the host. A stop
+wait that will wake the host (the lifecycle's `wake_gap`). A stop
 is held while its gaps stand, up to three times in a row for an identical set (a count per session under
-.scratch/holds/); then the stop passes and the gate says it gave up. A check that cannot run is a named gap, never a
-pass, and holds one stop, as do reminders when nothing else stands. `claude` and `codex` speak their shared Stop
+.scratch/holds/); then the stop passes and the gate says it gave up. A check that cannot run is a named gap (marked `Unchecked` where it is made), never a
+pass, and holds one stop with the retry advice, as do reminders when nothing else stands. `claude` and `codex` speak their shared Stop
 hook protocol; `check <cwd> [session]` prints the gaps and the hold's message as JSON, and `stop <cwd> [session]`, which
 other hosts call at each stop, also counts the stop and says whether to hold it. Set
 ZLOOP_YIELD_HOOK=off to disable the check.
@@ -53,8 +53,6 @@ GUIDE = ROOT / 'runtime/workers/wait.md'
 PREPARE = ROOT / 'runtime/workers/prepare.md'
 COLLECT = ROOT / 'runtime/workers/collect.md'
 RETIRE = ROOT / 'runtime/resources/retire.md'
-# A reminder holds a stop once, as a failed check does: a retained worker nothing follows.
-REMINDER = 'and nothing in its run follows it'
 HANDOFF = ROOT / 'skills/dispatch/handoff.md'
 # hooks/herdr_launch.py appends each `herdr agent start` here, one JSON object per line.
 LAUNCHES = '.scratch/herdr-launches.jsonl'
@@ -64,11 +62,25 @@ HOLDS = '.scratch/holds'
 MAX_HOLDS = 3
 # scripts/next_tickets.py --orchestrate records here, in a workstream's reports/, the session that orchestrates it.
 BINDING = 'orchestrator.json'
-# The ones that claim the work delivered: the card's workstream must be delivered on its local board.
+
+
+class Reminder(str):
+    """A gap that holds one stop: a retained worker nothing follows."""
+
+
+class Unchecked(Reminder):
+    """A check that could not run, marked where it is made; registering or dismissing cannot clear it: retry advice."""
 
 
 def lifecycle():
     return script('worker_lifecycle')
+
+
+def pointed(root):
+    """The board script, pointed at this checkout."""
+    board = script('next_tickets')
+    board.ROOT, board.ISSUES = root, root / '.scratch'
+    return board
 
 
 @functools.cache
@@ -109,7 +121,7 @@ def gaps(cwd, session=None):
         # Sessions share the folder: a worker holds only the session that registered it, by host session before pane.
         bound = binding_state(state, pane, session)
         if isinstance(run, Exception):
-            missing += [f'{state}: cannot be read ({run}); fix or remove it'] if unreadable_holds(
+            missing += [Unchecked(f'{state}: cannot be read ({run}); fix or remove it')] if unreadable_holds(
                 state, pane, session, bound) else []
             continue
         saved_attempts, malformed, _ = run
@@ -122,14 +134,15 @@ def gaps(cwd, session=None):
             missing += [f'{state}: {gap}' for gap in module.yield_gaps(db, orchestrated, saved_attempts)]
         except Exception as error:  # Named to whoever it could hide a gap from: its orchestrator and its workers' own.
             if any(orchestrated(saved) for saved in saved_attempts) or unreadable_holds(state, pane, session, bound):
-                missing.append(f'{state}: cannot be read ({error}); fix or remove it')
+                missing.append(Unchecked(f'{state}: cannot be read ({error}); fix or remove it'))
         finally:
             db.close()
     # Every session answers for its own launches; a worker (its launch set ZLOOP_WORKER) not for its siblings.
     readable_runs = {state: run for state, run in runs.items() if not isinstance(run, Exception)}
+    named = set()  # The workstreams a run card names undelivered: the autofix hold does not name them again.
+    stale, cards = stale_tabs(pane, session, readable_runs), unfinished_runs(root, session, named)
     return (missing + unregistered(root, pane, session, readable_runs, siblings=not os.environ.get('ZLOOP_WORKER')),
-            stale_tabs(pane, session, readable_runs) + undelivered(root, pane, session) + unfinished_runs(root, session)
-            + unreviewed(root, pane, session))
+            stale + undelivered(root, pane, session, named) + cards + unreviewed(root, pane, session))
 
 
 def binding_state(state, pane, session):
@@ -143,7 +156,7 @@ def reaped(cwd, session=None):
     gap for each closure the lifecycle refuses, and for a run state it could not reap. Never raises."""
     try:
         root = main_checkout(cwd)
-    except Exception:  # checked() names a git that cannot tell.
+    except Exception:  # stop_gaps() names a git that cannot tell.
         return []
     if root is None:
         return []
@@ -169,7 +182,7 @@ def reaped(cwd, session=None):
             finally:
                 db.close()
         except Exception as error:  # A check that cannot run is a named gap, never a pass; gaps() names an unreadable state.
-            missing += [f'could not check settled workers in {state}: {error!r}'] if mine else []
+            missing += [Unchecked(f'could not check settled workers in {state}: {error!r}')] if mine else []
             continue
         missing += [f"{state}: {row['attempt']}: not closed at stop: {row['reason']}; settle it, then run "
                     f'`python3 {ROOT}/scripts/worker_lifecycle.py reap --state {state}`' for row in found['refused']]
@@ -190,8 +203,7 @@ def unreviewed(root, pane, session):
             report, state = Path(binding['report']), Path(binding['state'])
             if awaited(state):
                 continue
-            board = script('next_tickets')
-            board.ROOT, board.ISSUES = root, root / '.scratch'  # The checkout whose router judges a local review.
+            board = pointed(root)  # The checkout whose router judges a local review.
             fields = script('front_matter').parse(report.read_text()) or {}
             blocker = fields.get('blocker') not in (None, '', 'none')
             routed = board.local_review_problems(binding) if blocker else []
@@ -214,7 +226,7 @@ def unreviewed(root, pane, session):
                           else 'submit' if live else 'route')
                 missing.append(f"{report}: {'; '.join(problems)}; next: `{binding['next_commands'][action]}`")
         except Exception as error:
-            missing.append(f'{path}: could not check review: {error}; rerun review_target.py for this target')
+            missing.append(Unchecked(f'{path}: could not check review: {error}; rerun review_target.py for this target'))
     return missing
 
 
@@ -320,31 +332,39 @@ def board_gaps(root, path, state):
 
 def delivery_gaps(root, path, state):
     """What holds a run card that records a delivered terminal state: a board neither `local` nor a tracker's URL, or
-    what keeps its workstream from delivered, as `next_tickets.undelivered` names it for the stop check and the panel
-    alike. Another workstream's problems are not this run's to fix."""
+    what keeps its workstream from delivered. Another workstream's problems are not this run's to fix."""
     terminal, slug, board = state['terminal'], path.parent.name, state.get('board', '')
-    cards = script('autopilot_card')
-    if cards.tracker_url(board):
+    if script('autopilot_card').tracker_url(board):
         return []
     if board != 'local':
         return [f"{path}: this session's autopilot run records `terminal: {terminal}` with no board: write `board: local` "
                 "or the tracker's URL in the card's State"]
+    return delivery_gap(root, slug, f"{path}: this session's autopilot run records `terminal: {terminal}` while its "
+                                    'workstream is not delivered: ', '; finish what it names, or record the terminal state '
+                                                                      'that fits')
+
+
+def delivery_gap(root, slug, lead, tail):
+    """The gap (a list of one, or none) naming what keeps workstream `slug` from delivered, as
+    `next_tickets.undelivered` names it for both delivery holds and the panel, worded `lead`, the problems, `tail`. A
+    board that could not be checked, or a ticket of its own it refuses, is a failed check."""
     try:
-        module = script('next_tickets')
-        module.ROOT, module.ISSUES = root, root / '.scratch'
-        problems = module.undelivered(slug)
-    except Exception as error:  # A check that cannot run is a named gap, never a pass.
-        problems = [f'it cannot be checked: {error}']
-    if not problems:
-        return []
-    return [f"{path}: this session's autopilot run records `terminal: {terminal}` while its workstream is not delivered: "
-            f"{'; '.join(problems)}; finish what it names, or record the terminal state that fits"]
+        board = pointed(root)
+        judged = board.judged()
+        problems = board.bearing(judged[1], slug)
+        failed, problems = bool(problems), problems or board.undelivered(slug, judged)
+    except Exception as error:
+        failed, problems = True, [str(error)]
+    if failed:
+        return [Unchecked(f"could not check delivery of {slug}: {'; '.join(problems)}")]
+    return [f"{lead}{'; '.join(problems)}{tail}"] if problems else []
 
 
-def unfinished_runs(root, session):
+def unfinished_runs(root, session, named):
     """Name each confirmed autopilot run card of this host session that lacks one terminal state or its evidence,
     unless a live worker of the card's workstream holds a running wait that will wake the host, and in such a run
-    what `autopilot_card.py phase` would refuse; and each that records a delivered state its local board refuses."""
+    what `autopilot_card.py phase` would refuse; and each that records a delivered state its local board refuses, whose
+    workstream is added to `named`."""
     missing = []
     for path in sorted(root.glob('.scratch/*/autopilot.md')):
         life = lifecycle()
@@ -352,8 +372,9 @@ def unfinished_runs(root, session):
         if not (session in life.card_sessions(state) and life.confirmed(state)):
             continue
         if state.get('terminal') in life.TERMINAL_STATES and state.get('evidence'):
-            if state['terminal'] in life.ENDED:
-                missing += delivery_gaps(root, path, state)
+            if state['terminal'] in life.ENDED and (found := delivery_gaps(root, path, state)):
+                missing += found
+                named.add(path.parent.name)
             continue
         missing += board_gaps(root, path, state)
         if not awaited(path.with_name('reports') / 'workers.sqlite'):
@@ -368,7 +389,7 @@ def stale_tabs(pane, session, runs):
     orchestrate its workstream or, with none bound, the pane that registered it, however old the run: one neither
     retained nor closed; as a reminder, a retained one that nothing follows (its run has nothing unfinished, it is its
     conversation's latest attempt and no design hold waits on the user for its assignment)."""
-    listed, failed, missing = {}, {}, []
+    listed, missing = {}, []
     for state, (saved_attempts, _, registered) in runs.items():
         # An unreadable binding decides nothing here (undelivered names it); the registering pane does.
         binding, mine = read_binding(state.with_name(BINDING), pane, session)
@@ -396,15 +417,18 @@ def stale_tabs(pane, session, runs):
             where = (herdr['session'], herdr['workspace_id'])
             if where not in listed:
                 try:
-                    listed[where] = herdr_tabs(*where)
-                except Exception as error:
-                    listed[where], failed[where] = set(), f'could not check worker tabs: {error}'
-            if where in failed:  # A check that cannot run is a named gap, never a pass.
-                missing.append(failed.pop(where))
-            elif herdr['tab_id'] in listed[where] and retained:
-                missing.append(f"{state}: {saved['attempt']}: retained for \"{retained['next_use']}\" in Herdr tab "
-                               f"{herdr['tab_id']}, {REMINDER}: register that next attempt in this worker, raise a "
-                               f'design hold for the decision it waits on, or retire the worker ({RETIRE})')
+                    # None: the workspace is closed or its session stopped, which close its tabs.
+                    tabs = asked(*where[:1], 'tab', 'list', '--workspace', where[1],
+                                 absent=('workspace_not_found', 'server_not_running'))
+                    listed[where] = set() if tabs is None else {tab['tab_id'] for tab in tabs['result']['tabs']}
+                except Exception as error:  # A check that cannot run is a named gap, never a pass.
+                    listed[where] = set()
+                    missing.append(Unchecked(f'could not check worker tabs: {error}'))
+            if herdr['tab_id'] in listed[where] and retained:
+                missing.append(Reminder(f"{state}: {saved['attempt']}: retained for \"{retained['next_use']}\" in Herdr tab "
+                                        f"{herdr['tab_id']}, and nothing in its run follows it: register that next attempt "
+                                        f'in this worker, raise a design hold for the decision it waits on, or retire the '
+                                        f'worker ({RETIRE})'))
             elif herdr['tab_id'] in listed[where]:
                 missing.append(f"{state}: {saved['attempt']}: Herdr tab {herdr['tab_id']} is still open after "
                                f'collection; retire the worker or record its retention ({COLLECT})')
@@ -422,13 +446,6 @@ def open_holds(state):
         db.close()
 
 
-def herdr_tabs(session, workspace):
-    """The IDs of the tabs a Herdr session lists in a workspace; none when the workspace is closed or the session
-    stopped, which close its tabs."""
-    response = asked(session, 'tab', 'list', '--workspace', workspace, absent=('workspace_not_found', 'server_not_running'))
-    return set() if response is None else {tab['tab_id'] for tab in response['result']['tabs']}
-
-
 def asked(session, *args, absent=()):
     """Herdr's answer to a command on a server session (None: the caller's own); None when it fails with one of the
     `absent` error codes, an error naming the failure for any other."""
@@ -440,9 +457,10 @@ def asked(session, *args, absent=()):
     raise RuntimeError(f'herdr {" ".join(args[:2])} exited {code}: {json.dumps(response)}')
 
 
-def undelivered(root, pane, session):
-    """Name each workstream this session was bound to orchestrate (next_tickets.py --orchestrate) whose delivery fails."""
-    board, missing = None, []
+def undelivered(root, pane, session, named):
+    """Name each workstream this session was bound to orchestrate (next_tickets.py --orchestrate) whose delivery fails,
+    except those in `named`: a run card already names them."""
+    missing = []
     for path in sorted(root.glob(f'.scratch/*/reports/{BINDING}')):
         slug = path.parent.parent.name
         binding, mine = read_binding(path, pane, session)
@@ -452,14 +470,11 @@ def undelivered(root, pane, session):
             missing.append(f'{path}: the orchestrator binding cannot be read; rebind with '
                            f'`python3 {ROOT}/scripts/next_tickets.py --repo {root} {slug} --orchestrate`')
             continue
+        if slug in named:
+            continue
         try:
-            if board is None:
-                board = script('next_tickets')
-                board.ROOT, board.ISSUES = root, root / '.scratch'
-            tickets, refused = board.load()
-            if own := board.bearing(refused, slug):
-                missing.append(f'could not check delivery of {slug}: {own[0]}')
-                continue
+            board = pointed(root)
+            tickets = board.load()[0]
             review = board.review_front_matter(slug) or {}
             # Only authorized repairs owe delivery, once every ticket is done; a recorded blocker is why it stops here.
             # Dispatch start records the authorization until the review report records its own (not a placeholder).
@@ -472,26 +487,22 @@ def undelivered(root, pane, session):
                 continue
             if awaited(path.with_name('workers.sqlite')):
                 continue
-            problems = board.delivery_problems(slug)
+            missing += delivery_gap(root, slug, f'{slug}: delivery incomplete under autofix: ',
+                               f'. Continue the autofix handoff ({HANDOFF}) until `python3 {ROOT}/scripts/next_tickets.py '
+                               f'--repo {root} {slug} --delivery` passes, or record `blocker: <reason>` in '
+                               f'{path.with_name("spec-review.md")}')
         except Exception as error:  # A check that cannot run is a named gap, never a pass.
-            missing.append(f'could not check delivery of {slug}: {error}')
-            continue
-        if problems:
-            missing.append(f"{slug}: delivery incomplete under autofix: {'; '.join(problems)}. Continue the autofix "
-                           f'handoff ({HANDOFF}) until `python3 {ROOT}/scripts/next_tickets.py --repo {root} {slug} '
-                           f'--delivery` passes, or record `blocker: <reason>` in {path.with_name("spec-review.md")}')
+            missing.append(Unchecked(f'could not check delivery of {slug}: {error}'))
     return missing
 
 
 def awaited(state):
     """Whether a live worker of the run holds a running wait with a wake channel: the host is told when it settles, so
     its delivery is not stuck."""
-    if not state.is_file():
-        return False
     module = lifecycle()
     try:
         saved_attempts = read_state(state)[0]
-    except Exception:  # A state that cannot be read shows no running wait.
+    except Exception:  # A state that is missing or cannot be read shows no running wait.
         return False
     closed = {(saved['runtime'], saved['native_session']) for saved in saved_attempts if saved.get('closed')}
     return any(not saved.get('result') and (saved['runtime'], saved['native_session']) not in closed
@@ -522,11 +533,6 @@ def orchestrates(binding, pane, session):
     both sides know one."""
     return any(same_orchestrator({'pane': binding['pane'], 'session': known}, pane, session)
                for known in binding['sessions'] or [None])
-
-
-def herdr_agents():
-    """The live agents the session's Herdr server reports."""
-    return asked(None, 'agent', 'list')['result']['agents']
 
 
 def same_orchestrator(theirs, pane, session):
@@ -647,21 +653,21 @@ def unregistered(root, pane, session, runs, siblings=True):
     workers |= {handle for launch in launches for handle in (launch['agent'], launch['pane'])}  # Named once.
     workers |= {value for record in records if 'dismissed' in record  # This orchestrator's dismissals cover live agents.
                 and same_orchestrator(record['by'], pane, session) for value in record['dismissed'].values()}
-    workspace, failed, still_open, asked = os.environ.get('HERDR_WORKSPACE_ID'), [], [], {}
+    workspace, failed, still_open, seen = os.environ.get('HERDR_WORKSPACE_ID'), [], [], set()
     for launch in dismissed:  # Each pane a dismissal of this orchestrator left open, named once.
         where = (launch.get('herdr_session'), launch['pane'])
-        if launch['pane'] and where not in asked and same_orchestrator(launch['orchestrator'], pane, session):
+        if launch['pane'] and where not in seen and same_orchestrator(launch['orchestrator'], pane, session):
+            seen.add(where)
             try:
-                asked[where] = pane_open(*where)
+                still_open += [f"{launch['pane']}: dismissed launch is still open; close it, or dismiss with --keep "
+                               '<reason>'] if pane_open(*where) else []
             except Exception as error:  # A check that cannot run is a named gap, never a pass.
-                asked[where], gap = False, f'could not check Herdr workers: {error}'
+                gap = Unchecked(f'could not check Herdr workers: {error}')
                 failed += [gap] if gap not in failed else []
-            still_open += [f"{launch['pane']}: dismissed launch is still open; close it, or dismiss with --keep <reason>"
-                           ] if asked[where] else []
     try:
-        agents = herdr_agents() if siblings and workspace and worktrees.is_dir() else []  # No worktrees, no workers.
+        agents = asked(None, 'agent', 'list')['result']['agents'] if siblings and workspace and worktrees.is_dir() else []  # No worktrees, no workers.
     except Exception as error:  # A check that cannot run is a named gap, never a pass.
-        agents, failed = [], failed + [f'could not check Herdr workers: {error}']
+        agents, failed = [], failed + [Unchecked(f'could not check Herdr workers: {error}')]
     # A name is reused freely, so an attempt accounts for a live agent by its pane, or by its name only when this session
     # registered it (another session's launch is told by its pane, above).
     live = [agent for agent in agents
@@ -674,15 +680,6 @@ def unregistered(root, pane, session, runs, siblings=True):
              for launch in launches]
             + [f"Herdr agent {agent.get('name')} (pane {agent['pane_id']}) runs in {agent['cwd']} "
                'without a registered attempt' for agent in live] + still_open + unreadable + failed)
-
-
-def checked(cwd, session=None):
-    """The gaps as gaps() splits them, or a worker gap naming why the check could not run: a broken check never passes
-    silently."""
-    try:
-        return gaps(cwd, session)
-    except Exception as error:
-        return [f'could not check workers: {error}'], []
 
 
 def count_hold(cwd, session, missing):
@@ -712,8 +709,7 @@ def count_hold(cwd, session, missing):
         except (OSError, ValueError):
             saved = {}
         held = saved.get('holds', 0) if saved.get('gaps') == missing else 0
-        if held >= (1 if all(failed_check(gap) or REMINDER in gap for gap in missing)
-                      else MAX_HOLDS):
+        if held >= (1 if all(isinstance(gap, Reminder) for gap in missing) else MAX_HOLDS):
             if saved.get('told'):
                 return False, None  # Said once; later stops of the same gaps pass quietly.
             files.write_atomic(path, json.dumps({'gaps': missing, 'holds': held, 'told': True}))
@@ -723,16 +719,11 @@ def count_hold(cwd, session, missing):
         return True, None
 
 
-def failed_check(gap):
-    """Whether a gap says a check could not run, which registering or dismissing cannot clear."""
-    return gap.startswith('could not check')
-
-
 def reason(workers, own, session=None):
     """The hold's message: every gap, the worker advice only for a worker gap that is not a failed check, and the retry
     advice for a failed check, which registering or dismissing cannot clear."""
     message = 'Stopping now leaves these gaps:\n' + ''.join(f'- {gap}\n' for gap in workers + own)
-    failed = [gap for gap in workers + own if failed_check(gap)]
+    failed = [gap for gap in workers + own if isinstance(gap, Unchecked)]
     advice = []
     if [gap for gap in workers if gap not in failed]:
         dismiss = f"python3 {ROOT}/hooks/herdr_launch.py dismiss --pane <pane>{f' --session {session}' if session else ''}"
@@ -747,16 +738,25 @@ def reason(workers, own, session=None):
     return message + ' '.join(advice)
 
 
+def stop_gaps(cwd, session, closing=True):
+    """(worker gaps, own gaps) of a stop, with the closures `reaped` could not make; `check` (closing False) settles none."""
+    closed = reaped(cwd, session) if closing else []
+    try:
+        workers, own = gaps(cwd, session)
+    except Exception as error:  # A broken check never passes silently.
+        workers, own = [Unchecked(f'could not check workers: {error}')], []
+    return workers, own + closed
+
+
 def main():
     if os.environ.get('ZLOOP_YIELD_HOOK') == 'off':
         return 0
     if sys.argv[1:2] in (['check'], ['stop']) and len(sys.argv) in (3, 4):
-        closing = reaped(Path(sys.argv[2]), *sys.argv[3:]) if sys.argv[1] == 'stop' else []
-        workers, own = checked(Path(sys.argv[2]), *sys.argv[3:])
-        own += closing
-        report = {'missing': workers + own, 'reason': reason(workers, own, *sys.argv[3:])}
-        if sys.argv[1] == 'stop':  # A host's stop, counted and settling what it can; `check` only reports.
-            hold, notice = count_hold(sys.argv[2], (sys.argv[3:] or [None])[0], workers + own)
+        stop, cwd, session = sys.argv[1] == 'stop', Path(sys.argv[2]), (sys.argv[3:] or [None])[0]
+        workers, own = stop_gaps(cwd, session, stop)
+        report = {'missing': workers + own, 'reason': reason(workers, own, session)}
+        if stop:  # A host's stop, counted and settling what it can; `check` only reports.
+            hold, notice = count_hold(cwd, session, workers + own)
             report.update(hold=hold, notice=notice)
         print(json.dumps(report))
         return 0
@@ -764,9 +764,7 @@ def main():
         sys.exit('usage: yield_gate.py claude|codex < stop-hook-input, or yield_gate.py check|stop <cwd> [session]')
     payload = json.load(sys.stdin)
     cwd, session = Path(payload.get('cwd') or os.getcwd()), payload.get('session_id')
-    closing = reaped(cwd, session)
-    workers, own = checked(cwd, session)
-    own += closing
+    workers, own = stop_gaps(cwd, session)
     hold, notice = count_hold(cwd, session, workers + own)
     if hold:
         print(json.dumps({'decision': 'block', 'reason': reason(workers, own, session)}))
