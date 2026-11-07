@@ -38,7 +38,7 @@ class CrossHost(unittest.TestCase):
     def setUp(self):
         state = tempfile.TemporaryDirectory(prefix='zloop cross host state ')
         self.addCleanup(state.cleanup)
-        environment = patch.dict(os.environ, support.isolated_env(state.name))
+        environment = patch.dict(os.environ, support.isolated_env(state.name, CODEX_SESSION_ID='codex-host'))
         environment.start()
         self.addCleanup(environment.stop)
 
