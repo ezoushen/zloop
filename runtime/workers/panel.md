@@ -46,7 +46,8 @@ problem names one of its tickets, or it has a ticket not done, since the schedul
 first problem, this workstream's first, with `(+N more)`. The next step is the scheduler's first ready pick for the
 workstream (`next_tickets.py <slug>`: blockers met, no area a live ticket holds, the live cap), none while the check fails. A board the
 scheduler cannot read is said so in the row it would have supplied, and the other rows stay.
-Each host tones a row by its kind — after truncation, so the words stay identical and styling cannot widen a line —
+Each host tones a row by its kind — after Pi's cut to the terminal's width (the Claude Code pane wraps a long row
+onto the lines under it instead), so the words stay identical and styling cannot widen a line —
 and a run row keeps the default style:
 
 | Row kind | Pi theme token | Claude Code `Text` |
