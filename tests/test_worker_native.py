@@ -221,6 +221,13 @@ class NativeProof(WorkerLifecycleCase):
                     self.assertIn('native', error.lower())
                     session = codex_child_session(attempt) if runtime == 'codex' else runtime
                     session_record(path, runtime, session, self.root, model=model, child=child)
+                    expected = self.root
+                    if runtime == 'claude' and child:
+                        expected = self.root / 'moved'
+                        expected.mkdir()
+                        with path.open('a') as stream:
+                            stream.write(json.dumps({'type': 'user', 'agentId': session, 'sessionId': 'parent',
+                                                     'cwd': str(expected)}) + '\n')
                     for field in ('observed', 'evidence'):
                         error = self.record('startup', attempt, native=str(path), code=2,
                                             **{field: {} if field == 'observed' else ['typed']})
@@ -228,24 +235,7 @@ class NativeProof(WorkerLifecycleCase):
                     self.assertTrue(self.record('startup', attempt, native=str(path))['verified'])
                     saved = self.cli('status', '--attempt', attempt)['attempts'][0]
                     self.assertEqual(saved['observed'], {'runtime': runtime, 'model': model, 'effort': 'high'})
-
-    def test_startup_records_the_directory_of_each_native_session(self):
-        for runtime in ('claude', 'codex', 'pi', 'opencode'):
-            with self.subTest(runtime=runtime):
-                attempt, model = self.runtime_attempt(runtime, child=True)
-                session = codex_child_session(attempt) if runtime == 'codex' else runtime
-                path = self.root / f'{runtime}.jsonl'
-                session_record(path, runtime, session, self.root, model=model, child=runtime == 'claude')
-                expected = self.root
-                if runtime == 'claude':
-                    expected = self.root / 'moved'
-                    expected.mkdir()
-                    with path.open('a') as stream:
-                        stream.write(json.dumps({'type': 'user', 'agentId': session, 'sessionId': 'parent',
-                                                 'cwd': str(expected)}) + '\n')
-                self.assertTrue(self.record('startup', attempt, native=str(path))['verified'])
-                saved = self.cli('status', '--attempt', attempt)['attempts'][0]
-                self.assertEqual(saved.get('observed_cwd'), str(expected.resolve()))
+                    self.assertEqual(saved.get('observed_cwd'), str(expected.resolve()))
 
     def test_a_native_child_no_startup_shows_was_started_holds_the_yield_gate_on_every_runtime(self):
         # Rule (live Pi check, remediate-loopholes: a repair attempt registered with a native-child route and no worker

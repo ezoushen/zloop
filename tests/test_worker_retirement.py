@@ -40,9 +40,7 @@ class Retirement(WorkerLifecycleCase):
                      f"    done=subprocess.run({argv!r}, capture_output=True, text=True, timeout=10)\n"
                      f"    Path({str(outcome)!r}).write_text(json.dumps(dict(code=done.returncode, error=done.stderr)))\n")
         fake.write_text(fake.read_text().replace(boundary, boundary + injection))
-        request = self.root / 'retire.json'
-        request.write_text(json.dumps(dict(session='fixture-session', pane='pane-1', jobs_evidence=['jobs stopped'],
-            acceptance={'decision': 'deferred', 'reason': 'recheck pending'})))
+        request = self.retire_request(jobs='jobs stopped', reason='recheck pending')
         retired = subprocess.run([sys.executable, '-B', str(SCRIPT), 'retire', '--state', str(self.state),
                                   '--attempt', 'ticket-1/1', '--input', str(request)],
                                  env=self.native_env, capture_output=True, text=True, timeout=20)
@@ -56,18 +54,11 @@ class Retirement(WorkerLifecycleCase):
         self.assertTrue((self.root / 'native-closed').exists())
 
     def test_wrong_target_refusal_names_the_recorded_target_to_retire(self):
-        self.herdr_fixture()
-        self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
-        self.herdr_fixture(empty_panes=('pane-2',))
-        request = self.root / 'retire.json'
-        fields = dict(session='fixture-session', pane='pane-2', jobs_evidence=['jobs stopped'],
-                      acceptance={'decision': 'deferred', 'reason': 'pending'})
-        request.write_text(json.dumps(fields))
-        error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+        self.shown(empty_panes=('pane-2',))
+        error = self.retire(pane='pane-2', jobs='jobs stopped', reason='pending', code=2)
         self.assertIn('retire again with session: fixture-session and pane: pane-1', error)
         self.assertNotIn('pane close', (self.root / 'herdr-argv.log').read_text())
-        request.write_text(json.dumps(dict(fields, pane='pane-1')))
-        self.assertTrue(self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request))['closed'])
+        self.assertTrue(self.retire(jobs='jobs stopped', reason='pending')['closed'])
         self.assertTrue(self.cli('status')['attempts'][0]['closed'])
 
     def test_retirement_resolves_moved_caller_identity(self):
@@ -190,35 +181,22 @@ class Retirement(WorkerLifecycleCase):
         self.settled()
         self.herdr_fixture()
         self.native_env['HERDR_PANE_ID'] = 'pane-1'
-        request = self.root / 'retire.json'
-        request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1',
-                                       'jobs_evidence': ['owned jobs stopped'],
-                                       'acceptance': {'decision': 'deferred', 'reason': 'acceptance pending'}}))
-        error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+        error = self.retire(code=2, jobs='owned jobs stopped', reason='acceptance pending')
         self.assertIn('Caller pane is not a cleanup target', error)
         self.assertFalse((self.root / 'native-closed').exists())
 
     def test_retirement_rejects_a_replaced_native_conversation(self):
         self.settled()
         self.herdr_fixture(native_session='different-native-session')
-        request = self.root / 'retire.json'
-        request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1',
-                                       'jobs_evidence': ['owned jobs inspected'], 'acceptance': {'decision': 'deferred', 'reason': 'acceptance checks pending'}}))
-        error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+        error = self.retire(code=2)
         self.assertIn('conversation no longer matches', error)
         self.assertFalse((self.root / 'native-closed').exists())
 
     def test_retiring_a_worker_whose_pane_now_holds_another_conversation_names_the_command_that_closes_it(self):
         # Live (stforestkit, remediate-taut-534): the next attempt's worker was started in this worker's pane. Retire
         # leaves that pane alone and names the reap, which Herdr's answer for the pane lets close the attempt.
-        self.herdr_fixture()
-        self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
-        self.herdr_fixture(native_session='native-2', agent_name='builder-2', pane_session='native-2')
-        request = self.root / 'retire.json'
-        request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1',
-                                       'jobs_evidence': ['owned jobs inspected'],
-                                       'acceptance': {'decision': 'deferred', 'reason': 'acceptance checks pending'}}))
-        error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+        self.shown(native_session='native-2', agent_name='builder-2', pane_session='native-2')
+        error = self.retire(code=2)
         self.assertIn(f"Pane pane-1 now holds another conversation (native-2), so this attempt's worker is gone: close "
                       f"it with `python3 {SCRIPT} reap --state {shlex.quote(str(self.state.resolve()))}`", error)
         self.assertFalse((self.root / 'native-closed').exists())
@@ -236,10 +214,7 @@ class Retirement(WorkerLifecycleCase):
             self.collect(attempt)
         self.acknowledge()
         self.herdr_fixture(agent_exited=True)
-        request = self.root / 'retire.json'
-        request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1',
-                                       'jobs_evidence': ['owned jobs inspected'],
-                                       'acceptance': {'decision': 'deferred', 'reason': 'acceptance checks pending'}}))
+        request = self.retire_request()
         error = self.cli('retire', '--attempt', 'ticket-2/1', '--input', str(request), code=2)
         self.assertIn("is not this attempt's recorded Herdr pane", error)
         self.assertFalse((self.root / 'native-closed').exists())
@@ -259,13 +234,8 @@ class Retirement(WorkerLifecycleCase):
         self.assertEqual([row.get('closed') is not None for row in self.cli('status')['attempts']], [True, False])
 
     def test_retiring_an_exited_worker_again_after_its_pane_failed_to_close_closes_it(self):
-        self.herdr_fixture()
-        self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
-        self.herdr_fixture(agent_exited=True, close_failures=1)
-        request = self.root / 'retire.json'
-        request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1',
-                                       'jobs_evidence': ['owned jobs inspected'],
-                                       'acceptance': {'decision': 'deferred', 'reason': 'acceptance checks pending'}}))
+        self.shown(agent_exited=True, close_failures=1)
+        request = self.retire_request()
         error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
         self.assertEqual(error.strip(), 'Native close failed; retire it again once the pane is reconciled')
         closed = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request))
@@ -276,14 +246,8 @@ class Retirement(WorkerLifecycleCase):
     def test_retiring_a_worker_whose_pane_herdr_cannot_identify_does_not_send_it_to_the_reap(self):
         # Review (Sonnet): the reap closes nothing Herdr cannot identify, so retire names it only for another
         # conversation; an identity with no value keeps the refusal that the conversation no longer matches.
-        self.herdr_fixture()
-        self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
-        self.herdr_fixture(native_session='', pane_session='')
-        request = self.root / 'retire.json'
-        request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1',
-                                       'jobs_evidence': ['owned jobs inspected'],
-                                       'acceptance': {'decision': 'deferred', 'reason': 'acceptance checks pending'}}))
-        error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+        self.shown(native_session='', pane_session='')
+        error = self.retire(code=2)
         self.assertEqual(('Native conversation no longer matches the attempt', False), (error.strip(), 'reap' in error))
         self.assertFalse((self.root / 'native-closed').exists())
 
@@ -314,10 +278,7 @@ class Retirement(WorkerLifecycleCase):
                     evidence=['review report'])
         self.settled('ticket-1/2')
         self.herdr_fixture()
-        request = self.root / 'retire.json'
-        request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1',
-                                       'jobs_evidence': ['final same-assignment use, jobs stopped'],
-                                       'acceptance': {'decision': 'deferred', 'reason': 'acceptance checks pending'}}))
+        request = self.retire_request(jobs='final same-assignment use, jobs stopped')
         self.cli('retire', '--attempt', 'ticket-1/2', '--input', str(request))
         status = self.cli('status')
         self.assertEqual(status['attempts'][0]['native_closed_by'], 'ticket-1/2')
@@ -386,10 +347,7 @@ class Retirement(WorkerLifecycleCase):
         self.completed('ticket-1/2', status='completed', head='head-1', report=str(report), evidence=['checks.log'])
         self.acknowledge()
         self.herdr_fixture()
-        request = self.root / 'retire.json'
-        request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1', 'jobs_evidence': ['jobs stopped'],
-                                       'acceptance': {'decision': 'deferred', 'reason': 'acceptance pending'}}))
-        self.cli('retire', '--attempt', 'ticket-1/2', '--input', str(request))
+        self.retire('ticket-1/2', jobs='jobs stopped', reason='acceptance pending')
         self.assertTrue(self.cli('status')['attempts'][1]['closed'])
 
     def test_a_blocked_attempt_retires_after_its_report_changed(self):
@@ -439,9 +397,7 @@ class Retirement(WorkerLifecycleCase):
         # both not found", R05's worker and pane, while R15's own Codex sat idle in its pane. Only retire, which closes
         # that pane, ends such a worker; a pane Herdr shows gone, empty or holding another conversation has no worker.
         deferred = {'decision': 'deferred', 'reason': 'acceptance checks pending'}
-        self.herdr_fixture()
-        self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
-        self.herdr_fixture(pane_session='native-1')
+        self.shown(pane_session='native-1')
         error = self.record('closed', code=2, evidence=['herdr agent get worker-5: agent_not_found'],
                             acceptance=deferred)
         self.assertEqual(error.strip(), "Herdr pane pane-1 in tab tab-1 still holds this attempt's conversation, so "
@@ -588,9 +544,7 @@ class ClosureJudgement(WorkerLifecycleCase):
         for tab_reply in ('tab_not_found', 'server_unavailable'):
             with self.subTest(tab_reply=tab_reply):
                 self.setUp()
-                self.herdr_fixture()
-                self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
-                self.herdr_fixture(agent_tab='tab-2', agent_status='working')
+                self.shown(agent_tab='tab-2', agent_status='working')
                 fake = self.root / 'bin/herdr'
                 source = fake.read_text()
                 start = source.index("elif args[2:]==['tab','get','tab-1']:")
@@ -598,10 +552,7 @@ class ClosureJudgement(WorkerLifecycleCase):
                 fake.write_text(source[:start] + "elif args[2:]==['tab','get','tab-1']:\n"
                     f"    print(json.dumps(dict(error=dict(code={tab_reply!r}))),file=sys.stderr);sys.exit(1)\n"
                     + source[end:])
-                request = self.root / 'retire.json'
-                request.write_text(json.dumps(dict(session='fixture-session', pane='pane-1', jobs_evidence=['jobs'],
-                    acceptance={'decision': 'deferred', 'reason': 'pending'})))
-                error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+                error = self.retire(jobs='jobs', reason='pending', code=2)
                 self.assertIn('Native worker is active or blocked', error)
                 error = self.record('closed', code=2, evidence=['old tab missing'],
                                     acceptance={'decision': 'deferred', 'reason': 'pending'})
@@ -609,15 +560,6 @@ class ClosureJudgement(WorkerLifecycleCase):
                 self.assertEqual([], self.cli('reap')['closed'])
                 self.assertNotIn('closed', self.cli('status')['attempts'][0])
                 self.assertFalse(self.closes_pane())
-
-    def shown(self, **fixture):
-        """A collected Herdr worker whose pane Herdr then shows as the fixture arguments say."""
-        self.herdr_fixture()
-        self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
-        gone = fixture.pop('gone', False)
-        self.herdr_fixture(**fixture)
-        if gone:
-            (self.root / 'native-closed').write_text('closed\n')
 
     def closes_pane(self):
         return 'pane close' in (self.root / 'herdr-argv.log').read_text()
@@ -627,10 +569,7 @@ class ClosureJudgement(WorkerLifecycleCase):
             with self.subTest(case=case):
                 self.setUp()
                 self.shown(**fixture)
-                request = self.root / 'retire.json'
-                request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1', 'jobs_evidence': ['jobs'],
-                                               'acceptance': {'decision': 'deferred', 'reason': 'pending'}}))
-                result = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2 if error else 0)
+                result = self.retire(jobs='jobs', reason='pending', code=2 if error else 0)
                 if error:
                     self.assertIn(error, result)
                 self.assertEqual(not error, 'closed' in self.cli('status')['attempts'][0])

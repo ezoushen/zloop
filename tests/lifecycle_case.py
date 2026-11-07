@@ -117,6 +117,26 @@ class WorkerLifecycleCase(unittest.TestCase):
         path.write_text(json.dumps({'argv': [sys.executable, '-c', script], 'timeout': timeout}))
         return self.cli('watch', '--attempt', attempt, '--input', str(path), code=code)
 
+    def shown(self, **fixture):
+        """A collected Herdr worker whose pane Herdr then shows as the fixture arguments say."""
+        self.herdr_fixture()
+        self.settled(worker='builder-1', herdr={'session': 'fixture-session'})
+        gone = fixture.pop('gone', False)
+        self.herdr_fixture(**fixture)
+        if gone:
+            (self.root / 'native-closed').write_text('closed\n')
+
+
+    def retire_request(self, *, jobs='owned jobs inspected', reason='acceptance checks pending', pane='pane-1'):
+        """A retirement request for the fixture's owned Herdr pane, with reconciled jobs and deferred acceptance."""
+        path = self.root / 'retire.json'
+        path.write_text(json.dumps(dict(session='fixture-session', pane=pane, jobs_evidence=[jobs],
+            acceptance={'decision': 'deferred', 'reason': reason})))
+        return path
+
+    def retire(self, attempt='ticket-1/1', code=0, **fields):
+        return self.cli('retire', '--attempt', attempt, '--input', str(self.retire_request(**fields)), code=code)
+
     def collect(self, attempt='ticket-1/1', report=None):
         if report is None:
             report = self.root / (attempt.replace('/', '-') + '.md')
