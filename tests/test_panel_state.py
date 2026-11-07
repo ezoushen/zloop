@@ -321,6 +321,15 @@ class PanelState(unittest.TestCase):
         ticket(self.scratch / 'demo' / 'issues' / '02-b.md', 'demo/02', status='ready')
         self.assertEqual(['next: demo/02'], self.row_texts(self.snapshot(), 'next'))
 
+    def test_the_next_row_names_no_ready_ticket_in_an_area_a_live_ticket_holds(self):
+        # Rule: the next ticket is the scheduler's first ready pick for the workstream, so a ready ticket in an area
+        # a live ticket of the workstream holds (the scheduler starts none of it) is not advertised.
+        card(self.scratch / 'demo' / 'autopilot.md')
+        issues = self.scratch / 'demo' / 'issues'
+        ticket(issues / '01-a.md', 'demo/01', status='implementing', worker='inline')  # Every ticket touches scripts.
+        ticket(issues / '02-b.md', 'demo/02')
+        self.assertEqual([], self.row_texts(self.snapshot(), 'next'))
+
     def test_the_next_row_names_only_a_ready_ticket_whose_blockers_are_done(self):
         # Live (jose, Pi): the panel showed `next: maven-warp-closeout/08`, whose blockers included two tickets parked as
         # blocked and a standing one, so the scheduler could never start it. Next is a ticket the board's blockers allow.

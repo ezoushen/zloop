@@ -1186,6 +1186,16 @@ def main(argv):
     common = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--git-common-dir"], capture_output=True, text=True)
     if root.returncode or Path(root.stdout.strip()).resolve() != ROOT or (ROOT / common.stdout.strip()).resolve() != ROOT / ".git":
         parser.error("--repo must name the main Git checkout, not a subdirectory or linked worktree")
+    if args.delivery:  # The stop hold's reader, so another workstream's refused file or problem does not fail this one.
+        board = judged()
+        slugs = [args.slug] if args.slug else sorted({spec_of(t) for t in board[0]}.union(*(p.slugs for p in board[1])))
+        if not slugs:
+            parser.error(f"no tickets in requested scope under {ISSUES}")
+        bad = [f'{slug}: {problem}' for slug in slugs for problem in undelivered(slug, board)]
+        if bad:
+            sys.exit('\n'.join(bad))
+        print('delivery evidence matches selected workstream heads; inspect the recorded artifacts')
+        return
     tickets = load_whole()
     if args.new is not None:
         title = args.new.strip()
@@ -1238,17 +1248,6 @@ def main(argv):
     if not check(tickets, bool(args.accept)):
         sys.exit(1)
     if args.check:
-        return
-    if args.delivery:
-        bad = []
-        for slug in sorted({spec_of(t) for t in selected}):
-            undone = [f"{t} ({fm['status']})" for t, fm in selected.items()
-                      if spec_of(t) == slug and fm['status'] != 'done']
-            bad += [f'{slug}: {problem}' for problem in
-                    ([f"tickets not done: {', '.join(undone)}"] if undone else []) + delivery_problems(slug)]
-        if bad:
-            sys.exit('\n'.join(bad))
-        print('delivery evidence matches selected workstream heads; inspect the recorded artifacts')
         return
     if args.accept and (args.pr or args.run):
         sys.exit(0 if accept_delivered(tickets, args.accept, args.pr + args.run) else 1)
