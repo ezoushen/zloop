@@ -2807,8 +2807,11 @@ class AutopilotCardHold(GateRepo):
         # Review (Codex): a ticket of it waiting on one in another workstream's refused file waits on a ticket the board
         # cannot judge, not on one missing, so leaving that file out makes no problem of its own.
         ours = issues / '02-task.md'
-        ours.write_text(accepted.replace('run/01', 'run/02').replace('blocked_by: []', 'blocked_by: [other/03]'))
+        ours.write_text(accepted.replace('run/01', 'run/02').replace('blocked_by: []', 'blocked_by: [other/03, other/04]'))
         self.assertEqual(self.check(session='host-1'), [])
+        # Review (Codex): one it waits on that no file there holds is still missing.
+        ours.write_text(accepted.replace('run/01', 'run/02').replace('blocked_by: []', 'blocked_by: [other/99]'))
+        self.assertEqual(self.check(session='host-1'), held('run/02: blocked_by other/99 does not exist'))
         ours.unlink()
         # A cycle between this workstream and another is its own.
         ours = issues / '02-task.md'
@@ -2856,6 +2859,18 @@ class AutopilotCardHold(GateRepo):
         # branch gone, its reviewed and E2E heads in main) is delivered, though `--delivery` now needs the branch.
         review.write_text(evidence.replace('workstream_branch: main', 'workstream_branch: feat/run'))
         self.assertEqual(self.check(session='host-1'), [])
+
+    def test_a_ticket_file_that_is_not_text_is_named_not_taken_for_no_tickets(self):
+        # Review (Codex): the board refuses a ticket file that is not text, so `--new`, the remedy for a board with no
+        # tickets, exits on that file too; the stop names the file instead.
+        issues = self.repo / '.scratch/run/issues'
+        issues.mkdir(parents=True)
+        (issues / '01-task.md').write_bytes(b'\xff---\n')
+        path = self.card(terminal='merged', evidence='PR 1 merged', phase='pr')
+        self.assertEqual(self.check(session='host-1'), [
+            f"{path}: this session's autopilot run records `terminal: merged` while its workstream is not delivered: "
+            f"it cannot be checked: {issues / '01-task.md'}: cannot be read: 'utf-8' codec can't decode byte 0xff in "
+            "position 0: invalid start byte; finish what it names, or record the terminal state that fits"])
 
     def test_a_delivery_that_cannot_be_checked_still_holds_the_stop(self):
         # Review (Codex, Sonnet): a check that cannot run is a named gap, never a pass.

@@ -63,8 +63,8 @@ SESSION_VARIABLES = ("CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "PI_SESSION_I
 
 def load(spared=None, left_out=None):
     """The board's tickets by name. Exits naming a ticket file it refuses; with `spared`, a refused file of another
-    workstream is left out instead, its workstream added to the set `left_out` when one is given, so that workstream
-    can still be judged."""
+    workstream is left out instead, the tickets it may hold added to the set `left_out` when one is given, so that
+    workstream can still be judged."""
     tickets = {}
     for path in sorted(ISSUES.glob("*/issues/*.md")):
         refusal = None
@@ -85,8 +85,10 @@ def load(spared=None, left_out=None):
         elif fm and set(fm) & {"blocked_by", "touches", "devices", "worker"}:
             refusal = f"{path}: missing ticket front matter"
         if refusal and spared and path.parent.parent.name != spared:
-            if left_out is not None:
-                left_out.add(path.parent.parent.name)
+            if left_out is not None:  # The ticket it names, and the one its file name numbers.
+                left_out.add(f"{path.parent.parent.name}/{path.name.split('-')[0]}")
+                if fm and isinstance(fm.get("ticket"), str):
+                    left_out.add(fm["ticket"])
             continue
         if refusal:
             sys.exit(refusal)
@@ -132,15 +134,15 @@ def concerns(problem, slug):
 
 def problems(tickets, accepting=False, left_out=()):
     """What makes the board invalid, [] when nothing does. A done ticket needs its acceptance, except while `--accept`
-    runs (`accepting`): it gives those tickets their acceptance, one at a time. A blocker in a workstream with a file
-    `load` left out is not called missing: the board cannot tell."""
+    runs (`accepting`): it gives those tickets their acceptance, one at a time. A blocker whose file `load` left out
+    is not called missing: the board cannot tell."""
     bad = [f"{t}: status {fm.get('status')!r} is not one of {sorted(STATUSES)}"
            for t, fm in tickets.items() if not isinstance(fm.get('status'), str) or fm['status'] not in STATUSES]
     bad += [f"{t}: status done with no acceptance; accept it with --accept {t}, or --accept {t} --pr <url> when PRs "
             f"delivered it, or --accept {t} --run <url> when a successful CI run proves it" for t, fm in tickets.items()
             if fm.get('status') == 'done' and not accepting and not accepted(fm)]
     bad += [f"{t}: blocked_by {dep} does not exist" for t, fm in tickets.items()
-           for dep in fm.get("blocked_by", []) if dep not in tickets and spec_of(dep) not in left_out]
+           for dep in fm.get("blocked_by", []) if dep not in tickets and dep not in left_out]
     allowed = ", ".join(capability_probe.NEEDS)
     for t, fm in tickets.items():
         if "needs" in fm and not isinstance(fm["needs"], list):

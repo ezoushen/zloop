@@ -346,15 +346,18 @@ class BoardCLI(unittest.TestCase):
     def test_a_ticket_a_successful_ci_run_proves_is_accepted_by_it_and_done_only_while_gh_says_it_succeeded(self):
         # User (2026-11-07, "Go ahead with all three"): work with no commit in the board's repository, such as the jose
         # run's rollout, had no acceptance path; a CI run gh reports completed and successful accepts it, as merged PRs do.
-        ok, failed, running, empty, unknown = (f'https://github.com/o/jose/actions/runs/{n}' for n in (1, 2, 3, 4, 9))
+        ok, failed, running, empty, queued, unknown = (f'https://github.com/o/jose/actions/runs/{n}'
+                                                       for n in (1, 2, 3, 4, 5, 9))
         pr = 'https://github.com/o/configs/pull/1'
-        runs = {ok: ('completed', 'success'), failed: ('completed', 'failure'), running: ('in_progress', ''), empty: None}
+        runs = {ok: ('completed', 'success'), failed: ('completed', 'failure'), running: ('in_progress', ''), empty: None,
+                queued: ('queued', 'success')}
         path = self.write_ticket('fx/01', status='implementing', extra='worker: inline\n')
         with self.gh({pr: ('MERGED', 'a' * 40)}, runs):
             for url, problem in ((failed, 'is completed (failure), not a successful run'),
                                  (running, 'is in_progress, not a successful run'),
                                  # Review (Codex): a reply that names neither a status nor a conclusion proves nothing.
                                  (empty, 'is None, not a successful run'),
+                                 (queued, 'is queued (success), not a successful run'),
                                  (unknown, 'gh cannot read')):
                 with self.subTest(url=url):
                     refused = self.cli('fx', '--accept', 'fx/01', '--run', url, code=1)
@@ -377,6 +380,12 @@ class BoardCLI(unittest.TestCase):
             refused = self.cli('fx', '--set', 'fx/02', 'status=done', code=1)
             self.assertIn(f'fx/02: {failed} is completed (failure), not a successful run', refused.stderr)
             self.assertEqual(front_matter.parse(other.read_text())['status'], 'implementing')
+            # Review (Codex): so it does for every one recorded, not the first alone.
+            later = self.write_ticket('fx/03', status='implementing',
+                                      extra=f'worker: inline\ndelivered_by: [{ok}, {failed}]\n')
+            refused = self.cli('fx', '--set', 'fx/03', 'status=done', code=1)
+            self.assertIn(f'fx/03: {failed} is completed (failure), not a successful run', refused.stderr)
+            self.assertEqual(front_matter.parse(later.read_text())['status'], 'implementing')
         # --run belongs to --accept.
         self.cli('fx', '--check', '--run', ok, code=2)
 

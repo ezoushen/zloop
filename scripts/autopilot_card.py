@@ -94,8 +94,8 @@ def ticket_files(issues):
     value the board's own check judges, or a file it cannot read, which that check names."""
     def ticket(path):
         try:
-            return 'ticket' in (front_matter.parse(path.read_text(errors='replace')) or {})
-        except OSError:
+            return 'ticket' in (front_matter.parse(path.read_text()) or {})
+        except (OSError, ValueError):  # Unreadable, or not text: the board refuses it, so it is one.
             return True
     return [path for path in issues.glob('*.md') if ticket(path)]
 

@@ -403,7 +403,7 @@ class PanelState(unittest.TestCase):
         self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), [f'board fails its check: {refusal} (+1 more)'])
         # A ticket of it waiting on one in that workstream waits on a ticket the board cannot judge, not one missing.
         ticket(self.scratch / 'demo' / 'issues' / '01-a.md', 'demo/01', status='done', blocked_by='alpha/02')
-        (self.scratch / 'alpha' / 'issues' / '02-b.md').write_text(
+        (self.scratch / 'alpha' / 'issues' / '05-b.md').write_text(  # Named by the ticket it holds, not its number.
             '---\nticket: alpha/02\nstatus: done\nblocked_by: []\ntouches: invalid\ndevices: []\n---\n')
         self.assertFalse(self.snapshot()['active'])
 
