@@ -130,7 +130,8 @@ def concerns(problem, slug):
         return any(spec_of(name) == slug for name in rest.split(" -> "))
     if head == "workstream dependency cycle":
         return slug in rest.split(" -> ")
-    return problem.startswith(f"{slug}/") or f"{os.sep}.scratch{os.sep}{slug}{os.sep}issues{os.sep}" in os.sep + head
+    # A refused file is named by its path, which may itself hold ": ".
+    return problem.startswith(f"{slug}/") or f"{os.sep}.scratch{os.sep}{slug}{os.sep}issues{os.sep}" in os.sep + problem
 
 
 def problems(tickets, accepting=False, left_out=()):

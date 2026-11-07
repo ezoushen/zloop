@@ -391,6 +391,12 @@ class PanelState(unittest.TestCase):
         with contextlib.chdir(repo):
             self.assertEqual(self.row_texts(PANEL.snapshot(Path('.'), 'S', time.time()), 'blocker'), [
                 "board fails its check: .scratch/demo/issues/02-b.md: invalid ticket id 'demo/two'"])
+        # Review (Codex): and under a checkout whose path holds `: `, the separator of a refusal's path from its reason.
+        odd = self.repo / 'a: copy'
+        card(odd / '.scratch' / 'demo' / 'autopilot.md', terminal='merged')
+        refused = ticket(odd / '.scratch' / 'demo' / 'issues' / '01-a.md', 'demo/one', status='done')
+        self.assertEqual(self.row_texts(PANEL.snapshot(odd, 'S', time.time()), 'blocker'), [
+            f"board fails its check: {refused}: invalid ticket id 'demo/one'"])
 
     def test_another_workstreams_refused_file_hides_none_of_this_workstreams_problems(self):
         # Review (Codex): the scheduler refuses the whole board on one file, so another workstream's refused file left
