@@ -24,12 +24,7 @@ def run(*args, cwd=None, ok=True, input=None):
 
 
 def write_ticket(repo, name, status='ready', deps=(), area=None):
-    slug, nn = name.split('/')
-    path = repo / '.scratch' / slug / 'issues' / f'{nn}-task.md'
-    path.parent.mkdir(parents=True, exist_ok=True)
-    accepted = f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n" if status == 'done' else ''  # As --accept writes.
-    path.write_text(f'---\nticket: {name}\nstatus: {status}\nblocked_by: [{", ".join(deps)}]\ntouches: [{area or name}]\ndevices: []\nmodel: standard\nworker:\n{accepted}---\n# Task\n')
-    return path
+    return support.ticket_file(repo, name, status, blocked_by=', '.join(deps), touches=area or name)
 
 
 class CrossHost(unittest.TestCase):

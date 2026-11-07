@@ -24,9 +24,8 @@ class CollectionNeeds(WorkerLifecycleCase):
 
         value replaces the packet's `ticket:` value; trailing follows it on the same line; assigned is the packet's
         own `needs:` list."""
-        path = self.root / 'ticket.md'
-        path.write_text('---\nticket: fx/01\nstatus: ready\nblocked_by: []\n'
-                        + (f'needs: [{", ".join(needs)}]\n' if needs is not None else '') + '---\n# 01: task\n')
+        path = support.ticket_file(self.root, 'fx/01', path=self.root / 'ticket.md', title='task',
+                                   extra=f'needs: [{", ".join(needs)}]\n' if needs is not None else '')
         packet = self.root / 'packet.txt'
         lines = support.assignment_file(self.root, 'ticket').read_text().splitlines()
         shown = f'ticket: {path if value is None else value}{trailing}'

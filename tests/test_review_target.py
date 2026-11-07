@@ -55,9 +55,8 @@ class ReviewTarget(unittest.TestCase):
 
     def launch(self, *extra, code=0, host='codex', target='feature', identified=True, session='review-session',
                interrupted=False, script=SCRIPT, **env_extra):
-        env = {key: value for key, value in support.isolated_env(self.repo).items()
-               if not key.startswith(('ZLOOP_', 'HERDR_')) and key not in
-               ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID', 'OPENCODE_SESSION_ID')}
+        env = {key: value for key, value in support.without_host_sessions(support.isolated_env(self.repo)).items()
+               if not key.startswith(('ZLOOP_', 'HERDR_'))}
         env.update(HOME=str(self.repo), **env_extra)
         if identified:
             env.update(CODEX_SESSION_ID=session, HERDR_PANE_ID='w1:p9')

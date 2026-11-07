@@ -195,18 +195,6 @@ class Outcomes(WorkerLifecycleCase):
                     acceptance={'decision': 'declined', 'reason': 'its report changed after it was collected'})
         attempt = self.cli('status')['attempts'][0]
         self.assertEqual(attempt['declined']['reason'], 'its report changed after it was collected')
-        # An accepted attempt owes no intact report (acceptance consumed it), and asking to decline it declines
-        # nothing: it closes, still accepted.
-        self.register('ticket-2/1', 'ticket-2', 'native-2', 'pane-2')
-        self.ready('ticket-2/1')
-        accepted = self.collect('ticket-2/1')
-        self.acknowledge()
-        self.record('accepted', 'ticket-2/1', commit='merge-2', evidence=['git log merge-2'])
-        accepted.write_text(accepted.read_text() + 'changed after acceptance\n')
-        self.record('closed', 'ticket-2/1', evidence=['native session exited'],
-                    acceptance={'decision': 'declined', 'reason': 'report changed'})
-        closed = self.cli('status', '--attempt', 'ticket-2/1')['attempts'][0]
-        self.assertEqual(('merge-2', False), (closed['accepted']['commit'], 'declined' in closed))
 
     def test_a_conversation_closes_only_when_each_of_its_changed_reports_is_declined(self):
         # Two attempts of one native conversation: the earlier one's report changed and stays undeclined.

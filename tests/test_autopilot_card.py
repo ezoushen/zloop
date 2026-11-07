@@ -32,8 +32,6 @@ evidence: abc123
 resume: `autopilot --take-over`
 """
 
-SESSIONS = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID', 'OPENCODE_SESSION_ID')
-
 
 class TakeOver(unittest.TestCase):
     def take_over(self, *flags, card=CARD, sessions=None, code=0):
@@ -42,7 +40,7 @@ class TakeOver(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         path = Path(tmp.name) / 'autopilot.md'
         path.write_text(card)
-        env = {key: value for key, value in os.environ.items() if key not in SESSIONS}
+        env = support.without_host_sessions()
         result = subprocess.run([sys.executable, '-B', str(COMMAND), 'take-over', str(path), *flags],
                                 capture_output=True, text=True, timeout=20,
                                 env=dict(env, **({'PI_SESSION_ID': 'host-2'} if sessions is None else sessions)))
@@ -218,7 +216,7 @@ class Confirm(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         path = Path(tmp.name) / 'autopilot.md'
         path.write_text(card)
-        env = {key: value for key, value in os.environ.items() if key not in SESSIONS}
+        env = support.without_host_sessions()
         result = subprocess.run([sys.executable, '-B', str(COMMAND), 'confirm', str(path), *args], capture_output=True,
                                 text=True, timeout=20, env=dict(env, **(sessions or {})))
         self.assertEqual(result.returncode, code, result.stderr)
@@ -291,10 +289,7 @@ class Phase(unittest.TestCase):
         return self.card.read_text(), result.stderr
 
     def ticket(self, number, blocked_by=''):
-        path = self.repo / '.scratch' / 'run' / 'issues' / f'{number}-task.md'
-        path.parent.mkdir(exist_ok=True)
-        path.write_text(f'---\nticket: run/{number}\nstatus: ready\nblocked_by: [{blocked_by}]\ntouches: []\n'
-                        'devices: []\n---\n# task\n')
+        support.ticket_file(self.repo, f'run/{number}', blocked_by=blocked_by, touches='')
 
     def test_a_phase_is_one_of_the_four_and_dispatch_needs_the_local_boards_tickets(self):
         # Live (jose, Pi): the run set `phase: dispatch (inline)` by hand with no ticket on any board, so the panel

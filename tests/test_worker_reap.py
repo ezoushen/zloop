@@ -11,6 +11,7 @@ import sys
 import time
 import unittest
 
+import support
 from lifecycle_case import SCRIPT, WorkerLifecycleCase
 
 
@@ -168,10 +169,7 @@ class Reap(WorkerLifecycleCase):
     def run_card(self, terminal):
         """A run card beside the state's `reports/`, ended as `terminal` says (empty: still running)."""
         self.state = self.root / 'ws' / 'reports' / 'workers.sqlite'
-        card = self.root / 'ws' / 'autopilot.md'
-        card.parent.mkdir(parents=True, exist_ok=True)
-        card.write_text(f'# ws \u2014 autopilot run card\n\n## State\nconfirmed: yes\nterminal: {terminal}\nevidence:\n')
-        return card
+        return support.run_card(self.root / 'ws' / 'autopilot.md', confirmed='yes', terminal=terminal)
 
     def retained(self, attempt='ticket-1/1', assignment='ticket-1', session='native-1', worker='pane-1'):
         """A collected native subagent (no Herdr placement) kept for a next use."""

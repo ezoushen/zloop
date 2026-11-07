@@ -167,17 +167,11 @@ class BoardCLI(unittest.TestCase):
 
     def write_ticket(self, name, status='ready', touches='runtime', blocked='', devices='', extra='', accepted=True):
         """A ticket file; a done one carries the acceptance fields `--accept` writes, unless `accepted` is False."""
-        if status == 'done' and accepted and 'accepted:' not in extra and 'delivered_by' not in extra:
-            extra += f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n"
         # inline/01 of a measured workstream keeps the start measured_ticket recorded, as --set would have.
         if name == 'inline/01' and getattr(self, 'inline_start', None) and 'start:' not in extra:
             extra += f'start: {self.inline_start}\n'
-        slug, number = name.split('/')
-        path = self.root / '.scratch' / slug / 'issues' / f'{number}-task.md'
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(f'---\nticket: {name}\nstatus: {status}\n'
-                        f'blocked_by: [{blocked}]\ntouches: [{touches}]\ndevices: [{devices}]\n{extra}---\n')
-        return path
+        return support.ticket_file(self.root, name, status, blocked_by=blocked, touches=touches, devices=devices, extra=extra,
+                                   accepted=accepted and 'accepted:' not in extra and 'delivered_by' not in extra)
 
     def cli(self, *args, code=0, input=None):
         result = subprocess.run([sys.executable, '-B', str(SCRIPT), '--repo', str(self.root), *args],
@@ -486,9 +480,7 @@ class BoardCLI(unittest.TestCase):
         # Rule: the command line names one refused file, the first by path, and exits 1 before judging the rest.
         self.write_ticket('aa/01')
         for slug in ('bb', 'cc'):
-            path = self.root / '.scratch' / slug / 'issues' / '01-task.md'
-            path.parent.mkdir(parents=True)
-            path.write_text(f'---\nticket: {slug}/one\nstatus: ready\nblocked_by: []\ntouches: []\ndevices: []\n---\n')
+            support.ticket_file(self.root, f'{slug}/one', path=self.root / '.scratch' / slug / 'issues' / '01-task.md')
         refused = self.cli('--check', code=1).stderr
         self.assertEqual(refused, f"{self.root.resolve() / '.scratch/bb/issues/01-task.md'}: invalid ticket id 'bb/one'\n")
 

@@ -146,8 +146,7 @@ class NativeProof(WorkerLifecycleCase):
 
     def test_registration_refuses_a_shell_with_neither_a_host_session_nor_a_herdr_pane(self):
         # The stop hook holds only the session that registered a worker; a row that names none could be held by no one.
-        exported = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID', 'OPENCODE_SESSION_ID', 'HERDR_PANE_ID')
-        bare = {name: value for name, value in os.environ.items() if name not in exported}
+        bare = {name: value for name, value in support.without_host_sessions().items() if name != 'HERDR_PANE_ID'}
         self.native_env = bare
         error = self.register(code=2)
         self.assertIn('host session', error)
