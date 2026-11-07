@@ -358,8 +358,8 @@ def delivery_gaps(root, path, state):
     try:
         module = script('next_tickets')
         module.ROOT, module.ISSUES = root, root / '.scratch'
-        problems = module.undelivered(slug)  # Exits on a ticket of this workstream it refuses.
-    except (Exception, SystemExit) as error:  # A check that cannot run is a named gap, never a pass.
+        problems = module.undelivered(slug)
+    except Exception as error:  # A check that cannot run is a named gap, never a pass.
         problems = [f'it cannot be checked: {error}']
     if not problems:
         return []
@@ -511,7 +511,10 @@ def undelivered(root, pane, session):
             if board is None:
                 board = script('next_tickets')
                 board.ROOT, board.ISSUES = root, root / '.scratch'
-            tickets = board.load(spared=slug)  # load() exits on a ticket of this workstream it refuses.
+            tickets, refused = board.load()
+            if own := board.bearing(refused, slug):
+                missing.append(f'could not check delivery of {slug}: {own[0]}')
+                continue
             review = board.review_front_matter(slug) or {}
             # Only authorized repairs owe delivery, once every ticket is done; a recorded blocker is why it stops here.
             # Dispatch start records the authorization until the review report records its own (not a placeholder).
@@ -525,7 +528,7 @@ def undelivered(root, pane, session):
             if awaited(path.with_name('workers.sqlite')):
                 continue
             problems = board.delivery_problems(slug)
-        except (Exception, SystemExit) as error:  # A check that cannot run is a named gap, never a pass.
+        except Exception as error:  # A check that cannot run is a named gap, never a pass.
             missing.append(f'could not check delivery of {slug}: {error}')
             continue
         if problems:

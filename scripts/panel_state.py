@@ -91,16 +91,16 @@ def blocker_row(workstream, state, found_tickets, scheduled, session_id):
         if terminal == 'paused-allowance' and timer:
             text = f'{text} (resumes {timer.split()[0]})'
         return {'kind': 'blocker', 'text': text}
-    problems = scheduled[1]
-    own = [problem for problem in problems if next_tickets.concerns(problem, workstream.name)]
+    problems = scheduled[2]
+    own = next_tickets.bearing(problems, workstream.name)
     if own or (problems and any(fields.get('status') != 'done' for _, fields in found_tickets)):
         more = f' (+{len(problems) - 1} more)' if len(problems) > 1 else ''
-        return {'kind': 'blocker', 'text': f'board fails its check: {(own or problems)[0]}{more}'}
+        return {'kind': 'blocker', 'text': f'board fails its check: {(own or [problem.text for problem in problems])[0]}{more}'}
     held = confirmed(state) and session_id in card_sessions(state)
     if terminal in ENDED and state.get('board') == 'local' and held:  # A card the stop check holds this session to.
         try:
             gaps = next_tickets.undelivered(workstream.name, scheduled)
-        except (Exception, SystemExit) as error:  # The stop check holds a run it cannot check; say so.
+        except Exception as error:  # The stop check holds a run it cannot check; say so.
             gaps = [f'it cannot be checked: {error}']
         if gaps:
             more = f' (+{len(gaps) - 1} more)' if len(gaps) > 1 else ''
@@ -131,7 +131,7 @@ def next_row(workstream, state, draft, scheduled):
     if state.get('terminal') in PAUSED:
         resume = state.get('resume', '')
         return {'kind': 'next', 'text': f'resume: {resume}' if resume else 'resume the run'}
-    board, problems = scheduled
+    board, _, problems = scheduled
     if problems:
         return None
     known = {}
@@ -143,16 +143,13 @@ def next_row(workstream, state, draft, scheduled):
     return {'kind': 'next', 'text': f'next: {first}'} if first else None
 
 
-def board_of(repo, slug):
-    """The checkout's local board as the scheduler reads it, with what its check refuses: (tickets, problems). A file of
-    another workstream that the scheduler refuses is one problem, and this workstream's board is still checked."""
+def board_of(repo):
+    """The checkout's local board as the scheduler reads it: (tickets, refused files, problems), as `judged` returns."""
     next_tickets.ROOT, next_tickets.ISSUES = repo, repo / SCRATCH
     try:
-        return next_tickets.judged(slug)
-    except SystemExit as refusal:  # It names a ticket of this workstream it refuses.
-        return {}, [str(refusal.code)]
+        return next_tickets.judged()
     except Exception as error:  # A board it cannot read: say so, and keep the other rows.
-        return {}, [f'the board cannot be read: {type(error).__name__}: {error}']
+        return {}, [], [next_tickets.Problem(f'the board cannot be read: {type(error).__name__}: {error}', ())]
 
 
 def counts_row(found_tickets):
@@ -354,7 +351,7 @@ def snapshot(repo, session_id, now):
     chosen = None
     main = main_checkout(repo)
     for workstream in tied(main, session_id):
-        scheduled = board_of(main, workstream.name)
+        scheduled = board_of(main)
         state = card_state(workstream / CARD)
         found_tickets = tickets(workstream)
         draft = bool(state) and not confirmed(state)
