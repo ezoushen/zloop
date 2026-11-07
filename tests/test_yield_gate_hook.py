@@ -2871,6 +2871,12 @@ class AutopilotCardHold(GateRepo):
             f"{path}: this session's autopilot run records `terminal: merged` while its workstream is not delivered: "
             f"it cannot be checked: {issues / '01-task.md'}: cannot be read: 'utf-8' codec can't decode byte 0xff in "
             "position 0: invalid start byte; finish what it names, or record the terminal state that fits"])
+        # Review (Codex): so is one holding a ticket's keys but no `ticket:`, which `--new` exits on as well.
+        (issues / '01-task.md').write_text('---\nstatus: ready\nblocked_by: []\ntouches: []\ndevices: []\n---\n')
+        self.assertEqual(self.check(session='host-1'), [
+            f"{path}: this session's autopilot run records `terminal: merged` while its workstream is not delivered: "
+            f"it cannot be checked: {issues / '01-task.md'}: missing ticket front matter; finish what it names, or "
+            "record the terminal state that fits"])
 
     def test_a_delivery_that_cannot_be_checked_still_holds_the_stop(self):
         # Review (Codex, Sonnet): a check that cannot run is a named gap, never a pass.

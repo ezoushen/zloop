@@ -52,6 +52,7 @@ PR_URL = re.compile(r"https://[^/\s]+/[^/\s]+/[^/\s]+/pull/[0-9]+")  # A pull re
 RUN_URL = re.compile(r"https://([^/\s]+/[^/\s]+/[^/\s]+)/actions/runs/([0-9]+)")  # A CI run, by its own address.
 TERMINAL = {"done"}
 STATUSES = {"ready", "blocked"} | LIVE | TERMINAL
+TICKET_KEYS = {"blocked_by", "touches", "devices", "worker"}  # A front matter holding one is a ticket's.
 MAX_LIVE = 8  # Tickets live at once, unless --max-live or MAX_LIVE in the environment says otherwise (main checks it).
 # Critical path first. TICKET_PRIORITY=spec-a,spec-b names the specs to drain first; default is name order.
 PRIORITY = [s for s in os.environ.get("TICKET_PRIORITY", "").split(",") if s]
@@ -82,7 +83,7 @@ def load(spared=None, left_out=None):
             else:
                 refusal = next((f"{path}: {key} must be a bracketed list" for key in ("blocked_by", "touches", "devices")
                                 if not isinstance(fm.get(key), list)), None)
-        elif fm and set(fm) & {"blocked_by", "touches", "devices", "worker"}:
+        elif fm and set(fm) & TICKET_KEYS:
             refusal = f"{path}: missing ticket front matter"
         if refusal and spared and path.parent.parent.name != spared:
             if left_out is not None:  # The ticket it names, and the one its file name numbers.

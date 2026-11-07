@@ -275,7 +275,8 @@ class BoardCLI(unittest.TestCase):
     def gh(self, pulls, runs=None):
         """A `gh` on PATH answering `gh pr view <url> --json state,mergeCommit` from `pulls` (url to state, merge commit)
         and `gh run view <id> -R <host>/<owner>/<repo> --json status,conclusion` from `runs` (run URL to status,
-        conclusion, or None for a reply that names neither); any other URL is one gh cannot read."""
+        conclusion, then an exit status when it is not 0, or None for a reply that names neither); any other URL is
+        one gh cannot read."""
         bin_dir = self.root / 'bin'
         bin_dir.mkdir(exist_ok=True)
         (bin_dir / 'pulls.json').write_text(json.dumps(pulls))
@@ -289,6 +290,7 @@ class BoardCLI(unittest.TestCase):
                         '    if url not in runs:\n'
                         '        sys.exit("failed to get run: HTTP 404: Not Found")\n'
                         '    print(json.dumps(dict(zip(("status", "conclusion"), runs[url] or ()))))\n'
+                        '    sys.exit(len(runs[url] or ()) > 2 and runs[url][2])\n'
                         '    sys.exit()\n'
                         'if args[:2] != ["pr", "view"] or args[2] not in pulls:\n'
                         '    sys.exit(f"GraphQL: Could not resolve to a PullRequest ({args[2:3]})")\n'
@@ -346,11 +348,11 @@ class BoardCLI(unittest.TestCase):
     def test_a_ticket_a_successful_ci_run_proves_is_accepted_by_it_and_done_only_while_gh_says_it_succeeded(self):
         # User (2026-11-07, "Go ahead with all three"): work with no commit in the board's repository, such as the jose
         # run's rollout, had no acceptance path; a CI run gh reports completed and successful accepts it, as merged PRs do.
-        ok, failed, running, empty, queued, unknown = (f'https://github.com/o/jose/actions/runs/{n}'
-                                                       for n in (1, 2, 3, 4, 5, 9))
+        ok, failed, running, empty, queued, erred, unknown = (f'https://github.com/o/jose/actions/runs/{n}'
+                                                              for n in (1, 2, 3, 4, 5, 6, 9))
         pr = 'https://github.com/o/configs/pull/1'
         runs = {ok: ('completed', 'success'), failed: ('completed', 'failure'), running: ('in_progress', ''), empty: None,
-                queued: ('queued', 'success')}
+                queued: ('queued', 'success'), erred: ('completed', 'success', 1)}
         path = self.write_ticket('fx/01', status='implementing', extra='worker: inline\n')
         with self.gh({pr: ('MERGED', 'a' * 40)}, runs):
             for url, problem in ((failed, 'is completed (failure), not a successful run'),
@@ -358,6 +360,8 @@ class BoardCLI(unittest.TestCase):
                                  # Review (Codex): a reply that names neither a status nor a conclusion proves nothing.
                                  (empty, 'is None, not a successful run'),
                                  (queued, 'is queued (success), not a successful run'),
+                                 # Review (Codex): a reply from a gh that failed is no answer, whatever it says.
+                                 (erred, 'gh cannot read'),
                                  (unknown, 'gh cannot read')):
                 with self.subTest(url=url):
                     refused = self.cli('fx', '--accept', 'fx/01', '--run', url, code=1)

@@ -31,6 +31,7 @@ from urllib.parse import urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_matter  # noqa: E402
 import state_files  # noqa: E402
+import next_tickets  # noqa: E402
 from worker_lifecycle import SESSION_VARIABLES, host_sessions  # noqa: E402
 
 LEVELS = ('low', 'medium', 'high', 'xhigh', 'max')
@@ -91,12 +92,14 @@ def tracker_url(board):
 
 def ticket_files(issues):
     """The files of a local board that are tickets as the board reads them: a front matter with a `ticket:` key, whose
-    value the board's own check judges, or a file it cannot read, which that check names."""
+    value the board's own check judges, or with a ticket's other keys, or a file it cannot read, both of which that check
+    names."""
     def ticket(path):
         try:
-            return 'ticket' in (front_matter.parse(path.read_text()) or {})
+            fields = front_matter.parse(path.read_text()) or {}
         except (OSError, ValueError):  # Unreadable, or not text: the board refuses it, so it is one.
             return True
+        return 'ticket' in fields or bool(set(fields) & next_tickets.TICKET_KEYS)
     return [path for path in issues.glob('*.md') if ticket(path)]
 
 
