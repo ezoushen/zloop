@@ -88,7 +88,7 @@ def inline_rows(found_tickets):
             for path, fields in found_tickets if fields.get('status') in LIVE_TICKET and fields.get('worker') == 'inline']
 
 
-def blocker_row(workstream, state, found_tickets, scheduled):
+def blocker_row(workstream, state, found_tickets, scheduled, session_id):
     """The one blocker worth showing, by precedence: the run's own stop first, then the board's check (when it names
     this workstream, or this workstream has work the scheduler would start), then what keeps a run that records a
     delivered state from it on a local board, as the stop check names it, then its tickets."""
@@ -104,7 +104,8 @@ def blocker_row(workstream, state, found_tickets, scheduled):
     if own or (problems and any(fields.get('status') != 'done' for _, fields in found_tickets)):
         more = f' (+{len(problems) - 1} more)' if len(problems) > 1 else ''
         return {'kind': 'blocker', 'text': f'board fails its check: {(own or problems)[0]}{more}'}
-    if terminal in ENDED and state.get('board') == 'local':
+    held = not is_draft(state) and session_id in [name.strip() for name in state.get('session', '').split(',')]
+    if terminal in ENDED and state.get('board') == 'local' and held:  # A card the stop check holds this session to.
         try:
             gaps = next_tickets.undelivered(workstream.name, scheduled)
         except (Exception, SystemExit) as error:  # The stop check holds a run it cannot check; say so.
@@ -371,7 +372,7 @@ def snapshot(repo, session_id, now):
         state = card_state(workstream / CARD)
         found_tickets = tickets(workstream)
         draft = is_draft(state) if state else False
-        blocker = blocker_row(workstream, state, found_tickets, scheduled)
+        blocker = blocker_row(workstream, state, found_tickets, scheduled, session_id)
         bound = bound_sessions(workstream)
         attempts = live_attempts(workstream, now, set(bound) if bound is not None else {session_id})
         live = live_workstream(state, attempts, blocker, draft, found_tickets)

@@ -278,12 +278,22 @@ class ReviewHold(GateRepo):
         self.binding.write_text(json.dumps(binding))
         self.assertEqual(len(self.check(session='host-1', env=env)), 1)  # It names no host.
         self.binding.write_text(json.dumps(dict(binding, host='codex')))
-        self.assertEqual(len(self.check(session='host-1', env=env)), 1)  # A native subagent is routable now.
+        gaps = self.check(session='host-1', env=env)  # A native subagent is routable now, and the hold says so.
+        self.assertEqual(len(gaps), 1)
+        self.assertIn('the router now routes diff-review from codex to a codex native subagent', gaps[0])
         config = self.repo / '.zloop/executors.json'
         config.parent.mkdir()
         config.write_text(json.dumps(NO_CODEX_REVIEWER))
         self.assertEqual(self.check(session='host-1', env=env), [])
         self.assertIsNone(self.stop(session='host-1', env=env))
+        # Review (Codex): a record naming no host holds though nothing is routable, and a router that fails is named.
+        self.binding.write_text(json.dumps(binding))
+        self.assertEqual(len(self.check(session='host-1', env=env)), 1)
+        self.binding.write_text(json.dumps(dict(binding, host='codex')))
+        config.write_text('{broken')
+        gaps = self.check(session='host-1', env=env)
+        self.assertEqual(len(gaps), 1)
+        self.assertIn('review_by: local cannot be judged, the router failed: ', gaps[0])
 
     def test_a_blocker_cannot_use_a_registered_then_cancelled_reviewer_that_never_launched(self):
         self.review(blocker='reviewer capacity could not be reconciled')
@@ -1931,11 +1941,20 @@ class DeliveryHold(GateRepo):
         (self.repo / '.scratch/fix/autopilot.md').write_text(
             '# fix\n\n## State\nconfirmed: 2026-11-07 "go"\nsession: host-1\nauto-merge: no\nboard: local\nphase: pr\n'
             'terminal: merged\nevidence: x\n')
+        # Review (Codex): standalone reviews in their own folders, of other hosts, waited again each.
+        for name, host in (('one', 'pi'), ('two', 'opencode')):
+            report = self.repo / f'.scratch/reviews/{name}/review.md'
+            report.parent.mkdir(parents=True)
+            report.write_text(f"---\nreview_head: {'a' * 40}\nreview_by: local\nblocker: none\n---\n")
+            report.with_name('review.json').write_text(json.dumps({
+                'pane': 'w1:p1', 'sessions': ['host-1'], 'report': str(report), 'state': str(report.with_name('workers.sqlite')),
+                'host': host, 'route': {'status': 'no_route', 'reason': 'none then'},
+                'next_commands': {'route': 'the route command'}}))
         started = time.monotonic()
         gaps = self.check(pane='w1:p1', session='host-1', env={'HOME': str(home)})
         self.assertLess(time.monotonic() - started, 12)
         self.assertEqual(len([gap for gap in gaps if 'review_by: local cannot be judged, the router did not answer '
-                                                     'within 5 s' in gap]), 3, gaps)
+                                                     'within 5 s' in gap]), 5, gaps)
 
     def test_a_recorded_blocker_lets_the_orchestrator_stop(self):
         # Rules 1 and 4: `blocker: <reason>` in the review report records why delivery cannot progress, and with it the

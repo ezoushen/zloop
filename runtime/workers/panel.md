@@ -30,7 +30,8 @@ opened shows none. A workstream need not have a card: any of these records is en
 Live means the card is unconfirmed, or an attempt is live, or a blocker is recorded, or the card is still open or
 stopped on `waiting-on-user`, `paused-allowance`, `paused-by-user` or `blocked`. A run that reached `delivered`,
 `delivered-local` or `merged`, or set `phase: ended`, is quiet only while nothing is live or blocked beneath it; one
-that records a delivered state on a `local` board stays while its workstream is not delivered, as the stop check holds it.
+that records a delivered state on a `local` board, confirmed and naming this session, stays while its workstream is not
+delivered, as the stop check holds it.
 
 Rows are ordered by what the person needs first: the headline, then running workers and waiting ones (three each, the
 rest of both under one `+N more`), a waiting one being a worker whose result is ready to collect, whose wait ended with

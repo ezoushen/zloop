@@ -489,6 +489,13 @@ class PanelState(unittest.TestCase):
         self.assertTrue(blocker[0].startswith('not delivered: it cannot be checked: '), blocker)
         review.with_name('review.json').unlink()
         review.unlink()
+        # Review (Codex): only a confirmed card naming this session is held to it, as the stop check holds it.
+        card(workstream / 'autopilot.md', phase='pr', terminal='merged', board='local', session='T')
+        orchestrator(workstream, ['S'])
+        self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), [])
+        card(workstream / 'autopilot.md', phase='pr', terminal='merged', board='local', confirmed='no')
+        self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), [])
+        (workstream / 'reports' / 'orchestrator.json').unlink()
         # A tracker's board is the tracker's to judge, and a run that ended in another state is not held to it.
         ticket(issues / '02-b.md', 'demo/02', status='done')
         card(workstream / 'autopilot.md', phase='pr', terminal='merged', board='https://linear.app/team/project/x')

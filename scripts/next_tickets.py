@@ -50,8 +50,8 @@ ISSUES = ROOT / ".scratch"
 LIVE = {"implementing", "reviewing", "fixing", "verifying"}
 TEMPLATE = Path(__file__).resolve().parents[1] / "skills" / "refine" / "ticket-template.md"
 ROUTER = Path(__file__).resolve().with_name("agent_models.py")
-# Seconds the router may take when a local review is judged: once per checkout and host in a process (ROUTED), inside
-# the hosts' 20 s stop hook and the panel's 8 s read.
+# Seconds the router may take when a local review is judged: once per checkout and host in a process (ROUTED), and
+# not again once it went unanswered, inside the hosts' 20 s stop hook and the panel's 8 s read.
 ROUTE_TIMEOUT = 5
 ROUTED = {}
 PR_URL = re.compile(r"https://[^/\s]+/[^/\s]+/[^/\s]+/pull/[0-9]+")  # A pull request, by its own address.
@@ -396,16 +396,18 @@ def local_review_problems(binding):
             or not isinstance(report, str)):
         return ['review_by: local counts only where review_target.py found no reviewer route for its host; launch the '
                 'reviewer it routes and name its attempt in review_by']
-    reports = str(Path(report).parent)
-    if (str(ROOT), host, reports) not in ROUTED:
-        ROUTED[str(ROOT), host, reports] = rerouted(host, reports)
-    return ROUTED[str(ROOT), host, reports]
+    if (str(ROOT), host) not in ROUTED:
+        ROUTED[str(ROOT), host] = rerouted(host, str(Path(report).parent))
+    return ROUTED[str(ROOT), host]
 
 
 def rerouted(host, reports):
     """What the router, asked now for `host`'s diff-review in this checkout as `review_target.py` asks it (a reviewer
     starting its own process takes the review's reports folder), says of a local review: [] when it still finds no
     reviewer, else why the review does not count."""
+    silent = [f'review_by: local cannot be judged, the router did not answer within {ROUTE_TIMEOUT} s']
+    if silent in ROUTED.values():  # One wait for a router that does not answer, however many hosts ask.
+        return silent
     python = ROUTER.parents[1] / '.venv' / 'bin' / 'python'  # The router validates its configuration with jsonschema.
     try:
         routed = subprocess.run([str(python) if python.is_file() else sys.executable, str(ROUTER), '--repo', str(ROOT),
@@ -413,7 +415,7 @@ def rerouted(host, reports):
                                 capture_output=True, text=True, timeout=ROUTE_TIMEOUT)
         found = json.loads(routed.stdout) if routed.returncode == 0 else None
     except subprocess.TimeoutExpired:
-        return [f'review_by: local cannot be judged, the router did not answer within {ROUTE_TIMEOUT} s']
+        return silent
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         return [f'review_by: local cannot be judged, the router failed: {error}']
     if found is not None and found.get('status') == 'selection_required':

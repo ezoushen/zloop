@@ -220,7 +220,8 @@ def unreviewed(root, pane, session):
             board.ROOT, board.ISSUES = root, root / '.scratch'  # The checkout whose router judges a local review.
             fields = script('front_matter').parse(report.read_text()) or {}
             blocker = fields.get('blocker') not in (None, '', 'none')
-            if blocker and not board.local_review_problems(binding):  # The router still finds no reviewer to wait on.
+            routed = board.local_review_problems(binding) if blocker else []
+            if blocker and not routed:  # The router still finds no reviewer to wait on.
                 continue
             attempts = read_state(state)[0] if state.is_file() and (blocker or fields.get('review_by') != 'local') else []
             if blocker and any(saved.get('job') == 'diff-review' and
@@ -230,7 +231,7 @@ def unreviewed(root, pane, session):
                                (saved.get('result') or {}).get('status') in ('failed', 'blocked', 'cancelled')
                                for saved in attempts):
                 continue
-            problems = board.review_by_problems(fields, attempts, binding)
+            problems = list(dict.fromkeys(routed + board.review_by_problems(fields, attempts, binding)))
             if problems:
                 live = [saved for saved in attempts if not saved.get('result')]
                 action = ('route' if blocker else
