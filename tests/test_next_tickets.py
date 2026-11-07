@@ -480,9 +480,7 @@ class BoardCLI(unittest.TestCase):
         # Rule: the command line names one refused file, the first by path, and exits 1 before judging the rest.
         self.write_ticket('aa/01')
         for slug in ('bb', 'cc'):
-            path = self.root / '.scratch' / slug / 'issues' / '01-task.md'
-            path.parent.mkdir(parents=True)
-            path.write_text(f'---\nticket: {slug}/one\nstatus: ready\nblocked_by: []\ntouches: []\ndevices: []\n---\n')
+            support.ticket_file(self.root, f'{slug}/one', path=self.root / '.scratch' / slug / 'issues' / '01-task.md')
         refused = self.cli('--check', code=1).stderr
         self.assertEqual(refused, f"{self.root.resolve() / '.scratch/bb/issues/01-task.md'}: invalid ticket id 'bb/one'\n")
 

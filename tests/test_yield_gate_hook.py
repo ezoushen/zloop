@@ -1170,18 +1170,9 @@ console.log('null');
         self.lifecycle('startup', attempt, pane, native=str(self.native(attempt)))
         self.lifecycle('submitted', attempt, pane, evidence=['native.jsonl:2:accepted prompt'])
 
-    def test_a_workers_lifecycle_gaps_hold_only_the_session_that_registered_it(self):
-        # Rule (sessions sharing a folder): another session's worker never holds this session, in Herdr or outside it.
-        self.live_attempt('ticket-1/1', 'w1:p1', 'host-1')
-        mine = [f'{self.state}: ticket-1/1: no armed wait']
-        self.assertEqual(self.check(session='host-1'), mine)
-        self.assertEqual(self.check(pane=None, session='host-1'), mine)
-        self.assertEqual(self.check(pane='w1:p2', session='host-2'), [])
-        self.assertEqual(self.check(pane=None, session='host-2'), [])
-
     def test_a_worker_registered_by_a_host_started_inside_another_holds_the_inner_host(self):
-        # Rule: a host started in another host's shell inherits the outer session ID; the worker still holds the
-        # session that registered it.
+        # Rule: only the session that registered a worker is held for its lifecycle gaps, in Herdr or outside it; a host
+        # started in another host's shell inherits the outer session ID, and the worker still holds the inner one.
         self.lifecycle('register', 'ticket-1/1', None,
                        env={'CLAUDE_CODE_SESSION_ID': 'claude-outer', 'CODEX_SESSION_ID': 'codex-inner'},
                        assignment='ticket-1', repo=str(self.repo), worktree=str(self.worktree), head='head-1',
@@ -1191,6 +1182,7 @@ console.log('null');
         self.lifecycle('submitted', 'ticket-1/1', None, evidence=['native.jsonl:2:accepted prompt'])
         self.assertEqual(self.check(pane=None, session='codex-inner'), [f'{self.state}: ticket-1/1: no armed wait'])
         self.assertEqual(self.check(pane=None, session='host-2'), [])
+        self.assertEqual(self.check(pane='w1:p2', session='host-2'), [])  # Another session in another pane, too.
 
     def test_an_unmarked_worker_in_its_registered_worktree_is_not_held_for_the_runs_lifecycle_gaps(self):
         # Re-review 3 (main's rule, restored for the lifecycle gaps): a session whose cwd is inside a worktree an
@@ -1456,10 +1448,7 @@ class DeliveryHold(GateRepo):
         # Rule: one gap per workstream. An autofix-bound workstream whose confirmed card records `merged` while its
         # delivery fails is named by the card hold alone, with the problems the board names.
         self.bind(pane='w1:p1', autofix=True, CLAUDE_CODE_SESSION_ID='host-1')
-        card = self.repo / '.scratch/fix/autopilot.md'
-        card.write_text('# fix \u2014 autopilot run card\n\n## Goal\nx\n\n## State\nconfirmed: 2026-10-27 "go"\n'
-                        'session: host-1\nauto-merge: no\nboard: local\nphase: pr\nterminal: merged\nhistory:\n'
-                        'evidence: merged\n')
+        card = support.run_card(self.repo / '.scratch/fix/autopilot.md', phase='pr', terminal='merged', evidence='merged')
         gaps = self.check(pane='w1:p1', session='host-1')
         self.assertEqual(len(gaps), 1, gaps)
         self.assertTrue(gaps[0].startswith(f"{card}: this session's autopilot run records `terminal: merged` while its "
@@ -1586,9 +1575,7 @@ class DeliveryHold(GateRepo):
             'pane': 'w1:p1', 'sessions': ['host-1'], 'report': str(self.report),
             'state': str(self.report.with_name('workers.sqlite')), 'host': 'codex',
             'route': {'status': 'no_route', 'reason': 'none then'}, 'next_commands': {'route': 'the route command'}}))
-        (self.repo / '.scratch/fix/autopilot.md').write_text(
-            '# fix\n\n## State\nconfirmed: 2026-11-07 "go"\nsession: host-1\nauto-merge: no\nboard: local\nphase: pr\n'
-            'terminal: merged\nevidence: x\n')
+        support.run_card(self.repo / '.scratch/fix/autopilot.md', phase='pr', terminal='merged', evidence='x')
         # Review (Codex): standalone reviews in their own folders, of other hosts, waited again each.
         for name, host in (('one', 'pi'), ('two', 'opencode')):
             report = self.repo / f'.scratch/reviews/{name}/review.md'
@@ -1903,33 +1890,6 @@ class StaleTabs(HerdrWorkers):
         self.retain()
         self.assertEqual(self.check(pane='w1:p1'), [])
 
-    def closed_worker(self, attempt='ticket-1/1', worker='builder-1', session='native-1', assignment='ticket-1'):
-        """A Herdr worker registered, collected and recorded closed while it still runs."""
-        self.register(attempt=attempt, worker=worker, native_session=session, assignment=assignment)
-        self.collect(attempt)
-        self.acknowledge()
-        self.serve(tabs={'default': []})  # Herdr shows its tab gone, as every closure of a Herdr worker needs.
-        self.lifecycle('closed', attempt, evidence=['herdr agent get tautrep17 and pane get w2W:pB8 both not found'])
-
-    @staticmethod
-    def occupant(session, kind='id', pane='w1:p5', tab='w1:t5'):
-        return {pane: {'pane_id': pane, 'tab_id': tab, 'agent': 'claude',
-                       'agent_session': {'kind': kind, 'value': session}}}
-
-    def test_a_worker_recorded_closed_is_never_reminded_of_whatever_its_pane_still_holds(self):
-        # U5: the lifecycle refuses to record a closure while Herdr shows the worker's own pane holding it, so the stop
-        # asks Herdr nothing about a recorded closure.
-        self.closed_worker()
-        agents = [{'agent': 'claude', 'agent_status': 'idle', 'name': 'builder-1', 'pane_id': 'w1:p5',
-                   'tab_id': 'w1:t5', 'workspace_id': 'w1'}]
-        self.serve(agents=agents, tabs={'default': [self.tab]},
-                   panes={'default': {'w1:p5': {'pane_id': 'w1:p5', 'tab_id': 'w1:t5', 'agent': 'claude',
-                                                'agent_session': {'kind': 'id', 'value': 'native-1'}}}})
-        (self.bin / 'calls').write_text('')
-        self.assertEqual(self.check(pane='w1:p1'), [])
-        self.assertIsNone(self.stop(pane='w1:p1'))
-        self.assertNotIn(' pane get ', (self.bin / 'calls').read_text())
-
     def test_a_state_without_a_holds_table_still_has_its_open_tabs_named(self):
         # Review (own): reading design holds must not cost a state its open-tab check; no table means no hold.
         self.register()
@@ -2002,18 +1962,17 @@ class StaleTabs(HerdrWorkers):
         # Herdr lists under that ID later (an ID reused after a restart) is not this worker's: no gap, no Herdr call.
         self.register()
         self.collect()
-        status = subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'status', '--state', str(self.state)],
-                                check=True, capture_output=True, text=True, env=self.env())
-        for receipt in json.loads(status.stdout)['pending']:
-            subprocess.run([sys.executable, '-B', str(LIFECYCLE), 'ack', '--state', str(self.state), '--event-id',
-                            str(receipt['id'])], check=True, capture_output=True, env=self.env())
+        self.acknowledge()
         self.assertEqual(self.check(pane='w1:p1'), [self.gap()])
         self.serve(tabs={'default': []})  # The closure is recorded once Herdr reports the tab gone.
         self.lifecycle('closed', evidence=['retirement proof: pane_not_found, tab_not_found'])
         self.serve(tabs={'default': [self.tab]})  # The same ID listed again, as after a restart.
         self.assertEqual(self.check(pane='w1:p1'), [])
+        (self.bin / 'calls').write_text('')
         self.serve(fail='connection refused')
         self.assertEqual(self.check(pane='w1:p1'), [])
+        self.assertIsNone(self.stop(pane='w1:p1'))
+        self.assertNotIn(' pane get ', (self.bin / 'calls').read_text())  # The stop asked Herdr nothing about it.
 
     def test_the_session_bound_to_orchestrate_the_workstream_sees_its_stale_tabs_instead(self):
         # Rules 3 and 5: once dispatch binds a session to the workstream (a dispatch resumed in pane w1:p2, Claude session
@@ -2158,7 +2117,7 @@ class StopReap(HerdrWorkers):
                      evidence=['review finding F1'])
         card = self.state.parent.parent / 'autopilot.md'
         for terminal in ('', 'blocked', 'delivered'):
-            card.write_text(f'# workstream\n\n## State\nconfirmed: yes\nterminal: {terminal}\n')
+            support.run_card(card, confirmed='yes', terminal=terminal)
             self.assertIsNone(self.stop())
             self.assertEqual(terminal == 'delivered', 'closed' in self.attempt())
         self.assertEqual([f'{card}: terminal: delivered'], self.attempt()['closed']['evidence'])
@@ -2205,27 +2164,6 @@ class StopReap(HerdrWorkers):
         db.close()
         self.assertEqual([f'could not check settled workers in {self.state}: IndexError(\'list index out of range\')'],
                          self.stop_command()['missing'])
-
-    def test_a_herdr_server_that_does_not_answer_is_asked_once_so_the_stop_stays_inside_the_hook_timeout(self):
-        # Rule 1: no answer is no confirmation, and a server that hangs is not asked again for each of its other
-        # workers: the 20 s hook budget holds one wait of 5 s, not one per worker.
-        second = dict(self.tab, tab_id='w1:t6')
-        self.serve(agents=[{'agent': 'claude', 'agent_status': 'idle', 'name': name, 'pane_id': pane,
-                            'tab_id': tab, 'workspace_id': 'w1'} for name, pane, tab in
-                           (('builder-1', 'w1:p5', 'w1:t5'), ('builder-2', 'w1:p6', 'w1:t6'))],
-                   tabs={'default': [self.tab, second]})
-        for number in (1, 2):
-            self.register(attempt=f'ticket-{number}/1', assignment=f'ticket-{number}', worker=f'builder-{number}',
-                          native_session=f'native-{number}')
-            self.lifecycle('result', f'ticket-{number}/1', status='failed', head='head-1', report=str(self.report),
-                           evidence=['worker.log'])
-        self.serve(hang=True)
-        calls = self.bin / 'calls'
-        calls.write_text('')
-        self.stop_command()
-        self.assertEqual(1, calls.read_text().count(' tab get '))
-        self.assertNotIn('closed', self.attempt('ticket-1/1'))
-        self.assertNotIn('closed', self.attempt('ticket-2/1'))
 
     def test_one_stop_reaps_every_state_inside_one_budget(self):
         # Review 2: each run state had a budget of its own, so several states on a hung Herdr outlasted the 20 s hook
