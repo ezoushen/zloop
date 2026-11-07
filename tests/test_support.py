@@ -28,6 +28,10 @@ class Builders(unittest.TestCase):
         self.assertEqual((fields['ticket'], fields['status'], fields['blocked_by'], fields['touches'], fields['devices']),
                          ('fx/07', 'done', ['fx/01', 'fx/02'], ['area'], []))
         self.assertEqual((fields['accepted'], fields['accepted_report']), ('a' * 40, 'b' * 64))
+        text = support.ticket_file(self.root, 'fx/10', worker='inline', title='A title').read_text()
+        self.assertEqual((front_matter.parse(text)['worker'], text.endswith('---\n# 10: A title\n\n**Story:** a story.\n')),
+                         ('inline', True))
+        self.assertTrue(support.ticket_file(self.root, 'fx/11').read_text().endswith('devices: []\n---\n'))
         pending = front_matter.parse(support.ticket_file(self.root, 'fx/08', 'ready', accepted=False).read_text())
         self.assertNotIn('accepted', pending)
         self.assertNotIn('accepted', front_matter.parse(support.ticket_file(self.root, 'fx/09', 'done',

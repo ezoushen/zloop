@@ -21,6 +21,9 @@ PANEL = support.load_script('panel_state.py')
 
 card = functools.partial(support.run_card, session='S', confirmed='yes 2026-10-27 "go"', board=None)
 
+# What the panel gives a session that no workstream is tied to.
+NOTHING = {'active': False, 'workstream': None, 'rows': [], 'more': [], 'strip': None}
+
 
 def orchestrator(workstream, sessions):
     """The binding `next_tickets.py --orchestrate` writes: the session running the workstream."""
@@ -30,9 +33,9 @@ def orchestrator(workstream, sessions):
     return path
 
 
-def ticket(path, name, **fields):
-    """A local ticket at `path`, as the board reads one."""
-    return support.ticket_file(None, name, path=path, **fields)
+def ticket(path, name, title='a behaviour', worker='', **fields):
+    """A local ticket at `path`, titled as the template titles one, as the board reads one."""
+    return support.ticket_file(None, name, path=path, title=title, worker=worker, **fields)
 
 
 attempts = support.write_attempts
@@ -823,9 +826,7 @@ class PanelState(unittest.TestCase):
         attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [live('12/ticket-1')])
         ticket(self.scratch / 'omega' / 'issues' / '01-a.md', 'omega/01', status='ready')
         found = self.snapshot('fresh')
-        self.assertEqual({'active': False, 'workstream': None, 'rows': [], 'more': [],
-                          'strip': None},
-                         found)
+        self.assertEqual(NOTHING, found)
 
     def test_another_checkouts_state_is_not_read(self):
         # The panel shows this workstream's attempts only: a fixture checkout beside it, even one this session
@@ -922,9 +923,7 @@ class PanelState(unittest.TestCase):
     def test_another_sessions_worker_ties_nothing_to_this_session(self):
         attempts(self.scratch / 'theirs' / 'reports' / 'workers.sqlite',
                  [dict(live('1/ticket-1'), session='T', sessions=['T'])])
-        self.assertEqual({'active': False, 'workstream': None, 'rows': [], 'more': [],
-                          'strip': None},
-                         self.snapshot('S'))
+        self.assertEqual(NOTHING, self.snapshot('S'))
         self.assertEqual('theirs', self.snapshot('T')['workstream'])
 
     def test_a_hand_written_attempt_that_is_not_a_session_record_ties_nothing(self):
@@ -934,9 +933,7 @@ class PanelState(unittest.TestCase):
         db.execute('INSERT INTO attempts VALUES (?, ?)', ('1/ticket-2', json.dumps(['S'])))
         db.commit()
         db.close()
-        self.assertEqual({'active': False, 'workstream': None, 'rows': [], 'more': [],
-                          'strip': None},
-                         self.snapshot('S'))
+        self.assertEqual(NOTHING, self.snapshot('S'))
 
     def test_a_row_that_is_not_an_object_beside_this_sessions_worker_is_skipped(self):
         state = attempts(self.scratch / 'mixed' / 'reports' / 'workers.sqlite',

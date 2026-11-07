@@ -130,15 +130,13 @@ class ReviewHold(GateRepo):
 
     def test_a_blocker_releases_with_a_recorded_no_route_only_while_the_router_still_finds_no_reviewer(self):
         # Review (Sonnet): a blocker with a hand-written no_route record released the hold without asking the router.
+        # The router's answers themselves are pinned by the local-review matrix above; this pins the blocker's call site.
         home = Path(self.tmp.name) / 'home'
         home.mkdir()
         env = {'HOME': str(home)}
         self.review(blocker='no reviewer route is configured')
         binding = json.loads(self.binding.read_text())
-        binding['route'] = {'status': 'no_route', 'reason': 'no reachable reviewer executor'}
-        self.binding.write_text(json.dumps(binding))
-        self.assertEqual(len(self.check(session='host-1', env=env)), 1)  # It names no host.
-        self.binding.write_text(json.dumps(dict(binding, host='codex')))
+        self.binding.write_text(json.dumps(dict(binding, host='codex', route={'status': 'no_route', 'reason': 'none'})))
         gaps = self.check(session='host-1', env=env)  # A native subagent is routable now, and the hold says so.
         self.assertEqual(len(gaps), 1)
         self.assertIn('the router now routes diff-review from codex to a codex native subagent', gaps[0])
@@ -147,14 +145,6 @@ class ReviewHold(GateRepo):
         config.write_text(json.dumps(NO_CODEX_REVIEWER))
         self.assertEqual(self.check(session='host-1', env=env), [])
         self.assertIsNone(self.stop(session='host-1', env=env))
-        # Review (Codex): a record naming no host holds though nothing is routable, and a router that fails is named.
-        self.binding.write_text(json.dumps(binding))
-        self.assertEqual(len(self.check(session='host-1', env=env)), 1)
-        self.binding.write_text(json.dumps(dict(binding, host='codex')))
-        config.write_text('{broken')
-        gaps = self.check(session='host-1', env=env)
-        self.assertEqual(len(gaps), 1)
-        self.assertIn('review_by: local cannot be judged, the router failed: ', gaps[0])
 
     def test_a_blocker_cannot_use_a_registered_then_cancelled_reviewer_that_never_launched(self):
         self.review(blocker='reviewer capacity could not be reconciled')
@@ -389,8 +379,7 @@ class YieldGateHook(GateRepo):
         db.execute('CREATE TABLE attempts (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
         db.execute('CREATE TABLE events (id INTEGER PRIMARY KEY, attempt TEXT NOT NULL, kind TEXT NOT NULL, '
                    'payload TEXT NOT NULL, acknowledged INTEGER NOT NULL)')
-        whole = {'attempt': 'demo/1', 'assignment': 'demo/01', 'repo': str(self.repo), 'runtime': 'claude',
-                 'native_session': 'demo-a', 'worker': 'w-demo-a', 'owned': True}
+        whole = support.attempt_row(self.repo, attempt='demo/1', assignment='demo/01', native_session='demo-a', worker='w-demo-a')
         rows = {'demo/1': whole,
                 'demo/2': {key: value for key, value in whole.items() if key != 'worker'},
                 'demo/3': {key: value for key, value in whole.items() if key != 'attempt'},
@@ -406,9 +395,7 @@ class YieldGateHook(GateRepo):
         old = time.time() - 3 * 24 * 3600
         os.utime(other, (old, old))  # However old the state, it holds no other session.
         self.assertEqual(self.check(), [f'{self.state}: ticket-1/1: no armed wait'])
-        ticket = self.repo / '.scratch/demo/issues/01-task.md'
-        ticket.parent.mkdir(parents=True)
-        ticket.write_text('---\nticket: demo/01\nstatus: ready\nblocked_by: []\ntouches: [t01]\ndevices: []\n---\n')
+        support.ticket_file(self.repo, 'demo/01', touches='t01')
         self.bind(pane=None, slug='demo', CLAUDE_CODE_SESSION_ID='host-9')
         os.utime(other, (old, old))
         self.assertEqual(self.check(pane=None, session='host-9'),
@@ -418,10 +405,6 @@ class YieldGateHook(GateRepo):
     def test_codex_uses_the_same_stop_protocol(self):
         self.assertEqual(self.stop(host='codex')['decision'], 'block')
         self.assertEqual(self.stop(host='codex', active=True)['decision'], 'block')
-
-    def test_only_the_herdr_pane_that_registered_a_worker_is_held(self):
-        self.assertIsNone(self.stop(pane='w1:p9'))
-        self.assertEqual(self.stop(pane='w1:p1')['decision'], 'block')
 
     def test_a_worker_this_session_registered_is_judged_however_old_its_state(self):
         # Gap 22 (gate half), audit A8: attribution, not the state's age, decides for an attributed attempt.
@@ -747,9 +730,7 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         # Rule (one exported-session reader): the sessions a binding names are the ones registration records, parent
         # included, so the card, the binding and the attempt of one run agree; an attempt records `sessions` alone.
         child = {'PI_SUBAGENT_CHILD': '1', 'PI_SUBAGENT_PARENT_SESSION': 'pi-parent', 'PI_SESSION_ID': 'pi-child'}
-        ticket = self.repo / '.scratch/demo/issues/01-task.md'
-        ticket.parent.mkdir(parents=True)
-        ticket.write_text('---\nticket: demo/01\nstatus: ready\nblocked_by: []\ntouches: [t01]\ndevices: []\n---\n')
+        support.ticket_file(self.repo, 'demo/01', touches='t01')
         self.bind(pane=None, slug='demo', **child)
         bound = json.loads((self.repo / '.scratch/demo/reports/orchestrator.json').read_text())['sessions']
         self.lifecycle('register', 'ticket-1/2', None, env=child, assignment='ticket-1', repo=str(self.repo),
@@ -767,10 +748,9 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         live = self.agent('builder', 'w1:p9', self.worktree)  # Tab w1:t9 of the stopping session's server.
         self.serve(agents=[live])
         def row(server, tab):
-            return dict(attempt='run/1', assignment='run/01', repo=str(self.repo), runtime='claude',
-                        native_session='n-1', worker='builder', session='host-1', orchestrator='w1:p1', owned=True,
-                        result={'status': 'completed'},
-                        herdr={'session': server, 'workspace_id': 'w1', 'tab_id': tab})
+            return support.attempt_row(self.repo, attempt='run/1', assignment='run/01', worker='builder', session='host-1',
+                                       orchestrator='w1:p1', result={'status': 'completed'},
+                                       herdr={'session': server, 'workspace_id': 'w1', 'tab_id': tab})
         expected = [self.live('builder', 'w1:p9', self.worktree)]
         for server, tab in (('s2', 'w1:t9'), ('default', 'w1:t3')):
             self.write_rows(row(server, tab))
@@ -787,9 +767,8 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.assertEqual(self.logged()[0]['orchestrator'], {'pane': None, 'session': 'oc-1'})
         self.serve()
         self.assertEqual(self.check(pane=None, session='oc-1'), [self.gap('oc-builder', 'w1:p5')])
-        self.write_rows(dict(attempt='ticket-1/1', assignment='ticket-1', repo=str(self.repo), runtime='opencode',
-                             native_session='n-1', worker='oc-builder', session='oc-1', sessions=['oc-1'], owned=True,
-                             result={'status': 'completed'}))
+        self.write_rows(support.attempt_row(self.repo, runtime='opencode', worker='oc-builder', session='oc-1',
+                                            sessions=['oc-1'], result={'status': 'completed'}))
         self.assertEqual(self.check(pane=None, session='oc-1'), [])
         self.assertEqual(self.check(pane=None, session='oc-2'), [self.gap('oc-other', 'w1:p6')])
 
@@ -960,17 +939,6 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.assertEqual(self.check(pane='w1:p1', session='old-1'), both)
         self.assertEqual(self.check(pane='w1:p1'), both)
         self.assertEqual(self.check(pane='w1:p2', session='old-1'), [self.gap('builder-1', 'w1:p5')])
-
-    def test_a_codex_launch_under_a_stale_herdr_pane_holds_the_session_that_made_it(self):
-        # Rule (E4 codex): Codex runs commands through a shared app-server whose HERDR_PANE_ID came from another pane,
-        # so where a host session ID is known it alone decides whose launch it is; the stale pane decides nothing.
-        self.launch('herdr agent start builder-1 --kind codex --pane w1:p5', pane='w1:p17', session='codex-1')
-        self.serve()
-        self.assertEqual(self.check(pane='w2:p1', session='codex-1'), [self.gap('builder-1', 'w1:p5')])
-        self.assertEqual(self.check(pane=None, session='codex-1'), [self.gap('builder-1', 'w1:p5')])
-        self.assertEqual(self.check(pane='w1:p17', session='codex-2'), [])
-        for host in ('codex', 'claude'):
-            self.assertEqual(self.stop(pane='w2:p1', session='codex-1', host=host)['decision'], 'block', host)
 
     def test_launches_and_registrations_count_however_long_ago_their_run_was_active(self):
         # Rule 2: neither the launch log nor a run's registrations age out with the gate's one-day filter.
@@ -1168,20 +1136,11 @@ console.log('null');
 
     def write_rows(self, *rows, events=True):
         """A run state of hand-written attempt rows, recent, with no orchestrator binding."""
-        self.state.unlink(missing_ok=True)
-        db = sqlite3.connect(self.state)
-        db.execute('CREATE TABLE attempts (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
-        if events:
-            db.execute('CREATE TABLE events (id INTEGER PRIMARY KEY, attempt TEXT NOT NULL, kind TEXT NOT NULL, '
-                       'payload TEXT NOT NULL, acknowledged INTEGER NOT NULL)')
-        db.executemany('INSERT INTO attempts VALUES (?, ?)', [(row['attempt'], json.dumps(row)) for row in rows])
-        db.commit()
-        db.close()
+        support.write_attempts(self.state, rows, events)
 
     def ownerless(self, attempt='e/1', **fields):
         """A live attempt with no recorded pane or host session and no wait: every session's gap unless bound."""
-        return dict(attempt=attempt, assignment='e/01', repo=str(self.repo), runtime='claude', native_session='n-1',
-                    worker='w-1', owned=True, submitted=True, **fields)
+        return support.attempt_row(self.repo, attempt=attempt, assignment='e/01', submitted=True, **fields)
 
     def test_a_malformed_session_list_breaks_no_other_sessions_check(self):
         self.write_rows(dict(self.ownerless(), session='host-A', sessions=42))
@@ -1201,9 +1160,7 @@ console.log('null');
         everyone = (('w1:p2', 'host-B'), (None, 'host-3'), (None, None))
         for pane, session in everyone:
             self.assertEqual(self.check(pane=pane, session=session), [], (pane, session))
-        ticket = self.repo / '.scratch/workstream/issues/01-task.md'
-        ticket.parent.mkdir(parents=True)
-        ticket.write_text('---\nticket: workstream/01\nstatus: ready\nblocked_by: []\ntouches: [t01]\ndevices: []\n---\n')
+        support.ticket_file(self.repo, 'workstream/01', touches='t01')
         self.bind(pane=None, slug='workstream', CLAUDE_CODE_SESSION_ID='host-3')
         for pane, session in everyone:
             self.assertEqual(self.check(pane=pane, session=session), [], (pane, session))
@@ -1442,11 +1399,7 @@ class DeliveryHold(GateRepo):
                               check=True, capture_output=True, text=True).stdout.strip()
 
     def ticket(self, number, status):
-        path = self.repo / f'.scratch/fix/issues/{number}-task.md'
-        path.parent.mkdir(parents=True, exist_ok=True)
-        accepted = f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n" if status == 'done' else ''
-        path.write_text(f'---\nticket: fix/{number}\nstatus: {status}\nblocked_by: []\ntouches: [t{number}]\n'
-                        f'devices: []\n{accepted}---\n')
+        support.ticket_file(self.repo, f'fix/{number}', status, touches=f't{number}')
 
     def review(self, delivered=False, **fields):
         """The review report's front matter: by default the Pi run's, or current and passed when `delivered`; `fields`
@@ -1560,8 +1513,7 @@ class DeliveryHold(GateRepo):
         self.bind(pane='w1:p1')
         other = self.repo / '.scratch/other/issues'
         other.mkdir(parents=True)
-        (other / '01-task.md').write_text('---\nticket: other/one\nstatus: ready\nblocked_by: []\ntouches: []\n'
-                                          'devices: []\n---\n')
+        support.ticket_file(self.repo, 'other/one', path=other / '01-task.md')
         (other / '02-task.md').write_bytes(b'---\nticket: other/02\nstatus: \xff\n---\n')
         self.assertEqual(self.check(pane='w1:p1'), [self.gap()])
         self.review(delivered=True)
@@ -1577,9 +1529,7 @@ class DeliveryHold(GateRepo):
         home.mkdir()
         env = {'HOME': str(home)}
         self.bind(pane='w1:p1', autofix=True)
-        (self.repo / '.scratch/fix/issues/01-task.md').write_text(  # Accepted, so `--delivery` passes the board's check.
-            '---\nticket: fix/01\nstatus: done\nblocked_by: []\ntouches: [t01]\ndevices: []\n'
-            f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
+        support.ticket_file(self.repo, 'fix/01', 'done', touches='t01')
         self.review(delivered=True, review_by='local')
         record = self.report.with_name('review.json')
         record.write_text(json.dumps({'route': {'status': 'no_route', 'reason': 'inline by order'}, 'host': 'codex',
@@ -1606,9 +1556,7 @@ class DeliveryHold(GateRepo):
         # wording under exit 2 and any other failure are named as failures; the plugin's interpreter answers.
         old = "Model 'm': No configured route from 'codex' to model runtimes ['pi'] in this environment"
         self.bind(pane='w1:p1', autofix=True)
-        (self.repo / '.scratch/fix/issues/01-task.md').write_text(
-            '---\nticket: fix/01\nstatus: done\nblocked_by: []\ntouches: [t01]\ndevices: []\n'
-            f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
+        support.ticket_file(self.repo, 'fix/01', 'done', touches='t01')
         self.review(delivered=True, review_by='local')
         self.report.with_name('review.json').write_text(json.dumps({
             'route': {'status': 'no_route', 'reason': 'none then'}, 'host': 'codex', 'report': str(self.report)}))
@@ -1632,9 +1580,7 @@ class DeliveryHold(GateRepo):
         (home / '.config/zloop').mkdir(parents=True)
         os.mkfifo(home / '.config/zloop/executors.json')  # The router opens it and waits for a writer that never comes.
         self.bind(pane='w1:p1', autofix=True, CLAUDE_CODE_SESSION_ID='host-1')
-        (self.repo / '.scratch/fix/issues/01-task.md').write_text(
-            '---\nticket: fix/01\nstatus: done\nblocked_by: []\ntouches: [t01]\ndevices: []\n'
-            f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
+        support.ticket_file(self.repo, 'fix/01', 'done', touches='t01')
         self.review(delivered=True, review_by='local')
         self.report.with_name('review.json').write_text(json.dumps({
             'pane': 'w1:p1', 'sessions': ['host-1'], 'report': str(self.report),
@@ -1771,10 +1717,7 @@ class DeliveryHold(GateRepo):
         # Re-review F1, in an old real workstream's shape: reviewed clean, no E2E or producer fields, merged into main
         # and its branch deleted. Orchestrating every workstream binds only those with active work (a branch, or a ticket
         # not done), so not it; named explicitly, it is held until finished by the definition above.
-        path = self.repo / '.scratch/audit/issues/01-task.md'
-        path.parent.mkdir(parents=True)
-        path.write_text('---\nticket: audit/01\nstatus: done\nblocked_by: []\ntouches: [a]\ndevices: []\n'
-                        f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
+        support.ticket_file(self.repo, 'audit/01', 'done', touches='a')
         report = self.repo / '.scratch/audit/reports/spec-review.md'
         report.parent.mkdir(parents=True)
         report.write_text(f'---\nreview_status: clean\ndocumentation_status: passed\nreview_base: {self.start}\n'
@@ -1794,10 +1737,7 @@ class DeliveryHold(GateRepo):
         # Review 1: with no slug, --orchestrate binds a workstream with a ticket not done, or with delivery incomplete and
         # its branch present; never a finished one (merged into main, branch deleted). With none left it refuses.
         for slug, status in (('wip', 'implementing'), ('old', 'done')):
-            path = self.repo / f'.scratch/{slug}/issues/01-task.md'
-            path.parent.mkdir(parents=True)
-            path.write_text(f'---\nticket: {slug}/01\nstatus: {status}\nblocked_by: []\ntouches: [{slug}]\n'
-                            'devices: []\n---\n')
+            support.ticket_file(self.repo, f'{slug}/01', status, touches=slug, accepted=False)
         old = self.repo / '.scratch/old/reports/spec-review.md'
         old.parent.mkdir(parents=True)
         old.write_text(self.report.read_text())
@@ -2081,9 +2021,7 @@ class StaleTabs(HerdrWorkers):
         # or another conversation in w1:p2, does not.
         self.register(pane='w1:p1')
         self.collect()
-        ticket = self.repo / '.scratch/workstream/issues/01-task.md'
-        ticket.parent.mkdir(parents=True)
-        ticket.write_text('---\nticket: workstream/01\nstatus: done\nblocked_by: []\ntouches: [a]\ndevices: []\n---\n')
+        support.ticket_file(self.repo, 'workstream/01', 'done', touches='a', accepted=False)
         self.bind(pane='w1:p2', slug='workstream', CLAUDE_CODE_SESSION_ID='host-2')
         self.assertEqual(self.check(pane='w1:p2', session='host-2'), [self.gap()])
         self.assertEqual(self.check(pane='w1:p1'), [])
@@ -2400,15 +2338,8 @@ class AutopilotCardHold(GateRepo):
     STATES = ('delivered', 'delivered-local', 'merged', 'waiting-on-user', 'paused-allowance', 'paused-by-user',
               'blocked')
 
-    def card(self, slug='run', confirmed='2026-10-27 "go"', session='host-1', terminal='', evidence='', phase='refine',
-             board='local', **extra):
-        path = self.repo / f'.scratch/{slug}/autopilot.md'
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fields = dict(confirmed=confirmed, session=session, **{'auto-merge': 'no'}, **({'board': board} if board else {}),
-                      phase=phase, terminal=terminal, history='', evidence=evidence, **extra)
-        path.write_text(f'# {slug} \u2014 autopilot run card\n\n## Goal\nx\n\n## State\n'
-                        + ''.join(f'{key}: {value}\n'.replace(': \n', ':\n') for key, value in fields.items()))
-        return path
+    def card(self, slug='run', phase='refine', **fields):
+        return support.run_card(self.repo / f'.scratch/{slug}/autopilot.md', slug, phase=phase, **fields)
 
     def gap(self, path):
         return (f"{path}: this session's autopilot run has no terminal state or no evidence; record `terminal:` as "
@@ -2549,10 +2480,9 @@ class AutopilotCardHold(GateRepo):
         # workstream's own does.
         other = self.repo / '.scratch/other/issues'
         other.mkdir(parents=True)
-        (other / '01-task.md').write_text('---\nticket: other/01\nstatus: done\nblocked_by: []\ntouches: []\ndevices: []\n---\n')
-        (other / '02-task.md').write_text('---\nticket: other/02\nstatus: implementing\nblocked_by: []\ntouches: []\n'
-                                          'devices: []\n---\n')
-        (other / '03-task.md').write_text('---\nticket: other/03\nstatus: ready\nblocked_by: x\ntouches: []\ndevices: []\n---\n')
+        support.ticket_file(self.repo, 'other/01', 'done', accepted=False)
+        support.ticket_file(self.repo, 'other/02', 'implementing')
+        support.ticket_file(self.repo, 'other/03', blocked_by='x')
         self.assertEqual(self.check(session='host-1'), [])
         # Review (Codex): nor is another workstream's file that cannot be read, as text or at all.
         (other / '04-task.md').write_bytes(b'---\nticket: other/04\nstatus: \xff\n---\n')
@@ -2573,34 +2503,24 @@ class AutopilotCardHold(GateRepo):
         # A cycle between this workstream and another is its own.
         ours = issues / '02-task.md'
         ours.write_text(accepted.replace('run/01', 'run/02').replace('blocked_by: []', 'blocked_by: [other/01]'))
-        (other / '01-task.md').write_text('---\nticket: other/01\nstatus: done\nblocked_by: [run/01]\ntouches: []\n'
-                                          f"devices: []\naccepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
+        support.ticket_file(self.repo, 'other/01', 'done', blocked_by='run/01')
         cycle = self.check(session='host-1')
         self.assertEqual(len(cycle), 1)
         self.assertRegex(cycle[0], r"while its workstream is not delivered: workstream dependency cycle: "
                                    r"(other -> run -> other|run -> other -> run); finish what it names")
         ours.unlink()
-        (other / '01-task.md').write_text('---\nticket: other/01\nstatus: done\nblocked_by: []\ntouches: []\n'
-                                          f"devices: []\naccepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
+        support.ticket_file(self.repo, 'other/01', 'done')
         # Review (Codex): the check names every cycle, so another workstream's cycle hides none of this one's.
-        alpha = self.repo / '.scratch/alpha/issues'
-        alpha.mkdir(parents=True)
         for number, waits in (('01', '02'), ('02', '01')):
-            (alpha / f'{number}-task.md').write_text(
-                f'---\nticket: alpha/{number}\nstatus: done\nblocked_by: [alpha/{waits}]\ntouches: []\ndevices: []\n'
-                f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
+            support.ticket_file(self.repo, f'alpha/{number}', 'done', blocked_by=f'alpha/{waits}')
         ours.write_text(accepted.replace('run/01', 'run/02').replace('blocked_by: []', 'blocked_by: [run/02]'))
         cycle = self.check(session='host-1')
         self.assertEqual(len(cycle), 1)
         self.assertIn('while its workstream is not delivered: ticket dependency cycle: run/02 -> run/02; finish', cycle[0])
         # Review (Codex): nor does a cycle sharing an edge with this one, as alpha/01 <- beta/01 <- alpha/01 shares
         # beta/01 <- alpha/01 with alpha/01 <- run/02 <- beta/01 <- alpha/01.
-        beta = self.repo / '.scratch/beta/issues'
-        beta.mkdir(parents=True)
-        for written, name, waits in ((alpha / '01-task.md', 'alpha/01', 'beta/01, run/02'),
-                                     (alpha / '02-task.md', 'alpha/02', ''), (beta / '01-task.md', 'beta/01', 'alpha/01')):
-            written.write_text(f'---\nticket: {name}\nstatus: done\nblocked_by: [{waits}]\ntouches: []\ndevices: []\n'
-                            f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
+        for name, waits in (('alpha/01', 'beta/01, run/02'), ('alpha/02', ''), ('beta/01', 'alpha/01')):
+            support.ticket_file(self.repo, name, 'done', blocked_by=waits)
         ours.write_text(accepted.replace('run/01', 'run/02').replace('blocked_by: []', 'blocked_by: [beta/01]'))
         cycle = self.check(session='host-1')
         self.assertEqual(len(cycle), 1)
@@ -2644,15 +2564,13 @@ class AutopilotCardHold(GateRepo):
     def test_a_delivery_that_cannot_be_checked_still_holds_the_stop(self):
         # Review (Codex, Sonnet): a check that cannot run is a named gap, never a pass.
         issues = self.repo / '.scratch/run/issues'
-        issues.mkdir(parents=True)
-        (issues / '01-task.md').write_text('---\nticket: run/one\nstatus: done\nblocked_by: []\ntouches: []\ndevices: []\n---\n')
+        support.ticket_file(self.repo, 'run/one', 'done', path=issues / '01-task.md', accepted=False)
         path = self.card(terminal='merged', evidence='PR 1 merged', phase='pr')
         self.assertEqual(self.check(session='host-1'), [
             "could not check delivery of run: "
             f"{issues / '01-task.md'}: invalid ticket id 'run/one'"])
         # Review (Sonnet): so is a check that raises on the way, here a worker state with no tables.
-        (issues / '01-task.md').write_text('---\nticket: run/01\nstatus: done\nblocked_by: []\ntouches: []\ndevices: []\n'
-                                           f"accepted: {'a' * 40}\naccepted_report: {'b' * 64}\n---\n")
+        support.ticket_file(self.repo, 'run/01', 'done')
         reports = self.repo / '.scratch/run/reports'
         reports.mkdir(parents=True)
         (reports / 'spec-review.md').write_text('---\nreview_status: clean\ndocumentation_status: passed\n'

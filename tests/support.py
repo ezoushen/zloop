@@ -42,23 +42,26 @@ def without_host_sessions(env=None):
     return {key: value for key, value in (os.environ if env is None else env).items() if key not in SESSION_VARIABLES}
 
 
-def ticket_file(repo, name, status='ready', *, blocked_by='', touches=None, devices='', worker='', title='a behaviour',
+def ticket_file(repo, name, status='ready', *, blocked_by='', touches=None, devices='', worker=None, title=None,
                 extra='', blocker=None, accepted=True, path=None):
     """A local ticket `name` ('slug/NN') under repo's `.scratch/slug/issues/` with the front matter the board reads,
-    touching an area of its own number unless `touches` names one; a done one carries the acceptance fields `--accept`
-    writes, unless `accepted` is False. `extra` is raw front-matter lines (each ending in a newline); `path` names the
-    file instead of the numbered one (repo may then be None)."""
+    touching an area of its own number unless `touches` names one; a `worker:` line only when `worker` is given and a
+    body only when `title` is. A done one carries the acceptance fields `--accept` writes, unless `accepted` is False.
+    `extra` is raw front-matter lines (each ending in a newline); `path` names the file instead of the numbered one
+    (repo may then be None)."""
     slug, number = name.split('/')
     path = Path(path or Path(repo) / '.scratch' / slug / 'issues' / f'{number}-task.md')
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = ['---', f'ticket: {name}', f'status: {status}', f'blocked_by: [{blocked_by}]',
-             f"touches: [{touches or 'area-' + number}]", f'devices: [{devices}]', 'model: standard',
-             f'worker: {worker}'.rstrip()]
+             f"touches: [{touches or 'area-' + number}]", f'devices: [{devices}]']
+    if worker is not None:
+        lines.append(f'worker: {worker}'.rstrip())
     if blocker:
         lines.append(f'blocker: {blocker}')
     if status == 'done' and accepted:
         lines += [f"accepted: {'a' * 40}", f"accepted_report: {'b' * 64}"]
-    path.write_text('\n'.join(lines) + '\n' + extra + f"---\n# {number}: {title}\n\n**Story:** a story.\n")
+    body = f'# {number}: {title}\n\n**Story:** a story.\n' if title else ''
+    path.write_text('\n'.join(lines) + '\n' + extra + '---\n' + body)
     return path
 
 
