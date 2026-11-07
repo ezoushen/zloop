@@ -62,9 +62,6 @@ MAX_LIVE = 8  # Tickets live at once, unless --max-live or MAX_LIVE in the envir
 # Critical path first. TICKET_PRIORITY=spec-a,spec-b names the specs to drain first; default is name order.
 PRIORITY = [s for s in os.environ.get("TICKET_PRIORITY", "").split(",") if s]
 MEASURE_TIMEOUT = 600  # seconds a measurement command may run unless its entry sets timeout_seconds
-# The session ID Claude Code, Codex, Pi and OpenCode export to the orchestrator's shell; each equals the session_id
-# their Stop hook, or the Pi and OpenCode settle check, reports.
-SESSION_VARIABLES = ("CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "PI_SESSION_ID", "OPENCODE_SESSION_ID")
 
 
 def load(spared=None, left_out=None):
@@ -1126,7 +1123,7 @@ def orchestrate(slug, autofix):
     whether repairs are authorized until the review report records its own `autofix`. A later bind takes the workstream
     over."""
     binding = {"pane": os.environ.get("HERDR_PANE_ID"),
-               "sessions": [os.environ[name] for name in SESSION_VARIABLES if os.environ.get(name)], "autofix": autofix}
+               "sessions": worker_lifecycle.host_sessions(), "autofix": autofix}
     path = ISSUES / slug / "reports" / "orchestrator.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     state_files.write_atomic(path, json.dumps(binding) + "\n")
@@ -1215,8 +1212,9 @@ def main(argv):
             print(f"{fm.get('status', '<missing>'):<12} {name:<52} touches={','.join(fm.get('touches', []))} blocked_by={deps}")
         return
     if args.orchestrate:
-        if not os.environ.get("HERDR_PANE_ID") and not any(os.environ.get(name) for name in SESSION_VARIABLES):
-            sys.exit(f"no Herdr pane (HERDR_PANE_ID) or host session ID ({', '.join(SESSION_VARIABLES)}) here: "
+        if not os.environ.get("HERDR_PANE_ID") and not worker_lifecycle.host_sessions():
+            names = ", ".join(worker_lifecycle.SESSION_VARIABLES)
+            sys.exit(f"no Herdr pane (HERDR_PANE_ID) or host session ID ({names}) here: "
                      "the stop hold cannot bind this session")
         slugs = sorted({spec_of(t) for t in selected})
         if not args.slug:  # Only workstreams with active work: a live workstream branch, or a ticket not done.

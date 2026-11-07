@@ -1769,7 +1769,7 @@ console.log(JSON.stringify((await handlers.agent_before_settle(
         self.assertEqual(self.check(pane=None, session='host-1'), [])
         self.serve(hang=True)
         [gap] = self.check()
-        self.assertRegex(gap, r"^could not check Herdr workers: .*'herdr', 'agent', 'list'.* timed out after 5 seconds$")
+        self.assertRegex(gap, r"^could not check Herdr workers: Herdr did not answer agent list within 5 s$")
 
     def test_a_check_that_could_not_run_advises_a_retry_not_registering_or_dismissing(self):
         # Registering or dismissing cannot clear an unreachable Herdr; a retry or the hook switch can.
@@ -2600,7 +2600,7 @@ class StaleTabs(HerdrWorkers):
         self.assertEqual(self.stop(pane='w1:p1', active=True)['decision'], 'block')
         self.serve(hang=True)
         self.assertRegex(self.check(pane='w1:p1')[-1],
-                         r"^could not check worker tabs: .*'tab', 'list'.* timed out after 5 seconds$")
+                         r"^could not check worker tabs: Herdr did not answer tab list --workspace w1 within 5 s$")
 
 
 class StopReap(HerdrWorkers):

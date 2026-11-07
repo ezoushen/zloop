@@ -51,8 +51,7 @@ from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parent.parent
 RECENT_SECONDS = 24 * 3600
-# The name Herdr gives the server a shell reaches without `--session`.
-DEFAULT_SERVER = 'default'
+HERDR_SECONDS = 5  # What each Herdr call of a stop may wait.
 GUIDE = ROOT / 'runtime/workers/wait.md'
 PREPARE = ROOT / 'runtime/workers/prepare.md'
 COLLECT = ROOT / 'runtime/workers/collect.md'
@@ -296,7 +295,7 @@ def well_formed(saved):
         return False
     if 'worktree' in saved and not (text(saved['worktree']) and Path(saved['worktree']).is_absolute()):
         return False
-    if any(key in saved and saved[key] is not None and not text(saved[key]) for key in ('orchestrator', 'session')):
+    if any(key in saved and saved[key] is not None and not text(saved[key]) for key in ('orchestrator',)):
         return False
     if any(key in saved and not (isinstance(saved[key], list) and all(map(text, saved[key])))
            for key in ('sessions', 'launch_sessions')):
@@ -313,21 +312,14 @@ def well_formed(saved):
 
 def attributed(saved):
     """Whether an attempt recorded the session or pane that registered it."""
-    return bool(saved.get('session') or saved.get('orchestrator'))
+    return bool(lifecycle().recorded_sessions(saved) or saved.get('orchestrator'))
 
 
 def owns(saved, pane, session):
     """Whether this session registered the attempt: by host session before pane. A host started inside another's shell
     exports the outer host's session too, so each exported session counts."""
     return any(same_orchestrator({'pane': saved.get('orchestrator'), 'session': known}, pane, session)
-               for known in recorded_sessions(saved) or [None])
-
-
-def recorded_sessions(saved):
-    """The host sessions an attempt's registrar exported: its session list, else its one session."""
-    listed = saved.get('sessions') if isinstance(saved.get('sessions'), list) else []
-    return [value for value in listed if isinstance(value, str)] or (
-        [saved['session']] if isinstance(saved.get('session'), str) else [])
+               for known in lifecycle().recorded_sessions(saved) or [None])
 
 
 def board_gaps(root, path, state):
@@ -444,7 +436,7 @@ def stale_tabs(root, pane, session):
                     own = holds_own(saved, herdr)
                     unanswered = own is None
                     if own:
-                        named = '' if herdr['session'] == socket_server() else f"--session {herdr['session']} "
+                        named = ''.join(f'{word} ' for word in lifecycle().server_option(herdr['session']))
                         missing.append(f"{state}: {saved['attempt']}: {CLOSED_REMINDER} Herdr pane {herdr['pane_id']} "
                                        f"in tab {herdr['tab_id']} still holds its conversation; end it with `herdr "
                                        f"{named}pane close {herdr['pane_id']}`")
@@ -463,16 +455,14 @@ def stale_tabs(root, pane, session):
 def holds_own(saved, herdr):
     """Whether Herdr shows the attempt's recorded pane holding its own native conversation: None when Herdr did not
     answer, False for any other pane or a row it cannot be compared with."""
-    named = [] if herdr['session'] == socket_server() else ['--session', herdr['session']]
     try:
-        result = subprocess.run(['herdr', *named, 'pane', 'get', herdr['pane_id']], capture_output=True, text=True,
-                                timeout=5)
-    except (OSError, subprocess.SubprocessError):
+        code, response = lifecycle().herdr(herdr['session'], 'pane', 'get', herdr['pane_id'], timeout=HERDR_SECONDS)
+    except (OSError, ValueError):
         return None
     try:
-        identity = json.loads(result.stdout)['result']['pane'].get('agent_session') if result.returncode == 0 else None
+        identity = response['result']['pane'].get('agent_session') if code == 0 else None
         return isinstance(identity, dict) and lifecycle().conversation_named(saved, identity) is True
-    except (ValueError, TypeError, KeyError, AttributeError):
+    except (TypeError, KeyError, AttributeError):
         return False
 
 
@@ -490,22 +480,19 @@ def open_holds(state):
 def herdr_tabs(session, workspace):
     """The IDs of the tabs a Herdr session lists in a workspace; none when the workspace is closed or the session
     stopped, which close its tabs."""
-    named = [] if session == socket_server() else ['--session', session]
-    result = subprocess.run(['herdr', *named, 'tab', 'list', '--workspace', workspace],
-                            capture_output=True, text=True, timeout=5)
-    if result.returncode and herdr_error(result) in ('workspace_not_found', 'server_not_running'):
-        return set()
-    if result.returncode:
-        raise RuntimeError(f'herdr tab list exited {result.returncode}: {(result.stderr or result.stdout).strip()}')
-    return {tab['tab_id'] for tab in json.loads(result.stdout)['result']['tabs']}
+    response = asked(session, 'tab', 'list', '--workspace', workspace, absent=('workspace_not_found', 'server_not_running'))
+    return set() if response is None else {tab['tab_id'] for tab in response['result']['tabs']}
 
 
-def herdr_error(result):
-    """The error code a failed Herdr command reported, else None."""
-    try:
-        return json.loads(result.stderr or result.stdout)['error']['code']
-    except (ValueError, TypeError, KeyError):
+def asked(session, *args, absent=()):
+    """Herdr's answer to a command on a server session (None: the caller's own); None when it fails with one of the
+    `absent` error codes, an error naming the failure for any other."""
+    code, response = lifecycle().herdr(session, *args, timeout=HERDR_SECONDS)
+    if not code:
+        return response
+    if (response.get('error') or {}).get('code') in absent:
         return None
+    raise RuntimeError(f'herdr {" ".join(args[:2])} exited {code}: {json.dumps(response)}')
 
 
 def undelivered(root, pane, session):
@@ -593,10 +580,7 @@ def orchestrates(binding, pane, session):
 
 def herdr_agents():
     """The live agents the session's Herdr server reports."""
-    result = subprocess.run(['herdr', 'agent', 'list'], capture_output=True, text=True, timeout=5)
-    if result.returncode:
-        raise RuntimeError(f'herdr agent list exited {result.returncode}: {(result.stderr or result.stdout).strip()}')
-    return json.loads(result.stdout)['result']['agents']
+    return asked(None, 'agent', 'list')['result']['agents']
 
 
 def same_orchestrator(theirs, pane, session):
@@ -606,25 +590,6 @@ def same_orchestrator(theirs, pane, session):
     if theirs['session'] and session:
         return theirs['session'] == session
     return bool(pane) and theirs['pane'] == pane
-
-
-def socket_server(environ=os.environ):
-    """The Herdr server HERDR_SOCKET_PATH is the socket of by Herdr's layout, else None: a lookup of that server goes
-    through the socket rather than by name (as worker_lifecycle.socket_server)."""
-    socket = Path(environ.get('HERDR_SOCKET_PATH') or '')
-    if socket.name != 'herdr.sock':
-        return None
-    if socket.parent.name == 'herdr':
-        return DEFAULT_SERVER
-    return socket.parent.name if socket.parent.parent.name == 'sessions' and socket.parent.parent.parent.name == 'herdr' \
-        else None
-
-
-def own_server(environ=os.environ):
-    """The Herdr server session the process talks to: the name in its HERDR_SOCKET_PATH
-    (`.../sessions/<name>/herdr.sock`), else the default server."""
-    socket = Path(environ.get('HERDR_SOCKET_PATH') or '')
-    return socket.parent.name if socket.parent.parent.name == 'sessions' else DEFAULT_SERVER
 
 
 def server_of(saved):
@@ -638,15 +603,15 @@ def attempt_keys(saved):
     find it without a scan, the host session that registered or cleared it, else its orchestrator pane. A launch with
     a host session and an attempt with sessions are matched by session alone (see clears), every other pair by pane."""
     server, name = server_of(saved), named(saved['worker'])
-    sessions = recorded_sessions(saved) + saved.get('launch_sessions', [])
-    keys = [(server, name, 'orchestrator', saved.get('orchestrator'), bool(recorded_sessions(saved)))]
+    sessions = lifecycle().recorded_sessions(saved) + saved.get('launch_sessions', [])
+    keys = [(server, name, 'orchestrator', saved.get('orchestrator'), bool(lifecycle().recorded_sessions(saved)))]
     return keys + [(server, name, 'session', known) for known in sessions] if sessions else keys
 
 
 def candidates(index, launch):
     """The attempts that could account for a launch: its pane or agent, in its server or one that names none, by its
     host session, or by its pane when either side has no session."""
-    server = launch.get('herdr_session') or DEFAULT_SERVER
+    server = launch.get('herdr_session') or lifecycle().DEFAULT_SERVER
     session, pane = launch['orchestrator']['session'], launch['orchestrator']['pane']
     for name in (launch['agent'], launch['pane']):
         for where in (server, None):
@@ -671,8 +636,8 @@ def clears(saved, launch):
     attempt with no recorded orchestrator, registered no earlier."""
     if named(saved['worker']) not in (launch['agent'], launch['pane']):
         return False
-    if recorded_sessions(saved) and launch['orchestrator']['session']:
-        return launch['orchestrator']['session'] in recorded_sessions(saved) + saved.get('launch_sessions', [])
+    if lifecycle().recorded_sessions(saved) and launch['orchestrator']['session']:
+        return launch['orchestrator']['session'] in lifecycle().recorded_sessions(saved) + saved.get('launch_sessions', [])
     if saved.get('orchestrator') or launch['orchestrator']['pane']:
         return saved.get('orchestrator') == launch['orchestrator']['pane']
     return (saved['registered_at'] or 0) >= calendar.timegm(time.strptime(launch['time'], '%Y-%m-%dT%H:%M:%SZ'))
@@ -702,14 +667,8 @@ def readable(record):
 
 def pane_open(server, pane):
     """Whether a Herdr server still lists the pane; one that is not running lists none."""
-    named = ['--session', server] if server and server != socket_server() else []
-    result = subprocess.run(['herdr', *named, 'pane', 'get', pane],
-                            capture_output=True, text=True, timeout=5)
-    if result.returncode and herdr_error(result) in ('pane_not_found', 'workspace_not_found', 'server_not_running'):
-        return False
-    if result.returncode:
-        raise RuntimeError(f'herdr pane get exited {result.returncode}: {(result.stderr or result.stdout).strip()}')
-    return True
+    return asked(server, 'pane', 'get', pane,
+                 absent=('pane_not_found', 'workspace_not_found', 'server_not_running')) is not None
 
 
 def unregistered(root, pane, session, siblings=True):
@@ -796,8 +755,8 @@ def unregistered(root, pane, session, siblings=True):
     live = [agent for agent in agents
             if agent.get('workspace_id') == workspace and agent['pane_id'] != pane and agent.get('cwd')
             and Path(agent['cwd']).resolve().is_relative_to(worktrees)
-            and not workers & {agent.get('name'), agent['pane_id']} and not placed & {(server, agent['pane_id']) for server in (None, own_server())}
-            and not {(server, agent.get('name'), tab) for server in (None, own_server())
+            and not workers & {agent.get('name'), agent['pane_id']} and not placed & {(server, agent['pane_id']) for server in (None, lifecycle().own_server())}
+            and not {(server, agent.get('name'), tab) for server in (None, lifecycle().own_server())
                      for tab in (None, agent.get('tab_id'))} & mine]
     return ([f"{log}: {launch['agent']} (pane {launch['pane']}): launched without a registered attempt"
              for launch in launches]

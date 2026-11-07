@@ -19,7 +19,6 @@ import json
 import os
 from pathlib import Path
 import re
-import subprocess
 import sys
 import time
 
@@ -110,7 +109,7 @@ def starts(command, assigned=None):
                 continue
             if session is None and 'HERDR_SOCKET_PATH' in environ:  # The server the command's own socket path names.
                 session = environ['HERDR_SOCKET_PATH']
-                session = session if any(char in session for char in '$`') else yield_gate.own_server(
+                session = session if any(char in session for char in '$`') else yield_gate.lifecycle().own_server(
                     {'HERDR_SOCKET_PATH': session})
             words = words[2:words.index('--')] if '--' in words else words[2:]
             names, options, at = [], {}, 0
@@ -137,9 +136,8 @@ def pane_cwd(session, pane, deadline):
     if remaining <= 0:
         return None
     try:
-        result = subprocess.run(['herdr', *(['--session', session] if session else []), 'pane', 'get', pane],
-                                capture_output=True, text=True, timeout=remaining)
-        return json.loads(result.stdout)['result']['pane'].get('cwd') if result.returncode == 0 else None
+        code, response = yield_gate.lifecycle().herdr(session, 'pane', 'get', pane, timeout=remaining)
+        return response['result']['pane'].get('cwd') if code == 0 else None
     except Exception:
         return None  # An unknown cwd still counts at stop.
 
@@ -160,7 +158,7 @@ def main():
         deadline = time.monotonic() + LOOKUP_SECONDS
         for session, agent, pane in launches:
             record = {'time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'agent': agent, 'pane': pane,
-                      'herdr_session': session or yield_gate.own_server(), 'orchestrator': orchestrator}
+                      'herdr_session': session or yield_gate.lifecycle().own_server(), 'orchestrator': orchestrator}
             cwd = pane and pane_cwd(session, pane, deadline)
             with log.open('a') as stream:
                 stream.write(json.dumps(dict(record, **({'cwd': cwd} if cwd else {}))) + '\n')

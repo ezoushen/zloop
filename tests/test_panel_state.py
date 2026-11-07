@@ -73,7 +73,7 @@ def attempts(state, rows):
 def live(attempt, assignment='zloop-panel/01', agent='builder', model='sonnet', quiet=30):
     return {'attempt': attempt, 'assignment': assignment, 'repo': '/repo', 'runtime': 'claude',
             'native_session': f'native-{attempt}', 'worker': f'w-{attempt}', 'agent': agent, 'job': 'ticket',
-            'owned': True, 'requested': {'model': model}, '_quiet_seconds': quiet, 'session': 'S', 'sessions': ['S']}
+            'owned': True, 'requested': {'model': model}, '_quiet_seconds': quiet, 'sessions': ['S']}
 
 
 class PanelState(unittest.TestCase):

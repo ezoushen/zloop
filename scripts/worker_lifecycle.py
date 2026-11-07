@@ -209,7 +209,7 @@ def assigned_findings(db, assignment, value):
 # event's to supply.
 RECORDED = {'findings', 'result', 'closed', 'retained', 'accepted', 'declined', 'acceptance_deferred', 'submitted',
             'submission_requested', 'monitor', 'startup_evidence', 'observed', 'observed_cwd', 'verified',
-            'retirement_requested', 'checkout_baselines', 'worktree_baseline', 'orchestrator', 'session', 'sessions',
+            'retirement_requested', 'checkout_baselines', 'worktree_baseline', 'orchestrator', 'sessions',
             'launch_sessions', 'decision', 'needs', 'ticket', 'requested', 'agent', 'job', 'execution_snapshot'}
 SETTLED = ('repaired', 'open', 'runtime-bug')  # What a repair attempt's result says of each finding it holds.
 
@@ -1043,7 +1043,7 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
             if sessions:
                 # The registering host session, which decides before the pane; a host started inside another's shell
                 # also exports the outer one's, so every exported session is kept.
-                saved['session'], saved['sessions'] = sessions[0], sessions
+                saved['sessions'] = sessions
             parent = os.environ.get('PI_SUBAGENT_PARENT_SESSION', '').strip()
             if os.environ.get('PI_SUBAGENT_CHILD') == '1' and parent:
                 # Inside a pi-subagents child, whatever host registers, Pi logged the child's launches under the
@@ -1553,6 +1553,9 @@ def submit(db, state, attempt, request):
     return watch(db, state, attempt, request, productive=True)
 
 
+DEFAULT_SERVER = 'default'  # What Herdr names the server a shell reaches without `--session`.
+
+
 def socket_server(environ=os.environ):
     """The Herdr server session HERDR_SOCKET_PATH is the socket of, by Herdr's own layout (`<config>/herdr/herdr.sock`
     for the default server, `<config>/herdr/sessions/<name>/herdr.sock` for a named one), or None for any other path."""
@@ -1560,17 +1563,30 @@ def socket_server(environ=os.environ):
     if socket.name != 'herdr.sock':
         return None
     if socket.parent.name == 'herdr':
-        return 'default'
+        return DEFAULT_SERVER
     return socket.parent.name if socket.parent.parent.name == 'sessions' and socket.parent.parent.parent.name == 'herdr' \
         else None
 
 
+def own_server(environ=os.environ):
+    """The Herdr server a process of this environment talks to without `--session`: its socket's, else the default."""
+    return socket_server(environ) or DEFAULT_SERVER
+
+
+def server_option(session):
+    """Herdr's global option naming a server session, empty for none and for the server the caller's own socket is
+    the socket of: `--session` looks the name up under the caller's config directory, which an isolated one (OpenCode's
+    private server) does not hold, so that server is asked through the socket."""
+    return ['--session', session] if session and session != socket_server() else []
+
+
 def herdr(session, *args, timeout=15):
-    # The server this process's socket is the socket of is asked through it: `--session` looks the name up under the
-    # caller's config directory, which an isolated one (OpenCode's private server) does not hold.
-    named = [] if session == socket_server() else ['--session', session]
+    """(exit code, the JSON object Herdr answered with, from stdout else stderr) for `herdr [--session S] <args>` on a
+    Herdr server session (None: the caller's own); ValueError when it does not answer within `timeout` seconds or not
+    with a JSON object."""
     try:
-        process = subprocess.run(['herdr', *named, *args], capture_output=True, text=True, timeout=timeout)
+        process = subprocess.run(['herdr', *server_option(session), *args], capture_output=True, text=True,
+                                 timeout=timeout)
     except subprocess.TimeoutExpired:
         raise ValueError(f'Herdr did not answer {" ".join(args)} within {timeout} s') from None
     response = json.loads(process.stdout if process.stdout.strip() else process.stderr)
@@ -1807,7 +1823,7 @@ def require_ended(db, attempt, acceptance):
                          f'({unknown}); record the closure once it does, or retire the worker with {retire}')
     listed = ((response.get('result') or {}).get('pane') or {}) if code == 0 else {}
     identity = listed.get('agent_session') if isinstance(listed.get('agent_session'), dict) else {}
-    named = '' if placed['session'] == socket_server() else f"--session {placed['session']} "
+    named = ''.join(f'{word} ' for word in server_option(placed['session']))
     if listed.get('agent') and conversation_named(saved, identity) is None:
         raise ValueError(f"Herdr pane {pane} in tab {placed['tab_id']} holds a conversation "
                          f"({identity.get('value') or 'Herdr names none'}) "
@@ -1851,13 +1867,11 @@ def card_sessions(state):
 
 
 def recorded_sessions(data):
-    """The host sessions an attempt's registrar exported: its session list, else its one session, as the yield gate
-    reads them; none for a row that is not such a record."""
+    """The host sessions an attempt's registrar exported; none for a row that is not such a record."""
     if not isinstance(data, dict):
         return []
     listed = data.get('sessions') if isinstance(data.get('sessions'), list) else []
-    return [value for value in listed if isinstance(value, str)] or (
-        [data['session']] if isinstance(data.get('session'), str) else [])
+    return [value for value in listed if isinstance(value, str)]
 
 
 def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
