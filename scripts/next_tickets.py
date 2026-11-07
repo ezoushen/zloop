@@ -33,6 +33,7 @@ import math
 import os
 import posixpath
 import re
+import shlex
 import sys
 import sqlite3
 import subprocess
@@ -49,7 +50,10 @@ ISSUES = ROOT / ".scratch"
 LIVE = {"implementing", "reviewing", "fixing", "verifying"}
 TEMPLATE = Path(__file__).resolve().parents[1] / "skills" / "refine" / "ticket-template.md"
 ROUTER = Path(__file__).resolve().with_name("agent_models.py")
-ROUTE_TIMEOUT = 10  # seconds the router may take when a local review is judged, inside the hosts' 20 s stop hook
+# Seconds the router may take when a local review is judged: once per checkout and host in a process (ROUTED), inside
+# the hosts' 20 s stop hook and the panel's 8 s read.
+ROUTE_TIMEOUT = 5
+ROUTED = {}
 PR_URL = re.compile(r"https://[^/\s]+/[^/\s]+/[^/\s]+/pull/[0-9]+")  # A pull request, by its own address.
 RUN_URL = re.compile(r"https://([^/\s]+/[^/\s]+/[^/\s]+)/actions/runs/([0-9]+)")  # A CI run, by its own address.
 TERMINAL = {"done"}
@@ -210,6 +214,9 @@ def undelivered(slug, board=None):
     reviewed heads in main). `board` is `judged(slug)` when the caller has it. Exits naming a ticket file of its own the
     board refuses, as `load` does."""
     tickets, found = board or judged(slug)
+    if not any(spec_of(name) == slug for name in tickets):
+        new = shlex.join(["python3", str(Path(__file__).resolve()), "--repo", str(ROOT), slug, "--new", "<title>"])
+        return [f"its local board has no tickets: write each with `{new}`"]
     problems = [problem for problem in found if concerns(problem, slug)]
     undone = [f"{name} ({fm.get('status')})" for name, fm in tickets.items()
               if spec_of(name) == slug and fm.get('status') != 'done']
@@ -384,18 +391,35 @@ def local_review_problems(binding):
     """Why a review the orchestrator did itself does not count. It counts only where `review_target.py` found no
     reviewer route for its host and the router, asked again now, still finds none: a reviewer it routes, on the same
     host where it can, is the one to launch."""
-    host = binding.get('host')
-    if (binding.get('route') or {}).get('status') != 'no_route' or host not in worker_lifecycle.TOP_LEVEL:
+    host, report = binding.get('host'), binding.get('report')
+    if ((binding.get('route') or {}).get('status') != 'no_route' or host not in worker_lifecycle.TOP_LEVEL
+            or not isinstance(report, str)):
         return ['review_by: local counts only where review_target.py found no reviewer route for its host; launch the '
                 'reviewer it routes and name its attempt in review_by']
+    reports = str(Path(report).parent)
+    if (str(ROOT), host, reports) not in ROUTED:
+        ROUTED[str(ROOT), host, reports] = rerouted(host, reports)
+    return ROUTED[str(ROOT), host, reports]
+
+
+def rerouted(host, reports):
+    """What the router, asked now for `host`'s diff-review in this checkout as `review_target.py` asks it (a reviewer
+    starting its own process takes the review's reports folder), says of a local review: [] when it still finds no
+    reviewer, else why the review does not count."""
     python = ROUTER.parents[1] / '.venv' / 'bin' / 'python'  # The router validates its configuration with jsonschema.
     try:
         routed = subprocess.run([str(python) if python.is_file() else sys.executable, str(ROUTER), '--repo', str(ROOT),
-                                 '--host', host, '--route', '--job', 'diff-review'],
+                                 '--host', host, '--route', '--job', 'diff-review', '--reports', reports],
                                 capture_output=True, text=True, timeout=ROUTE_TIMEOUT)
         found = json.loads(routed.stdout) if routed.returncode == 0 else None
+    except subprocess.TimeoutExpired:
+        return [f'review_by: local cannot be judged, the router did not answer within {ROUTE_TIMEOUT} s']
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         return [f'review_by: local cannot be judged, the router failed: {error}']
+    if found is not None and found.get('status') == 'selection_required':
+        return [f"review_by: local, but the router has reviewers for {host} to choose from "
+                f"({', '.join(found.get('eligible_candidates') or [])}): choose one with --candidate on the route "
+                'command, launch it and name its attempt in review_by']
     if found is not None:
         where = (f'a {host} native subagent' if found.get('native_dispatch') else
                  f"{found.get('target_runtime', 'its runtime')} ({(found.get('settings') or {}).get('model', 'its model')}) "

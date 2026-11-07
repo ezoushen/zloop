@@ -22,9 +22,10 @@ main or on the remote's main, E2E passed at a head in main). A session is also h
 confirmed autopilot run card (.scratch/<slug>/autopilot.md) naming it lacks one terminal state or its
 evidence, or records delivered, delivered-local or merged while its workstream is not delivered on its local board
 (another workstream's problems hold nothing). A review binding beside a standalone or workstream report holds its session until the report names a
-completed collected diff-review attempt at review_head, names local review with a recorded no-route result, or
-records a blocker with a launched diff-review attempt in its state at review_head settled failed, blocked or cancelled,
-or a recorded no-route result. Launch evidence is a Herdr placement, verified startup or recorded submission.
+completed collected diff-review attempt at review_head, names local review, or records a blocker with a launched
+diff-review attempt in its state at review_head settled failed, blocked or cancelled; local review and a blocker without
+a reviewer count only where review_target.py found no reviewer route for the recorded host and the router, asked
+again, still finds none. Launch evidence is a Herdr placement, verified startup or recorded submission.
 The review, delivery and card holds do not apply while a live worker of that state holds a running
 wait that will wake the host. A stop
 is held while its gaps stand, up to three times in a row for an identical set (a count per session under
@@ -35,6 +36,7 @@ other hosts call at each stop, also counts the stop and says whether to hold it.
 ZLOOP_YIELD_HOOK=off to disable the check.
 """
 import calendar
+import functools
 import importlib.util
 import json
 import os
@@ -78,7 +80,10 @@ def lifecycle():
     return script('worker_lifecycle')
 
 
+@functools.cache
 def script(name):
+    """The plugin's script `name`, loaded once per stop, so what it learns in one check (the router's answer) serves the
+    next."""
     spec = importlib.util.spec_from_file_location(name, ROOT / f'scripts/{name}.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -215,7 +220,7 @@ def unreviewed(root, pane, session):
             board.ROOT, board.ISSUES = root, root / '.scratch'  # The checkout whose router judges a local review.
             fields = script('front_matter').parse(report.read_text()) or {}
             blocker = fields.get('blocker') not in (None, '', 'none')
-            if blocker and binding['route'].get('status') == 'no_route' and binding['route'].get('reason'):
+            if blocker and not board.local_review_problems(binding):  # The router still finds no reviewer to wait on.
                 continue
             attempts = read_state(state)[0] if state.is_file() and (blocker or fields.get('review_by') != 'local') else []
             if blocker and any(saved.get('job') == 'diff-review' and
@@ -367,10 +372,9 @@ def board_gaps(root, path, state):
 
 
 def delivery_gaps(root, path, state):
-    """What holds a run card that records a delivered terminal state: a board neither `local` nor a tracker's URL, a
-    local board with no tickets, or what keeps its workstream from delivered: its own check problems, its tickets not
-    done and the evidence `next_tickets.py --delivery` judges, unless it finished (its branch deleted after the merge,
-    its reviewed heads in main). Another workstream's problems are not this run's to fix."""
+    """What holds a run card that records a delivered terminal state: a board neither `local` nor a tracker's URL, or
+    what keeps its workstream from delivered, as `next_tickets.undelivered` names it for the stop check and the panel
+    alike. Another workstream's problems are not this run's to fix."""
     terminal, slug, board = state['terminal'], path.parent.name, state.get('board', '')
     cards = script('autopilot_card')
     if cards.tracker_url(board):
@@ -378,10 +382,6 @@ def delivery_gaps(root, path, state):
     if board != 'local':
         return [f"{path}: this session's autopilot run records `terminal: {terminal}` with no board: write `board: local` "
                 "or the tracker's URL in the card's State"]
-    if not cards.ticket_files(path.parent / 'issues'):
-        new = shlex.join(['python3', str(ROOT / 'scripts/next_tickets.py'), '--repo', str(root), slug, '--new', '<title>'])
-        return [f"{path}: this session's autopilot run records `terminal: {terminal}` while its local board has no "
-                f"tickets: write each with `{new}`, or record the terminal state that fits"]
     try:
         module = script('next_tickets')
         module.ROOT, module.ISSUES = root, root / '.scratch'

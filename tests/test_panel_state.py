@@ -2,6 +2,7 @@
 """The panel's fact source: which workstream is live, and the rows a host draws for it."""
 import contextlib
 import json
+import shlex
 import os
 from pathlib import Path
 import sqlite3
@@ -448,9 +449,14 @@ class PanelState(unittest.TestCase):
         # panel, while the stop check held its session; the panel names the first thing the stop check names.
         workstream = self.scratch / 'demo'
         issues = workstream / 'issues'
+        review = workstream / 'reports' / 'spec-review.md'
+        # Review (Codex): with no tickets at all, the panel names what the stop check names.
+        card(workstream / 'autopilot.md', phase='pr', terminal='merged', board='local')
+        new = shlex.join(['python3', str(PANEL.next_tickets.__file__), '--repo', str(self.repo), 'demo', '--new', '<title>'])
+        self.assertEqual(self.row_texts(self.snapshot(), 'blocker'),
+                         [f'not delivered: its local board has no tickets: write each with `{new}`'])
         ticket(issues / '01-a.md', 'demo/01', status='done')
         ticket(issues / '02-b.md', 'demo/02')
-        review = workstream / 'reports' / 'spec-review.md'
         for terminal in ('delivered', 'delivered-local', 'merged'):
             with self.subTest(terminal=terminal):
                 card(workstream / 'autopilot.md', phase='pr', terminal=terminal, board='local')
@@ -466,6 +472,23 @@ class PanelState(unittest.TestCase):
                          ['not delivered: tickets not done: demo/02 (blocked) (+1 more)'])
         card(workstream / 'autopilot.md', phase='dispatch', board='local')
         self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), ['blocked: demo/02 · no credential'])
+        # The board's failed check comes first: this workstream's own problem is named as the check names it.
+        card(workstream / 'autopilot.md', phase='pr', terminal='merged', board='local')
+        ticket(issues / '02-b.md', 'demo/02', status='done', accepted=False)
+        self.assertEqual(self.row_texts(self.snapshot(), 'blocker'), [
+            'board fails its check: demo/02: status done with no acceptance; accept it with --accept demo/02, or '
+            '--accept demo/02 --pr <url> when PRs delivered it, or --accept demo/02 --run <url> when a successful CI run '
+            'proves it'])
+        # Review (Sonnet): what the delivery check cannot read is said, as the stop check says it, and the rows stay.
+        ticket(issues / '02-b.md', 'demo/02', status='done')
+        review.parent.mkdir(parents=True, exist_ok=True)
+        review.write_text('---\nreview_status: clean\ndocumentation_status: passed\nreview_by: local\n---\n')
+        review.with_name('review.json').write_text('{broken')
+        blocker = self.row_texts(self.snapshot(), 'blocker')
+        self.assertEqual(len(blocker), 1)
+        self.assertTrue(blocker[0].startswith('not delivered: it cannot be checked: '), blocker)
+        review.with_name('review.json').unlink()
+        review.unlink()
         # A tracker's board is the tracker's to judge, and a run that ended in another state is not held to it.
         ticket(issues / '02-b.md', 'demo/02', status='done')
         card(workstream / 'autopilot.md', phase='pr', terminal='merged', board='https://linear.app/team/project/x')

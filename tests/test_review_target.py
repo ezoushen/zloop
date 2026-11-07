@@ -421,6 +421,7 @@ class ReviewTarget(unittest.TestCase):
             with self.subTest(host=host):
                 result = self.launch(host=host)
                 self.assertEqual(Path(result['report']).parent.parent, self.repo / '.scratch/reviews')
+                self.assertEqual(json.loads(Path(result['binding']).read_text())['host'], host)  # Review (Codex).
                 self.assertEqual(result['route']['result']['host'], host)
                 checked = subprocess.run([sys.executable, str(support.ROOT / 'hooks/yield_gate.py'), 'check',
                                           str(linked), 'review-session'], capture_output=True, text=True, env=env)
