@@ -34,25 +34,19 @@ codex plugin marketplace add /absolute/path/to/zloop
 codex plugin add zloop@zloop-dev
 ```
 
-The installer copies a snapshot. For development on this machine,
-`~/.codex/plugins/cache/zloop-dev/zloop/0.3.0` is a real directory whose
-workflow directories are symlinks into this checkout, including `skills`, `agents`,
-`runtime`, `standards`, `hosts`, `hooks`, `scripts`, `schemas` and `benchmarks`, and
-the top-level `bootstrap.md` file is a symlink too. Its `.codex-plugin/` directory and
-small `plugin.json` registration are regular files/directories, copied from this
-tree's Codex manifest; the portable root `plugin.json` is omitted from that local
-wrapper: Codex 0.163 refuses the whole plugin, skills and hooks included, when the root
-`plugin.json` is a symlink, and logs only `missing or invalid plugin.json`. This selects Codex's registration, including its SessionStart, PreToolUse and Stop hooks.
-The installed scanner requires a real version directory and manifest. When setting
-up elsewhere, replace only a verified zloop snapshot with this wrapper and
-links; preserve unrelated installations.
+The installer copies the marketplace folder into
+`~/.codex/plugins/cache/zloop-dev/zloop/0.3.0`, ignored state included, and that copy
+is what Codex loads: the SessionStart, PreToolUse and Stop hooks of
+`hosts/codex/hooks.json`. Keep it a real copy. Codex fingerprints the installed folder to
+trust its hooks and refuses a symlinked entry (`Hook failed: unsupported plugin entry
+type: .../agents`), which disables every zloop hook. A hook's trust covers that
+fingerprint, so a copy changed by hand reads `modified` and its hooks need review before
+they run.
 
-Changes within linked directories need no copying or reinstall. Start a new Codex
-session to refresh loaded instructions and hooks; existing conversations may retain
-earlier instructions. Review any native hook-trust prompt. A reinstall or version
-change may replace the links; verify them afterward. Refresh the small registration
-when the Codex manifest changes, and add a link when introducing a new top-level
-package entry before starting a session. Check installation with
+After each change to this checkout, run `codex plugin add zloop@zloop-dev` again and
+start a new Codex session; existing conversations keep the hooks and instructions they
+loaded. Reinstalling from this checkout kept the hooks already approved trusted; review
+any native hook-trust prompt that appears. Check installation with
 `codex plugin list --marketplace zloop-dev --json` and the
 [native readers](development.md#native-checks). Also check runtime `skills/list` and
 `hooks/list`: a listed installation alone does not prove that its skills or hook were
