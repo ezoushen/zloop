@@ -400,6 +400,13 @@ class ReviewTarget(unittest.TestCase):
         result = self.launch(identified=False, host='opencode', OPENCODE_SESSION_ID='opencode-1')
         self.assertEqual(json.loads(Path(result['binding']).read_text())['sessions'], ['opencode-1'])
 
+    def test_a_review_started_in_a_pi_subagents_child_binds_the_sessions_registration_records(self):
+        # Rule (one exported-session reader): a Pi child's own session and its parent's, as lifecycle registration
+        # records them, so the stop hold binds the same sessions the review's workers register under.
+        result = self.launch(identified=False, host='opencode', PI_SESSION_ID='pi-child', PI_SUBAGENT_CHILD='1',
+                             PI_SUBAGENT_PARENT_SESSION='pi-parent')
+        self.assertEqual(json.loads(Path(result['binding']).read_text())['sessions'], ['pi-child', 'pi-parent'])
+
     def test_resolve_for_walkthrough_needs_no_host_or_route_and_creates_no_hold(self):
         config = self.repo / '.zloop/executors.json'
         config.parent.mkdir()

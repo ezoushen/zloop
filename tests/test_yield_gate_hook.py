@@ -1025,6 +1025,33 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.assertEqual(self.check(pane=None, session='host-1'),
                          [self.gap('gamma', 'w1:p7'), self.gap('delta', 'w1:p8')])
 
+    def test_the_launch_logger_asks_the_callers_own_server_through_its_socket_without_a_session_option(self):
+        # Rule (one Herdr transport): a server the caller's own HERDR_SOCKET_PATH is the socket of is asked through it,
+        # as the lifecycle and the stop check ask it, so an isolated config that holds no `s1` name still gives the cwd.
+        self.serve(panes={'default': {'w1:p5': {'pane_id': 'w1:p5', 'cwd': str(self.worktree)}}})
+        self.launch('herdr --session s1 agent start builder-1 --kind codex --pane w1:p5', pane=None,
+                    env={'HERDR_SOCKET_PATH': '/home/u/.config/herdr/sessions/s1/herdr.sock'})
+        self.assertEqual((self.bin / 'argv').read_text().splitlines(), ['pane get w1:p5'])
+        self.assertEqual(self.logged()[0]['cwd'], str(self.worktree))
+
+    def test_a_pi_subagents_child_binds_and_registers_under_the_same_sessions(self):
+        # Rule (one exported-session reader): the sessions a binding names are the ones registration records, parent
+        # included, so the card, the binding and the attempt of one run agree; an attempt records `sessions` alone.
+        child = {'PI_SUBAGENT_CHILD': '1', 'PI_SUBAGENT_PARENT_SESSION': 'pi-parent', 'PI_SESSION_ID': 'pi-child'}
+        ticket = self.repo / '.scratch/demo/issues/01-task.md'
+        ticket.parent.mkdir(parents=True)
+        ticket.write_text('---\nticket: demo/01\nstatus: ready\nblocked_by: []\ntouches: [t01]\ndevices: []\n---\n')
+        self.bind(pane=None, slug='demo', **child)
+        bound = json.loads((self.repo / '.scratch/demo/reports/orchestrator.json').read_text())['sessions']
+        self.lifecycle('register', 'ticket-1/2', None, env=child, assignment='ticket-1', repo=str(self.repo),
+                       worktree=str(self.worktree), head='head-1', execution=str(self.execution), runtime='claude',
+                       worker='w1:p5', native_session='native-2', owned=True,
+                       packet=str(support.assignment_file(self.execution.parent, 'ticket')))
+        db = sqlite3.connect(self.state)
+        saved = json.loads(db.execute('SELECT data FROM attempts').fetchone()[0])
+        db.close()
+        self.assertEqual((bound, saved['sessions'], 'session' in saved), (['pi-child', 'pi-parent'],) * 2 + (False,))
+
     def test_the_server_a_launch_ran_in_follows_assignments_into_shell_strings_and_env_resets(self):
         # Review 3: an assignment before `bash -c '...'` reaches the launch inside it; `env -u HERDR_SOCKET_PATH`, `env -i`
         # and an empty `HERDR_SOCKET_PATH=` run it on the default server whatever the logger's own environment names.
