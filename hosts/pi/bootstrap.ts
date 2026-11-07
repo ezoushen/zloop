@@ -373,13 +373,11 @@ export default function (pi) {
       return { entries: [{ type: "custom_message", customType: "zloop_yield_gate", content: verdict.notice, display: true }], continue: false };
     }
     if (!verdict.hold) return undefined;
+    // Without a reason the hook itself crashed: a check that could not run, which only a retry clears.
     const content = verdict.reason ?? "Stopping now leaves these gaps:\n"
       + verdict.missing.map((gap) => `- ${gap}\n`).join("")
-      + "Register each launched worker, or dismiss a launch that needs none with "
-      + `\`python3 ${root}/hooks/herdr_launch.py dismiss --pane <pane> --session ${session} --reason <why>\` `
-      + `(${root}/runtime/workers/prepare.md). Arm a notified wait, recover the receipt or collect the result `
-      + "(for a worker that is gone, a failed or cancelled result whose report says what was lost) "
-      + `before stopping (${root}/runtime/workers/wait.md).`;
+      + "A check that could not run clears when it runs again: retry the stop once it can, or run with "
+      + "`ZLOOP_YIELD_HOOK=off` for this stop.";
     return { entries: [{ type: "custom_message", customType: "zloop_yield_gate", content, display: true }], continue: true };
   });
 

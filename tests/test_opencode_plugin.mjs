@@ -366,6 +366,9 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   host.push("succeeded", "ses_clean");
   await host.holding("ses_clean", 1);
   assert.match(host.sent[0].text, /^Stopping now leaves these gaps:\n- could not check workers: .*python3/);
+  // Rule: a crashed hook is a check that could not run, so it gets the retry advice, not the worker advice.
+  assert.match(host.sent[0].text, /retry once it can/);
+  assert.doesNotMatch(host.sent[0].text, /Register each launched worker/);
   host.push("succeeded", "ses_clean");  // The end of the turn that hold started, the check still unable to run.
   await new Promise((done) => setTimeout(done, 500));
   assert.equal(host.holds("ses_clean"), 1, "a check that could not run holds once");

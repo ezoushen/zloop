@@ -1675,6 +1675,10 @@ console.log(JSON.stringify([await settle(), await settle(), await settle()]));
         self.assertRegex(first['entries'][0]['content'],
                          r'\n- could not check workers: Command failed: python3 \S+/hooks/yield_gate\.py stop .+ pi-1\n'
                          r'python3: simulated crash\n')
+        # Rule: a crashed hook is a check that could not run, which registering or dismissing cannot clear: the retry advice.
+        self.assertIn('retry the stop', first['entries'][0]['content'])
+        self.assertIn('ZLOOP_YIELD_HOOK=off', first['entries'][0]['content'])
+        self.assertNotIn('Register each launched worker', first['entries'][0]['content'])
         self.assertIsNone(repeated)
         self.assertIsNone(third)
 
