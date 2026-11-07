@@ -27,7 +27,8 @@ class OutcomeLedger(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(prefix='zloop outcomes ')
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        self.enterContext(patch.dict(os.environ, {'XDG_STATE_HOME': str(self.root / 'state')}))
+        self.enterContext(patch.dict(os.environ, {'XDG_STATE_HOME': str(self.root / 'state'),
+                                                 'CODEX_SESSION_ID': 'codex-host'}))
         self.state = self.root / 'workers.sqlite'
 
     def run_script(self, script, *args, code=0):

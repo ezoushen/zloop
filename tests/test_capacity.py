@@ -26,7 +26,8 @@ class Capacity(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(prefix='zloop capacity ')
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        self.enterContext(patch.dict(os.environ, {'XDG_STATE_HOME': str(self.root / 'state')}))
+        self.enterContext(patch.dict(os.environ, {'XDG_STATE_HOME': str(self.root / 'state'),
+                                                 'CODEX_SESSION_ID': 'codex-host'}))
         self.number = 0
 
     def run_script(self, *args, code=0):

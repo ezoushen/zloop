@@ -1036,10 +1036,13 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
             decision = linked_decision(execution)
             if decision:
                 saved['decision'] = decision
+            sessions = host_sessions()
+            require(sessions or os.environ.get('HERDR_PANE_ID'),
+                    f'No host session or Herdr pane: the stop hook holds only the session that registered a worker; '
+                    f'export {" or ".join(SESSION_VARIABLES)} (the host does), or register from a Herdr pane (HERDR_PANE_ID)')
             if os.environ.get('HERDR_PANE_ID'):
                 # The registering host's pane; the yield hooks hold only that host for this worker.
                 saved['orchestrator'] = os.environ['HERDR_PANE_ID']
-            sessions = host_sessions()
             if sessions:
                 # The registering host session, which decides before the pane; a host started inside another's shell
                 # also exports the outer one's, so every exported session is kept.

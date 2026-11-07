@@ -128,6 +128,22 @@ class NativeProof(WorkerLifecycleCase):
             with self.subTest(runtime=runtime, persisted=True):
                 self.assertEqual(self.cli('status')['attempts'], [])
 
+    def test_registration_refuses_a_shell_with_neither_a_host_session_nor_a_herdr_pane(self):
+        # The stop hook holds only the session that registered a worker; a row that names none could be held by no one.
+        exported = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID', 'OPENCODE_SESSION_ID', 'HERDR_PANE_ID')
+        bare = {name: value for name, value in os.environ.items() if name not in exported}
+        self.native_env = bare
+        error = self.register(code=2)
+        self.assertIn('host session', error)
+        self.assertIn('HERDR_PANE_ID', error)
+        self.assertIn('CLAUDE_CODE_SESSION_ID', error)
+        self.assertEqual(self.cli('status')['attempts'], [])
+        for name, value in (('HERDR_PANE_ID', 'w1:p1'), ('CODEX_SESSION_ID', 'codex-host')):
+            with self.subTest(exported=name):
+                self.state = self.root / f'{name}.sqlite'
+                self.native_env = dict(bare, **{name: value})
+                self.register()
+
     def test_registration_given_a_session_record_path_records_the_session_it_names(self):
         # A path to the worker's own session record stands for the session id inside it (Claude, Codex child, Pi).
         for runtime, session in (('claude', 'claude-session'), ('codex', codex_child_session('codex/1')),

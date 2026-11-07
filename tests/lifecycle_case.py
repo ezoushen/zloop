@@ -28,7 +28,8 @@ class WorkerLifecycleCase(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.native_paths = {}
         # Outcomes go to a ledger under the state home; keep the user's ledger out of tests.
-        self.enterContext(patch.dict(os.environ, {'XDG_STATE_HOME': str(self.root / 'state')}))
+        self.enterContext(patch.dict(os.environ, {'XDG_STATE_HOME': str(self.root / 'state'),
+                                                 'CODEX_SESSION_ID': 'codex-host'}))  # Registration needs a host.
         self.state = self.root / 'workers.sqlite'
         self.execution = self.root / 'execution.json'
         self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'builder', 'job': 'ticket',
