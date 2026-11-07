@@ -17,6 +17,8 @@ const snapshot = (extra: Record<string, unknown> = {}) => ({
   strip: "demo · dispatch · 1 running",
   ...extra,
 });
+// The input of the person's `/zloop-panel`: the fields the engine stamps beside the command name.
+const ZLOOP_PANEL = { command: "zloop-panel", args: "", origin: { kind: "composer" as const }, presentation: { isFullscreen: true, columns: 80 } };
 const QUIET = { active: false, workstream: null, phase: null, draft: false, rows: [], strip: null };
 
 // What the engine answers beneath the session: a clock, the fact source's output (changed by `world.facts`), the
@@ -146,7 +148,7 @@ describe("zloop panel", () => {
   test("a pane opened by /zloop-panel and closed by the person stays closed for the live workstream", async ($, on) => {
     const { world, clock } = beneath(on, QUIET);
     await started($);
-    await $.command.run({ command: "zloop-panel" });
+    await $.command.run(ZLOOP_PANEL);
     world.facts = snapshot();
     await clock.advance(2000);
     world.panes = [];
@@ -160,7 +162,7 @@ describe("zloop panel", () => {
     await started($);
     // The person's own open seats the pane at any width.
     world.isPlaced = true;
-    const ran = await $.command.run({ command: "zloop-panel" });
+    const ran = await $.command.run(ZLOOP_PANEL);
     expect(ran.text).toBe("zloop panel opened.");
     expect(world.panes.map((one) => [one.id, one.isPlaced])).toEqual([[PANE, true]]);
   });
@@ -179,7 +181,7 @@ describe("zloop panel", () => {
     const ticked = clock.advance(2000);
     await isReached;
     world.isPlaced = true;
-    const ran = await $.command.run({ command: "zloop-panel" });
+    const ran = await $.command.run(ZLOOP_PANEL);
     expect(ran.text).toBe("zloop panel opened.");
     release();
     await ticked;
@@ -191,7 +193,7 @@ describe("zloop panel", () => {
   test("/zloop-panel opens the pane while nothing is live, and it stays open while quiet", async ($, on) => {
     const { world, clock } = beneath(on, QUIET);
     await started($);
-    const ran = await $.command.run({ command: "zloop-panel" });
+    const ran = await $.command.run(ZLOOP_PANEL);
     expect(ran.text).toBe("zloop panel opened.");
     await clock.advance(4000);
     expect(world.panes.map((one) => one.id)).toEqual([PANE]);
@@ -200,7 +202,7 @@ describe("zloop panel", () => {
   test("/zloop-panel closes an open pane, and it stays closed for that workstream", async ($, on) => {
     const { world, clock } = beneath(on, snapshot());
     await started($);
-    const ran = await $.command.run({ command: "zloop-panel" });
+    const ran = await $.command.run(ZLOOP_PANEL);
     expect(ran.text).toBe("zloop panel closed.");
     await clock.advance(4000);
     expect(world.panes).toEqual([]);
