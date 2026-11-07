@@ -1699,7 +1699,7 @@ def retire_worker(db, state, attempt, request):
         require(held.get('agent') == saved['runtime'], 'Native pane no longer holds the registered runtime')
         require(held.get('agent_status') in ('idle', 'done'), 'Native worker is active or blocked; retain it for inspection')
     if found != 'gone':
-        require_closable(db, get(db, attempt), acceptance)  # Another command may have changed it while Herdr answered.
+        require_closable(db, get(db, attempt), acceptance)
         code, response = herdr(session, 'pane', 'close', pane)
         require(code == 0 and response.get('result', {}).get('type') == 'ok',
                 'Native close failed; retire it again once the pane is reconciled')
@@ -1856,7 +1856,7 @@ def recorded_sessions(data):
 
 def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
     """Close, through `record`, each included attempt whose status is already decided: a collected worker whose Herdr
-    tab its server confirms gone, or whose pane it shows holding another conversation, and a retained native subagent
+    pane and recorded tab its server confirms gone, or whose pane it shows holding another conversation, and a retained native subagent
     (no Herdr placement) of a run whose card ended delivered. Returns what it closed, what it left open for want of
     Herdr's confirmation, and what the lifecycle refused to close, with its refusal. It spends `budget` seconds in all,
     on Herdr's answers and on any lock, and leaves the attempts it did not reach for the next stop."""
@@ -1897,12 +1897,11 @@ def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
         # A completed attempt of a job that needs acceptance is closed with it deferred, not decided here.
         acceptance = ({'acceptance': {'decision': 'deferred', 'reason': f'closed by reap: {why}'}}
                       if unsettled(saved) else {})
-        # SQLite's own wait for a lock sleeps in whole seconds and overshoots the budget, so no closure waits on one: a
-        # locked state leaves the attempt for the next stop, and the machine-wide ledgers are left for the next write.
+        # SQLite's own wait for a lock sleeps in whole seconds and overshoots the budget, so no closure waits on one.
         db.execute('PRAGMA busy_timeout = 0')
         try:
             record(db, dict(kind='closed', attempt=saved['attempt'], evidence=[evidence], **acceptance), waiting=0)
-        except ValueError as error:  # The lifecycle's own refusal, for the host to settle.
+        except ValueError as error:
             refused.append({'attempt': saved['attempt'], 'reason': str(error)})
             continue
         except sqlite3.OperationalError as error:

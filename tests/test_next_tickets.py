@@ -392,7 +392,6 @@ class BoardCLI(unittest.TestCase):
             refused = self.cli('fx', '--set', 'fx/02', 'status=done', code=1)
             self.assertIn(f'fx/02: {three} is OPEN, not merged', refused.stderr)
             self.assertEqual(front_matter.parse(other.read_text())['status'], 'implementing')
-            # --delivered-by belongs to --accept.
             self.cli('fx', '--check', '--delivered-by', one, code=2)
             # Review (Codex): a block list of PRs is replaced whole, so an accepted ticket names only what was accepted.
             listed = self.write_ticket('fx/03', status='implementing',
@@ -423,7 +422,6 @@ class BoardCLI(unittest.TestCase):
                     refused = self.cli('fx', '--accept', 'fx/01', '--delivered-by', url, code=1)
                     self.assertIn(f'fx/01: {url} {problem}' if problem != 'gh cannot read' else f'fx/01: gh cannot read {url}',
                                   refused.stderr)
-            # A delivery URL names a whole PR or run, never a job, number or second line.
             # Review (Codex): the run's id is a number, so no flag reaches gh in its place.
             for value in ('42', f'{ok}/job/7', f'{ok}\nstatus: done', 'https://github.com/o/jose/actions/runs/--help',
                           'https://github.com/o/jose/actions/runs/abc'):
@@ -446,7 +444,6 @@ class BoardCLI(unittest.TestCase):
             refused = self.cli('fx', '--set', 'fx/03', 'status=done', code=1)
             self.assertIn(f'fx/03: {failed} is completed (failure), not a successful run', refused.stderr)
             self.assertEqual(front_matter.parse(later.read_text())['status'], 'implementing')
-        # --delivered-by belongs to --accept.
         self.cli('fx', '--check', '--delivered-by', ok, code=2)
 
     def test_an_interrupted_orchestrator_binding_write_leaves_the_old_binding_whole(self):
