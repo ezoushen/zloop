@@ -1762,6 +1762,13 @@ class DeliveryHold(GateRepo):
         self.ticket('02', 'done')
         self.assertEqual(self.check(pane='w1:p1'), [self.gap()])
 
+    def test_an_autofix_report_that_cannot_be_read_holds_once_with_retry_advice(self):
+        self.bind(autofix=True, CLAUDE_CODE_SESSION_ID='host-1')
+        self.report.write_bytes(b'\xff\xfe')
+        self.assertEqual(self.check(session='host-1'), [
+            "could not check delivery of fix: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte"])
+        self.held_once_with_retry_advice('host-1')
+
     def test_a_refused_ticket_holds_the_orchestrator_with_the_delivery_fix_step(self):
         self.bind(pane='w1:p1')
         self.ticket('02', 'done')
@@ -2030,6 +2037,7 @@ class StaleTabs(HerdrWorkers):
         self.assertEqual(self.check(pane='w1:p1'), [
             'could not check worker tabs: herdr tab list exited 1: '
             '{"error": {"code": "server_unavailable", "message": "connection refused"}}'])
+        self.held_once_with_retry_advice(None)
 
     def test_a_herdr_that_cannot_list_tabs_is_a_named_gap_that_hides_no_other_gap(self):
         # Rule 5: when Herdr fails or does not answer, the tab check is a named gap for the orchestrator, held once,
@@ -2163,7 +2171,7 @@ class StopReap(HerdrWorkers):
         self.assertIn('closed', self.attempt('ticket-2/1'))
         self.assertEqual([gap], self.stop_command()['missing'])
 
-    def test_a_state_reap_cannot_read_through_is_a_named_gap_not_a_crash(self):
+    def test_a_state_reap_cannot_read_through_holds_once_with_retry_advice(self):
         self.register()
         self.collect()
         self.serve(tabs=self.GONE)
@@ -2171,8 +2179,11 @@ class StopReap(HerdrWorkers):
         db.execute("DELETE FROM events WHERE kind = 'register'")
         db.commit()
         db.close()
-        self.assertEqual([f'could not check settled workers in {self.state}: IndexError(\'list index out of range\')'],
-                         self.stop_command()['missing'])
+        reason = self.stop()['reason']
+        self.assertIn(f"- could not check settled workers in {self.state}: IndexError('list index out of range')\n",
+                      reason)
+        self.assertIn('retry the stop', reason)
+        self.assertNotIn('decision', self.stop(active=True) or {})
 
     def test_one_stop_reaps_every_state_inside_one_budget(self):
         # Review 2: each run state had a budget of its own, so several states on a hung Herdr outlasted the 20 s hook
