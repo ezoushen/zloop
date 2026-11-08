@@ -855,20 +855,27 @@ def unmet_needs(saved, evidence):
 
 
 @contextmanager
-def registration_retirement_lock(db):
-    """Exclude registration during native retirement; process exit releases the lock."""
+def registration_retirement_lock(db, registering=False):
+    """Share registrations; exclude them during retirement. Process exit releases the lock."""
     with open(state_path(db) + '.lifecycle.lock', 'a') as lock:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(lock, (fcntl.LOCK_SH if registering else fcntl.LOCK_EX) | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise ValueError('Worker registration or retirement is in progress; retry this command once it finishes') from None
+            activity = 'retirement'
+            if not registering:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                    activity = 'registration'
+                except BlockingIOError:
+                    pass
+            raise ValueError(f'Worker {activity} is in progress; retry this command once it finishes') from None
         yield
 
 
 def record(db, data, refuse_changes=False, submitting=False, waiting=30):
     """Validate and persist an event, excluding native retirement while registering."""
     if data.get('kind') == 'register':
-        with registration_retirement_lock(db):
+        with registration_retirement_lock(db, registering=True):
             return record_event(db, data, refuse_changes, submitting, waiting)
     return record_event(db, data, refuse_changes, submitting, waiting)
 
@@ -893,7 +900,6 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
         except (OSError, ValueError) as error:
             raise ValueError(f'{error}; record startup with native: the session record of registered worker '
                              f'{target["native_session"]} (OpenCode: opencode session export)') from None
-        # Only a Pi record names the child's own directory; Claude and Codex ones name their orchestrator's.
         checkout = (located and target['runtime'] == 'pi' and 'worktree_baseline' in target
                     and checkout_root(located))
         if checkout and checkout != checkout_root(target['worktree']) \
@@ -1690,7 +1696,8 @@ def retire_worker(db, state, attempt, request):
                          f"attempt's worker is gone: close it with `python3 {script} reap --state {quoted}`")
     require(found not in ('replaced', 'unsure'), 'Native conversation no longer matches the attempt')
     unconfirmed = 'Native closure is not confirmed (%s): close the remaining panes or the tab, then retire again'
-    require(found not in ('unknown', 'silent'), unconfirmed % line)
+    require(found not in ('unknown', 'silent'),
+            f'Native closure is not confirmed ({line}): restore its server connection or reconcile the pane and tab, then retire again')
     require(found == 'mine' or recorded,
             f"Pane {pane} is not this attempt's recorded Herdr pane, so Herdr's answer for it ({line}) does not end its "
             + (f"worker: retire again with session: {placed['session']} and pane: {placed['pane_id']} in the request"
@@ -1788,8 +1795,8 @@ def require_closable(db, saved, acceptance):
 
 
 def require_ended(db, attempt, acceptance):
-    """Refuse a closure recorded by hand for a Herdr worker that Herdr does not show ended: retire ends it, by closing
-    its pane."""
+    """Refuse a hand-recorded closure while Herdr shows the worker present or cannot confirm its absence.
+    Retire closes an owned pane or records release of an unowned worker."""
     saved = get(db, attempt)
     placed = saved.get('herdr')
     if not placed:
@@ -1811,7 +1818,8 @@ def require_ended(db, attempt, acceptance):
     require(found not in ('mine', 'exited'),
             f"Herdr pane {pane} in tab {placed['tab_id']} " + ("still holds this attempt's conversation, so its worker "
             "has not ended" if found == 'mine' else 'is open with no worker in it') + f': retire it with {retire}, which '
-            'closes that pane and records the closure')
+            + ('closes that pane and records the closure' if saved['owned'] else
+             'records its release and leaves the pane open'))
 
 
 def state_fields(text):
@@ -1859,7 +1867,7 @@ def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
     pane and recorded tab its server confirms gone, or whose pane it shows holding another conversation, and a retained native subagent
     (no Herdr placement) of a run whose card ended delivered. Returns what it closed, what it left open for want of
     Herdr's confirmation, and what the lifecycle refused to close, with its refusal. It spends `budget` seconds in all,
-    on Herdr's answers and on any lock, and leaves the attempts it did not reach for the next stop."""
+    on Herdr's answers; a locked state or an attempt it did not reach is left for the next stop."""
     deadline = time.monotonic() + budget
     card = state.parent.parent / 'autopilot.md'
     terminal = card_state(card).get('terminal')

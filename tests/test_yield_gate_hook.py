@@ -606,9 +606,7 @@ class UnregisteredWorkers(GateRepo):
                         'herdr agent start $name --pane $pane', 'herdr agent start w1 --pane "${PANE}"',
                         'herdr agent start w1 --pane `herdr pane current`', 'herdr agent start "$(name)" --pane w1:p5',
                         'herdr --session "$server" agent start w1 --pane w1:p5',
-                        'herdr --session=$server agent start w1 --pane w1:p5',
-                        'HERDR_SOCKET_PATH="$sock" herdr agent start w1 --pane w1:p5',
-                        'env HERDR_SOCKET_PATH=`pwd`/herdr.sock herdr agent start w1 --pane w1:p5'):
+                        'herdr --session=$server agent start w1 --pane w1:p5'):
             self.launch(command)
             self.assertEqual(self.logged(), [], command)
         self.launch('herdr agent start w1 --kind codex --pane w1:p5')
@@ -698,6 +696,26 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.launch('herdr agent start builder-1 --kind codex --pane w1:p5', pane=None)
         self.assertEqual(self.check(pane=None, session='host-1'), [self.gap('builder-1', 'w1:p5')])
 
+    def test_a_socket_launch_is_held_then_cleared_by_registration_or_dismissal_on_any_server(self):
+        for index, how in enumerate(('name', 'pane', 'dismiss-name', 'dismiss-pane'), 1):
+            with self.subTest(how=how):
+                name, pane = f'socket-{index}', f'w1:p{index + 10}'
+                self.launch(f'HERDR_SOCKET_PATH=/other/herdr.sock herdr agent start {name} --pane {pane}',
+                            pane=None)
+                self.serve()
+                self.assertIn(self.gap(name, pane), self.check(pane=None, session='host-1'))
+                self.assertIn(name, self.stop(pane=None, session='host-1')['reason'])
+                if how.startswith('dismiss'):
+                    result = self.dismiss('--name' if how == 'dismiss-name' else '--pane',
+                                          name if how == 'dismiss-name' else pane,
+                                          '--session', 'host-1', '--reason', 'failed launch')
+                    self.assertEqual((result.returncode, result.stderr), (0, ''))
+                else:
+                    self.register(name if how == 'name' else f'other/{pane}/{name}',
+                                  f'socket-{index}/1', pane=None, session='host-1')
+                self.assertEqual(self.check(pane=None, session='host-1'), [])
+                self.assertIsNone(self.stop(pane=None, session='host-1'))
+
     def test_a_launch_without_a_server_option_ran_in_its_shells_server_and_only_that_servers_registration_clears_it(self):
         # Review 1: no `--session` means the server the launching shell talks to (its HERDR_SOCKET_PATH names it), not
         # a wildcard: a handle on another server clears neither the launch nor hides the live agent of the same pane.
@@ -712,7 +730,7 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
             stream.write(json.dumps({'time': '2026-10-20T10:00:00Z', 'agent': 'gamma', 'pane': 'w1:p7',
                                      'herdr_session': None, 'orchestrator': {'pane': None, 'session': 'host-1'}}) + '\n')
         self.register('s2/w1:p7/z', 'ticket-7/1', pane=None, session='host-1')
-        gaps = [self.gap('alpha', 'w1:p5'), self.gap('beta', 'w1:p6'), self.gap('gamma', 'w1:p7')]
+        gaps = [self.gap('alpha', 'w1:p5'), self.gap('beta', 'w1:p6')]
         self.assertEqual(self.check(pane=None, session='host-1'), gaps)
         self.register('default/w1:p5/x', 'ticket-3/1', pane=None, session='host-1')
         self.register('s2/w1:p6/y', 'ticket-4/1', pane=None, session='host-1')

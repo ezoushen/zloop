@@ -2,11 +2,12 @@
 """PreToolUse hook: log each `herdr agent start` a session runs, so the yield gate can name unregistered workers.
 
 It finds launches behind assignments, wrappers (`timeout`, `env` and their options) and a shell's `-c` string, not
-inside heredocs or backticks; a command that names HERDR_SOCKET_PATH logs none.
+inside heredocs or backticks. Text containing HERDR_SOCKET leaves the server and cwd unknown, including longer
+variable names.
 
 Appends one JSON line per launch to the main checkout's .scratch/herdr-launches.jsonl: the time, agent name and
-pane, the Herdr server session it ran in (`--session`, else the one the caller's own HERDR_SOCKET_PATH names, else
-`default`), the orchestrator (its HERDR_PANE_ID and host session ID) and the pane's cwd when Herdr reports it.
+pane; server (`--session`, caller's HERDR_SOCKET_PATH, else `default`; omitted when unknown); orchestrator
+(HERDR_PANE_ID and host session ID); and cwd when Herdr reports it.
 Claude and Codex run it before Bash; Pi's extension passes its bash and bg_run calls. It never blocks the command.
 
 `herdr_launch.py dismiss --pane <pane> | --name <agent> [--session <host session>] --reason <text> | --keep <text>`,
@@ -51,11 +52,8 @@ def runs(words):
 
 
 def starts(command):
-    """Yield (Herdr session or None, agent name, pane) for each `herdr [--session S] agent start` the command runs. A
-    command that names HERDR_SOCKET_PATH yields none: which server it runs in cannot be read from the text, and the
-    stop check's scan finds the agent."""
-    if 'HERDR_SOCKET' in command:
-        return
+    """Yield (Herdr session or None, agent name, pane) for each supported `herdr [--session S] agent start`.
+    Socket overrides are not interpreted; the logger leaves their server unknown."""
     for tokens, _ in pr_body.logical_lines(command):
         start = 0
         for index, token in enumerate(tokens + [';']):
@@ -126,8 +124,10 @@ def main():
         deadline = time.monotonic() + LOOKUP_SECONDS
         for session, agent, pane in launches:
             record = {'time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'agent': agent, 'pane': pane,
-                      'herdr_session': session or yield_gate.lifecycle().own_server(), 'orchestrator': orchestrator}
-            cwd = pane and pane_cwd(session, pane, deadline)
+                      'orchestrator': orchestrator}
+            if 'HERDR_SOCKET' not in command:
+                record['herdr_session'] = session or yield_gate.lifecycle().own_server()
+            cwd = record.get('herdr_session') and pane_cwd(session, pane, deadline)
             with log.open('a') as stream:
                 stream.write(json.dumps(dict(record, **({'cwd': cwd} if cwd else {}))) + '\n')
     except Exception:

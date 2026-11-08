@@ -10,7 +10,8 @@ only return evidence. If the orchestrator itself cannot write
 coordination state, preserve the gap and use supported native waits and reports.
 
 The hooks log supported `herdr agent start` commands to `.scratch/herdr-launches.jsonl` in the main
-checkout. Commands naming `HERDR_SOCKET` are not logged and rely on the live-agent scan. A logged launch no attempt
+checkout. Text containing `HERDR_SOCKET` logs the launch with no server field or cwd;
+a registration or dismissal naming that agent or pane on any server accounts for it. A logged launch no attempt
 accounts for holds the stop even after its pane closed; the stop message names it and the command that dismisses it
 (`hooks/herdr_launch.py dismiss`, with the reason it requires), as [wait](wait.md) says.
 
@@ -61,7 +62,8 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    job scope; attempt IDs identify retries. The execution snapshot must carry
    `agent` and `job`, and supplies the requested settings. `packet` is the exact
    assignment text sent to the worker, naming the job's inputs as `name: value`. A repair attempt adds `repairs`, naming the collected
-   attempt whose work it fixes. When `wake-triage` is enabled, add `journal`, the
+   attempt whose work it fixes; a third repair in a chain also adds `premise`, a sentence naming the earlier
+   fixes' shared assumption and why it is being changed. When `wake-triage` is enabled, add `journal`, the
    absolute session decisions journal. A worker started through Herdr adds
    `"herdr": {"session": "<herdr session>"}` (`herdr session list` names it), unless
    its `worker` is a `session/pane/name` handle; registration reads its pane, tab,
@@ -84,6 +86,9 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    **Startup order.** Start the worker and obtain its session id (probe for a fixed reply
    and no tools if needed). Register with the assignment as `packet`, then `submit` it.
    A native child already has its assignment; record its startup once its record is available.
+   On every host, a native child runs in its parent's process, so its record names the parent's
+   directory; startup and result checks do not check its worktree from that directory.
+   Collection checks its writes in the assigned worktree.
 4. For supported native formats, invoke productive work through `submit --state
    ... --attempt ... --input /absolute/submit.json`, using this input shape:
 

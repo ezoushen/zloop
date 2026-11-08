@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Each Herdr worker lives in a tab of its own: registration asks Herdr where it is; retire confirms the tab closed."""
 
+import fcntl
 import json
 import sys
 import threading
@@ -31,6 +32,29 @@ class HerdrTabs(WorkerLifecycleCase):
                                        'jobs_evidence': ['owned jobs stopped'],
                                        'acceptance': {'decision': 'deferred', 'reason': 'acceptance checks pending'}}))
         return request
+
+    def test_registrations_share_the_lock_and_retirement_excludes_them(self):
+        self.cli('status')
+        request = self.retire_request()
+        with open(str(self.state) + '.lifecycle.lock', 'a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            self.register()
+            error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+            self.assertIn('Worker registration is in progress; retry', error)
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            error = self.register('ticket-2/1', assignment='ticket-2', session='native-2', worker='worker-2', code=2)
+            self.assertIn('Worker retirement is in progress; retry', error)
+            error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+            self.assertIn('Worker retirement is in progress; retry', error)
+        self.assertEqual([a['attempt'] for a in self.cli('status')['attempts']], ['ticket-1/1'])
+        self.assertFalse((self.root / 'native-closed').exists())
+        self.register('ticket-2/1', assignment='ticket-2', session='native-2', worker='worker-2')
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        self.herdr_fixture()
+        self.retire()
+        self.assertTrue(self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0]['closed'])
 
     def test_registration_records_where_herdr_itself_places_the_worker(self):
         # Rule: register looks the worker up in Herdr and keeps Herdr's pane, tab, workspace and agent name.
@@ -276,7 +300,8 @@ class HerdrTabs(WorkerLifecycleCase):
                 error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
                 self.assertIn('Native closure is not confirmed', error)
                 self.assertIn(answer, error)
-                self.assertIn('close the remaining panes or the tab, then retire again', error)
+                self.assertIn('restore its server connection or reconcile the pane and tab, then retire again'
+                              if panes is None else 'close the remaining panes or the tab, then retire again', error)
                 self.assertNotIn('closed', self.cli('status')['attempts'][0])
         self.herdr_fixture()
         self.assertTrue(self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request))['closed'])

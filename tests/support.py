@@ -17,6 +17,7 @@ RETIRED_HOST_WORD = 'harness'
 # Scripts import their siblings by module name, as they do when run from scripts/.
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
+import worker_lifecycle
 
 
 def script(filename):
@@ -33,13 +34,10 @@ def load_script(filename, name=None):
     return module
 
 
-# What Claude Code, Codex, Pi and OpenCode export to the orchestrator's shell as their session ID.
-SESSION_VARIABLES = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID', 'OPENCODE_SESSION_ID')
-
-
 def without_host_sessions(env=None):
     """A copy of env (default: the current environment) with no host session ID, as in a shell no host started."""
-    return {key: value for key, value in (os.environ if env is None else env).items() if key not in SESSION_VARIABLES}
+    return {key: value for key, value in (os.environ if env is None else env).items()
+            if key not in worker_lifecycle.SESSION_VARIABLES}
 
 
 def ticket_file(repo, name, status='ready', *, blocked_by='', touches=None, devices='', worker=None, title=None,

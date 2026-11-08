@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 import unittest
 
 from lifecycle_case import WorkerLifecycleCase
@@ -112,17 +111,27 @@ class NativeProof(WorkerLifecycleCase):
         self.cli('collect', '--attempt', attempt, '--input', request)
         self.assertEqual(self.cli('status', '--attempt', attempt)['attempts'][0]['result']['status'], 'completed')
 
-    def test_a_claude_native_child_collects_after_its_orchestrator_changed_directory(self):
-        self.register()
-        self.ready()
-        record = self.native_paths['ticket-1/1']
-        elsewhere = Path(tempfile.mkdtemp(prefix='zloop moved '))
-        self.addCleanup(elsewhere.rmdir)
-        record.write_text(record.read_text().replace(json.dumps(str(self.root)), json.dumps(str(elsewhere))))
-        report = self.root / 'report.md'
-        report.write_text('Completed assignment at head-1\n')
-        self.completed(status='completed', head='head-1', report=str(report), evidence=['checks.log@head-1'])
-        self.assertEqual('completed', self.cli('status')['attempts'][0]['result']['status'])
+    def test_native_children_use_the_parent_directory_on_every_runtime(self):
+        elsewhere = self.root / 'parent'
+        elsewhere.mkdir()
+        for runtime in ('claude', 'codex', 'pi', 'opencode'):
+            with self.subTest(runtime=runtime):
+                self.state = self.root / f'{runtime}.sqlite'
+                attempt, model = self.runtime_attempt(runtime, child=True)
+                session = codex_child_session(attempt) if runtime == 'codex' else runtime
+                path = session_record(self.root / f'{runtime}.jsonl', runtime, session, elsewhere,
+                                      model=model, child=runtime in ('claude', 'codex'))
+                self.assertTrue(self.record('startup', attempt, native=str(path))['verified'])
+                self.assertEqual(self.cli('status')['attempts'][0]['observed_cwd'], str(elsewhere.resolve()))
+                self.record('submitted', attempt, evidence=['native prompt accepted'])
+                if runtime != 'codex':
+                    user_message(path, runtime, f'assignment: {runtime}  attempt: {attempt}')
+                assistant_turn(path, runtime)
+                report = self.root / f'{runtime}.md'
+                report.write_text('Completed assignment at head-1\n')
+                self.record('result', attempt, native=str(path), status='completed', head='head-1',
+                            report=str(report), evidence=['checks.log@head-1'])
+                self.assertEqual('completed', self.cli('status')['attempts'][0]['result']['status'])
 
     def test_registration_refuses_every_registering_host_session_as_a_worker(self):
         for runtime in ('claude', 'codex', 'pi', 'opencode'):

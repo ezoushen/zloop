@@ -312,6 +312,27 @@ class Retirement(WorkerLifecycleCase):
         self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request))
         self.assertEqual(self.cli('status')['attempts'][0]['declined']['reason'], 'report changed')
 
+    def test_retirement_refuses_a_changed_runtime_before_closing_the_pane(self):
+        self.shown(agent_kind='codex')
+        saved = self.cli('status')['attempts'][0]
+        self.assertEqual((saved['requested']['runtime'], saved['native_session']), ('claude', 'native-1'))
+        error = self.retire(code=2)
+        self.assertEqual(error.strip(), 'Native pane no longer holds the registered runtime')
+        self.assertFalse((self.root / 'native-closed').exists())
+        self.assertNotIn('pane close', (self.root / 'herdr-argv.log').read_text())
+        self.assertNotIn('closed', self.cli('status')['attempts'][0])
+
+    def test_a_report_changed_during_retirement_is_refused_before_the_pane_closes(self):
+        report = self.settled()
+        meanwhile = f'open({str(report)!r}, "a").write("changed meanwhile\\n")'
+        self.herdr_fixture(pane_delay=1, during_delay=[sys.executable, '-c', meanwhile])
+        error = self.retire(code=2)
+        self.assertEqual(json.loads((self.root / 'during-delay.json').read_text())['code'], 0)
+        self.assertIn('lacks an intact report', error)
+        self.assertFalse((self.root / 'native-closed').exists())
+        self.assertNotIn('pane close', (self.root / 'herdr-argv.log').read_text())
+        self.assertNotIn('closed', self.cli('status')['attempts'][0])
+
     def test_retirement_rechecks_the_decline_once_its_herdr_wait_is_over(self):
         # Review: an attempt accepted, and its report changed, while retirement waited on Herdr is not declined by
         # the request; it owes no intact report any more, so it retires, still accepted.
@@ -525,7 +546,6 @@ class Retirement(WorkerLifecycleCase):
                     acceptance={'decision': 'deferred', 'reason': 'acceptance checks pending'})
         self.assertEqual(['released to its user'], self.cli('status')['attempts'][0]['closed']['evidence'])
 
-# Pane fixture arguments, (retire error or None, pane closed), hand-record error or None, reap closure.
 CLOSURES = {
     'an empty pane the worker exited': (
         dict(agent_exited=True), (None, True), 'is open with no worker in it: retire it with', False),

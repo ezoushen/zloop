@@ -89,9 +89,26 @@ class LaunchLogger(GateRepo):
         self.assertEqual((self.bin / 'argv').read_text().splitlines(), ['pane get w1:p5'])
         self.assertEqual(self.logged()[0]['cwd'], str(self.worktree))
 
-    def test_a_command_that_names_the_socket_variable_anywhere_logs_no_launch(self):
+    def test_socket_text_including_unset_and_longer_names_leaves_only_the_server_unknown(self):
+        for prefix, unknown in (('unset HERDR_SOCKET_PATH;', True),
+                                ('env -u HERDR_SOCKET_PATH', True),
+                                ('HERDR_SOCKET_UNUSED=x', True),
+                                ('HERDR_PANE_ID=x', False)):
+            with self.subTest(prefix=prefix):
+                before = len(self.logged())
+                self.launch(f'{prefix} herdr agent start a --pane w1:p5', pane=None)
+                expected = {'agent': 'a', 'pane': 'w1:p5',
+                            'orchestrator': {'pane': None, 'session': 'host-1'}}
+                if not unknown:
+                    expected.update(herdr_session='default', cwd=str(self.worktree))
+                self.assertEqual([{key: value for key, value in record.items() if key != 'time'}
+                                  for record in self.logged()[before:]], [expected])
+
+    def test_a_command_that_names_the_socket_variable_logs_a_launch_with_unknown_server(self):
         sock = lambda name: f'/home/u/.config/herdr/sessions/{name}/herdr.sock'
-        for command in (f"HERDR_SOCKET_PATH={sock('s2')} herdr agent start a --pane w1:p5",
+        for command in ('HERDR_SOCKET_PATH="$sock" herdr agent start a --pane w1:p5',
+                        'env HERDR_SOCKET_PATH=`pwd`/herdr.sock herdr agent start a --pane w1:p5',
+                        f"HERDR_SOCKET_PATH={sock('s2')} herdr agent start a --pane w1:p5",
                         f"env HERDR_SOCKET_PATH={sock('s2')} herdr agent start a --pane w1:p5",
                         f"HERDR_SOCKET_PATH={sock('s2')} herdr --session s3 agent start a --pane w1:p5",
                         f"HERDR_SOCKET_PATH={sock('s2')} env -u HERDR_SOCKET_PATH herdr agent start a --pane w1:p5",
@@ -109,7 +126,10 @@ class LaunchLogger(GateRepo):
             with self.subTest(command=command):
                 before = len(self.logged())
                 self.launch(command, pane=None, env={'HERDR_SOCKET_PATH': sock('s4')})
-                self.assertEqual(before, len(self.logged()))
+                self.assertEqual([{key: value for key, value in record.items() if key != 'time'}
+                                  for record in self.logged()[before:]],
+                                 [{'agent': 'a', 'pane': 'w1:p5',
+                                   'orchestrator': {'pane': None, 'session': 'host-1'}}])
 
 
 if __name__ == '__main__':
