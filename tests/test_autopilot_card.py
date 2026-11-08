@@ -41,8 +41,8 @@ class TakeOver(unittest.TestCase):
         self.assertEqual(cleared, '## State\nterminal:\nterminal: blocked\n')
         self.assertEqual(card.field(cleared, 'terminal'), '')
 
-    def take_over(self, *flags, card=CARD, sessions=None, code=0):
-        """Take over a copy of `card` from a shell exporting only `sessions` (default: Pi session host-2)."""
+    def take_over(self, *flags, card=CARD, sessions=None, code=0, error=None):
+        """Take over a copy of `card` from only `sessions` (default: Pi host-2), expecting `code` and optional `error`."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         path = Path(tmp.name) / 'autopilot.md'
@@ -52,6 +52,8 @@ class TakeOver(unittest.TestCase):
                                 capture_output=True, text=True, timeout=20,
                                 env=dict(env, **({'PI_SESSION_ID': 'host-2'} if sessions is None else sessions)))
         self.assertEqual(result.returncode, code, result.stderr)
+        if error is not None:
+            self.assertIn(error, result.stderr)
         return path.read_text()
 
     def test_a_take_over_grants_merging_only_with_its_own_flag_and_keeps_the_old_state_as_history(self):
@@ -91,21 +93,7 @@ class TakeOver(unittest.TestCase):
     def test_a_card_with_state_lines_only_outside_the_state_section_is_refused(self):
         # Audit A10: a line the State section lacks is not found in the Goal either.
         without = CARD.replace('## State', '## Notes')
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        path = Path(tmp.name) / 'autopilot.md'
-        path.write_text(without)
-        result = subprocess.run([sys.executable, '-B', str(COMMAND), 'take-over', str(path)],
-                                capture_output=True, text=True, timeout=20)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('## State', result.stderr)
-        self.assertEqual(path.read_text(), without)
-
-    def test_a_take_over_without_level_flags_keeps_the_cards_levels(self):
-        # Rule: a take-over leaves both confirmed levels as they are when no level flag is given.
-        text = self.take_over()
-        self.assertIn('dispatch-effort: low\n', text)
-        self.assertIn('review-effort: xhigh\n', text)
+        self.assertEqual(self.take_over(card=without, code=1, error='## State'), without)
 
     def test_a_split_flag_changes_the_level_of_its_own_step(self):
         # Rule: a take-over may set one step's level from its split flag.
@@ -132,40 +120,16 @@ class TakeOver(unittest.TestCase):
         for key, (current, broken) in lines.items():
             with self.subTest(line=broken):
                 card = CARD.replace(current, broken)
-                tmp = tempfile.TemporaryDirectory()
-                self.addCleanup(tmp.cleanup)
-                path = Path(tmp.name) / 'autopilot.md'
-                path.write_text(card)
-                result = subprocess.run([sys.executable, '-B', str(COMMAND), 'take-over', str(path)],
-                                        capture_output=True, text=True, timeout=20)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn(key, result.stderr)
-                self.assertEqual(path.read_text(), card)
+                self.assertEqual(self.take_over(card=card, code=1, error=key), card)
 
     def test_a_level_outside_the_five_is_refused_and_changes_nothing(self):
         # Rule: only low, medium, high, xhigh and max are levels; anything else fails without touching the card.
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        path = Path(tmp.name) / 'autopilot.md'
-        path.write_text(CARD)
-        result = subprocess.run([sys.executable, '-B', str(COMMAND), 'take-over', str(path), '--effort', 'ultra'],
-                                capture_output=True, text=True, timeout=20)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('ultra', result.stderr)
-        self.assertEqual(path.read_text(), CARD)
+        self.assertEqual(self.take_over('--effort', 'ultra', code=2, error='ultra'), CARD)
 
     def test_a_card_without_the_level_lines_is_refused(self):
         # Rule: a card always records both levels, so one without those lines has no reader here.
         without = CARD.replace('dispatch-effort: low\n', '').replace('review-effort: xhigh\n', '')
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        path = Path(tmp.name) / 'autopilot.md'
-        path.write_text(without)
-        result = subprocess.run([sys.executable, '-B', str(COMMAND), 'take-over', str(path)],
-                                capture_output=True, text=True, timeout=20)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('dispatch-effort', result.stderr)
-        self.assertEqual(path.read_text(), without)
+        self.assertEqual(self.take_over(card=without, code=1, error='dispatch-effort'), without)
 
     def test_a_card_that_never_ended_keeps_its_history_and_still_takes_its_grant_from_the_flag(self):
         open_card = CARD.replace('terminal: merged', 'terminal:').replace('history: waiting-on-user 2026-10-24', 'history:')

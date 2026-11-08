@@ -124,13 +124,7 @@ class NativeProof(WorkerLifecycleCase):
                 self.assertTrue(self.record('startup', attempt, native=str(path))['verified'])
                 self.assertEqual(self.cli('status')['attempts'][0]['observed_cwd'], str(elsewhere.resolve()))
                 self.record('submitted', attempt, evidence=['native prompt accepted'])
-                if runtime != 'codex':
-                    user_message(path, runtime, f'assignment: {runtime}  attempt: {attempt}')
-                assistant_turn(path, runtime)
-                report = self.root / f'{runtime}.md'
-                report.write_text('Completed assignment at head-1\n')
-                self.record('result', attempt, native=str(path), status='completed', head='head-1',
-                            report=str(report), evidence=['checks.log@head-1'])
+                self.collect(attempt)
                 self.assertEqual('completed', self.cli('status')['attempts'][0]['result']['status'])
 
     def test_registration_refuses_every_registering_host_session_as_a_worker(self):

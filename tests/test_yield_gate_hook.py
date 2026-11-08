@@ -2303,6 +2303,11 @@ class AutopilotCardHold(GateRepo):
         return (f"{path}: this session's autopilot run has no terminal state or no evidence; record `terminal:` as "
                 f"exactly one of {', '.join(f'`{state}`' for state in self.STATES)} and `evidence:` in the card's State")
 
+    def refused_delivery(self, path, problem):
+        """The card's delivery gap for a refused ticket file, including its repair advice."""
+        return [f"{path}: this session's autopilot run records `terminal: merged` while its workstream is not "
+                f"delivered: it cannot be checked: {problem}; finish what it names, or record the terminal state that fits"]
+
     def test_a_run_in_no_known_phase_or_working_without_its_boards_tickets_holds_the_stop(self):
         # Live (jose, Pi): the card said `phase: dispatch (inline)`, set by hand with no ticket on any board, so the
         # panel had nothing to count; a phase written by hand is held to what `autopilot_card.py phase` checks.
@@ -2498,36 +2503,25 @@ class AutopilotCardHold(GateRepo):
         issues.mkdir(parents=True)
         (issues / '01-task.md').write_bytes(b'\xff---\n')
         path = self.card(terminal='merged', evidence='PR 1 merged', phase='pr')
-        lead = f"{path}: this session's autopilot run records `terminal: merged` while its workstream is not delivered: "
-        tail = '; finish what it names, or record the terminal state that fits'
-        self.assertEqual(self.check(session='host-1'), [
-            f"{lead}it cannot be checked: "
+        self.assertEqual(self.check(session='host-1'), self.refused_delivery(path,
             f"{issues / '01-task.md'}: cannot be read: 'utf-8' codec can't decode byte 0xff in position 0: invalid start "
-            f"byte{tail}"])
+            'byte'))
         (issues / '01-task.md').write_text('---\nstatus: ready\nblocked_by: []\ntouches: []\ndevices: []\n---\n')
-        self.assertEqual(self.check(session='host-1'), [
-            f"{lead}it cannot be checked: "
-            f"{issues / '01-task.md'}: missing ticket front matter{tail}"])
+        self.assertEqual(self.check(session='host-1'), self.refused_delivery(path,
+            f"{issues / '01-task.md'}: missing ticket front matter"))
 
     def test_a_refused_ticket_names_its_repair_without_service_retry_advice(self):
         issues = self.repo / '.scratch/run/issues'
         support.ticket_file(self.repo, 'run/one', 'done', path=issues / '01-task.md', accepted=False)
         path = self.card(terminal='merged', evidence='PR 1 merged', phase='pr')
+        gaps = self.refused_delivery(path, f"{issues / '01-task.md'}: invalid ticket id 'run/one'")
+        self.assertEqual(self.check(session='host-1'), gaps)
         self.assertEqual(self.stop(session='host-1'), {'decision': 'block', 'reason':
-            'Stopping now leaves these gaps:\n'
-            f'- {path}: this session\'s autopilot run records `terminal: merged` while its workstream is not delivered: '
-            f"it cannot be checked: {issues / '01-task.md'}: invalid ticket id 'run/one'; "
-            'finish what it names, or record the terminal state that fits\n'})
+            f'Stopping now leaves these gaps:\n- {gaps[0]}\n'})
 
     def test_a_delivery_that_cannot_be_checked_still_holds_the_stop(self):
         issues = self.repo / '.scratch/run/issues'
-        support.ticket_file(self.repo, 'run/one', 'done', path=issues / '01-task.md', accepted=False)
         path = self.card(terminal='merged', evidence='PR 1 merged', phase='pr')
-        lead = f"{path}: this session's autopilot run records `terminal: merged` while its workstream is not delivered: "
-        tail = '; finish what it names, or record the terminal state that fits'
-        self.assertEqual(self.check(session='host-1'), [
-            f"{lead}it cannot be checked: "
-            f"{issues / '01-task.md'}: invalid ticket id 'run/one'{tail}"])
         support.ticket_file(self.repo, 'run/01', 'done')
         reports = self.repo / '.scratch/run/reports'
         reports.mkdir(parents=True)
@@ -2542,9 +2536,8 @@ class AutopilotCardHold(GateRepo):
         unreadable.write_text('---\nticket: run/02\n---\n')
         unreadable.chmod(0)
         self.addCleanup(unreadable.chmod, 0o644)
-        self.assertEqual(self.check(session='host-1'), [
-            f"{lead}it cannot be checked: "
-            f"{unreadable}: cannot be read: [Errno 13] Permission denied: '{unreadable}'{tail}"])
+        self.assertEqual(self.check(session='host-1'), self.refused_delivery(path,
+            f"{unreadable}: cannot be read: [Errno 13] Permission denied: '{unreadable}'"))
 
     def test_a_live_worker_with_a_running_wait_lets_the_run_yield_but_a_lost_one_does_not(self):
         # Rule: a yield while a worker of the card's workstream holds a running wait that will wake the host is not an end;

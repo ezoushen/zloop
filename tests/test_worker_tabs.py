@@ -27,11 +27,7 @@ class HerdrTabs(WorkerLifecycleCase):
         self.ready()
         self.collect()
         self.acknowledge()
-        request = self.root / 'retire.json'
-        request.write_text(json.dumps({'session': 'fixture-session', 'pane': 'pane-1',
-                                       'jobs_evidence': ['owned jobs stopped'],
-                                       'acceptance': {'decision': 'deferred', 'reason': 'acceptance checks pending'}}))
-        return request
+        return self.retire_request(jobs='owned jobs stopped')
 
     def test_registrations_share_the_lock_and_retirement_excludes_them(self):
         self.cli('status')
@@ -49,9 +45,7 @@ class HerdrTabs(WorkerLifecycleCase):
         self.assertEqual([a['attempt'] for a in self.cli('status')['attempts']], ['ticket-1/1'])
         self.assertFalse((self.root / 'native-closed').exists())
         self.register('ticket-2/1', assignment='ticket-2', session='native-2', worker='worker-2')
-        self.ready()
-        self.collect()
-        self.acknowledge()
+        self.collected()
         self.herdr_fixture()
         self.retire()
         self.assertTrue(self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0]['closed'])
