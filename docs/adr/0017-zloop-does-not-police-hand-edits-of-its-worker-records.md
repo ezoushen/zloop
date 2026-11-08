@@ -1,0 +1,3 @@
+# zloop does not police hand edits of its worker records
+
+zloop takes its worker records as it finds them: a gap that a host or worker reaches through zloop's own commands is closed in the script that writes the record, but a record changed by hand is the user's own act, so there is no tamper check and no reminder that only such an edit could trigger. We chose this when the reminder for a worker recorded closed while its pane still held it turned out to fire only for state written outside zloop's commands: catching it meant machinery for an edit only the user makes, against keeping the framework small; signing remains the only defence against a forged record (ADR 0016).

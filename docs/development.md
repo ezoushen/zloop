@@ -37,6 +37,8 @@ only accepted ADRs bind, and a change that conflicts with one is raised, not wor
   is the default, never the one used last ([ADR 0015](adr/0015-effort-levels-scale-thoroughness-above-a-fixed-floor.md)).
 - A worker counts only when its own session record shows its startup and a reply after its packet, and the stop hook
   holds a review until its configured reviewer is collected, a launched one failed, or no route exists ([ADR 0016](adr/0016-a-worker-counts-only-with-its-own-session-record.md)).
+- A gap reachable through zloop's own commands is closed in the script that writes the worker record; a hand edit of a
+  record gets no tamper check or reminder ([ADR 0017](adr/0017-zloop-does-not-police-hand-edits-of-its-worker-records.md)).
 
 ## Suite and hooks
 

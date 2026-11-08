@@ -20,6 +20,7 @@ The binding decisions of this repository, newest last. Format, statuses and supe
 - [0014](0014-the-doc-checker-enforces-the-glossary.md) The doc checker enforces the glossary: an _Avoid_ phrase in an agent doc is an error naming the term to write; a quoted phrase passes.
 - [0015](0015-effort-levels-scale-thoroughness-above-a-fixed-floor.md) Effort levels scale thoroughness above a fixed floor: a missing level is the default, never the one used last.
 - [0016](0016-a-worker-counts-only-with-its-own-session-record.md) A worker counts only with its own session record: its startup and reply are read from that record, and a review cannot end without its configured reviewer.
+- [0017](0017-zloop-does-not-police-hand-edits-of-its-worker-records.md) zloop does not police hand edits of its worker records: a gap reachable through zloop's commands is closed where the record is written; a hand edit gets no tamper check or reminder.
 
 ## Superseded
 
