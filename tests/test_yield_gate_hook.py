@@ -2493,8 +2493,6 @@ class AutopilotCardHold(GateRepo):
             'run/01: status done with no acceptance; accept it with --accept run/01, or --accept run/01 --delivered-by'
             ' <url> for a merged PR or successful CI run'))
         ticket.write_text(accepted)
-        # Review (Sonnet): after the merge the pr procedure deletes the workstream branch; a finished workstream (its
-        # branch gone, its reviewed and E2E heads in main) is delivered, though `--delivery` now needs the branch.
         review.write_text(evidence.replace('workstream_branch: main', 'workstream_branch: feat/run'))
         self.assertEqual(self.check(session='host-1'), [])
 

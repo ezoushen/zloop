@@ -1131,6 +1131,11 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                     require_settled(saved['findings'], data.get('findings'), saved.get('startup_evidence'))
                 saved['result'] = dict(data, report_sha256=hashlib.sha256(report.read_bytes()).hexdigest())
                 verdict = report_verdict(report)
+                for key, allowed in (('review_status', ('clean', 'findings', 'incomplete')),
+                                     ('documentation_status', ('passed', 'findings', 'incomplete'))):
+                    if key in verdict:
+                        require(verdict[key] in allowed, f'{key}: {verdict[key]}; allowed: {", ".join(allowed)}; '
+                                'correct the report and collect again')
                 if verdict:
                     saved['result']['verdict'] = verdict
                 if data['status'] == 'completed':
