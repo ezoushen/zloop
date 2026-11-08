@@ -31,10 +31,7 @@ import native_settings  # noqa: E402
 import outcomes  # noqa: E402
 
 DEFINITIONS = agent_defs.load()
-TAB_RECIPE = ('start the worker in a tab of its own: `herdr tab create --workspace <orchestrator workspace> '
-              '--cwd <worktree> --label "<slug>/<assignment> <role>" --env ZLOOP_WORKER=<slug>/<assignment> '
-              '--no-focus`, then `herdr agent start <name> --kind <kind> --pane <returned root pane> -- <launch args>`, '
-              'then register it')
+TAB_RECIPE = 'start the worker in a tab of its own with the Herdr guide\'s start command, then register it'
 LOOKUP_SECONDS = 5  # Registration's wait on each Herdr call.
 STARTUP_SECONDS = 45
 REAP_SECONDS = 5  # All a stop's reap may spend, inside the hosts' 20 s hook timeout, which the gate's other checks share.

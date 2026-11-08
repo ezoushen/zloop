@@ -69,17 +69,18 @@ the adapter says; exit zero alone does not establish integrity.
 Start every worker in a tab of its own in your workspace, never as a split of your
 pane, whatever placement the installed skill defaults to:
 
-1. `herdr tab create --workspace <orchestrator workspace> --cwd <worktree> --label "<slug>/<assignment> <role>" --env ZLOOP_WORKER=<slug>/<assignment> --no-focus`,
-   with your `HERDR_WORKSPACE_ID` as the workspace. `ZLOOP_WORKER` is how
-   zloop's stop check tells a worker from its orchestrator.
-2. `herdr agent start <name> --kind <kind> --pane <returned root pane> -- <launch args>`,
-   with the `.result.root_pane.pane_id` that step 1 returned. The launch args are the
-   route's `launch.argv`; a Claude orchestrator's configured Claude-runtime route with explicit effort also
-   uses Herdr, while a native subagent has no `launch`. The argv holds the worker's write scope, model and effort; each
-   runtime's recipe is in its adapter: [Claude](claude/workers.md#top-level-workers),
+1. From the checkout, run `python3 <plugin_root>/hooks/herdr_launch.py start --route <saved route.json> --worktree <worktree> --assignment <slug>/<assignment> --role <role> --name <name>`,
+   quoting each path as one argument. The command reads the saved route's `target_runtime` and
+   `launch.argv` directly, creates a tab in `HERDR_WORKSPACE_ID` with `ZLOOP_WORKER` set,
+   logs the launch for the stop check, and starts the agent in the returned root pane.
+   `ZLOOP_WORKER` is how zloop's stop check tells a worker from its orchestrator.
+   The command uses the caller's Herdr socket and prints Herdr's agent-start response. Keep `launch.argv` as
+   saved JSON; do not turn it into shell text. Its write scope, model and effort come from
+   the resolver; each runtime's recipe is in its adapter: [Claude](claude/workers.md#top-level-workers),
    [Codex](codex/workers.md#top-level-workers), [Pi](pi/workers.md#top-level-workers) and
-   [OpenCode](opencode/workers.md#top-level-workers), whose args name a private server and session.
-3. Then register it, adding `"herdr": {"session": "<session>"}`; `herdr session list`
+   [OpenCode](opencode/workers.md#top-level-workers). A native route without `launch` uses its host's
+   native recipe instead; a Claude orchestrator's configured Claude route with an explicit effort has a `launch`.
+2. Then register it, adding `"herdr": {"session": "<session>"}`; `herdr session list`
    names the session. Registration reads the worker's pane, tab, workspace and name
    from `herdr agent get` and refuses a tab that holds another pane or is your own.
 
