@@ -10,6 +10,10 @@ pane; server (`--session`, caller's HERDR_SOCKET_PATH, else `default`; omitted w
 (HERDR_PANE_ID and host session ID); and cwd when Herdr reports it.
 Claude and Codex run it before Bash; Pi's extension passes its bash and bg_run calls. It never blocks the command.
 
+`herdr_launch.py start --route <saved route.json> --worktree <path> --assignment <slug>/<assignment>
+--role <role> --name <name> --session <host session>` creates a worker tab and starts the saved argv without a shell.
+It logs the launch before starting the agent, and returns Herdr's exit code and JSON response.
+
 `herdr_launch.py dismiss --pane <pane> | --name <agent> [--session <host session>] --reason <text> | --keep <text>`,
 run in the checkout, appends a dismissal by this orchestrator (HERDR_PANE_ID and the session given) that accounts for
 its own launches of that pane or agent name logged before it, such as one that failed or a probe. Such a pane left open
@@ -108,6 +112,20 @@ def pane_cwd(session, pane, deadline):
         return None  # An unknown cwd still counts at stop.
 
 
+def log_launch(root, session, agent, pane, orchestrator, cwd=None):
+    """Append a launch in the stop check's shared format, before its pane can disappear."""
+    log = root / yield_gate.LAUNCHES
+    log.parent.mkdir(parents=True, exist_ok=True)
+    record = {'time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'agent': agent, 'pane': pane,
+              'orchestrator': orchestrator}
+    if session is not None:
+        record['herdr_session'] = session
+    if cwd:
+        record['cwd'] = cwd
+    with log.open('a') as stream:
+        stream.write(json.dumps(record) + '\n')
+
+
 def main():
     try:
         event = json.load(sys.stdin)
@@ -119,19 +137,45 @@ def main():
         if root is None:
             return
         orchestrator = {'pane': os.environ.get('HERDR_PANE_ID'), 'session': event.get('session_id')}
-        log = root / yield_gate.LAUNCHES
-        log.parent.mkdir(parents=True, exist_ok=True)
         deadline = time.monotonic() + LOOKUP_SECONDS
         for session, agent, pane in launches:
-            record = {'time': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'agent': agent, 'pane': pane,
-                      'orchestrator': orchestrator}
-            if 'HERDR_SOCKET' not in command:
-                record['herdr_session'] = session or yield_gate.lifecycle().own_server()
-            cwd = record.get('herdr_session') and pane_cwd(session, pane, deadline)
-            with log.open('a') as stream:
-                stream.write(json.dumps(dict(record, **({'cwd': cwd} if cwd else {}))) + '\n')
+            server = None if 'HERDR_SOCKET' in command else session or yield_gate.lifecycle().own_server()
+            cwd = server and pane_cwd(session, pane, deadline)
+            log_launch(root, server, agent, pane, orchestrator, cwd)
     except Exception:
         return  # Recording never blocks the command.
+
+
+def start(argv):
+    """Start a saved route in its own Herdr tab; return Herdr's agent-start response on stdout."""
+    parser = argparse.ArgumentParser(prog='herdr_launch.py start')
+    parser.add_argument('--route', required=True)
+    parser.add_argument('--worktree', required=True)
+    parser.add_argument('--assignment', required=True, help='<workstream>/<assignment>')
+    parser.add_argument('--role', required=True)
+    parser.add_argument('--name', required=True)
+    parser.add_argument('--session', required=True, help="the orchestrator's host session ID")
+    args = parser.parse_args(argv)
+    workspace = os.environ.get('HERDR_WORKSPACE_ID')
+    if not workspace:
+        parser.error('run start in the orchestrator Herdr workspace (HERDR_WORKSPACE_ID)')
+    route = json.loads(Path(args.route).read_text())
+    launch = route['launch']['argv']
+    lifecycle = yield_gate.lifecycle()
+    root = yield_gate.main_checkout(os.getcwd())
+    if root is None:
+        parser.error('run start inside the checkout whose launches the stop check tracks')
+    code, response = lifecycle.herdr(None, 'tab', 'create', '--workspace', workspace, '--cwd', args.worktree,
+                                     '--label', f'{args.assignment} {args.role}',
+                                     '--env', f'ZLOOP_WORKER={args.assignment}', '--no-focus')
+    if code == 0:
+        pane = response['result']['root_pane']['pane_id']
+        log_launch(root, lifecycle.own_server(), args.name, pane,
+                   {'pane': os.environ.get('HERDR_PANE_ID'), 'session': args.session}, args.worktree)
+        code, response = lifecycle.herdr(None, 'agent', 'start', args.name, '--kind', route['target_runtime'],
+                                         '--pane', pane, '--', *launch, timeout=120)
+    print(json.dumps(response))
+    return code
 
 
 def dismiss(argv):
@@ -163,7 +207,9 @@ def dismiss(argv):
 
 
 if __name__ == '__main__':
-    if sys.argv[1:2] == ['dismiss']:
+    if sys.argv[1:2] == ['start']:
+        sys.exit(start(sys.argv[2:]))
+    elif sys.argv[1:2] == ['dismiss']:
         dismiss(sys.argv[2:])
     else:
         main()

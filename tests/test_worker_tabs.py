@@ -428,21 +428,19 @@ class TabRecipe(unittest.TestCase):
             self.assertIn(instruction, guide)
 
     def test_the_herdr_guide_starts_each_worker_in_a_tab_of_its_own_then_registers_it(self):
-        # Rule: the Herdr guide holds the recipe (tab create with the ZLOOP_WORKER marker, agent start in its
-        # root pane, register) instead of a split of the caller's pane, and how to find the session; the shared
-        # attempt doc names the registration field, how to find its session and the lookup's wait, but not the
-        # Herdr recipe.
         guide = ' '.join((support.ROOT / 'hosts/herdr.md').read_text().split())
         position = 0
         for step in ('never as a split of your pane',
-                     'herdr tab create --workspace <orchestrator workspace> --cwd <worktree> '
-                     '--label "<slug>/<assignment> <role>" --env ZLOOP_WORKER=<slug>/<assignment> --no-focus',
-                     'herdr agent start <name> --kind <kind> --pane <returned root pane> -- <launch args>',
+                     'python3 <plugin_root>/hooks/herdr_launch.py start --route <saved route.json> '
+                     '--worktree <worktree> --assignment <slug>/<assignment> --role <role> '
+                     '--name <name> --session <host session>',
                      'register it', 'Retirement closes the pane, which closes the tab'):
             position = guide.find(step, position)
             self.assertNotEqual(position, -1, f'{step!r} in order in hosts/herdr.md')
         self.assertIn('herdr session list', guide)
         self.assertIn("how zloop's stop check tells a worker from its orchestrator", guide)
+        self.assertNotIn('herdr agent start', guide)
+        self.assertIn('launch.argv', guide)
         shared = ' '.join((support.ROOT / 'runtime/workers/prepare.md').read_text().split())
         self.assertIn('"herdr": {"session"', shared)
         self.assertIn('herdr session list', shared)
