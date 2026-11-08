@@ -76,7 +76,10 @@ pane, whatever placement the installed skill defaults to:
    `ZLOOP_WORKER` is how zloop's stop check tells a worker from its orchestrator.
    The command uses the caller's Herdr socket and prints Herdr's agent-start response. Keep `launch.argv` as
    saved JSON; do not turn it into shell text. Its write scope, model and effort come from
-   the resolver. A native route without `launch` uses its host's native recipe instead.
+   the resolver; each runtime's recipe is in its adapter: [Claude](claude/workers.md#top-level-workers),
+   [Codex](codex/workers.md#top-level-workers), [Pi](pi/workers.md#top-level-workers) and
+   [OpenCode](opencode/workers.md#top-level-workers). A native route without `launch` uses its host's
+   native recipe instead; a Claude orchestrator's configured Claude route with an explicit effort has a `launch`.
 2. Then register it, adding `"herdr": {"session": "<session>"}`; `herdr session list`
    names the session. Registration reads the worker's pane, tab, workspace and name
    from `herdr agent get` and refuses a tab that holds another pane or is your own.

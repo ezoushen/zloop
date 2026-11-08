@@ -57,7 +57,8 @@ class Profiles(RouterCase):
         with patch.dict(os.environ, {'HERDR_ENV': ''}):
             with self.assertRaisesRegex(ValueError, 'eligible'):
                 self.resolve(target_runtime='codex')
-            self.assertEqual(self.resolve()['candidate'], 'opus')
+            with self.assertRaisesRegex(ValueError, 'start the orchestrator in Herdr and resolve again'):
+                self.resolve()
 
     def test_explicit_user_pins_win_over_profile(self):
         self.profile({'codex': {'candidate': 'sol', 'thinking': 'high'}})
