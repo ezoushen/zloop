@@ -88,6 +88,16 @@ Retirement closes the pane, which closes the tab; record closure under the
 
 ## Wait and recover
 
+If a Codex launch returns `agent_not_ready` or its first wait reports `blocked`, read
+`herdr --session <session> agent read <worker> --source visible --lines 200`.
+For `Trust this folder?`, tell the user the folder shown and the worker (session and
+pane), and ask them to trust it in that pane, then retry the startup probe; never answer the dialog.
+Do not count it as started or submit its assignment. Lifecycle registration refuses
+that dialog and includes the pane's text. Keep the pane for the user's decision;
+account for the failed launch with `hooks/herdr_launch.py dismiss --name <worker>
+--keep "pending user folder trust"` in the checkout (outside Herdr, also pass the
+host `--session`), under the worker attempts procedure.
+
 Bind each prompt, independent wait and collected result to its registered attempt
 under [worker attempts](../runtime/workers/prepare.md) and [waits](../runtime/workers/wait.md). Resume from its pending
 receipts and native worker state; rearm consumed waits after reconciliation.

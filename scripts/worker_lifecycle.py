@@ -1627,6 +1627,17 @@ def herdr_placement(data):
                        f'{response.get("error", {}).get("code")}')
     agent = response['result']['agent']
     placed = dict(session=session, **{key: agent.get(key) for key in ('workspace_id', 'tab_id', 'pane_id', 'name')})
+    if agent.get('agent') == 'codex' and agent.get('agent_status') == 'blocked':
+        screen = subprocess.run(['herdr', *server_option(session), 'agent', 'read', placed['pane_id'],
+                                 '--source', 'visible', '--lines', '200'], capture_output=True, text=True,
+                                timeout=LOOKUP_SECONDS)
+        require(screen.returncode == 0,
+                f'Cannot read blocked Codex worker {worker}; inspect its pane {placed["pane_id"]}, then register again')
+        if 'Trust this folder?' in screen.stdout:
+            raise ValueError(f'Codex worker {placed["name"]} is blocked at folder trust in '
+                             f'Herdr session {session}, pane {placed["pane_id"]}; not started. '
+                             'Ask the user to trust the folder in that pane, then retry startup and registration; '
+                             f'never answer the dialog.\n{screen.stdout}')
     # Herdr's agent kind is the runtime; only a session it reports as an ID is a native conversation ID.
     identity = agent.get('agent_session') or {}
     reported = dict(placed, runtime=agent.get('agent'),
