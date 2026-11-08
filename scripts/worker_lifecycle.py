@@ -861,14 +861,8 @@ def registration_retirement_lock(db, registering=False):
         try:
             fcntl.flock(lock, (fcntl.LOCK_SH if registering else fcntl.LOCK_EX) | fcntl.LOCK_NB)
         except BlockingIOError:
-            activity = 'retirement'
-            if not registering:
-                try:
-                    fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
-                    activity = 'registration'
-                except BlockingIOError:
-                    pass
-            raise ValueError(f'Worker {activity} is in progress; retry this command once it finishes') from None
+            busy = 'retirement' if registering else 'registration or retirement'
+            raise ValueError(f'Worker {busy} is in progress; retry this command once it finishes') from None
         yield
 
 
