@@ -60,6 +60,8 @@ if served['fail']:
     sys.exit(1)
 if args == ['agent', 'list']:
     print(json.dumps({{'result': {{'agents': served['agents'], 'type': 'agent_list'}}}}))
+elif args[:2] == ['agent', 'prompt']:
+    print(json.dumps({{'result': {{'type': 'agent_prompt', 'agent': {{'agent_status': 'idle'}}}}}}))
 elif args[:2] == ['pane', 'get'] and args[2] in served['panes'].get(session, {{}}):
     print(json.dumps({{'result': {{'pane': served['panes'][session][args[2]], 'type': 'pane_info'}}}}))
 elif args[:2] in (['pane', 'get'], ['pane', 'current']):

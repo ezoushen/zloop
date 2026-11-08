@@ -14,10 +14,10 @@ import support
 
 
 class HerdrTabs(WorkerLifecycleCase):
-    def herdr_route(self):
+    def herdr_route(self, runtime='claude'):
         """Resolve the worker through the Herdr skill, as the resolver does for a Herdr route."""
         execution = json.loads(self.execution.read_text())
-        execution.update(host='claude', target_runtime='claude', executor='skill', executor_context='herdr',
+        execution.update(host='claude', target_runtime=runtime, executor='skill', executor_context='herdr',
                          executor_config={'skill': 'herdr', 'instruction': 'Run one worker.'},
                          native_dispatch=False, launch={'writes': 'worktree', 'verify': {'permission_mode': 'dontAsk'}})
         self.execution.write_text(json.dumps(execution))
@@ -59,6 +59,69 @@ class HerdrTabs(WorkerLifecycleCase):
         self.assertEqual(self.cli('status')['attempts'][0]['herdr'],
                          {'session': 'fixture-session', 'workspace_id': 'ws-1', 'tab_id': 'tab-1',
                           'pane_id': 'pane-1', 'name': 'builder-1'})
+
+    def test_registration_waits_for_a_late_session_before_recording_the_worker(self):
+        for runtime in ('claude', 'codex', 'pi', 'opencode'):
+            with self.subTest(runtime=runtime):
+                self.state = self.root / (runtime + '.sqlite')
+                (self.root / 'agent-lookups').unlink(missing_ok=True)
+                (self.root / 'probe-submitted').unlink(missing_ok=True)
+                (self.root / 'herdr-argv.log').unlink(missing_ok=True)
+                self.herdr_route(runtime)
+                self.herdr_fixture(agent_kind=runtime, session_after=2)
+                self.register(worker='builder-1', runtime=runtime, session=None, herdr={'session': 'fixture-session'})
+                saved = self.cli('status')['attempts'][0]
+                self.assertEqual((saved['native_session'], saved['herdr']['pane_id']), ('native-1', 'pane-1'))
+                self.assertIn('agent prompt builder-1 Startup probe: reply with exactly READY and use no tools. '
+                              '--wait --timeout 45000', (self.root / 'herdr-argv.log').read_text())
+
+    def test_registration_names_the_session_step_when_no_identity_arrives(self):
+        self.herdr_route()
+        self.herdr_fixture(session_after=1000000)
+        started = time.monotonic()
+        error = self.register(worker='builder-1', herdr={'session': 'fixture-session'}, code=2)
+        seconds = time.monotonic() - started
+        self.assertIn('Herdr launch session step timed out for builder-1 after 45 s', error)
+        self.assertIn('agent get builder-1', error)
+        self.assertIn('then retry registration', error)
+        self.assertGreaterEqual(seconds, 45)
+        self.assertLess(seconds, 60)
+        self.assertEqual(self.cli('status')['attempts'], [])
+
+    def test_registration_waits_when_herdr_has_not_filled_its_session_id(self):
+        self.herdr_route()
+        for index, value in enumerate(('', '  ')):
+            with self.subTest(value=value):
+                self.state = self.root / f'blank-{index}.sqlite'
+                (self.root / 'agent-lookups').unlink(missing_ok=True)
+                self.herdr_fixture(session_after=2, pending_session={'kind': 'id', 'value': value})
+                self.register(worker='builder-1', herdr={'session': 'fixture-session'})
+                self.assertEqual(self.cli('status')['attempts'][0]['native_session'], 'native-1')
+
+    def test_registration_refuses_a_probe_that_never_started(self):
+        self.herdr_route()
+        self.herdr_fixture(probe_error='agent_prompt_stalled')
+        error = self.register(worker='builder-1', herdr={'session': 'fixture-session'}, code=2)
+        self.assertIn('Herdr launch probe step failed for builder-1: agent_prompt_stalled', error)
+        self.assertIn('agent read builder-1', error)
+        self.assertEqual(self.cli('status')['attempts'], [])
+
+    def test_registration_does_not_probe_an_already_working_agent(self):
+        self.herdr_route()
+        self.herdr_fixture(agent_status='working')
+        error = self.register(worker='builder-1', herdr={'session': 'fixture-session'}, code=2)
+        self.assertIn('Herdr launch probe step requires an idle or done worker', error)
+        self.assertIn('agent read builder-1', error)
+        self.assertNotIn('agent prompt', (self.root / 'herdr-argv.log').read_text())
+        self.assertEqual(self.cli('status')['attempts'], [])
+
+    def test_registration_refuses_a_probe_that_settles_at_a_blocked_ui(self):
+        self.herdr_route()
+        self.herdr_fixture(probe_status='blocked')
+        error = self.register(worker='builder-1', herdr={'session': 'fixture-session'}, code=2)
+        self.assertIn('Herdr launch probe step did not settle idle or done for builder-1: blocked', error)
+        self.assertIn('agent read builder-1', error)
+        self.assertEqual(self.cli('status')['attempts'], [])
 
     def test_folder_trust_names_the_worker_folder_and_user_step_without_starting_it(self):
         self.herdr_route()
@@ -138,6 +201,7 @@ class HerdrTabs(WorkerLifecycleCase):
         self.assertIn('native_session native-1', error)
         self.assertIn('Herdr reports native-9', error)
         self.assertEqual(self.cli('status')['attempts'], [])
+        self.assertNotIn('agent prompt', (self.root / 'herdr-argv.log').read_text())
 
     def test_a_session_herdr_reports_as_a_path_is_not_compared_with_native_session(self):
         # Rule: a path-kind agent_session is not a conversation ID, so it is not compared (only both IDs are).
