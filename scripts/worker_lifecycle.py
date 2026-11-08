@@ -289,8 +289,13 @@ def wait_running(data):
     pgid = data.get('monitor', {}).get('wait_pid')
     if pgid is None:
         return False
-    process = subprocess.run(['ps', '-ax', '-o', 'pgid=,stat='], capture_output=True, text=True, timeout=3)
-    require(process.returncode == 0, 'Cannot verify owned wait teardown')
+    failure = 'Owned wait check could not run: {}; retry the same lifecycle command'
+    try:
+        process = subprocess.run(['ps', '-ax', '-o', 'pgid=,stat='], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        reason = 'ps timed out' if isinstance(error, subprocess.TimeoutExpired) else str(error)
+        raise ValueError(failure.format(reason)) from None
+    require(process.returncode == 0, failure.format(f'ps exited {process.returncode}'))
     return any(int(fields[0]) == pgid and not fields[1].startswith('Z')
                for line in process.stdout.splitlines() if len(fields := line.split()) == 2)
 
