@@ -305,8 +305,6 @@ class BoardCLI(unittest.TestCase):
         self.assertEqual((fm['status'], fm.get('accepted'), fm.get('accepted_report')), ('blocked', None, None))
         self.assertEqual(fm['blocker'], 'its acceptance failed again; restore the evidence, then --accept it')
         self.cli('fx', '--check')
-        # Review (Sonnet, Codex): a ticket the E2E sentinel lent to `verifying` cannot return to done with no acceptance,
-        # and stays verifying, so the E2E run keeps the devices it holds.
         lent = self.write_ticket('fx/03', status='done', devices='ios')
         self.cli('fx', '--set', 'fx/03', 'status=verifying')
         self.cli('fx', '--accept', 'fx/03', code=1)
@@ -1852,6 +1850,13 @@ class BoardCLI(unittest.TestCase):
         # reviewed heads in main) passes instead of failing on the branch it no longer has.
         self.merged_on_remote('fx')
         self.cli('fx', '--delivery')
+
+    def test_delivery_without_a_slug_includes_workstreams_with_only_refused_files(self):
+        path = self.root.resolve() / '.scratch/broken/issues/01-bad.md'
+        path.parent.mkdir(parents=True)
+        path.write_text('---\nticket: Not A Ticket\n---\n')
+        self.assertEqual(self.cli('--delivery', code=1).stderr,
+                         f"broken: it cannot be checked: {path}: invalid ticket id 'Not A Ticket'\n")
 
     def test_delivery_is_judged_on_its_own_workstream_whatever_another_board_file_holds(self):
         # Rule: another workstream's refused ticket file or failing ticket never fails this workstream's delivery;

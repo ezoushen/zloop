@@ -91,7 +91,7 @@ def load():
         elif fm and set(fm) & TICKET_KEYS:
             refusal = f"{path}: missing ticket front matter"
         if refusal:
-            slug = path.parent.parent.name  # It may hold the ticket it names, and the one its file name numbers.
+            slug = path.parent.parent.name
             named = [fm["ticket"]] if fm and isinstance(fm.get("ticket"), str) else []
             refused.append(Problem(refusal, (slug,), (f"{slug}/{path.name.split('-')[0]}", *named)))
         elif fm and "ticket" in fm:
@@ -215,7 +215,7 @@ def undelivered(slug, board=None):
     tickets not done, and the evidence `--delivery` judges, unless it finished (its branch deleted after the merge, its
     reviewed heads in main). `board` is `judged()` when the caller has it."""
     tickets, refused, found = board or judged()
-    if bearing(refused, slug):  # A ticket file of its own the board refuses: it cannot be judged.
+    if bearing(refused, slug):
         return [f"it cannot be checked: {text}" for text in bearing(refused, slug)]
     if not any(spec_of(name) == slug for name in tickets):
         new = shlex.join(["python3", str(Path(__file__).resolve()), "--repo", str(ROOT), slug, "--new", "<title>"])

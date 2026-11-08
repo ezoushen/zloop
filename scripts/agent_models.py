@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import random
-import re
 import sqlite3
 import subprocess
 import sys

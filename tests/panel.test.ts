@@ -7,8 +7,6 @@ const PANE = "zloop-panel";
 const snapshot = (extra: Record<string, unknown> = {}) => ({
   active: true,
   workstream: "demo",
-  phase: "dispatch",
-  draft: false,
   rows: [
     { kind: "headline", text: "demo · dispatch" },
     { kind: "run", text: "▶ builder · zloop-panel/02 · sonnet · quiet 1m" },
@@ -19,7 +17,7 @@ const snapshot = (extra: Record<string, unknown> = {}) => ({
 });
 // The input of the person's `/zloop-panel`: the fields the engine stamps beside the command name.
 const ZLOOP_PANEL = { command: "zloop-panel", args: "", origin: { kind: "composer" as const }, presentation: { isFullscreen: true, columns: 80 } };
-const QUIET = { active: false, workstream: null, phase: null, draft: false, rows: [], strip: null };
+const QUIET = { active: false, workstream: null, rows: [], strip: null };
 
 // What the engine answers beneath the session: a clock, the fact source's output (changed by `world.facts`), the
 // panes it keeps open and the status line pinned.

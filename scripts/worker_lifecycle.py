@@ -1825,7 +1825,7 @@ def state_fields(text):
         key, colon, value = line.partition(':')
         if colon and re.fullmatch(r'[a-z-]+', key):
             value = value.strip()
-            fields[key] = '' if value.startswith('<') else value
+            fields.setdefault(key, '' if value.startswith('<') else value)
     return fields
 
 

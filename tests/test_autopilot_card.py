@@ -34,6 +34,13 @@ resume: `autopilot --take-over`
 
 
 class TakeOver(unittest.TestCase):
+    def test_a_repeated_state_key_reads_the_first_line_that_the_writer_edits(self):
+        text = '## State\nterminal: delivered\nterminal: blocked\n'
+        self.assertEqual(card.field(text, 'terminal'), 'delivered')
+        cleared = card.set_field(text, 'terminal', '')
+        self.assertEqual(cleared, '## State\nterminal:\nterminal: blocked\n')
+        self.assertEqual(card.field(cleared, 'terminal'), '')
+
     def take_over(self, *flags, card=CARD, sessions=None, code=0):
         """Take over a copy of `card` from a shell exporting only `sessions` (default: Pi session host-2)."""
         tmp = tempfile.TemporaryDirectory()
