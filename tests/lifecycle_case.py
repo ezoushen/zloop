@@ -225,7 +225,8 @@ class WorkerLifecycleCase(unittest.TestCase):
                       agent_delay=0, tab_delay=0, during_delay=None, lock_probe=None,
                       agent_kind='claude', session_kind='id', tab_gone_error='tab_not_found', pane_session=UNSET,
                       agent_name='builder-1', agent_exited=False, servers=('fixture-session',), empty_panes=(),
-                      close_failures=0, pane_delay=0, agent_status='idle'):
+                      close_failures=0, pane_delay=0, agent_status='idle', session_after=0, probe_error=None,
+                      probe_status='idle', pending_session=None):
         # during_delay: an argv the fixture runs once, while the first delayed call waits, recording its exit code in
         # during-delay.json, so a test can act inside that wait without racing its own thread against it.
         # lock_probe: a state database the fixture tries to write-lock, in its own process and without waiting,
@@ -271,12 +272,22 @@ if args[2:]==['pane','current','--current']:
     if {caller!r} is None:
         print(json.dumps({{'error':{{'code':'pane_not_found'}}}}),file=sys.stderr);sys.exit(1)
     print(json.dumps({{'result':{{'pane':{{'pane_id':{caller!r},'tab_id':{caller_tab!r}}}}}}}))
+elif args[2:4]==['agent','prompt']:
+    if {probe_error!r}:
+        print(json.dumps({{'error':{{'code':{probe_error!r}}}}}),file=sys.stderr);sys.exit(1)
+    Path({str(self.root / 'probe-submitted')!r}).touch()
+    print(json.dumps({{'result':{{'agent':{{'agent_status':'idle'}}}}}}))
 elif args[2:4]==['agent','get']:
     if marker.exists() or {agent_exited!r} or args[4:] not in (['pane-1'],['builder-1']):
         print(json.dumps({{'error':{{'code':'agent_not_found'}}}}),file=sys.stderr);sys.exit(1)
+    lookups=Path({str(self.root / 'agent-lookups')!r})
+    count=int(lookups.read_text())+1 if lookups.exists() else 1
+    lookups.write_text(str(count))
+    identity={{'kind':{session_kind!r},'value':{native_session!r}}} if count>{session_after!r} else {pending_session!r}
     print(json.dumps({{'result':{{'agent':{{'agent':{agent_kind!r},'name':{agent_name!r},'pane_id':'pane-1',
-        'tab_id':{agent_tab!r},'workspace_id':'ws-1','agent_status':'idle',
-        'agent_session':{{'kind':{session_kind!r},'value':{native_session!r}}}}}}}}}))
+        'tab_id':{agent_tab!r},'workspace_id':'ws-1',
+        'agent_status':{probe_status!r} if Path({str(self.root / 'probe-submitted')!r}).exists() else {agent_status!r},
+        'agent_session':identity}}}}}}))
 elif args[2:]==['tab','get','tab-1']:
     panes={tab_panes!r}
     if marker.exists() and not {tab_survives!r}:

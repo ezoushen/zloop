@@ -1805,7 +1805,8 @@ class HerdrWorkers(GateRepo):
         super().setUp()
         self.tab = {'tab_id': 'w1:t5', 'workspace_id': 'w1', 'label': 'workstream/ticket-1 builder', 'pane_count': 1}
         self.serve(agents=[{'agent': 'claude', 'agent_status': 'idle', 'name': 'builder-1', 'pane_id': 'w1:p5',
-                            'tab_id': 'w1:t5', 'workspace_id': 'w1'}], tabs={'default': [self.tab]})
+                            'tab_id': 'w1:t5', 'workspace_id': 'w1',
+                            'agent_session': {'kind': 'id', 'value': 'native-1'}}], tabs={'default': [self.tab]})
         self.report = self.state.parent / 'ticket-1.md'
         self.report.write_text('## Implemented\n')
 
@@ -2145,8 +2146,9 @@ class StopReap(HerdrWorkers):
         # attempt is closed. `check` names nothing: it settles nothing.
         second = dict(self.tab, tab_id='w1:t6')
         self.serve(agents=[{'agent': 'claude', 'agent_status': 'idle', 'name': name, 'pane_id': pane,
-                            'tab_id': tab, 'workspace_id': 'w1'} for name, pane, tab in
-                           (('builder-1', 'w1:p5', 'w1:t5'), ('builder-2', 'w1:p6', 'w1:t6'))],
+                            'tab_id': tab, 'workspace_id': 'w1', 'agent_session': {'kind': 'id', 'value': native}}
+                           for name, pane, tab, native in (('builder-1', 'w1:p5', 'w1:t5', 'native-1'),
+                                                         ('builder-2', 'w1:p6', 'w1:t6', 'native-2'))],
                    tabs={'default': [self.tab, second]})
         self.register()
         self.collect()
@@ -2189,7 +2191,8 @@ class StopReap(HerdrWorkers):
         # Review 2: each run state had a budget of its own, so several states on a hung Herdr outlasted the 20 s hook
         # timeout; one deadline covers them all and leaves the states it did not reach for the next stop.
         self.serve(agents=[{'agent': 'claude', 'agent_status': 'idle', 'name': 'builder-1', 'pane_id': 'w1:p5',
-                            'tab_id': 'w1:t5', 'workspace_id': 'w1'}], tabs={'default': [self.tab]})
+                            'tab_id': 'w1:t5', 'workspace_id': 'w1',
+                            'agent_session': {'kind': 'id', 'value': 'native-1'}}], tabs={'default': [self.tab]})
         self.register()
         self.lifecycle('result', status='failed', head='head-1', report=str(self.report), evidence=['worker.log'])
         for name in ('other-1', 'other-2', 'other-3'):

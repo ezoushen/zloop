@@ -36,6 +36,7 @@ TAB_RECIPE = ('start the worker in a tab of its own: `herdr tab create --workspa
               '--no-focus`, then `herdr agent start <name> --kind <kind> --pane <returned root pane> -- <launch args>`, '
               'then register it')
 LOOKUP_SECONDS = 5  # Registration's wait on each Herdr call.
+STARTUP_SECONDS = 45
 REAP_SECONDS = 5  # All a stop's reap may spend, inside the hosts' 20 s hook timeout, which the gate's other checks share.
 # The terminal states a run card may record: ENDED after which nothing of the run is used again,
 # PAUSED leaving a resume step on the card's `resume:` line.
@@ -1599,7 +1600,7 @@ def herdr(session, *args, timeout=15):
 
 
 def herdr_placement(data):
-    """Where Herdr itself places a registration's worker, which must be a tab of its own."""
+    """Confirm a worker's own tab, probe activity and session within bounded waits; fill an omitted native ID."""
     worker = data.get('worker')
     require(text(worker), 'Registration requires worker')
     claimed = dict(data['herdr']) if isinstance(data.get('herdr'), dict) else {}
@@ -1620,7 +1621,8 @@ def herdr_placement(data):
     # Herdr's agent kind is the runtime; only a session it reports as an ID is a native conversation ID.
     identity = agent.get('agent_session') or {}
     reported = dict(placed, runtime=agent.get('agent'),
-                    native_session=identity.get('value') if identity.get('kind') == 'id' else None)
+                    native_session=identity.get('value') if identity.get('kind') == 'id'
+                    and text(identity.get('value')) else None)
     for key in ('tab_id', 'pane_id', 'name', 'runtime', 'native_session'):
         require(key not in claimed or reported[key] is None or claimed[key] == reported[key],
                 f'Registration names {key} {claimed.get(key)}, but Herdr reports {reported[key]} for {worker}')
@@ -1633,6 +1635,34 @@ def herdr_placement(data):
     caller = caller_pane(session, 'registration', LOOKUP_SECONDS) or {}
     require(caller.get('tab_id') != placed['tab_id'],
             f"One worker per tab: {placed['tab_id']} is the orchestrator's own tab; {TAB_RECIPE}")
+    require(agent.get('agent_status') in ('idle', 'done'),
+            f'Herdr launch probe step requires an idle or done worker; inspect '
+            f'`herdr --session {session} agent read {worker}`, let its current turn settle, then retry registration')
+    code, response = herdr(session, 'agent', 'prompt', worker, 'Startup probe: reply with exactly READY and use no tools.',
+                           '--wait', '--timeout', str(STARTUP_SECONDS * 1000), timeout=STARTUP_SECONDS + LOOKUP_SECONDS)
+    require(code == 0, f'Herdr launch probe step failed for {worker}: {response.get("error", {}).get("code")}; '
+                       f'inspect `herdr --session {session} agent read {worker}` before retrying registration')
+    deadline = time.monotonic() + STARTUP_SECONDS
+    while True:
+        remaining = deadline - time.monotonic()
+        require(remaining > 0, f'Herdr launch session step timed out for {worker} after {STARTUP_SECONDS} s; '
+                              f'inspect `herdr --session {session} agent get {worker}` and its integration, then retry registration')
+        code, response = herdr(session, 'agent', 'get', worker, timeout=min(LOOKUP_SECONDS, remaining))
+        require(code == 0, f'Herdr cannot confirm worker {worker} in session {session}: '
+                           f'{response.get("error", {}).get("code")}')
+        agent = response['result']['agent']
+        require(agent.get('agent_status') in ('idle', 'done'),
+                f'Herdr launch probe step did not settle idle or done for {worker}: {agent.get("agent_status")}; '
+                f'inspect `herdr --session {session} agent read {worker}` before retrying registration')
+        identity = agent.get('agent_session') or {}
+        if identity.get('kind') in ('id', 'path') and text(identity.get('value')):
+            break
+        time.sleep(min(0.25, max(0, deadline - time.monotonic())))
+    native_session = identity.get('value') if identity.get('kind') == 'id' else None
+    require('native_session' not in claimed or native_session is None or claimed['native_session'] == native_session,
+            f'Registration names native_session {claimed.get("native_session")}, but Herdr reports {native_session} for {worker}')
+    if not text(data.get('native_session')) and text(native_session):
+        data['native_session'] = native_session
     return placed
 
 
