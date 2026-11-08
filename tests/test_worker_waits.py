@@ -9,10 +9,40 @@ import sqlite3
 import subprocess
 import sys
 import time
+import tempfile
 import unittest
+from unittest.mock import patch
 
 from lifecycle_case import SCRIPT, WorkerLifecycleCase
 import journal_store
+import worker_lifecycle
+
+
+class WaitRunning(unittest.TestCase):
+    def test_a_slow_process_listing_still_finds_the_owned_wait(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / 'ps'
+            executable.write_text('#!' + sys.executable + '\n'
+                                  'import time\ntime.sleep(3.2)\nprint("714 S")\n')
+            executable.chmod(0o700)
+            with patch.dict(os.environ, PATH=directory + os.pathsep + os.environ['PATH']):
+                self.assertTrue(worker_lifecycle.wait_running({'monitor': {'wait_pid': 714}}))
+
+    def test_an_unfinished_process_check_names_the_check_and_retry(self):
+        with patch('subprocess.run', side_effect=subprocess.TimeoutExpired('ps', 10)):
+            with self.assertRaisesRegex(ValueError, '^Owned wait check could not run: ps timed out; '
+                                        'retry the same lifecycle command$'):
+                worker_lifecycle.wait_running({'monitor': {'wait_pid': 714}})
+
+    def test_an_unavailable_process_check_names_the_check_and_retry(self):
+        failures = (OSError('ps unavailable'), subprocess.CompletedProcess('ps', 1, '', 'ps denied'))
+        for failure in failures:
+            with self.subTest(failure=failure):
+                with patch('subprocess.run', **({'side_effect': failure} if isinstance(failure, OSError)
+                                              else {'return_value': failure})):
+                    with self.assertRaisesRegex(ValueError, '^Owned wait check could not run: ps '
+                                                '(unavailable|exited 1); retry the same lifecycle command$'):
+                        worker_lifecycle.wait_running({'monitor': {'wait_pid': 714}})
 
 
 class Waits(WorkerLifecycleCase):
