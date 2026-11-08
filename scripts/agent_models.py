@@ -834,8 +834,15 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
     if selected in (eligible_thinking or {}) and settings.get('effort') not in eligible_thinking[selected]:
         raise ValueError(f'candidate {selected!r} thinking {settings.get("effort")!r} failed runtime preflight; '
                          'choose an eligible setting or verify registration before retrying')
+    runtime = metadata.get('target_runtime', host if native else None)
+    if native and runtime == 'claude' and settings.get('effort') is not None:
+        if os.environ.get('HERDR_ENV') != '1':
+            raise ValueError('Claude native subagents inherit session effort; '
+                             'start the orchestrator in Herdr and resolve again to launch at the route effort, '
+                             f'or remove the effort that {sources.get("effort")} sets to run natively at the session effort')
+        kind, config, native = 'herdr', {}, False
+        metadata.update(target_runtime='claude', executor_context='herdr', executor_source='built-in')
     # A native child takes no flags; a worker started as its own runtime process gets them explicitly.
-    runtime = metadata.get('target_runtime')
     launch = (launch_controls(runtime, agent, settings, repo.resolve(), worktree, reports)
               if not native and runtime in HOSTS else None)
     # Named delegates and skills can forward to another runtime; the host is not the destination.

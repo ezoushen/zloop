@@ -85,7 +85,7 @@ class Executors(unittest.TestCase):
         for path in (models.ROOT / 'schemas').rglob('*.schema.json'):
             Draft202012Validator.check_schema(json.loads(path.read_text()))
         with tempfile.TemporaryDirectory(prefix='zloop executors ') as tmp, \
-                patch.dict(os.environ, {'ZLOOP_PROFILE': '', 'HERDR_ENV': ''}):
+                patch.dict(os.environ, {'ZLOOP_PROFILE': '', 'HERDR_ENV': '1'}):
             root = Path(tmp)
             user = root / 'user/executors.json'
             project = root / '.zloop/executors.json'
@@ -235,10 +235,10 @@ class Executors(unittest.TestCase):
             for value in (skill, named, program):
                 assert subprocess.run(cli + ['--route-choice', json.dumps(value), '--profile'],
                                       capture_output=True).returncode != 0
-            selected_native = dict(native, models={'mode': 'override', 'model': 'opus', 'thinking': 'high'})
+            selected_native = dict(native, models={'mode': 'override', 'model': 'opus'})
             result = subprocess.run(cli + ['--route-choice', json.dumps(selected_native), '--profile'],
                                     capture_output=True, text=True, check=True)
-            assert 'effort: "high"' in json.loads(result.stdout)['native_profile']['content']
+            assert 'model: "opus"' in json.loads(result.stdout)['native_profile']['content']
             assert subprocess.run(cli + ['--route-choice', 'null'], capture_output=True).returncode != 0
 
             worker = root / 'worker.py'
