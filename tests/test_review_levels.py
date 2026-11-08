@@ -163,8 +163,8 @@ class ReviewLevels(unittest.TestCase):
         self.assertIn('At `xhigh` and `max` set `review_status` and `documentation_status` for your own assignment '
                       'as the levels say', finish)
         report = ' '.join((REVIEW / 'report.md').read_text().split())
-        self.assertIn('At `xhigh` and `max`, `review_by` names every angle and sweep attempt that reviewed the final head',
-                      report)
+        self.assertIn('At `xhigh` and `max`, `review_by` names every angle and sweep attempt that reviewed the whole '
+                      'range from `review_base` at the final head, not only the repair delta.', report)
         self.assertIn('`review_by` names every angle and sweep attempt that reviewed the final head.',
                       ' '.join(section(LEVELS, 'Angles').split()))
 
