@@ -11,7 +11,7 @@ pane; server (`--session`, caller's HERDR_SOCKET_PATH, else `default`; omitted w
 Claude and Codex run it before Bash; Pi's extension passes its bash and bg_run calls. It never blocks the command.
 
 `herdr_launch.py start --route <saved route.json> --worktree <path> --assignment <slug>/<assignment>
---role <role> --name <name> --session <host session>` creates a worker tab and starts the saved argv without a shell.
+--role <role> --name <name>` creates a worker tab and starts the saved argv without a shell.
 It logs the launch before starting the agent, and returns Herdr's exit code and JSON response.
 
 `herdr_launch.py dismiss --pane <pane> | --name <agent> [--session <host session>] --reason <text> | --keep <text>`,
@@ -154,7 +154,6 @@ def start(argv):
     parser.add_argument('--assignment', required=True, help='<workstream>/<assignment>')
     parser.add_argument('--role', required=True)
     parser.add_argument('--name', required=True)
-    parser.add_argument('--session', required=True, help="the orchestrator's host session ID")
     args = parser.parse_args(argv)
     workspace = os.environ.get('HERDR_WORKSPACE_ID')
     if not workspace:
@@ -171,7 +170,8 @@ def start(argv):
     if code == 0:
         pane = response['result']['root_pane']['pane_id']
         log_launch(root, lifecycle.own_server(), args.name, pane,
-                   {'pane': os.environ.get('HERDR_PANE_ID'), 'session': args.session}, args.worktree)
+                   {'pane': os.environ.get('HERDR_PANE_ID'), 'session': (lifecycle.host_sessions() or [None])[0]},
+                   args.worktree)
         code, response = lifecycle.herdr(None, 'agent', 'start', args.name, '--kind', route['target_runtime'],
                                          '--pane', pane, '--', *launch, timeout=120)
     print(json.dumps(response))

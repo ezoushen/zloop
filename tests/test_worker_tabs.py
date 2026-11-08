@@ -323,8 +323,8 @@ class HerdrTabs(WorkerLifecycleCase):
         self.herdr_fixture(tab_panes=2)
         error = self.register(worker='builder-1', herdr={'session': 'fixture-session'}, code=2)
         self.assertIn('One worker per tab: tab-1 holds 2 panes', error)
-        self.assertIn('herdr tab create --workspace <orchestrator workspace> --cwd <worktree> --label '
-                      '"<slug>/<assignment> <role>" --env ZLOOP_WORKER=<slug>/<assignment> --no-focus', error)
+        self.assertIn("start the worker in a tab of its own with the Herdr guide's start command, then register it",
+                      error)
         self.assertEqual(self.cli('status')['attempts'], [])
 
     def test_registration_fails_closed_when_herdr_cannot_report_the_workers_tab(self):
@@ -341,7 +341,7 @@ class HerdrTabs(WorkerLifecycleCase):
         self.herdr_fixture(caller=caller, caller_tab='tab-1')
         error = self.register(worker='builder-1', herdr={'session': 'fixture-session'}, code=2)
         self.assertIn("One worker per tab: tab-1 is the orchestrator's own tab", error)
-        self.assertIn('herdr tab create --workspace <orchestrator workspace> --cwd <worktree>', error)
+        self.assertIn("the Herdr guide's start command", error)
         self.assertEqual(self.cli('status')['attempts'], [])
 
     def test_registration_refuses_a_worker_in_the_orchestrators_own_tab(self):
@@ -428,12 +428,15 @@ class TabRecipe(unittest.TestCase):
             self.assertIn(instruction, guide)
 
     def test_the_herdr_guide_starts_each_worker_in_a_tab_of_its_own_then_registers_it(self):
+        # Rule: the Herdr guide starts each worker through the one start command (its own tab with the ZLOOP_WORKER
+        # marker, the saved route's argv never retyped as shell text), then registers it, instead of a split of the
+        # caller's pane; the shared attempt doc names the registration field and how to find its session.
         guide = ' '.join((support.ROOT / 'hosts/herdr.md').read_text().split())
         position = 0
         for step in ('never as a split of your pane',
                      'python3 <plugin_root>/hooks/herdr_launch.py start --route <saved route.json> '
                      '--worktree <worktree> --assignment <slug>/<assignment> --role <role> '
-                     '--name <name> --session <host session>',
+                     '--name <name>',
                      'register it', 'Retirement closes the pane, which closes the tab'):
             position = guide.find(step, position)
             self.assertNotEqual(position, -1, f'{step!r} in order in hosts/herdr.md')

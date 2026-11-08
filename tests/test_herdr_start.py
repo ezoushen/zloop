@@ -55,8 +55,7 @@ else:
     def start(self):
         return subprocess.run([sys.executable, str(support.HOOKS / 'herdr_launch.py'), 'start',
                                '--route', str(self.route), '--worktree', str(self.worktree),
-                               '--assignment', 'workstream/05', '--role', 'builder', '--name', 'builder-05',
-                               '--session', 'opencode-host'],
+                               '--assignment', 'workstream/05', '--role', 'builder', '--name', 'builder-05'],
                               cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=10)
 
     def test_saved_route_preserves_spaces_and_toml_through_tab_and_agent_start(self):
