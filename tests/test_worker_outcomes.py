@@ -139,6 +139,35 @@ class Outcomes(WorkerLifecycleCase):
         saved = self.cli('status', '--attempt', 'ticket-1/repair-3')['attempts'][0]
         self.assertEqual(premise, saved['premise'])
 
+    def test_collection_refuses_unsupported_review_statuses_and_names_allowed_values(self):
+        self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'reviewer',
+                                             'job': 'diff-review', 'settings': {'model': 'sonnet', 'effort': 'high'}}))
+        checkout = self.root / 'checkout'
+        checkout.mkdir()
+        self.git(checkout, 'init', '-q')
+        self.git(checkout, 'commit', '--allow-empty', '-qm', 'base')
+        head = self.git(checkout, 'rev-parse', 'HEAD')
+        registration = dict(self.registration(), repo=str(checkout), worktree=str(checkout), head=head)
+        self.record('register', **registration)
+        self.ready()
+        report = self.root / 'review.md'
+        for field, invalid, allowed in (('review_status', 'passed', 'clean, findings, incomplete'),
+                                        ('documentation_status', 'clean', 'passed, findings, incomplete')):
+            with self.subTest(field=field):
+                report.write_text(f'---\n{field}: {invalid}\n---\n## Coverage\n## Review round 1\n')
+                request = self.collect_request(head, report, 'ticket-1/1')
+                error = self.cli('collect', '--attempt', 'ticket-1/1', '--input', request, code=2)
+                self.assertIn(f'{field}: {invalid}', error)
+                self.assertIn(f'allowed: {allowed}', error)
+                self.assertIn('correct the report and collect again', error)
+                self.assertNotIn('result', self.cli('status')['attempts'][0])
+        report.write_text('---\nreview_status: clean\ndocumentation_status: passed\n---\n'
+                          '## Coverage\n## Review round 1\n')
+        self.cli('collect', '--attempt', 'ticket-1/1',
+                 '--input', self.collect_request(head, report, 'ticket-1/1'))
+        self.assertEqual(self.cli('status')['attempts'][0]['result']['verdict'],
+                         {'review_status': 'clean', 'documentation_status': 'passed'})
+
     def test_collection_keeps_the_verdict_fields_a_report_gives_unquoted_and_nothing_else(self):
         # Rule: a report's own review and E2E fields reach the collected result without their quotes or backticks;
         # other front-matter fields stay out of it.

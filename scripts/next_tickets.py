@@ -353,7 +353,8 @@ def delivery_problems(slug):
                                 capture_output=True, text=True)
     if merge_base.returncode or merge_base.stdout.splitlines() != [fm.get('review_diff_base')]:
         problems.append(f'review_diff_base: {fm.get("review_diff_base") or "missing"} is not the merge base of '
-                        f'review_base and {branch} head {sha}')
+                        f'review_base and {branch} head {sha}; run a whole-range final review from review_base '
+                        f'{base} at head {sha}, collect its reviewer attempts and set review_by to them')
     return problems
 
 

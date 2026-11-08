@@ -54,3 +54,6 @@ documentation check cannot be treated as passed; an old report needs that review
 before reuse. Follow-ups outside this batch don't prevent its clean status;
 requested follow-up closure still governs completion of the overall invocation.
 Record `review_base` and `review_diff_base` too; a changed base invalidates scope.
+Before delivery, run a whole-range final pass from `review_base` at the final head,
+even after delta rechecks. Collect the final reviewer attempts and name them in
+`review_by`; their `review_diff_base` is the merge base of `review_base` and that head.
