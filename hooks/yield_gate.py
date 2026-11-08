@@ -345,16 +345,12 @@ def delivery_gaps(root, path, state):
 def delivery_gap(root, slug, lead, tail):
     """The gap (a list of one, or none) naming what keeps workstream `slug` from delivered, as
     `next_tickets.undelivered` names it for both delivery holds and the panel, worded `lead`, the problems, `tail`. A
-    board that could not be checked, or a ticket of its own it refuses, is a failed check."""
+    board that could not be checked is a failed check."""
     try:
         board = pointed(root)
-        judged = board.judged()
-        problems = board.bearing(judged[1], slug)
-        failed, problems = bool(problems), problems or board.undelivered(slug, judged)
+        problems = board.undelivered(slug)
     except Exception as error:
-        failed, problems = True, [str(error)]
-    if failed:
-        return [Unchecked(f"could not check delivery of {slug}: {'; '.join(problems)}")]
+        return [Unchecked(f"could not check delivery of {slug}: {error}")]
     return [f"{lead}{'; '.join(problems)}{tail}"] if problems else []
 
 
@@ -419,7 +415,7 @@ def stale_tabs(pane, session, runs):
                     tabs = asked(*where[:1], 'tab', 'list', '--workspace', where[1],
                                  absent=('workspace_not_found', 'server_not_running'))
                     listed[where] = set() if tabs is None else {tab['tab_id'] for tab in tabs['result']['tabs']}
-                except Exception as error:  # A check that cannot run is a named gap, never a pass.
+                except Exception as error:
                     listed[where] = set()
                     missing.append(Unchecked(f'could not check worker tabs: {error}'))
             if herdr['tab_id'] in listed[where] and retained:
@@ -489,7 +485,7 @@ def undelivered(root, pane, session, named):
                                f'. Continue the autofix handoff ({HANDOFF}) until `python3 {ROOT}/scripts/next_tickets.py '
                                f'--repo {root} {slug} --delivery` passes, or record `blocker: <reason>` in '
                                f'{path.with_name("spec-review.md")}')
-        except Exception as error:  # A check that cannot run is a named gap, never a pass.
+        except Exception as error:
             missing.append(Unchecked(f'could not check delivery of {slug}: {error}'))
     return missing
 
