@@ -111,8 +111,7 @@ class NativeProof(WorkerLifecycleCase):
         self.assertEqual(self.cli('status', '--attempt', attempt)['attempts'][0]['result']['status'], 'completed')
 
     def test_native_child_records_may_name_another_directory_on_every_runtime(self):
-        elsewhere = self.root / 'parent'
-        elsewhere.mkdir()
+        elsewhere = self.root.parent
         for runtime in ('claude', 'codex', 'pi', 'opencode'):
             with self.subTest(runtime=runtime):
                 self.state = self.root / f'{runtime}.sqlite'
@@ -123,7 +122,7 @@ class NativeProof(WorkerLifecycleCase):
                 self.assertTrue(self.record('startup', attempt, native=str(path))['verified'])
                 self.assertEqual(self.cli('status')['attempts'][0]['observed_cwd'], str(elsewhere.resolve()))
                 self.record('submitted', attempt, evidence=['native prompt accepted'])
-                path.write_text(path.read_text().replace(json.dumps(str(elsewhere)), json.dumps(str(self.root))))
+                path.write_text(path.read_text().replace(json.dumps(str(elsewhere)), json.dumps(str(elsewhere.parent))))
                 self.collect(attempt)
                 self.assertEqual('completed', self.cli('status')['attempts'][0]['result']['status'])
 
