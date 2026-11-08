@@ -68,7 +68,9 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    `"herdr": {"session": "<herdr session>"}` (`herdr session list` names it), unless
    its `worker` is a `session/pane/name` handle; registration reads its pane, tab,
    workspace and name from Herdr and refuses what Herdr or the handle contradicts, or a tab the worker shares
-   or the orchestrator's.
+   or the orchestrator's. Herdr registration submits its own bounded startup probe and
+   waits for Herdr's session identity; an omitted `native_session` is filled from an ID Herdr reports.
+   When Herdr reports a native record path instead, supply the session ID that record names.
 
    When the snapshot applied a decision-model recommendation, the helper records
    that decision for you: its action at registration, its execution at verified
@@ -83,8 +85,9 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    `native`: the record path named by the host adapter. Optional `model_alias_evidence`
    names an installed binding. Pass `native` again to `collect`; refresh an OpenCode export.
 
-   **Startup order.** Start the worker and obtain its session id (probe for a fixed reply
-   and no tools if needed). Register with the assignment as `packet`, then `submit` it.
+   **Startup order.** Start the worker, then register with the assignment as `packet` and `submit` it.
+   Herdr registration owns its startup probe; other executors obtain the session ID first
+   (probe for a fixed reply and no tools if needed).
    A native child already has its assignment; record its startup once its record is available.
    A native child's record may name another directory; startup and result checks do not check its worktree
    from that directory. Collection checks its writes in the assigned worktree; for a read-only Pi child,

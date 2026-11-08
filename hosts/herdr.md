@@ -83,15 +83,34 @@ pane, whatever placement the installed skill defaults to:
    names the session. Registration reads the worker's pane, tab, workspace and name
    from `herdr agent get` and refuses a tab that holds another pane or is your own.
 
+Registration owns the startup probe: from an `idle` or `done` worker it sends a
+fixed READY/no-tools prompt with `--wait --timeout 45000`, then polls for Herdr's
+session identity for at most 45 seconds (each lookup at most five seconds).
+An ID fills an omitted `native_session`; a native record path still needs its
+session ID in the registration. A stalled, failed or blocked probe never registers.
+The refusal names the probe or session step and an inspection command. Inspect
+that same worker before retrying registration; do not send a second probe blindly
+or press Enter into an unidentified input UI.
+
 Retirement closes the pane, which closes the tab; record closure under the
 [retirement contract](../runtime/resources/retire.md).
 
 ## Wait and recover
 
+If a Codex launch returns `agent_not_ready` or its first wait reports `blocked`, read
+`herdr --session <session> agent read <worker> --source visible --lines 200`.
+For `Trust this folder?`, tell the user the folder shown and the worker (session and
+pane), and ask them to trust it in that pane, then retry registration; never answer the dialog.
+Do not count it as started or submit its assignment. Lifecycle registration refuses
+that dialog and includes the pane's text. Keep the pane for the user's decision;
+account for the failed launch with `hooks/herdr_launch.py dismiss --name <worker>
+--keep "pending user folder trust"` in the checkout (outside Herdr, also pass the
+host `--session`), under the worker attempts procedure.
+
 Bind each prompt, independent wait and collected result to its registered attempt
 under [worker attempts](../runtime/workers/prepare.md) and [waits](../runtime/workers/wait.md). Resume from its pending
 receipts and native worker state; rearm consumed waits after reconciliation.
-Register each pane right after its startup probe, before the assignment: the
+Register each pane before the assignment; registration runs its startup probe. The
 stop check names a logged launch into `.worktrees/`, or a live agent there, that no
 attempt registers, even after its pane closed. Dismiss a launch that failed, with its
 reason, as the worker attempts doc describes.
