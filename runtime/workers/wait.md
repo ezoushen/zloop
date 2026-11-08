@@ -46,7 +46,8 @@ report also completes the wait once settled with no jobs. An unavailable status 
 exits above 1 with the failing check and a working next step in its output. The helper
 runs the check after each successful bridge wait; pending checks repeat the wait after
 one second under the same monitor and original deadline. Only the final outcome emits
-a receipt and notification. Check errors carry `reason: completion-error`; bridge errors,
+a receipt and notification. A check that exits above 1 carries `reason: completion-error`;
+failure to launch either command carries `launch-error` and exit 2. Bridge errors,
 timeouts and interruption retain their usual receipts and logs. This option is for
 `watch` only: submit the assignment once before arming it, since repeating a prompt
 would resubmit productive work. Without `completion`, a successful bridge wait ends

@@ -1499,6 +1499,7 @@ def watch(db, state, attempt, request, *, productive=False):
                         db.execute('BEGIN IMMEDIATE')
                         if time.monotonic() >= deadline:
                             raise subprocess.TimeoutExpired(command, timeout)
+                        code = 2
                         process = subprocess.Popen(command, cwd=saved['worktree'], stdout=output,
                                                    stderr=subprocess.STDOUT, start_new_session=True)
                         saved = get(db, attempt)

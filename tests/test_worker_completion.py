@@ -97,6 +97,17 @@ sys.exit(0 if report.exists() and report.read_text() == 'result: done'
         self.assertEqual((code, receipt['reason']), (124, 'timeout'))
         self.assertEqual(launches, [wait, completion])
 
+    def test_an_unlaunchable_completion_check_cannot_inherit_the_successful_wait_exit(self):
+        self.register()
+        self.ready()
+        missing = self.root / 'missing-check'
+        receipt, code = self.watch_completion({
+            'argv': [sys.executable, '-c', 'print("turn settled")'],
+            'completion': [str(missing)], 'timeout': 5})
+        self.assertEqual((code, receipt['reason']), (2, 'launch-error'))
+        self.assertEqual(Path(receipt['log']).read_text(),
+                         f"turn settled\n[Errno 2] No such file or directory: '{missing}'\n")
+
 
 if __name__ == '__main__':
     unittest.main()
