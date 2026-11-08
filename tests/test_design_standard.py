@@ -27,65 +27,42 @@ class DesignStandard(unittest.TestCase):
             with self.subTest(term=term):
                 self.assertIn(f'**{term}:** {meaning}', text)
 
-    def test_the_interface_covers_more_than_its_operations(self):
-        self.assertIn('invariants, ordering constraints, error modes, required configuration and performance limits',
-                      prose(DESIGN))
-
-    def test_the_deletion_test_tells_a_pass_through_from_a_module_that_earns_its_place(self):
+    def test_the_standard_keeps_each_required_rule(self):
         text = prose(DESIGN)
-        self.assertIn('**The deletion test.** Imagine deleting the module.', text)
-        self.assertIn('If its complexity vanishes, it was a pass-through', text)
-        self.assertIn('if the complexity reappears across its callers, it earns its place', text)
-
-    def test_a_seam_needs_two_adapters(self):
-        text = prose(DESIGN)
-        self.assertIn('**One adapter is a hypothetical seam, two a real one.**', text)
-        self.assertIn('a seam with one adapter is only indirection', text)
-
-    def test_tests_cross_the_interface_callers_use(self):
-        text = prose(DESIGN)
-        self.assertIn('**The interface is the test surface.**', text)
-        self.assertIn('Tests cross the same seam as callers and assert what is observable there, not internal state',
-                      text)
-        self.assertIn('a test that must reach past the interface means the module has the wrong shape', text)
-
-    def test_the_interface_is_shaped_for_its_callers(self):
-        text = prose(DESIGN)
-        self.assertIn('**Shape the interface for its callers.** Prefer fewer operations, simpler inputs and more hidden '
-                      'inside', text)
-        self.assertIn('A module that receives its dependencies, and returns results instead of only changing shared '
-                      'state, can be tested through its interface alone', text)
-
-    def test_outside_data_is_parsed_once_where_it_enters(self):
-        self.assertIn('**Parse outside data once, where it enters.** Input from files, commands, other processes or the '
-                      'network is checked at the seam where it enters, into a form that cannot hold an illegal value; '
-                      'code inside trusts that form instead of checking it again', prose(DESIGN))
-
-    def test_a_seam_is_placed_by_what_the_dependency_is(self):
-        text = prose(DESIGN)
-        for rule in ('In-process computation and state need no seam: test through the module\'s interface',
+        for rule in ('invariants, ordering constraints, error modes, required configuration and performance limits',
+                     '**The deletion test.** Imagine deleting the module.',
+                     'If its complexity vanishes, it was a pass-through',
+                     'if the complexity reappears across its callers, it earns its place',
+                     '**One adapter is a hypothetical seam, two a real one.**',
+                     'a seam with one adapter is only indirection',
+                     '**The interface is the test surface.**',
+                     'Tests cross the same seam as callers and assert what is observable there, not internal state',
+                     'a test that must reach past the interface means the module has the wrong shape',
+                     '**Shape the interface for its callers.** Prefer fewer operations, simpler inputs and more hidden '
+                     'inside',
+                     'A module that receives its dependencies, and returns results instead of only changing shared '
+                     'state, can be tested through its interface alone',
+                     '**Parse outside data once, where it enters.** Input from files, commands, other processes or the '
+                     'network is checked at the seam where it enters, into a form that cannot hold an illegal value; '
+                     'code inside trusts that form instead of checking it again',
+                     'In-process computation and state need no seam: test through the module\'s interface',
                      'A dependency with a local stand-in, such as an embedded database, runs in the tests behind an '
                      'internal seam',
                      'An owned remote service gets a seam with a production and an in-memory adapter',
-                     'A third-party service gets a seam whose test adapter is a mock'):
+                     'A third-party service gets a seam whose test adapter is a mock',
+                     '**Replace shallow tests, don\'t layer them.** When shallow modules merge into a deep one, write '
+                     'tests at its interface and delete the old tests of the parts',
+                     '**Design it twice** when an interface is in question',
+                     'three or more independent designers, launched in parallel through the orchestrator',
+                     'each produce a materially different interface under a different constraint',
+                     'with its operations, a usage sketch, what it hides and its dependency strategy',
+                     'the smallest interface',
+                     'the most flexibility',
+                     'the simplest common call',
+                     'ports and adapters across the seam',
+                     'compare them on depth, locality and seam placement and recommend one'):
             with self.subTest(rule=rule):
                 self.assertIn(rule, text)
-
-    def test_tests_of_merged_shallow_modules_are_replaced_not_layered(self):
-        self.assertIn('**Replace shallow tests, don\'t layer them.** When shallow modules merge into a deep one, write '
-                      'tests at its interface and delete the old tests of the parts', prose(DESIGN))
-
-    def test_a_questioned_interface_is_designed_several_ways_by_independent_designers(self):
-        text = prose(DESIGN)
-        self.assertIn('**Design it twice** when an interface is in question', text)
-        self.assertIn('three or more independent designers, launched in parallel through the orchestrator', text)
-        self.assertIn('each produce a materially different interface under a different constraint', text)
-        self.assertIn('with its operations, a usage sketch, what it hides and its dependency strategy', text)
-        for constraint in ('the smallest interface', 'the most flexibility', 'the simplest common call',
-                           'ports and adapters across the seam'):
-            with self.subTest(constraint=constraint):
-                self.assertIn(constraint, text)
-        self.assertIn('compare them on depth, locality and seam placement and recommend one', text)
 
     def test_the_standard_has_no_code_in_any_language(self):
         self.assertEqual([], support.code_samples(DESIGN.read_text()))
