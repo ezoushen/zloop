@@ -30,11 +30,12 @@ unavailable. No peer messaging → relay evidence through the parent.
 
 ## Assignment and capacity
 
-When acceptance requires native closure or capacity release, preflight the actual
-close operation before spawning. A runtime exposing only `interrupt_agent` cannot
-satisfy that requirement. Use an explicitly selected, preflighted external route
-with confirmed cleanup when authorized; otherwise keep the assignment queued.
-Do not launch a child first and discover this limitation during collection.
+For a finished native child with no Herdr pane, collect with `disposition.kind: retire`
+under [retirement](../../runtime/resources/retire.md). Pass `disposition.evidence` naming the finished child and its reconciled jobs;
+omit `session` and `pane`. No native close tool is required to record this pane-less retirement.
+Retain only with a concrete reason, next use and evidence. Lifecycle retirement does not prove native capacity release:
+when acceptance requires that release, preflight a supported close operation and confirm it before reusing a slot.
+If unavailable, queue work or use an explicitly selected, authorized external route with confirmed cleanup.
 
 Supply absolute `adapter`, `agent_file`, `job_file`, `plugin_root`, `repo`, the job's inputs, relevant
 user decisions and exact failure evidence. Children read the adapter, agent file and job
