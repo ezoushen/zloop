@@ -53,7 +53,8 @@ class ClaudeEffortRoutes(unittest.TestCase):
 
     def test_explicit_claude_effort_without_herdr_names_a_working_next_step(self):
         with patch.dict(os.environ, {'HERDR_ENV': ''}):
-            with self.assertRaisesRegex(ValueError, 'start the orchestrator in Herdr and resolve again'):
+            with self.assertRaisesRegex(ValueError, 'start the orchestrator in Herdr and resolve again.*'
+                                        'or remove the effort that .*thinking sets to run natively at the session effort'):
                 self.route()
 
 

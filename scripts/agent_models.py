@@ -838,7 +838,8 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
     if native and runtime == 'claude' and settings.get('effort') is not None:
         if os.environ.get('HERDR_ENV') != '1':
             raise ValueError('Claude native subagents inherit session effort; '
-                             'start the orchestrator in Herdr and resolve again to launch at the route effort')
+                             'start the orchestrator in Herdr and resolve again to launch at the route effort, '
+                             f'or remove the effort that {sources.get("effort")} sets to run natively at the session effort')
         kind, config, native = 'herdr', {}, False
         metadata.update(target_runtime='claude', executor_context='herdr', executor_source='built-in')
     # A native child takes no flags; a worker started as its own runtime process gets them explicitly.
