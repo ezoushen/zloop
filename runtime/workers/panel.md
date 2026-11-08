@@ -21,6 +21,11 @@ It reads, read-only: the workstream's run card (`.scratch/<slug>/autopilot.md`),
 (`.scratch/<slug>/issues/`), with the whole local board as `next_tickets.py` loads and checks it. A session working in a worktree still reads its main checkout's state. An unreadable
 state file drops only the rows it would have supplied.
 
+For a worker with Herdr placement and no recorded result, it also asks that Herdr session for the worker's activity,
+with a half-second lookup limit. A worker Herdr reports `working` reads `working`, with no quiet span, even if its
+record has not changed or its wait ended. Idle or done workers, native workers without Herdr placement, and workers
+whose activity cannot be read keep the span since their last recorded event. Recorded results keep their waiting rows.
+
 Which workstream is this session's: one a record ties to it (the `reports/orchestrator.json` binding that
 `next_tickets.py --orchestrate` writes, the run card, its decision journal, or a worker attempt this session registered);
 the first live one wins, else the first. A workstream no record ties to this session is another session's, so a session

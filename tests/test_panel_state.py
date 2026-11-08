@@ -98,6 +98,42 @@ class PanelState(unittest.TestCase):
         for row, number in zip(rows, (1, 2, 3)):
             self.assertIn(f'zloop-panel/0{number}', row)
 
+    def test_a_herdr_worker_working_without_record_writes_has_no_quiet_span(self):
+        card(self.scratch / 'demo' / 'autopilot.md')
+        for runtime in ('claude', 'codex', 'pi', 'opencode'):
+            with self.subTest(runtime=runtime):
+                worker = dict(live('12/ticket-1', quiet=300), runtime=runtime,
+                              herdr={'session': 'panel-test', 'pane_id': 'w1:p2'})
+                attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [worker])
+                answer = {'result': {'agent': {'agent_status': 'working',
+                          'agent_session': {'kind': 'id', 'value': worker['native_session']}}}}
+                with patch.dict(os.environ, {'HERDR_SOCKET_PATH': ''}), patch('subprocess.run', return_value=
+                        subprocess.CompletedProcess([], 0, json.dumps(answer), '')) as run:
+                    found = self.snapshot()
+                self.assertEqual(['▶ builder · zloop-panel/01 · sonnet · working'], self.row_texts(found, 'run'))
+                self.assertEqual(['herdr', '--session', 'panel-test', 'agent', 'get', 'w1:p2'],
+                                 run.call_args.args[0])
+
+    def test_an_idle_or_done_herdr_worker_without_a_result_keeps_its_quiet_span(self):
+        card(self.scratch / 'demo' / 'autopilot.md')
+        for status in ('idle', 'done'):
+            with self.subTest(status=status):
+                attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite',
+                         [dict(live('12/ticket-1', quiet=300),
+                               herdr={'session': 'panel-test', 'pane_id': 'w1:p2'})])
+                answer = {'result': {'agent': {'agent_status': status}}}
+                with patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, json.dumps(answer), '')):
+                    found = self.snapshot()
+                self.assertEqual(['▶ builder · zloop-panel/01 · sonnet · quiet 5m'], self.row_texts(found, 'run'))
+
+    def test_a_native_worker_keeps_its_record_span_without_asking_herdr(self):
+        card(self.scratch / 'demo' / 'autopilot.md')
+        attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite', [live('12/ticket-1', quiet=300)])
+        with patch('subprocess.run') as run:
+            found = self.snapshot()
+        self.assertEqual(['▶ builder · zloop-panel/01 · sonnet · quiet 5m'], self.row_texts(found, 'run'))
+        run.assert_not_called()
+
     def test_the_rows_more_stands_for_come_with_the_snapshot_in_rank_order(self):
         card(self.scratch / 'demo' / 'autopilot.md')
         attempts(self.scratch / 'demo' / 'reports' / 'workers.sqlite',
