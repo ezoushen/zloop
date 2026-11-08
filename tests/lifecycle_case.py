@@ -226,7 +226,7 @@ class WorkerLifecycleCase(unittest.TestCase):
                       agent_kind='claude', session_kind='id', tab_gone_error='tab_not_found', pane_session=UNSET,
                       agent_name='builder-1', agent_exited=False, servers=('fixture-session',), empty_panes=(),
                       close_failures=0, pane_delay=0, agent_status='idle', session_after=0, probe_error=None,
-                      probe_status='idle', pending_session=None):
+                      probe_status='idle', pending_session=None, agent_screen=''):
         # during_delay: an argv the fixture runs once, while the first delayed call waits, recording its exit code in
         # during-delay.json, so a test can act inside that wait without racing its own thread against it.
         # lock_probe: a state database the fixture tries to write-lock, in its own process and without waiting,
@@ -288,6 +288,8 @@ elif args[2:4]==['agent','get']:
         'tab_id':{agent_tab!r},'workspace_id':'ws-1',
         'agent_status':{probe_status!r} if Path({str(self.root / 'probe-submitted')!r}).exists() else {agent_status!r},
         'agent_session':identity}}}}}}))
+elif args[2:]==['agent','read','pane-1','--source','visible','--lines','200']:
+    print({agent_screen!r})
 elif args[2:]==['tab','get','tab-1']:
     panes={tab_panes!r}
     if marker.exists() and not {tab_survives!r}:

@@ -30,11 +30,12 @@ unavailable. No peer messaging → relay evidence through the parent.
 
 ## Assignment and capacity
 
-When acceptance requires native closure or capacity release, preflight the actual
-close operation before spawning. A runtime exposing only `interrupt_agent` cannot
-satisfy that requirement. Use an explicitly selected, preflighted external route
-with confirmed cleanup when authorized; otherwise keep the assignment queued.
-Do not launch a child first and discover this limitation during collection.
+For a finished native child with no Herdr pane, collect with `disposition.kind: retire`
+under [retirement](../../runtime/resources/retire.md). Pass `disposition.evidence` naming the finished child and its reconciled jobs;
+omit `session` and `pane`. No native close tool is required to record this pane-less retirement.
+Retain only with a concrete reason, next use and evidence. Lifecycle retirement does not prove native capacity release:
+when acceptance requires that release, preflight a supported close operation and confirm it before reusing a slot.
+If unavailable, queue work or use an explicitly selected, authorized external route with confirmed cleanup.
 
 Supply absolute `adapter`, `agent_file`, `job_file`, `plugin_root`, `repo`, the job's inputs, relevant
 user decisions and exact failure evidence. Children read the adapter, agent file and job
@@ -122,8 +123,8 @@ probes a profile given with `-c` applied over a config `sandbox_mode`, and the r
 exactly these entries; under `codex sandbox` with the profile, `git commit` succeeded in a linked
 worktree. Start it in a
 worktree of a checkout the user already trusts: anywhere else "Trust this folder?" blocks the
-start (Herdr: `agent_not_ready`, agent `blocked`). Report that dialog to the user; never answer
-it.
+start (Herdr: `agent_not_ready`, agent `blocked`). Follow the [Herdr recovery procedure](../herdr.md#wait-and-recover)
+for that dialog.
 `codex exec` has no `-a` and always runs with approval `never`.
 
 Follow [prepare](../../runtime/workers/prepare.md) for registration and collection.

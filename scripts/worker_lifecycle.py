@@ -290,8 +290,13 @@ def wait_running(data):
     pgid = data.get('monitor', {}).get('wait_pid')
     if pgid is None:
         return False
-    process = subprocess.run(['ps', '-ax', '-o', 'pgid=,stat='], capture_output=True, text=True, timeout=3)
-    require(process.returncode == 0, 'Cannot verify owned wait teardown')
+    failure = 'Owned wait check could not run: {}; retry the same lifecycle command'
+    try:
+        process = subprocess.run(['ps', '-ax', '-o', 'pgid=,stat='], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        reason = 'ps timed out' if isinstance(error, subprocess.TimeoutExpired) else str(error)
+        raise ValueError(failure.format(reason)) from None
+    require(process.returncode == 0, failure.format(f'ps exited {process.returncode}'))
     return any(int(fields[0]) == pgid and not fields[1].startswith('Z')
                for line in process.stdout.splitlines() if len(fields := line.split()) == 2)
 
@@ -1127,6 +1132,11 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                     require_settled(saved['findings'], data.get('findings'), saved.get('startup_evidence'))
                 saved['result'] = dict(data, report_sha256=hashlib.sha256(report.read_bytes()).hexdigest())
                 verdict = report_verdict(report)
+                for key, allowed in (('review_status', ('clean', 'findings', 'incomplete')),
+                                     ('documentation_status', ('passed', 'findings', 'incomplete'))):
+                    if key in verdict:
+                        require(verdict[key] in allowed, f'{key}: {verdict[key]}; allowed: {", ".join(allowed)}; '
+                                'correct the report and collect again')
                 if verdict:
                     saved['result']['verdict'] = verdict
                 if data['status'] == 'completed':
@@ -1618,6 +1628,17 @@ def herdr_placement(data):
                        f'{response.get("error", {}).get("code")}')
     agent = response['result']['agent']
     placed = dict(session=session, **{key: agent.get(key) for key in ('workspace_id', 'tab_id', 'pane_id', 'name')})
+    if agent.get('agent') == 'codex' and agent.get('agent_status') == 'blocked':
+        screen = subprocess.run(['herdr', *server_option(session), 'agent', 'read', placed['pane_id'],
+                                 '--source', 'visible', '--lines', '200'], capture_output=True, text=True,
+                                timeout=LOOKUP_SECONDS)
+        require(screen.returncode == 0,
+                f'Cannot read blocked Codex worker {worker}; inspect its pane {placed["pane_id"]}, then register again')
+        if 'Trust this folder?' in screen.stdout:
+            raise ValueError(f'Codex worker {placed["name"]} is blocked at folder trust in '
+                             f'Herdr session {session}, pane {placed["pane_id"]}; not started. '
+                             'Ask the user to trust the folder in that pane, then retry startup and registration; '
+                             f'never answer the dialog.\n{screen.stdout}')
     # Herdr's agent kind is the runtime; only a session it reports as an ID is a native conversation ID.
     identity = agent.get('agent_session') or {}
     reported = dict(placed, runtime=agent.get('agent'),

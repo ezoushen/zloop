@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_matter  # noqa: E402
 import next_tickets  # noqa: E402
 import state_files  # noqa: E402
-from worker_lifecycle import ENDED, PAUSED, card_sessions, card_state, confirmed, recorded_sessions  # noqa: E402
+from worker_lifecycle import ENDED, PAUSED, card_sessions, card_state, confirmed, herdr_get, recorded_sessions  # noqa: E402
 
 SCRATCH = '.scratch'
 CARD = 'autopilot.md'
@@ -335,6 +335,15 @@ def main_checkout(repo):
     return repo
 
 
+def is_working(data):
+    """Whether Herdr reports this placed worker working; an unavailable answer leaves its record-based span."""
+    placement = data.get('herdr') or {}
+    if not placement:
+        return False
+    _, agent, _ = herdr_get(placement['session'], 'agent', placement['pane_id'], timeout=0.5)
+    return agent.get('agent_status') == 'working'
+
+
 def snapshot(repo, session_id, now):
     """What this session's workstream is doing, as the rows a host draws: the first live workstream tied to it, else
     the first tied one, quiet."""
@@ -363,11 +372,13 @@ def snapshot(repo, session_id, now):
     rows = [{'kind': 'headline', 'text': headline + (' · draft' if draft else '')}]
     running, waiting = inline_rows(found_tickets), []
     for age, data, label in attempts:
-        if label:
+        working = not data.get('result') and is_working(data)
+        if label and not working:
             waiting.append({'kind': 'wait', 'text': f"{label} · {data.get('assignment', '')} · quiet {fmt_age(age)}"})
         else:
+            activity = 'working' if working else f'quiet {fmt_age(age)}'
             running.append({'kind': 'run', 'text': f"▶ {data.get('agent', 'worker')} · {data.get('assignment', '')} · "
-                                                   f'{model_of(data)} · quiet {fmt_age(age)}'})
+                                                   f'{model_of(data)} · {activity}'})
     rows += running[:RUN_CAP] + waiting[:RUN_CAP]
     hidden = running[RUN_CAP:] + waiting[RUN_CAP:]
     if hidden:

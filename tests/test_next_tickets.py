@@ -1606,6 +1606,21 @@ class BoardCLI(unittest.TestCase):
     def ready_names(self, slug):
         return [t['ticket'] for t in json.loads(self.cli(slug).stdout)]
 
+    def test_delivery_names_the_whole_range_final_review_after_a_delta_recheck(self):
+        self.write_ticket('fx/01', 'done')
+        start = self.commit('start')
+        self.git('checkout', '-b', 'feat/fx')
+        previous = self.commit('initial review')
+        head = self.commit('repair delta')
+        review, evidence = self.deliver('fx', 'feat/fx', start, head, workers=False)
+        review.write_text(evidence.replace(f'review_diff_base: {start}', f'review_diff_base: {previous}'))
+        support.collected_attempt(self.root, 'fx', 'review/fx/1', review, job='diff-review', head=head)
+        support.collected_attempt(self.root, 'fx', 'e2e/fx/1', review, job='e2e-gate', head=head)
+        refused = self.cli('fx', '--delivery', code=1).stderr
+        self.assertIn(f'review_diff_base: {previous} is not the merge base', refused)
+        self.assertIn(f'run a whole-range final review from review_base {start} at head {head}', refused)
+        self.assertIn('collect its reviewer attempts and set review_by to them', refused)
+
     def test_delivery_requires_the_named_review_attempt_to_be_a_diff_review(self):
         self.write_ticket('fx/01', 'done')
         start = self.commit('start')

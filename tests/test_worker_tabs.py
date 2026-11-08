@@ -123,6 +123,25 @@ class HerdrTabs(WorkerLifecycleCase):
         self.assertIn('agent read builder-1', error)
         self.assertEqual(self.cli('status')['attempts'], [])
 
+    def test_folder_trust_names_the_worker_folder_and_user_step_without_starting_it(self):
+        self.herdr_route()
+        execution = json.loads(self.execution.read_text())
+        execution.update(target_runtime='codex', settings={}, launch={'verify': {'sandbox_mode': 'workspace-write'}})
+        self.execution.write_text(json.dumps(execution))
+        self.herdr_fixture(agent_kind='codex', agent_status='blocked',
+                           agent_screen='Folder access\n/fixture/untrusted repo\nTrust this folder?\n1. Yes\n2. No')
+        error = self.register(worker='builder-1', runtime='codex',
+                              herdr={'session': 'fixture-session'}, code=2)
+        self.assertIn('Codex worker builder-1', error)
+        self.assertIn('/fixture/untrusted repo', error)
+        self.assertIn('Trust this folder?', error)
+        self.assertIn('Ask the user to trust the folder in that pane', error)
+        self.assertIn('never answer the dialog', error)
+        self.assertEqual(self.cli('status')['attempts'], [])
+        self.assertEqual((self.root / 'herdr-argv.log').read_text().splitlines(), [
+            '--session fixture-session agent get builder-1',
+            '--session fixture-session agent read pane-1 --source visible --lines 200'])
+
     def test_a_placed_worker_retires_only_through_its_confirmed_pane(self):
         # Rule: collect closes a worker on evidence alone only when it has no Herdr placement; a placed one still
         # needs its session and pane, and nothing closes without them.
@@ -399,6 +418,15 @@ class HerdrTabs(WorkerLifecycleCase):
 
 
 class TabRecipe(unittest.TestCase):
+    def test_folder_trust_is_reported_before_a_launch_counts_as_started(self):
+        guide = ' '.join((support.ROOT / 'hosts/herdr.md').read_text().split())
+        for instruction in ('`agent_not_ready` or its first wait reports `blocked`',
+                            'agent read <worker> --source visible --lines 200',
+                            '`Trust this folder?`', 'tell the user the folder shown and the worker',
+                            'ask them to trust it in that pane', 'never answer the dialog',
+                            'Do not count it as started'):
+            self.assertIn(instruction, guide)
+
     def test_the_herdr_guide_starts_each_worker_in_a_tab_of_its_own_then_registers_it(self):
         # Rule: the Herdr guide holds the recipe (tab create with the ZLOOP_WORKER marker, agent start in its
         # root pane, register) instead of a split of the caller's pane, and how to find the session; the shared
