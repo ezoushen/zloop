@@ -35,12 +35,6 @@ const THEME = {
   style: (text, options) => `<${options.fg}${options.bold ? '+bold' : ''}>${text}</${options.fg}>`,
 };
 const plain = (line) => line.replace(/<\/?[^>]+>/g, "");
-// The cells a line occupies, as the panel counts them: zero-width marks take none, wide characters take two.
-const cells = (line) =>
-  [...line].reduce((total, character) => {
-    if (/[\uFE0E\uFE0F\u200B-\u200F\u2060]/.test(character)) return total;
-    return total + (/[\u{1F000}-\u{1FAFF}\u{20000}-\u{2FFFD}]/u.test(character) ? 2 : 1);
-  }, 0);
 const rendered = (call, width) => call.content({}, THEME).render(width).map(plain);
 
 // Rows draw below the editor, in the snapshot's order, through the factory form that re-renders on a resize.
@@ -74,16 +68,18 @@ const rendered = (call, width) => call.content({}, THEME).render(width).map(plai
   assert.equal(widgets(calls).length, first);
 }
 
-// Lines cut to the terminal end in an ellipsis and never exceed the width.
+// Long rows continue at either terminal width without losing any of the fact source's words.
 {
   const rows = [{ kind: "run", text: `▶ builder · zloop-panel/02 · sonnet · quiet 1m · ${"x".repeat(120)}` }];
   const { calls, ctx } = recording();
   await panel.panelTick(ctx, snapshot(rows));
   const [widget] = widgets(calls);
-  const lines = rendered(widget, 40);
-  assert.equal(lines.length, 1);
-  assert.ok(lines[0].length <= 40, lines[0]);
-  assert.ok(lines[0].endsWith("…"), lines[0]);
+  for (const width of [40, 60]) {
+    const lines = rendered(widget, width);
+    assert.ok(lines.length > 1, `width ${width}: the row continues`);
+    assert.ok(lines.every((line) => line.length <= width), JSON.stringify(lines));
+    assert.equal(lines.join(""), rows[0].text, "all row text survives without an ellipsis");
+  }
 }
 
 // A snapshot that could not be read draws nothing and raises nothing.
@@ -111,9 +107,9 @@ const rendered = (call, width) => call.content({}, THEME).render(width).map(plai
   const { calls, ctx } = recording();
   await panel.panelTick(ctx, snapshot([{ kind: "run", text: "⏳⏳⏳⏳⏳ ✅ done" }], { workstream: "wide" }));
   const [widget] = widgets(calls);
-  const [line] = rendered(widget, 8);
-  assert.ok(cells(line) <= 8, `${cells(line)} cells: ${line}`);
-  assert.ok(line.endsWith("…"), line);
+  const lines = rendered(widget, 8);
+  assert.deepEqual(lines, ["⏳⏳⏳⏳", "⏳ ✅ do", "ne"]);
+  assert.ok(lines.every((line) => cells(line) <= 8), JSON.stringify(lines));
   // A line that fits is drawn unchanged, so an over-counting table cannot pass.
   const fits = recording();
   await panel.panelTick(fits.ctx, snapshot([{ kind: "run", text: "abc ✅" }], { workstream: "fits" }));
@@ -122,7 +118,7 @@ const rendered = (call, width) => call.content({}, THEME).render(width).map(plai
   const astral = recording();
   await panel.panelTick(astral.ctx, snapshot([{ kind: "run", text: "🚀🚀🚀🚀" }], { workstream: "astral" }));
   assert.equal(rendered(widgets(astral.calls)[0], 8)[0], "🚀🚀🚀🚀");
-  assert.ok(rendered(widgets(astral.calls)[0], 7)[0].endsWith("…"));
+  assert.deepEqual(rendered(widgets(astral.calls)[0], 7), ["🚀🚀🚀", "🚀"]);
 }
 
 // Rows carry their kind's tone from the active theme, and the words stay the same.
@@ -150,18 +146,37 @@ const rendered = (call, width) => call.content({}, THEME).render(width).map(plai
   ]);
 }
 
-// A toned row is cut before it is styled, so the tone mark wraps exactly the text that remains.
+// Every continuation line keeps the row's tone, applied after wrapping.
 {
   const rows = [{ kind: "wait", text: "result ready · demo/01 · quiet 2m" }];
   const { calls, ctx } = recording();
   await panel.panelTick(ctx, snapshot(rows, { workstream: "narrow" }));
   const [widget] = widgets(calls);
-  const [raw] = widget.content({}, THEME).render(20);
-  const words = raw.replace(/<\/?[^>]+>/g, "");
-  assert.equal(raw, `<warning>${words}</warning>`, "the mark wraps the cut text, not part of it");
-  assert.ok(words.endsWith("…"), `expected an ellipsis, got ${JSON.stringify(words)}`);
-  assert.ok(words.length < rows[0].text.length, "the row was actually cut");
-  assert.ok(cells(words) <= 20, `expected at most 20 cells, got ${cells(words)}`);
+  assert.deepEqual(widget.content({}, THEME).render(20), [
+    "<warning>result ready · demo/</warning>",
+    "<warning>01 · quiet 2m</warning>",
+  ]);
+}
+
+// Wrapped lines keep their row's click target, including every line of the expander after a resize.
+{
+  const { calls, ctx } = recording();
+  let toggles = 0;
+  await panel.panelTick(ctx, snapshot([
+    { kind: "run", text: "abcdefghijklmnopqrstuvwx" },
+    { kind: "more", text: "+1 more" },
+  ], { more: [{ kind: "run", text: "hidden" }] }), { toggle: () => toggles++ });
+  const component = widgets(calls)[0].content({}, THEME);
+  for (const width of [12, 24]) {
+    const lines = component.render(width).map(plain);
+    const first = width === 12 ? 2 : 1;
+    assert.equal(lines.slice(first).join(""), "+1 more · ctrl+alt+w");
+    for (let y = 0; y < lines.length; y++) {
+      const before = toggles;
+      assert.deepEqual(component.handleMouse({ type: "click", y }), y >= first ? { handled: true } : undefined);
+      assert.equal(toggles, before + (y >= first ? 1 : 0));
+    }
+  }
 }
 
 // The extension under a stub Pi, its panel timer captured rather than left running: each tick reads the real fact
