@@ -86,9 +86,9 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    **Startup order.** Start the worker and obtain its session id (probe for a fixed reply
    and no tools if needed). Register with the assignment as `packet`, then `submit` it.
    A native child already has its assignment; record its startup once its record is available.
-   On every host, a native child runs in its parent's process, so its record names the parent's
-   directory; startup and result checks do not check its worktree from that directory.
-   Collection checks its writes in the assigned worktree.
+   A native child's record may name another directory; startup and result checks do not check its worktree
+   from that directory. Collection checks its writes in the assigned worktree; for a read-only Pi child,
+   it also checks any other checkout named by its startup record against that checkout's startup baseline.
 4. For supported native formats, invoke productive work through `submit --state
    ... --attempt ... --input /absolute/submit.json`, using this input shape:
 

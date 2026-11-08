@@ -403,7 +403,7 @@ def rerouted(host, reports):
     silent = [f'review_by: local cannot be judged, the router did not answer within {ROUTE_TIMEOUT} s']
     if silent in ROUTED.values():  # One wait for a router that does not answer, however many hosts ask.
         return silent
-    import agent_models  # Only here: the router's call, on a stop that holds no local review never imported.
+    import agent_models
     try:
         route = agent_models.ask_route(ROOT, host, reports, ROUTE_TIMEOUT)
     except subprocess.TimeoutExpired:

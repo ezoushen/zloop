@@ -1334,7 +1334,7 @@ console.log(JSON.stringify((await handlers.agent_before_settle(
         # Registering or dismissing cannot clear an unreachable Herdr; a retry or the hook switch can.
         self.serve(fail='connection refused')
         reason = self.stop()['reason']
-        self.assertIn('retry', reason)
+        self.assertIn('A check that could not run clears when its named cause is fixed: fix it, then retry the stop.', reason)
         self.assertIn('ZLOOP_YIELD_HOOK=off', reason)
         self.assertNotIn('Register each launched worker', reason)
         self.assertNotIn('herdr_launch.py dismiss', reason)

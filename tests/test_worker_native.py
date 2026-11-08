@@ -111,7 +111,7 @@ class NativeProof(WorkerLifecycleCase):
         self.cli('collect', '--attempt', attempt, '--input', request)
         self.assertEqual(self.cli('status', '--attempt', attempt)['attempts'][0]['result']['status'], 'completed')
 
-    def test_native_children_use_the_parent_directory_on_every_runtime(self):
+    def test_native_child_records_may_name_another_directory_on_every_runtime(self):
         elsewhere = self.root / 'parent'
         elsewhere.mkdir()
         for runtime in ('claude', 'codex', 'pi', 'opencode'):

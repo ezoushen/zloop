@@ -5,6 +5,9 @@ It holds what the run may do and when it ends, so the stop condition survives
 compaction. Fill every section; the user confirms it once. The State always records both effort levels on their own lines, `dispatch-effort:` and `review-effort:`,
 defaults included (medium and high), so the user confirms them with the card; the start or a take-over sets them
 ([autopilot](SKILL.md)).
+`--effort` sets both steps, and a split flag overrides it for its step.
+A start with no level writes these defaults, never a level typed earlier.
+`max` runs only when the user asks; an unknown flag or level value is refused.
 
 Record the user's confirmation from the shell of the session running the autopilot, with
 `python3 "<plugin_root>/scripts/autopilot_card.py" confirm <card> --words "<the user's words>"`, and set `phase:` with

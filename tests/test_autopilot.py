@@ -286,8 +286,7 @@ class EffortLevels(unittest.TestCase):
         self.assertIn('both effort levels on their own lines', prose(CARD))
 
     def test_the_start_and_a_take_over_take_the_three_flags(self):
-        # Rule: `--effort` sets both steps, `--dispatch-effort` and `--review-effort` override it; no level means the
-        # command's defaults, never a level remembered, and max runs only when asked.
+        # Rule: start and take-over declare the level flags; the card states start precedence, defaults and refusals.
         text = SKILL.read_text()
         hint = re.search(r'^argument-hint: (.+)$', text.split('---', 2)[1], re.M)
         assert hint, 'autopilot declares its argument hint'
@@ -299,6 +298,10 @@ class EffortLevels(unittest.TestCase):
         start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
         for phrase in ('records both effort levels', "keeps the card's levels unless a level flag is given"):
             self.assertIn(phrase, start)
+        for phrase in ('`--effort` sets both steps, and a split flag overrides it for its step',
+                       'A start with no level writes these defaults', 'never a level typed earlier',
+                       '`max` runs only when the user asks', 'an unknown flag or level value is refused'):
+            self.assertIn(phrase, prose(CARD))
         self.assertIn("the levels its setup recorded", prose(ROOT / 'skills/dispatch/SKILL.md'))
 
     def test_the_run_passes_both_levels_to_dispatch_beside_autofix(self):

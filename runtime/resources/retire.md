@@ -20,7 +20,8 @@ all native worker jobs or authenticate ownership claims.
 
 Retire, `record closed` and the reap judge Herdr's answer for the recorded tab and pane alike: the pane and its
 recorded tab both confirmed absent, or no server running, means gone (a pane moved to another tab is asked, not taken
-for gone), and a pane holding another conversation means the worker is replaced. Either ends the attempt. At a stop, or on demand with `worker_lifecycle.py reap --state ... [--session ...]`,
+for gone). A pane holding another conversation is replaced: retire refuses it and names the reap;
+`record closed` and the reap end the attempt without closing that pane. At a stop, or on demand with `worker_lifecycle.py reap --state ... [--session ...]`,
 the gate records `closed` itself for an owned attempt whose result is collected, and for a retained native subagent of
 a run whose card records `delivered`, `delivered-local` or `merged`; a closure the lifecycle refuses is a stop gap carrying its reason. Closing by hand
 is `record closed` with the evidence: Herdr's answer, or native evidence for an attempt with no Herdr pane.

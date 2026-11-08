@@ -709,8 +709,8 @@ def reason(workers, own, session=None):
                       + 'result (for a worker that is gone, a failed or cancelled result whose report says what was lost) '
                       + f'before stopping ({GUIDE}).')
     if failed:
-        advice.append('A check that could not run clears when it runs again: retry the stop once Herdr (or git) is '
-                      'reachable, or run with `ZLOOP_YIELD_HOOK=off` for this stop.')
+        advice.append('A check that could not run clears when its named cause is fixed: fix it, then retry the stop. '
+                      'Or run with `ZLOOP_YIELD_HOOK=off` for this stop.')
     return message + ' '.join(advice)
 
 
@@ -719,7 +719,7 @@ def stop_gaps(cwd, session, closing=True):
     closed = reaped(cwd, session) if closing else []
     try:
         workers, own = gaps(cwd, session)
-    except Exception as error:  # A broken check never passes silently.
+    except Exception as error:
         workers, own = [Unchecked(f'could not check workers: {error}')], []
     return workers, own + closed
 
@@ -731,7 +731,7 @@ def main():
         stop, cwd, session = sys.argv[1] == 'stop', Path(sys.argv[2]), (sys.argv[3:] or [None])[0]
         workers, own = stop_gaps(cwd, session, stop)
         report = {'missing': workers + own, 'reason': reason(workers, own, session)}
-        if stop:  # A host's stop, counted and settling what it can; `check` only reports.
+        if stop:
             hold, notice = count_hold(cwd, session, workers + own)
             report.update(hold=hold, notice=notice)
         print(json.dumps(report))

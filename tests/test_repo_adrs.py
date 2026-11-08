@@ -71,9 +71,8 @@ class RepoAdrs(unittest.TestCase):
         self.assertEqual(17, len(entries))
         for name, text in entries:
             title = (ROOT / 'docs/adr' / name).read_text().splitlines()[0].removeprefix('# ')
-            title = title.replace('when an effort lands', 'when a workstream lands')
             with self.subTest(adr=name):
-                self.assertTrue(text.startswith(title + ':'), text)
+                self.assertTrue(text.startswith((title + ':', f'`{title}`:')), text)
 
     def test_every_accepted_adr_has_a_one_line_rule_in_the_development_doc(self):
         text = (ROOT / 'docs/development.md').read_text()
