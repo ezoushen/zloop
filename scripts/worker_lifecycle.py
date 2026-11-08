@@ -1460,6 +1460,10 @@ def watch(db, state, attempt, request, *, productive=False):
     capture = request.get('capture')
     require(capture is None or isinstance(capture, list) and capture
             and all(text(x) and '\0' not in x for x in capture), 'Capture requires literal argv')
+    completion = request.get('completion')
+    require(completion is None or not productive and isinstance(completion, list) and completion
+            and all(text(x) and '\0' not in x for x in completion),
+            'Completion requires literal argv on watch, not submit; submit once, then watch with a completion check')
     if notify and not channel_proven(db, notify['argv']):
         # Refuse an invalid wait before sending its parent anything.
         saved = get(db, attempt)
@@ -1481,24 +1485,37 @@ def watch(db, state, attempt, request, *, productive=False):
         if notify:
             saved['monitor']['notify'] = notify
         save(db, saved)
-        event(db, attempt, 'wait-started', dict(token=token, argv=argv, timeout=timeout))
+        event(db, attempt, 'wait-started', dict(token=token, argv=argv, timeout=timeout,
+                                               **({'completion': completion} if completion else {})))
     process, code, reason = None, 2, 'launch-error'
     previous_handler = signal.signal(signal.SIGTERM, interrupted)
     try:
+        deadline = time.monotonic() + timeout
         with log.open('x') as output:
-            # Take the write lock before spawning, so recording the wait's pid never waits behind another writer.
-            with db:
-                db.execute('BEGIN IMMEDIATE')
-                process = subprocess.Popen(argv, cwd=saved['worktree'], stdout=output,
-                                           stderr=subprocess.STDOUT, start_new_session=True)
-                saved = get(db, attempt)
-                saved['monitor']['wait_pid'] = process.pid
-                save(db, saved)
-            code = process.wait(timeout=timeout)
-            code = code if code >= 0 else 128 - code
-            reason = 'settled' if code == 0 else 'wait-error'
+            while True:
+                for command in ([argv, completion] if completion else [argv]):
+                    # Take the write lock before spawning, so recording the wait's pid never waits behind another writer.
+                    with db:
+                        db.execute('BEGIN IMMEDIATE')
+                        if time.monotonic() >= deadline:
+                            raise subprocess.TimeoutExpired(command, timeout)
+                        process = subprocess.Popen(command, cwd=saved['worktree'], stdout=output,
+                                                   stderr=subprocess.STDOUT, start_new_session=True)
+                        saved = get(db, attempt)
+                        saved['monitor']['wait_pid'] = process.pid
+                        save(db, saved)
+                    code = process.wait(timeout=max(0, deadline - time.monotonic()))
+                    code = code if code >= 0 else 128 - code
+                    stop(process)
+                    if code:
+                        break
+                if not completion or command is not completion or code != 1:
+                    break
+                time.sleep(min(1, max(0, deadline - time.monotonic())))
+            reason = 'settled' if code == 0 else 'completion-error' if command is completion else 'wait-error'
     except subprocess.TimeoutExpired:
-        stop(process)
+        if process is not None:
+            stop(process)
         code, reason = 124, 'timeout'
     except KeyboardInterrupt:
         if process is not None:

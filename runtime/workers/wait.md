@@ -27,6 +27,31 @@ inspection. Callback timeouts are at most 45 seconds. Without `notify`, only a f
 wait of at most 60 seconds is accepted and the host awaits its native return; longer
 waits without a channel fail before the worker command runs.
 
+For a worker that ends turns while its own jobs run, add `completion`, a literal argv
+for an assignment-specific completion check, to the `watch` input. It exits **0** only
+when this attempt's report carries its final result, the native worker is settled and
+its owned jobs have stopped; **1** means still pending; any other exit is a check error.
+Use structured report and native job/status values, not words in pane output. For example:
+
+```json
+{"argv": ["herdr", "--session", "work", "agent", "wait", "verifier", "--timeout", "45000"],
+ "completion": ["python3", "/absolute/check_assignment.py", "/absolute/report.md"],
+ "timeout": 3600,
+ "notify": {"argv": ["herdr", "--session", "work", "agent", "prompt", "parent", "{receipt}"], "timeout": 15}}
+```
+
+Supply that check with the assignment: a missing or draft report, a result for another
+attempt, an active worker or any live job stays pending. A failed assignment's final
+report also completes the wait once settled with no jobs. An unavailable status reader
+exits above 1 with the failing check and a working next step in its output. The helper
+runs the check after each successful bridge wait; pending checks repeat the wait after
+one second under the same monitor and original deadline. Only the final outcome emits
+a receipt and notification. Check errors carry `reason: completion-error`; bridge errors,
+timeouts and interruption retain their usual receipts and logs. This option is for
+`watch` only: submit the assignment once before arming it, since repeating a prompt
+would resubmit productive work. Without `completion`, a successful bridge wait ends
+the monitor as usual. Collection still verifies the report, native record and revision.
+
 The terminal receipt is committed before delivery. Accepted delivery records
 `delivery.state: sent`; failures and timeouts stay `failed`; an interruption before the
 receipt is updated leaves `sending` with its owner's process identity. None of these
