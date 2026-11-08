@@ -86,7 +86,6 @@ class NativeProof(WorkerLifecycleCase):
         self.cli('collect', '--attempt', 'codex/2', '--input', self.result_request('codex/2', fresh))
 
     def test_codex_native_child_uses_its_registering_parent_and_reply_despite_an_encrypted_task(self):
-        self.native_env = dict(os.environ, CODEX_SESSION_ID='codex-host')
         attempt, model = self.runtime_attempt('codex', child=True)
         path = session_record(self.root / 'child.jsonl', 'codex', codex_child_session(attempt), self.root,
                               model=model, child=True)
@@ -124,6 +123,7 @@ class NativeProof(WorkerLifecycleCase):
                 self.assertTrue(self.record('startup', attempt, native=str(path))['verified'])
                 self.assertEqual(self.cli('status')['attempts'][0]['observed_cwd'], str(elsewhere.resolve()))
                 self.record('submitted', attempt, evidence=['native prompt accepted'])
+                path.write_text(path.read_text().replace(json.dumps(str(elsewhere)), json.dumps(str(self.root))))
                 self.collect(attempt)
                 self.assertEqual('completed', self.cli('status')['attempts'][0]['result']['status'])
 

@@ -164,7 +164,7 @@ const ctx = {{ cwd: {json.dumps(str(self.repo))}, sessionManager: {{ getSessionI
 
     def bind(self, pane='w1:p1', slug='fix', autofix=False, code=0, **sessions):
         """Run dispatch's binding for workstream `slug` (None: every workstream), with `--autofix` when `autofix`, as an
-        orchestrator in Herdr pane `pane` (None: outside Herdr) whose host exports `sessions` (a `support.SESSION_VARIABLES` name
+        orchestrator in Herdr pane `pane` (None: outside Herdr) whose host exports `sessions` (a `worker_lifecycle.SESSION_VARIABLES` name
         to its value); the finished process, which must exit `code`."""
         result = subprocess.run([sys.executable, '-B', str(TICKETS), '--repo', str(self.repo), *filter(None, [slug]),
                                  '--orchestrate', *(['--autofix'] if autofix else [])],
