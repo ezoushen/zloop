@@ -32,25 +32,24 @@ const cellsOf = (character) => {
   return WIDE.test(character) ? 2 : 1;
 };
 
-/** `text` cut to `width` terminal cells, ended with an ellipsis when anything was dropped. */
-export function truncateCells(text, width) {
-  if (width <= 0) return "";
+/** `text` continued over lines of at most `width` terminal cells. */
+function wrapCells(text, width) {
+  if (width <= 0) return [];
+  const lines = [];
   let out = "";
   let used = 0;
   for (const character of text) {
     const cells = cellsOf(character);
     if (used + cells > width) {
-      while (used > width - 1 && out) {
-        const dropped = [...out].pop();
-        out = out.slice(0, -dropped.length);
-        used -= cellsOf(dropped);
-      }
-      return `${out}…`;
+      lines.push(out);
+      out = "";
+      used = 0;
     }
     out += character;
     used += cells;
   }
-  return out;
+  lines.push(out);
+  return lines;
 }
 
 const drawable = (row) => row && typeof row.text === "string" && row.text;
@@ -81,7 +80,7 @@ const TONES = {
   more: { token: "dim" },
 };
 
-/** `text` in its kind's tone: styled after truncation, so styling never changes the cells it occupies. */
+/** `text` in its kind's tone: styled after wrapping, so styling never changes the cells it occupies. */
 function toned(theme, kind, text) {
   const tone = TONES[kind];
   if (!tone) return text;
@@ -110,18 +109,22 @@ export async function panelTick(ctx, found, view = {}) {
       ctx.ui.setStatus(PANEL_KEY, undefined);
       return;
     }
-    ctx.ui.setWidget(PANEL_KEY, (_tui, theme) => ({
-      render(width) {
-        return rows.map((row) => toned(theme, row.kind, truncateCells(row.text, width)));
-      },
-      // Fullscreen Pi routes clicks here; one on the expander line shows or hides the rows `+N more` stands for.
-      handleMouse(event) {
-        if (event.type !== "click" || !rows[event.y]?.expander) return undefined;
-        view.toggle?.();
-        return { handled: true };
-      },
-      invalidate() {},
-    }), { placement: "belowEditor" });
+    ctx.ui.setWidget(PANEL_KEY, (_tui, theme) => {
+      let lines = rows;
+      return {
+        render(width) {
+          lines = rows.flatMap((row) => wrapCells(row.text, width).map((text) => ({ ...row, text })));
+          return lines.map((row) => toned(theme, row.kind, row.text));
+        },
+        // Fullscreen Pi routes clicks here; one on the expander line shows or hides the rows `+N more` stands for.
+        handleMouse(event) {
+          if (event.type !== "click" || !lines[event.y]?.expander) return undefined;
+          view.toggle?.();
+          return { handled: true };
+        },
+        invalidate() {},
+      };
+    }, { placement: "belowEditor" });
   } catch {
     // The context belongs to a replaced session; the next tick draws on the fresh one.
     drawnCtx = null;
