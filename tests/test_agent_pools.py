@@ -187,8 +187,9 @@ print(json.dumps({'assignment_id': request['assignment']['assignment_id'],
         models.save_session(self.root, 'first', config)
         frozen = self.resolve(session_id='first')
         self.assertEqual(frozen['settings']['model'], 'session-model')
-        child = models.resolve_execution(self.root, self.root / 'absent.json', self.user,
-                                         'claude', 'builder', {}, session_id='first')
+        with patch.dict(os.environ, {'HERDR_ENV': '1'}):
+            child = models.resolve_execution(self.root, self.root / 'absent.json', self.user,
+                                             'claude', 'builder', {}, session_id='first')
         self.assertEqual(child['settings']['model'], 'session-model')
         self.assertEqual(self.resolve(session_id='second')['status'], 'selection_required')
         other = self.root / 'another-repo'

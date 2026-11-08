@@ -7,6 +7,9 @@ without piping through head/tail or masking its exit status. Inspect the pool wi
 `--list-candidates`, establish the available model/effort pairs below, then select
 with `--eligible-candidates` and `--eligible-thinking`. Render profiles only where
 native controls require them.
+Configured native Claude routes with an explicit effort resolve to Herdr so the worker process receives
+that effort independently of the parent session. Start the orchestrator in Herdr to use these routes;
+follow the returned `executor_guide` and `launch.argv`. Routes that inherit effort remain native.
 Do this for review workers too, including each partition and later round; an
 `zloop:<agent>` name is not a substitute for resolving user configuration. The operations
 below apply to `native`; a selected external executor owns its launch/lifecycle
@@ -115,8 +118,8 @@ for live workers in the current run.
 
 ## Top-level workers
 
-From a Claude orchestrator, `agent_models.py --host claude --route` resolves a Claude-runtime
-worker as a native subagent: `native_dispatch` is true and there is no `launch`. Start it with the
+From a Claude orchestrator, a Claude-runtime route that inherits effort can resolve as a native subagent:
+`native_dispatch` is true and there is no `launch`. Start it with the
 `Agent` tool; its restrictions are the agent profile's tools, which Claude enforces, plus
 the read-only worktree check at collection. It is not launched through Herdr.
 Register it with its `agentId` as `native_session`. Its transcript lives at
@@ -132,9 +135,10 @@ a symlink the command makes, programs that open files (`python -c`, `sed -i`, `c
 MCP tools; against those hold the agent's absolute-path rule and, for a builder, `--accept`'s check of
 its ticket branch.
 
-A Claude worker started as its own process takes a route's `launch.argv` after `--`, and only a
-non-Claude orchestrator (Codex, Pi or OpenCode, resolving with its own `--host` and
-`--target-runtime claude`) gets one, to start through Herdr. Every restriction is in it, since the user's default mode
+A Claude worker started as its own process takes a route's `launch.argv` after `--` through Herdr.
+This includes a Claude orchestrator's configured route with explicit effort and a non-Claude
+orchestrator (Codex, Pi or OpenCode, resolving with its own `--host` and
+`--target-runtime claude`). Every restriction is in it, since the user's default mode
 is `auto`. It sets `--permission-mode dontAsk` and the agent's tools as `--allowedTools`,
 then `--model` and `--effort`. For `writes: none`, resolve with `--worktree <abs worktree>
 --reports <abs reports dir>` (the resolver refuses without them); the launch then adds absolute
