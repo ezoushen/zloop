@@ -50,6 +50,9 @@ class ClaudeEffortRoutes(unittest.TestCase):
                      '--model', 'sonnet', '--effort', 'medium'],
             'verify': {'permission_mode': 'dontAsk'}})
         self.assertEqual(result['executor_guide'], str(models.ROOT / 'hosts/herdr.md'))
+        guide = ' '.join((models.ROOT / 'hosts/herdr.md').read_text().split())
+        self.assertIn("a Claude caller's configured Claude route with an explicit effort", guide)
+        self.assertIn("same-runtime work through Herdr for any other reason, show the mismatch", guide)
 
     def test_explicit_claude_effort_without_herdr_names_a_working_next_step(self):
         with patch.dict(os.environ, {'HERDR_ENV': ''}):

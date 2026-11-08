@@ -16,14 +16,15 @@ session prerequisites and identity checks; this file owns zloop coordination.
 
 Herdr is zloop's built-in worker provider. A Pi caller launches its workers here; Pi's own delegation would come
 from a third-party extension. Other callers prefer their native children for same-runtime assignments and use Herdr
-for cross-runtime ones or an explicit Herdr route.
+for cross-runtime ones, an explicit Herdr route, or a Claude caller's configured Claude route with an explicit effort,
+which a native child cannot take.
 Preserve an explicit user-selected executor and model policy;
 do not infer the destination from a model name or silently replace a saved route.
 Use [runtime definitions](../runtime/config/catalog.md) to share launch routes
 across models; model bindings declare each runtime's registered ID and thinking
 policy. Agent pools stay shared; routing profiles override candidate/thinking by
 worker runtime only when selected explicitly. If a saved route sends a non-Pi caller's same-runtime
-work through Herdr, show the mismatch and
+work through Herdr for any other reason, show the mismatch and
 use the setup command for an authorized correction. Environment detection alone
 does not rewrite configuration. Native capacity or permission limits do not
 authorize a Herdr fallback; queue work or report the boundary.

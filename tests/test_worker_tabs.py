@@ -428,9 +428,6 @@ class TabRecipe(unittest.TestCase):
             self.assertIn(instruction, guide)
 
     def test_the_herdr_guide_starts_each_worker_in_a_tab_of_its_own_then_registers_it(self):
-        # Rule: the Herdr guide starts each worker through the one start command (its own tab with the ZLOOP_WORKER
-        # marker, the saved route's argv never retyped as shell text), then registers it, instead of a split of the
-        # caller's pane; the shared attempt doc names the registration field and how to find its session.
         guide = ' '.join((support.ROOT / 'hosts/herdr.md').read_text().split())
         position = 0
         for step in ('never as a split of your pane',

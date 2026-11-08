@@ -161,6 +161,15 @@ class Outcomes(WorkerLifecycleCase):
                 self.assertIn(f'allowed: {allowed}', error)
                 self.assertIn('correct the report and collect again', error)
                 self.assertNotIn('result', self.cli('status')['attempts'][0])
+        for field, listed, allowed in (('review_status', 'clean', 'clean, findings, incomplete'),
+                                       ('documentation_status', 'passed', 'passed, findings, incomplete')):
+            with self.subTest(field=field, shape='list'):
+                report.write_text(f'---\n{field}: [{listed}]\n---\n## Coverage\n## Review round 1\n')
+                request = self.collect_request(head, report, 'ticket-1/1')
+                error = self.cli('collect', '--attempt', 'ticket-1/1', '--input', request, code=2)
+                self.assertIn(f"{field}: ['{listed}']", error)
+                self.assertIn(f'allowed: {allowed}', error)
+                self.assertNotIn('result', self.cli('status')['attempts'][0])
         report.write_text('---\nreview_status: clean\ndocumentation_status: passed\n---\n'
                           '## Coverage\n## Review round 1\n')
         self.cli('collect', '--attempt', 'ticket-1/1',

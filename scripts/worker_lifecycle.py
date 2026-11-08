@@ -416,10 +416,10 @@ VERDICT_FIELDS = ('review_status', 'documentation_status', 'review_head', 'revie
 
 
 def report_verdict(report):
-    """The verdict fields a report's front matter gives."""
+    """The verdict fields a report's front matter gives: strings unquoted, any other value as written."""
     fields = front_matter.parse(Path(report).read_text(errors='replace')) or {}
-    return {key: front_matter.unquoted(value) for key, value in fields.items()
-            if key in VERDICT_FIELDS and isinstance(value, str)}
+    return {key: front_matter.unquoted(value) if isinstance(value, str) else value for key, value in fields.items()
+            if key in VERDICT_FIELDS}
 
 
 def report_intact(data):
