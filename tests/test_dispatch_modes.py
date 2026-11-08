@@ -15,11 +15,22 @@ def prose(path):
 
 
 class TicketModes(unittest.TestCase):
+    def test_codex_collects_a_finished_paneless_child_without_a_native_close_tool(self):
+        text = prose(ROOT / 'hosts/codex/workers.md')
+        for rule in ('For a finished native child with no Herdr pane, collect with `disposition.kind: retire`',
+                     'Pass `disposition.evidence` naming the finished child and its reconciled jobs',
+                     'No native close tool is required to record this pane-less retirement',
+                     'Retain only with a concrete reason, next use and evidence',
+                     'Lifecycle retirement does not prove native capacity release'):
+            self.assertIn(rule, text)
+        self.assertNotIn('A runtime exposing only `interrupt_agent` cannot satisfy that requirement', text)
+
     def test_the_orchestrator_chooses_how_each_ticket_runs_and_records_why(self):
         text = prose(MODES)
         for rule in ('**Inline:** the orchestrator implements the ticket itself in the workstream worktree, on the workstream branch',
                      '**Delegated:** a builder implements it in its own worktree and branch',
-                     'Default to inline for sequential, well-understood tickets whose context the session already holds',
+                     'When tickets have a worker route, launch workers through that route or record why it cannot be used',
+                     'Without a worker route, default to inline for sequential, well-understood tickets whose context the session already holds',
                      'Delegate tickets that can run in parallel, need a clean context, carry high risk or would crowd',
                      "The user's instruction on how a ticket runs wins",
                      'Record the mode and its reason in the dispatch report'):

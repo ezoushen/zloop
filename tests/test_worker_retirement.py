@@ -9,6 +9,7 @@ import unittest
 
 import support
 from lifecycle_case import SCRIPT, WorkerLifecycleCase
+from native_records import codex_child_session, session_record
 
 
 class Retirement(WorkerLifecycleCase):
@@ -130,6 +131,28 @@ class Retirement(WorkerLifecycleCase):
                                        'evidence': ['checked report']}))
         self.cli('collect', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
         self.assertNotIn('result', self.cli('status')['attempts'][0])
+
+    def test_collect_retires_a_finished_codex_child_without_a_herdr_pane(self):
+        self.execution.write_text(json.dumps({'host': 'codex', 'native_dispatch': True,
+            'agent': 'builder', 'job': 'ticket', 'settings': {'model': 'm', 'effort': 'high'}}))
+        child = codex_child_session('ticket-1/1')
+        self.register(runtime='codex', worker=child, session=child)
+        native = session_record(self.root / 'child.jsonl', 'codex', child, self.root, model='m', child=True)
+        self.record('startup', native=str(native))
+        report = self.root / 'report.md'
+        report.write_text('Completed assignment at head-1\n')
+        request = self.collect_request(report, {'kind': 'retire',
+            'evidence': ['Codex child finished; owned jobs reconciled; no pane'],
+            'acceptance': {'decision': 'deferred', 'reason': 'integration checks pending'}})
+        result = self.cli('collect', '--attempt', 'ticket-1/1', '--input', request)
+        self.assertTrue(result['disposition']['closed'])
+        status = self.cli('status')
+        saved = status['attempts'][0]
+        self.assertTrue(saved['verified'])
+        self.assertIn('closed', saved)
+        self.assertNotIn('retained', saved)
+        self.assertEqual(status['pending'], [])
+        self.assertEqual(report.read_text(), 'Completed assignment at head-1\n')
 
     def panel_rows(self):
         """The rows the panel draws for the host session that registered the fixture's workers."""

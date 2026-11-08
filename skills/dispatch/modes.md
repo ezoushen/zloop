@@ -8,8 +8,9 @@ modes for each ticket before it starts:
 - **Delegated:** a builder implements it in its own worktree and branch, launched as the
   iteration describes.
 
-Default to inline for sequential, well-understood tickets whose context the session already
-holds: delegating them only adds re-briefing, setup and a merge. Delegate tickets that can
+When tickets have a worker route, launch workers through that route or record why it cannot be used
+in the dispatch report, with the working next step. Without a worker route, default to inline for
+sequential, well-understood tickets whose context the session already holds. Delegate tickets that can
 run in parallel, need a clean context, carry high risk or would crowd the orchestrator's
 own context. Model and thinking for a builder still come from routing. The user's
 instruction on how a ticket runs wins. Record the mode and its reason in the dispatch report.
