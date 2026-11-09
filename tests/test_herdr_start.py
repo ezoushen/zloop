@@ -52,9 +52,9 @@ else:
         self.env['OPENCODE_SESSION_ID'] = 'opencode-host'
         self.env.pop('HERDR_SOCKET_PATH', None)
 
-    def start(self):
+    def start(self, worktree=None):
         return subprocess.run([sys.executable, str(support.HOOKS / 'herdr_launch.py'), 'start',
-                               '--route', str(self.route), '--worktree', str(self.worktree),
+                               '--route', str(self.route), '--worktree', worktree or str(self.worktree),
                                '--assignment', 'workstream/05', '--role', 'builder', '--name', 'builder-05'],
                               cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=10)
 
@@ -70,6 +70,12 @@ else:
         filesystem = tomllib.loads(calls[1][calls[1].index('--') + 4])['permissions']['zloop_worktree']['filesystem']
         self.assertEqual(filesystem, {':root': 'read', ':tmpdir': 'write', str(self.worktree): 'write'})
         self.assertEqual(json.loads(result.stdout)['result']['agent']['pane_id'], 'root-pane')
+
+    def test_a_relative_worktree_opens_the_tab_in_that_folder_of_the_caller_s_checkout(self):
+        result = self.start(worktree='.worktrees/worker with spaces')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        create = json.loads(self.calls.read_text().splitlines()[0])
+        self.assertEqual(create[create.index('--cwd') + 1], str(self.worktree))
 
     def test_start_logs_the_launch_before_herdr_can_fail_for_the_stop_check(self):
         stub = self.bin / 'herdr'

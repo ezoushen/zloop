@@ -150,7 +150,8 @@ def start(argv):
     """Start a saved route in its own Herdr tab; return Herdr's agent-start response on stdout."""
     parser = argparse.ArgumentParser(prog='herdr_launch.py start')
     parser.add_argument('--route', required=True)
-    parser.add_argument('--worktree', required=True)
+    parser.add_argument('--worktree', required=True, type=lambda path: str(Path(path).resolve()),
+                        help="the worker's worktree; a relative path is the caller's")
     parser.add_argument('--assignment', required=True, help='<workstream>/<assignment>')
     parser.add_argument('--role', required=True)
     parser.add_argument('--name', required=True)
