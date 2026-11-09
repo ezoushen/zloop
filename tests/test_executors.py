@@ -94,7 +94,7 @@ class Executors(unittest.TestCase):
             def resolve(host='claude', agent='reviewer', choice=None, adaptive_thinking=None, **task):
                 return models.resolve_execution(root, preferences, user, host, agent, task, choice,
                                                 adaptive_thinking=adaptive_thinking,
-                                                worktree=str(root), reports=str(root / 'reports'))
+                                                worktree=root / 'worktree', reports=root / 'reports')
 
             for host in models.HOSTS:
                 for agent in models.AGENTS:
