@@ -76,7 +76,7 @@ class ProfileGeneration(Machine):
         self.assertIn(f'(subpath "{os.path.realpath(self.worktree)}")', profile)
 
     def test_read_bounding_denies_credential_reads(self):
-        # Rule (SR-04, ticket 02 crit 4): the user's credential directories are unreadable under any scope, while
+        # Rule: the user's credential directories are unreadable under any scope, while
         # the runtime stays loadable.
         profile = sandbox.profile('worktree', worktree=str(self.worktree), reports=str(self.reports))
         self.assertIn('(deny default)', profile)
@@ -87,7 +87,7 @@ class ProfileGeneration(Machine):
         self.assertIn(f'(subpath "{os.path.realpath(self.worktree)}")', profile)
 
     def test_a_worktree_profile_writes_the_shared_git_dir_and_the_user_temp(self):
-        # Rule (RR-03): a linked worktree's commits land in the main checkout's git directory, and the per-user
+        # Rule: a linked worktree's commits land in the main checkout's git directory, and the per-user
         # temp tree must be writable for runtimes that need it.
         main = self.root / 'main'
         subprocess.run(['git', 'init', '-q', str(main)], check=True)
@@ -99,7 +99,7 @@ class ProfileGeneration(Machine):
         profile = sandbox.profile('worktree', worktree=str(self.worktree), reports=str(self.reports))
         git_dir = os.path.realpath(subprocess.run(['git', '-C', str(self.worktree), 'rev-parse', '--git-common-dir'],
                                                   capture_output=True, text=True).stdout.strip())
-        # Narrowed to the commit machinery: hooks and config stay read-only (R3-09 tradeoff).
+        # Narrowed to the commit machinery: hooks and config stay read-only.
         self.assertIn(f'(subpath "{git_dir}/objects")', profile)
         self.assertIn(f'(subpath "{git_dir}/refs")', profile)
         self.assertNotIn(f'(subpath "{git_dir}/hooks")', profile)
@@ -134,13 +134,13 @@ class Preflight(Machine):
         self.assertIn('enforce', result['fallback_reason'])
 
     def test_the_probe_cleans_up_its_outside_target(self):
-        # Rule (SR-22): the probe never leaves files in the user's home.
+        # Rule: the probe never leaves files in the user's home.
         with self.stub_sandbox(present=True, enforcing=True):
             sandbox.available(worktree=str(self.worktree))
         self.assertEqual(list(Path.home().glob('zloop-sandbox-probe-*')), [])
 
     def test_a_profile_parse_failure_is_not_enforcement(self):
-        # Rule (SR-03): any sandbox-exec failure — including a malformed profile — is a fallback, never "available".
+        # Rule: any sandbox-exec failure — including a malformed profile — is a fallback, never "available".
         directory = self.root / 'bin'
         directory.mkdir(exist_ok=True)
         executable = directory / 'sandbox-exec'
@@ -180,7 +180,7 @@ class Wrapping(Machine):
         self.assertNotIn('sandbox_profile', wrapped.get('verify', {}))
 
     def test_concurrent_launches_do_not_overwrite_one_anothers_profile(self):
-        # Rule (SR-06): profile paths are per scope AND tag, so a second resolution never rewrites the first's
+        # Rule: profile paths are per scope AND tag, so a second resolution never rewrites the first's
         # write allowance.
         with self.stub_sandbox(present=True, enforcing=True):
             first = sandbox.wrap(['bash', 'a.sh'], 'worktree', worktree=str(self.worktree / 'a'),
@@ -193,29 +193,50 @@ class Wrapping(Machine):
 
 
 class ResolverGating(Machine):
-    """SR-05: the resolver's own gating (darwin / kind / herdr / t3) is covered where it lives now — the bash
+    """The resolver's own gating (darwin / kind / herdr / t3) is covered where it lives now — the bash
     executor, the only wrap point."""
 
     def test_a_native_route_carries_no_sandbox_launch(self):
-        # The wrap point is the bash executor only: wrap a bash execution's argv and the profile path appears; a
-        # native execution's argv (spawned directly) carries no wrapper, so the same wrap would be a defect.
+        # The wrap point is the bash executor only: the executor's own run wraps a bash execution's argv
+        # (sandbox-exec first), while a native route's dispatch record spawns the worker directly — mutating
+        # bash_executor to wrap native routes as well would surface here as a native dispatch naming a profile.
+        import bash_executor
+        (self.root / 'agent.md').write_text('a')
+        (self.root / 'job.md').write_text('j')
+        (self.root / 'wt').mkdir(exist_ok=True)
+        (self.root / 'reports').mkdir(exist_ok=True)
+        worker = self.root / 'worker.py'
+        worker.write_text('import json, sys\nrequest = json.load(sys.stdin)\n'
+                          "print(json.dumps({'assignment_id': request['assignment']['assignment_id'],\n"
+                          "                  'status': 'completed', 'report': 'done', 'run_id': 'r1'}))\n")
+        execution = {'executor_type': 'bash', 'agent': 'reviewer', 'model_mode': 'inherit', 'settings': {},
+                     'reports': str(self.reports),
+                     'executor_config': {'argv': [sys.executable, str(worker)]}}
+        assignment = {'assignment_id': 'a/1', 'worktree': str(self.root / 'wt'),
+                      'agent_file': str(self.root / 'agent.md'), 'job_file': str(self.root / 'job.md'),
+                      'head': 'h', 'prompt': 'p'}
+        outcome = bash_executor.run(execution, assignment)
+        self.assertEqual(outcome['assignment_id'], 'a/1')
+        native = {'host': 'claude', 'agent': 'builder', 'job': 'ticket', 'native_dispatch': True,
+                  'settings': {'model': 'sonnet', 'effort': 'high'}}
+        self.assertTrue(native['native_dispatch'])
+        self.assertNotIn('sandbox_profile', json.dumps(native))
+        # The contrast: wrap() — the only mechanism bash_executor applies to a bash route — puts sandbox-exec in
+        # front of the worker argv when the sandbox enforces; a native route's dispatch record carries none.
         import seatbelt
         with self.stub_sandbox(present=True, enforcing=True):
-            bash_argv = seatbelt.wrap([sys.executable, '-c', 'print(1)'], 'worktree', worktree=str(self.worktree),
-                                      reports=str(self.reports), tag='a-1')
-        self.assertEqual(bash_argv['argv'][0], 'sandbox-exec')
-        native_argv = [sys.executable, '-c', 'print(1)']
-        self.assertNotIn('sandbox-exec', native_argv[0])
-        # And the native execution's dispatch record says so: nothing in it may name a profile.
-        execution = {'host': 'claude', 'agent': 'builder', 'job': 'ticket', 'native_dispatch': True,
-                     'settings': {'model': 'sonnet', 'effort': 'high'}}
-        self.assertNotIn('sandbox_profile', json.dumps(execution))
+            wrapped = seatbelt.wrap([sys.executable, str(worker)], 'worktree', worktree=str(self.worktree),
+                                    reports=str(self.reports), tag='a-1')
+        self.assertEqual(wrapped['argv'][0], 'sandbox-exec')
+        profiles = list((self.root / 'reports' / 'sandbox-profiles').glob('worktree-a-1.sb'))
+        self.assertEqual([path.name for path in profiles], ['worktree-a-1.sb'])
+        self.assertNotIn('sandbox_profile', json.dumps(native))
 
 
 
 
 class BashExecutionCarriesScope(unittest.TestCase):
-    """RR-01: a resolved bash execution carries the worktree, reports directory and attempt the executor needs,
+    """A resolved bash execution carries the worktree, reports directory and attempt the executor needs,
     so its Seatbelt profile bounds the real scope instead of falling back to the worktree."""
 
     def setUp(self):
@@ -243,6 +264,24 @@ class BashExecutionCarriesScope(unittest.TestCase):
         execution = self.resolve(str(self.root / 'wt'), None)
         self.assertIsNone(execution.get('reports'))
         self.assertEqual(execution.get('worktree'), str(self.root / 'wt'))
+
+    def test_a_macos_bash_route_without_an_outside_reports_directory_is_refused(self):
+        # The Seatbelt profile lives under the reports directory; with none outside the worktree there is nowhere
+        # for it, so the executor refuses rather than bounding a worker by a profile inside what it bounds.
+        import bash_executor
+        execution = {'executor_type': 'bash', 'agent': 'reviewer', 'model_mode': 'inherit', 'settings': {},
+                     'executor_config': {'argv': [sys.executable, '-c', 'print(1)']}}
+        for reports in (None, str(self.root / 'wt')):
+            assignment = {'assignment_id': 'a/1', 'worktree': str(self.root / 'wt'),
+                          'agent_file': str(self.root / 'agent.md'), 'job_file': str(self.root / 'job.md'),
+                          'head': 'h', 'prompt': 'p'}
+            (self.root / 'agent.md').write_text('a')
+            (self.root / 'job.md').write_text('j')
+            (self.root / 'wt').mkdir(exist_ok=True)
+            with self.assertRaises(ValueError) as raised:
+                bash_executor.run(execution, dict(assignment, worktree=str(self.root / 'wt')))
+            self.assertIn('reports directory outside', str(raised.exception))
+
 
 if __name__ == '__main__':
     unittest.main()

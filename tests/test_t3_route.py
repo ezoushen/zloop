@@ -140,7 +140,7 @@ class ExplicitGate(unittest.TestCase):
 
 
 class ResolverPreflight(unittest.TestCase):
-    """SR-08: the resolver runs the layered T3 preflight before returning a t3 route; a failing environment refuses
+    """The resolver runs the layered T3 preflight before returning a t3 route; a failing environment refuses
     with the layer's reason (the explicit gate includes the environment, not just the config key)."""
 
     def setUp(self):
@@ -218,7 +218,7 @@ sys.exit({code})
 
 
 class ProviderMapping(unittest.TestCase):
-    """R3-04 (A15/D-2): a t3 route's model binding maps to the T3 provider instance id and the model slug the
+    """A t3 route's model binding maps to the T3 provider instance id and the model slug the
     provider accepts; the resolver refuses an unknown runtime binding instead of guessing a slug."""
 
     def setUp(self):

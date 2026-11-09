@@ -51,11 +51,13 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
      "assignment": "ticket-12", "repo": "/absolute/main-checkout",
      "worktree": "/absolute/ticket-worktree", "head": "pinned-input-revision",
      "execution": "/absolute/reports/resolved-execution.json", "runtime": "claude",
-     // a T3 Code worker instead: "runtime": "t3", "t3": {"thread": "<thread id>"},
      "worker": "returned-transport-handle", "native_session": "native-conversation-id",
      "owned": true, "packet": "/absolute/reports/ticket-12-assignment.txt"
    }
    ```
+
+   A T3 Code worker registers the same event with `"runtime": "t3"` and the thread id T3 reports in place of the
+   Herdr handle: `"t3": {"thread": "<thread id>"}`; hosts/t3.md names the rest of the T3 flow.
 
    Pass the event file with `record --state /absolute/reports/workers.sqlite
    --input /absolute/register.json`; registration takes only the fields named here (plus `native`, a Pi child's

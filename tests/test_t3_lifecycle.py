@@ -26,7 +26,7 @@ class T3Threads(WorkerLifecycleCase):
         directory = self.root / 'bin'
         directory.mkdir(exist_ok=True)
         executable = directory / 't3'
-        # The real CLI nests the thread under `thread` beside `messages` (review R3-01).
+        # The real CLI nests the thread under `thread` beside `messages`.
         payload = {'thread': {'threadId': thread, 'title': title, 'status': status,
                               'providerInstanceId': runtime, 'model': model},
                    'messages': [{'role': 'assistant', 'text': 'assignment done'}]}
@@ -68,7 +68,7 @@ sys.exit(3)
 
 class NativeRecord(T3Threads):
     def test_the_native_record_reads_the_thread_state(self):
-        # Rule (R4-04): a t3 worker's startup record IS the thread state; observation reads its model and status,
+        # Rule: a t3 worker's startup record IS the thread state; observation reads its model and status,
         # and the collection's packet-reply check walks the thread's messages for the packet and its reply.
         self.registered(worker='th-1')
         # The startup record for a t3 worker is the thread state `t3 thread show --json` wrote (the live-run
@@ -124,7 +124,7 @@ class Registration(T3Threads):
 
 class RegistrationRefusals(T3Threads):
     def test_registration_refuses_a_thread_another_live_attempt_holds(self):
-        # Rule (SR-10): a T3 thread runs one worker; a second attempt on the same live thread is refused with the
+        # Rule: a T3 thread runs one worker; a second attempt on the same live thread is refused with the
         # holder named, even from a fresh worker handle and session.
         self.registered()
         self.record('startup', attempt='ticket-1/1', native=str(self.native('ticket-1/1')))
@@ -133,7 +133,7 @@ class RegistrationRefusals(T3Threads):
         self.assertIn('already holds attempt ticket-1/1', str(error))
 
     def test_registration_refuses_an_unknown_thread_with_its_reason(self):
-        # Rule (SR-20): the not-found reason is the refusal, not a generic failure.
+        # Rule: the not-found reason is the refusal, not a generic failure.
         self.t3_route()
         self.t3_fixture(show_error='not_found')
         error = self.register(worker='th-1', t3={'thread': 'th-1'}, code=2)
@@ -158,7 +158,7 @@ class Retirement(T3Threads):
 
 class WaitingThreadRetirement(T3Threads):
     def test_retirement_refuses_a_thread_waiting_for_an_answer(self):
-        # Rule (SR-14): waiting-on-answer is the user's decision, not the orchestrator's.
+        # Rule: waiting-on-answer is the user's decision, not the orchestrator's.
         self.registered()
         self.ready()
         report = self.collect()
@@ -172,7 +172,7 @@ class WaitingThreadRetirement(T3Threads):
 
 
 class T3Submit(T3Threads):
-    """SR-09: a t3 submit goes through `t3 thread send --wait`; the lifecycle checks the packet text, maps the
+    """A t3 submit goes through `t3 thread send --wait`; the lifecycle checks the packet text, maps the
     exit codes (0 done, 2 waiting-on-answer, 1 failed) and collects the final reply from `thread show --json`."""
 
     def t3_send_fixture(self, *, exit_code=0, reply='assignment done', send_error=None):
