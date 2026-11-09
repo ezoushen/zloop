@@ -262,7 +262,8 @@
    ],
    "code": [
     "scripts/agent_models.py",
-    "scripts/outcomes.py"
+    "scripts/outcomes.py",
+    "scripts/seatbelt.py"
    ]
   },
   "decisions": {
