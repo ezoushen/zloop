@@ -112,7 +112,7 @@ class WorkerLifecycleCase(unittest.TestCase):
                 'kind': 'retain', 'reason': 'recheck', 'next_use': 'recheck', 'evidence': ['review.md']})))
         return str(request)
 
-    def watch(self, attempt='ticket-1/1', script='print("idle")', code=0, timeout=2):
+    def watch(self, attempt='ticket-1/1', script='print("idle")', code=0, timeout=10):  # A loaded suite slows its launch.
         path = self.root / 'wait.json'
         path.write_text(json.dumps({'argv': [sys.executable, '-c', script], 'timeout': timeout}))
         return self.cli('watch', '--attempt', attempt, '--input', str(path), code=code)

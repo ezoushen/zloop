@@ -20,7 +20,8 @@ relative to `agent_file`.
 
 - Never fix code or tests, change tickets or front matter, work on `main`, push,
   merge, rebase, or delete branches or worktrees. The orchestrator owns integration.
-  Edit only the assigned report. Before you return, remove the untracked files your
+  Edit only the assigned report; when it does not exist yet, create it with your shell,
+  which your launch allows there. Before you return, remove the untracked files your
   checks left that the project does not ignore: the worktree must match its state at
   registration.
 - Follow native permission limits; never work around a denied tool call.

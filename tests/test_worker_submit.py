@@ -498,6 +498,27 @@ class Submission(WorkerLifecycleCase):
                                                 self.packet().read_text() if text is None else text, *flags]}))
         return request
 
+    def test_registration_names_the_attempt_in_a_packet_it_has_yet_to_submit(self):
+        # Follow-up 2 (host-followups: hosts left the line out on every host): a worker started as its own process gets
+        # the packet file by submit, after registration, so registration adds the attempt line itself; a native child
+        # got its text with its spawn, so its packet must already name the attempt.
+        body = self.packet().read_text().partition('\n')[2]
+        packet = self.root / 'unnamed-assignment.txt'
+        for native in (True, False):
+            with self.subTest(native_dispatch=native):
+                packet.write_text(body)
+                execution = json.loads(self.execution.read_text())
+                execution.update(native_dispatch=native,
+                                 launch={'writes': 'worktree', 'verify': {'permission_mode': 'dontAsk'}})
+                self.execution.write_text(json.dumps(execution))
+                if native:
+                    error = self.register(packet=str(packet), code=2)
+                    self.assertIn('Registration packet lacks its attempt line; add `attempt: ticket-1/1`', error)
+                    self.assertEqual(packet.read_text(), body)
+                else:
+                    self.register(packet=str(packet))
+                    self.assertEqual(packet.read_text(), 'attempt: ticket-1/1\n' + body)
+
     def test_a_herdr_submit_sends_the_registered_packet_and_nothing_else(self):
         # Rule (stforestkit: the packet went out by hand and a later `submit` of `attempt: <id>` to the finished
         # worker recorded the acceptance): the prompt a Herdr submit sends is the attempt's registered packet.

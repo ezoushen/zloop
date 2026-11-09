@@ -84,7 +84,8 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    `collect` result reports a capture gap; without that field nothing was linked,
    so record an override yourself. An unbound forwarding executor needs an explicitly verified
    destination; a known destination must agree with the resolver.
-3. Name attempts in packets. Collection needs its worker's reply;
+3. Name the attempt (`attempt: <attempt>`) in a native child's packet before spawning it; registration adds
+   that line to any other packet, so submit the file as registration leaves it. Collection needs its worker's reply;
    Codex native children prove parentage through rollout metadata.
    Use `submit` for transport commands. Native children use `worker_lifecycle.py record
    --state ... --input /absolute/startup.json` with `kind: startup`, `attempt` and
