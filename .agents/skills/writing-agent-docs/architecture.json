@@ -241,9 +241,10 @@
     "runtime/workers/**/*.md"
    ],
    "code": [
+    "scripts/native_wait.py",
+    "scripts/t3_preflight.py",
     "scripts/worker_lifecycle.py",
-    "scripts/workstream_spend.py",
-    "scripts/native_wait.py"
+    "scripts/workstream_spend.py"
    ]
   },
   "checks": {
