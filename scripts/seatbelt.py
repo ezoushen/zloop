@@ -19,7 +19,7 @@ from pathlib import Path
 PROBE_SECONDS = 15
 
 
-def profile(scope, worktree, reports, *, read_bound=True, extra_reads=()):
+def profile(scope, worktree, reports):
     """The Seatbelt profile text for a write scope: writes only inside the scope's paths; reads are bounded by
     denying the user's credential directories (ssh, aws, gnupg, gcloud, netrc) — enough that a worker cannot read
     credentials, while the runtime stays loadable (macOS exec needs metadata/ioctl reads of its interpreter)."""
@@ -34,13 +34,16 @@ def profile(scope, worktree, reports, *, read_bound=True, extra_reads=()):
     if scope == 'worktree':
         worktree_real = os.path.realpath(worktree)
         writes.append(f'       (subpath "{worktree_real}")')
-        # A linked worktree's commits land in the main checkout's shared git directory.
-        import shutil as _shutil
-        if _shutil.which('git'):
+        # A linked worktree's commits land in the main checkout's shared git directory; only the commit machinery
+        # (objects, refs, the worktree's own state) is writable — hooks and config stay read-only.
+        import shutil
+        if shutil.which('git'):
             git = subprocess.run(['git', '-C', worktree_real, 'rev-parse', '--git-common-dir'],
                                  capture_output=True, text=True)
             if git.returncode == 0 and git.stdout.strip():
-                writes.append(f'       (subpath "{os.path.realpath(git.stdout.strip())}")')
+                git_real = os.path.realpath(git.stdout.strip())
+                for part in ('objects', 'refs', f'worktrees/{Path(worktree_real).name}'):
+                    writes.append(f'       (subpath "{git_real}/{part}")')
     home = os.path.realpath(Path.home())
     lines = [
         '(version 1)',
@@ -71,8 +74,7 @@ def _probe_paths(worktree):
     outside = Path.home() / f'zloop-sandbox-probe-{os.getuid()}-{os.getpid()}'
     inside_parent = Path(tempfile.mkdtemp(prefix='zloop-sandbox-probe-in-'))
     inside = inside_parent / 'inside.txt'
-    text = profile('worktree', worktree=worktree or str(inside_parent), reports=str(inside_parent),
-                   read_bound=False)
+    text = profile('worktree', worktree=worktree or str(inside_parent), reports=str(inside_parent))
     return text, inside, outside, inside_parent
 
 
@@ -112,7 +114,7 @@ def available(worktree=None, reports=None):
     return {'available': True, 'fallback_reason': None, 'probe': str(inside)}
 
 
-def wrap(argv, scope, worktree, reports, *, tag='worker', extra_reads=()):
+def wrap(argv, scope, worktree, reports, *, tag='worker'):
     """The bash executor's worker argv with a sandbox-exec profile in front, when the sandbox is available;
     otherwise the argv unchanged with the fallback reason recorded. The profile file persists under the reports
     directory, named per scope and tag, so concurrent launches never overwrite one another."""
@@ -122,6 +124,6 @@ def wrap(argv, scope, worktree, reports, *, tag='worker', extra_reads=()):
     directory = Path(reports) / 'sandbox-profiles'
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f'{scope}-{tag}.sb'
-    path.write_text(profile(scope, worktree=worktree, reports=reports, extra_reads=extra_reads))
+    path.write_text(profile(scope, worktree=worktree, reports=reports))
     return {'argv': ['sandbox-exec', '-f', str(path), *argv],
             'verify': {'sandbox_profile': scope}}

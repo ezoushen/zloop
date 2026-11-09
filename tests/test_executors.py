@@ -245,7 +245,7 @@ class Executors(unittest.TestCase):
             worker = root / 'worker.py'
             worker.write_text('''import json, os, pathlib, sys
 request = json.load(sys.stdin)
-target = pathlib.Path(os.environ.get('ZLOOP_TEST_REPORTS', '.')) / 'received.json'
+target = pathlib.Path(os.environ.get('ZLOOP_REPORTS', '.')) / 'received.json'
 target.write_text(json.dumps({'request': request, 'cwd': os.getcwd(), 'args': sys.argv[1:]}))
 assignment_id = request['assignment']['assignment_id']
 mode = sys.argv[1]

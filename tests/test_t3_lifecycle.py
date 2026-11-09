@@ -26,8 +26,9 @@ class T3Threads(WorkerLifecycleCase):
         directory = self.root / 'bin'
         directory.mkdir(exist_ok=True)
         executable = directory / 't3'
-        payload = {'threadId': thread, 'title': title, 'status': status,
-                   'providerInstanceId': runtime, 'model': model,
+        # The real CLI nests the thread under `thread` beside `messages` (review R3-01).
+        payload = {'thread': {'threadId': thread, 'title': title, 'status': status,
+                              'providerInstanceId': runtime, 'model': model},
                    'messages': [{'role': 'assistant', 'text': 'assignment done'}]}
         body = (json.dumps(payload) if show_error is None
                 else json.dumps({'error': {'code': show_error}}))

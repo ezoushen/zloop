@@ -82,6 +82,13 @@ def observe(path, runtime, session, worktree):
     path = Path(path)
     if not path.is_absolute():
         raise ValueError('Native evidence path must be absolute')
+    if runtime == 't3':
+        # A T3 worker's session record is the thread state `t3 thread show --json` wrote at startup: the identity,
+        # status and settings come from the thread itself.
+        record = json.loads(path.read_bytes())
+        thread = record.get('thread') if isinstance(record.get('thread'), dict) else record
+        observed = {'runtime': 't3', 'model': thread.get('model'), 'status': thread.get('status')}
+        return {'observed': observed, 'cwd': None, 'source': str(path)}
     if runtime == 'opencode':
         exported = json.loads(path.read_bytes())
         if not isinstance(exported, dict) or not isinstance(exported.get('info'), dict):

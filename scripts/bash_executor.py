@@ -40,17 +40,13 @@ def run(execution, assignment):
         import seatbelt
         # The worker interpreter's tree must stay readable under read bounding: the plugin's own venv, the real
         # interpreter behind its symlinks, and the plugin root.
-        plugin_root = Path(__file__).resolve().parents[1]
-        real_python = Path(os.path.realpath(sys.executable))
-        venv = Path(sys.executable).resolve().parents[1]
-        extra = [str(plugin_root), str(venv), str(real_python.parents[1])]
         wrapped = seatbelt.wrap(argv, scope, worktree=str(worktree), reports=str(execution.get('reports') or worktree),
-                                tag=execution.get('attempt', 'worker').replace('/', '-'), extra_reads=extra)
+                                tag=assignment['assignment_id'].replace('/', '-'))
         argv, fallback = wrapped['argv'], wrapped.get('fallback_reason')
     else:
         fallback = None
-    import os as _os
-    env = dict(_os.environ, ZLOOP_TEST_REPORTS=str(execution.get('reports') or worktree))
+    # The worker learns its reports directory through the environment; a bounded worker writes its receipt there.
+    env = dict(os.environ, ZLOOP_REPORTS=str(execution.get('reports') or worktree))
     process = subprocess.run(argv, cwd=worktree, env=env,
                              input=json.dumps(request), text=True, stdout=subprocess.PIPE)
     if process.returncode:

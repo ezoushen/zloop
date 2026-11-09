@@ -884,12 +884,13 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
         target_for_t3 = get(db, attempt)
         if target_for_t3.get('t3'):
             # The T3 thread itself is the completion evidence: its turn must have settled and answered (review
-            # SR-09/RR-05). The status maps to the lifecycle's vocabulary at this one read.
+            # The status maps to the lifecycle's vocabulary at this one read.
             thread = target_for_t3['t3']['thread']
             code, response = t3('thread', 'show', '--json', thread)
-            require(code == 0 and isinstance(response, dict) and response.get('threadId') == thread,
+            placed = response.get('thread') if isinstance(response, dict) and isinstance(response.get('thread'), dict) else response
+            require(code == 0 and isinstance(placed, dict) and placed.get('threadId') == thread,
                     f'T3 cannot confirm thread {thread} at collection: reconcile it and collect again')
-            status = response.get('status')
+            status = placed.get('status')
             require(status not in ('running', 'queued', 'starting', 'preparing'),
                     f'T3 thread {thread} is still {status}; let its turn settle, then collect again')
             if status == 'waiting':
@@ -953,6 +954,7 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
             data['native_session'] = native_settings.session_id(session, data['runtime'])
         execution = read_object(data['execution']) if text(data.get('execution')) else None
         route = execution or {}
+        kind_route_is_t3 = 't3' in (route.get('executor_context'), route.get('executor_type')) or 't3' in data
         # The resolver marks a Herdr route by its context or, under a caller key, by the built-in herdr type; a skill
         # route may name the Herdr skill with a plugin prefix.
         skill = str(route.get('executor_config', {}).get('skill', ''))
@@ -1046,7 +1048,9 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
             # complete executor instance) is judged by the runtime it registers as.
             own_process = execution.get('native_dispatch') is False or (
                 execution.get('target_runtime') in TOP_LEVEL and not execution.get('native_dispatch'))
-            require(scope or not own_process or data['runtime'] not in TOP_LEVEL,
+            # A t3 route is hosted by T3 Code, not started from zloop's argv: its controls are the T3 project's
+            # runtime mode, not zloop launch flags.
+            require(scope or not own_process or data['runtime'] not in TOP_LEVEL or kind_route_is_t3,
                     f'A route to a {data["runtime"]} worker started as its own process requires its launch controls '
                     '(launch.verify); resolve it again with agent_models.py --route')
             saved = dict(data, agent=execution['agent'], job=execution['job'], execution_snapshot=execution,
@@ -1526,7 +1530,7 @@ def watch(db, state, attempt, request, *, productive=False):
             code = code if code >= 0 else 128 - code
             reason = 'settled' if code == 0 else 'wait-error'
             if productive and saved.get('t3') and code in (1, 2):
-                # A t3 send's exit codes map to the lifecycle's vocabulary : 2 is the agent
+                # A t3 send's exit codes map to the lifecycle's vocabulary: 2 is the agent
                 # waiting for an answer in the T3 app, 1 is the run failing or stopping.
                 reason = 'waiting-on-answer' if code == 2 else 'send-failed'
     except subprocess.TimeoutExpired:
@@ -1707,10 +1711,12 @@ def t3_placement(data):
     if code != 0:
         reason = response.get('error', {}).get('code') if isinstance(response, dict) else response
         raise ValueError(f'T3 cannot confirm thread {thread}: {reason or "no running server answered"}')
-    require(isinstance(response, dict) and response.get('threadId') == thread,
-            f'T3 thread show named {response.get("threadId")!r}, not the registered thread {thread!r}')
-    return dict(thread=thread, status=response.get('status'),
-                runtime=response.get('providerInstanceId'), model=response.get('model'))
+    # The real CLI nests the thread under `thread` beside `messages`.
+    placed = response.get('thread') if isinstance(response.get('thread'), dict) else response
+    require(isinstance(placed, dict) and placed.get('threadId') == thread,
+            f'T3 thread show named {placed.get("threadId")!r}, not the registered thread {thread!r}')
+    return dict(thread=thread, status=placed.get('status'),
+                runtime=placed.get('providerInstanceId'), model=placed.get('model'))
 
 
 def herdr_placement(data):
@@ -1790,14 +1796,15 @@ def retire_worker(db, state, attempt, request):
         require(isinstance(evidence, list) and evidence and all(text(x) for x in evidence),
                 'T3 retirement requires evidence naming how the thread was confirmed idle (t3 thread show --json)')
         code, response = t3('thread', 'show', '--json', saved['t3']['thread'])
-        require(code == 0 and isinstance(response, dict) and response.get('threadId') == saved['t3']['thread'],
+        placed = response.get('thread') if isinstance(response, dict) and isinstance(response.get('thread'), dict) else response
+        require(code == 0 and isinstance(placed, dict) and placed.get('threadId') == saved['t3']['thread'],
                 f'T3 cannot confirm thread {saved["t3"]["thread"]} for retirement; reconcile it and retire again')
-        require(response.get('status') not in ('running', 'queued', 'starting', 'preparing', 'waiting'),
+        require(placed.get('status') not in ('running', 'queued', 'starting', 'preparing', 'waiting'),
                 f'T3 thread {saved["t3"]["thread"]} is {response.get("status")}'
                 + ('; it waits for an answer in the T3 app, which is the user\'s decision — answer it or decline '
-                   'the worker there, then retire again' if response.get('status') == 'waiting'
+                   'the worker there, then retire again' if placed.get('status') == 'waiting'
                   else '; let its turn settle, then retire again'))
-        line = f't3 thread show --json {saved["t3"]["thread"]}: {response.get("status")}, left idle (no CLI stop)'
+        line = f't3 thread show --json {saved["t3"]["thread"]}: {placed.get("status")}, left idle (no CLI stop)'
         record(db, dict(kind='closed', attempt=attempt, evidence=[line, *evidence],
                         **({'acceptance': acceptance} if 'acceptance' in request else {})))
         return {'attempt': attempt, 'closed': True, 'evidence': [line, *evidence]}

@@ -99,7 +99,10 @@ class ProfileGeneration(Machine):
         profile = sandbox.profile('worktree', worktree=str(self.worktree), reports=str(self.reports))
         git_dir = os.path.realpath(subprocess.run(['git', '-C', str(self.worktree), 'rev-parse', '--git-common-dir'],
                                                   capture_output=True, text=True).stdout.strip())
-        self.assertIn(f'(subpath "{git_dir}")', profile)
+        # Narrowed to the commit machinery: hooks and config stay read-only (R3-09 tradeoff).
+        self.assertIn(f'(subpath "{git_dir}/objects")', profile)
+        self.assertIn(f'(subpath "{git_dir}/refs")', profile)
+        self.assertNotIn(f'(subpath "{git_dir}/hooks")', profile)
         self.assertIn(f'(subpath "{os.path.realpath(tempfile.gettempdir())}")', profile)
 
     def test_unknown_scope_is_refused(self):
@@ -119,7 +122,10 @@ class Preflight(Machine):
         with self.stub_sandbox(present=False):
             result = sandbox.available(worktree=str(self.worktree))
         self.assertEqual(result['available'], False)
-        self.assertIn('sandbox-exec', result['fallback_reason'])
+        # The exact reason: a missing binary is distinct from a failed probe (whose message names the probe).
+        self.assertIn('does not exist', result['fallback_reason'])
+        self.assertNotIn('probe failed', result['fallback_reason'])
+        self.assertIsNone(result['probe'])
 
     def test_a_present_but_unenforcing_binary_selects_the_fallback(self):
         with self.stub_sandbox(present=True, enforcing=False):

@@ -422,6 +422,7 @@ def expand_model(name, catalog, runtimes, host, target_runtime=None):
         return instance, {'executor_context': context, 'target_runtime': runtime,
                           'model_definition_source': source,
                           'model_binding_source': source + '.runtimes.' + runtime,
+                          't3_provider': binding.get('provider'),
                           'executor_source': (runtime_source + '.executors.' + context if context in executors
                                               else 'built-in')}
     return None, f'No configured route from {host!r} to model runtimes {ordered} in this environment'
@@ -856,6 +857,13 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
         verdict = t3_preflight.verify(repo.resolve())
         if not verdict['ok']:
             raise NoRoute(f'T3 environment preflight failed at {verdict["reason"]}: {verdict.get("detail", "")}')
+        provider = metadata.get('t3_provider')
+        if not provider and target_runtime:
+            raise NoRoute(f'Model binding for {target_runtime!r} names no T3 provider: '
+                          "add models.<name>.runtimes.<runtime>.provider (the T3 provider instance id)")
+    if kind == 't3' and provider:
+        # The T3 provider instance id rides the settings: `t3 thread start --provider` uses it.
+        settings = {**settings, 'provider': provider}
     scope_fields = ({} if kind != 'bash' else
                     {'worktree': str(worktree) if worktree else None,
                      'reports': str(reports) if reports else None})

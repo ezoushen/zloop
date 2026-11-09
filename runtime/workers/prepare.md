@@ -68,9 +68,9 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    `"herdr": {"session": "<herdr session>"}` (`herdr session list` names it), unless
    its `worker` is a `session/pane/name` handle; registration reads its pane, tab,
    workspace and name from Herdr and refuses what Herdr or the handle contradicts, or a tab the worker shares
-   or the orchestrator's. A worker started through T3 Code adds
- `"t3": {"thread": "<thread id>"}`, naming the thread T3 reports; registration confirms the
- thread with the t3 CLI and refuses one another attempt holds.
+   or the orchestrator's. A worker started through T3 Code adds `"t3": {"thread": "<thread id>"}`, naming the
+   thread T3 reports; registration confirms the thread with the t3 CLI and refuses one another attempt
+   holds.
 
    When the snapshot applied a decision-model recommendation, the helper records
    that decision for you: its action at registration, its execution at verified

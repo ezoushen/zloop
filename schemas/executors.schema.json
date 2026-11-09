@@ -271,6 +271,10 @@
       "type": "object",
       "properties": {
         "id": { "$ref": "#/$defs/identifier" },
+        "provider": {
+          "description": "The provider instance id a T3 Code route launches this binding under ('pi', 'codex', 'claudeAgent', 'opencode').",
+          "$ref": "#/$defs/identifier"
+        },
         "thinking": { "oneOf": [{ "$ref": "#/$defs/identifier" }, { "$ref": "#/$defs/thinking" }] },
         "allow_thinking_override": { "type": "boolean", "default": false }
       },
