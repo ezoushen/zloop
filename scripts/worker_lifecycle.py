@@ -210,7 +210,7 @@ def assigned_findings(db, assignment, value):
 # The fields of a register event, in its own order: every other field of an attempt the lifecycle records itself, from
 # its packet, its host and its later events.
 REGISTERED = ('assignment', 'attempt', 'execution', 'head', 'herdr', 'journal', 'kind', 'native', 'native_session',
-              'owned', 'packet', 'premise', 'repairs', 'repo', 'runtime', 'worker', 'worktree')
+              'owned', 'packet', 'premise', 'repairs', 'repo', 'runtime', 't3', 'worker', 'worktree')
 SETTLED = ('repaired', 'open', 'runtime-bug')  # What a repair attempt's result says of each finding it holds.
 
 
@@ -940,6 +940,10 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
         if 'herdr' in (route.get('executor_context'), route.get('executor_type')) \
                 or skill.rpartition(':')[2] == 'herdr' or 'herdr' in data:
             placed = herdr_placement(data)
+        elif 't3' in (route.get('executor_context'), route.get('executor_type')) or 't3' in data:
+            # T3 Code is never ambient: only an explicit t3 route or registration field asks it. T3 has no pane to
+            # place, so the lookup keeps the thread's state instead.
+            placed = t3_placement(data)
     db.execute('BEGIN IMMEDIATE')
     with db:
         if kind == 'register':
@@ -1033,7 +1037,11 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
             if ticket is not None:
                 saved['ticket'] = ticket
             if placed:
-                saved['herdr'] = placed
+                # A Herdr placement names the tab the worker occupies; a T3 placement names the thread and its state.
+                if placed.get('thread'):
+                    saved['t3'] = placed
+                else:
+                    saved['herdr'] = placed
             if DEFINITIONS['agents'][execution['agent']]['writes'] == 'none':
                 saved['worktree_baseline'] = worktree_state(data['worktree'])  # Not in the event: it can be large.
             decision = linked_decision(execution)
@@ -1598,6 +1606,48 @@ def herdr(session, *args, timeout=15):
     return process.returncode, response
 
 
+def t3(*args, timeout=LOOKUP_SECONDS):
+    """(exit code, the JSON object the t3 CLI answered with, from stdout) for `t3 thread ...` on this machine's
+    environment; ValueError when it does not answer within `timeout` seconds or not with a JSON document."""
+    try:
+        process = subprocess.run(['t3', *args], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise ValueError(f't3 did not answer {" ".join(args)} within {timeout} s') from None
+    document = process.stdout.strip() or process.stderr.strip()
+    try:
+        response = json.loads(document)
+    except ValueError:
+        raise ValueError(f't3 {" ".join(args)} answered no JSON: {document[:200]}') from None
+    return process.returncode, response
+
+
+def t3_thread(data):
+    """The claimed thread id of a t3 registration, or None when the route is not T3 Code's."""
+    route = data.get('execution_snapshot') if isinstance(data.get('execution_snapshot'), dict) else None
+    claimed = data.get('t3') if isinstance(data.get('t3'), dict) else {}
+    is_t3 = ('t3' in (route.get('executor_context'), route.get('executor_type'))
+             or route.get('executor_type') == 't3' or claimed) if route else bool(claimed)
+    if not is_t3:
+        return None
+    thread = claimed.get('thread') or data.get('worker')
+    require(text(thread), 'A T3 worker registers with t3.thread or a worker handle naming its thread')
+    return thread
+
+
+def t3_placement(data):
+    """Where T3 Code itself placed a registration's worker: the state of the thread the route names."""
+    thread = t3_thread(data)
+    require(text(thread), 'Registration requires worker')
+    code, response = t3('thread', 'show', '--json', thread)
+    if code != 0:
+        reason = response.get('error', {}).get('code') if isinstance(response, dict) else response
+        raise ValueError(f'T3 cannot confirm thread {thread}: {reason or "no running server answered"}')
+    require(isinstance(response, dict) and response.get('threadId') == thread,
+            f'T3 thread show named {response.get("threadId")!r}, not the registered thread {thread!r}')
+    return dict(thread=thread, status=response.get('status'),
+                runtime=response.get('providerInstanceId'), model=response.get('model'))
+
+
 def herdr_placement(data):
     """Where Herdr itself places a registration's worker, which must be a tab of its own."""
     worker = data.get('worker')
@@ -1667,6 +1717,22 @@ def retire_worker(db, state, attempt, request):
         return {'attempt': attempt, 'closed': True, 'native_closed_by': closure['attempt'],
                 'evidence': closure['closed']['evidence']}
     acceptance = request.get('acceptance')
+    placed = saved.get('herdr') or {}
+    if saved.get('t3'):
+        # T3 Code has no CLI stop: the thread stays, so retirement records its idle state as the closure evidence.
+        require_closable(db, saved, acceptance)
+        evidence = request.get('evidence')
+        require(isinstance(evidence, list) and evidence and all(text(x) for x in evidence),
+                'T3 retirement requires evidence naming how the thread was confirmed idle (t3 thread show --json)')
+        code, response = t3('thread', 'show', '--json', saved['t3']['thread'])
+        require(code == 0 and isinstance(response, dict) and response.get('threadId') == saved['t3']['thread'],
+                f'T3 cannot confirm thread {saved["t3"]["thread"]} for retirement; reconcile it and retire again')
+        require(response.get('status') not in ('running', 'queued', 'starting', 'preparing'),
+                f'T3 thread {saved["t3"]["thread"]} is still {response.get("status")}; let its turn settle, then retire again')
+        line = f't3 thread show --json {saved["t3"]["thread"]}: {response.get("status")}, left idle (no CLI stop)'
+        record(db, dict(kind='closed', attempt=attempt, evidence=[line, *evidence],
+                        **({'acceptance': acceptance} if 'acceptance' in request else {})))
+        return {'attempt': attempt, 'closed': True, 'evidence': [line, *evidence]}
     if not saved['owned']:
         require_closable(db, saved, acceptance)
         record(db, dict(kind='closed', attempt=attempt, evidence=[RELEASED],
@@ -1985,7 +2051,7 @@ def status(db, attempt=None):
                for row in pending(db, saved['attempt'])):
             attention.append('inspect parent and recover pending notification')
         summary = {key: saved[key] for key in ('attempt', 'assignment', 'agent', 'job', 'worker', 'native_session',
-                   'herdr', 'head', 'requested', 'observed', 'observed_cwd', 'verified', 'monitor', 'result',
+                   'herdr', 't3', 'head', 'requested', 'observed', 'observed_cwd', 'verified', 'monitor', 'result',
                    'accepted', 'declined', 'acceptance_deferred', 'retained', 'closed',
                    'premise', 'findings') if key in saved}
         if saved.get('observed_cwd') and native_settings.outside(saved['observed_cwd'], saved['worktree'],
