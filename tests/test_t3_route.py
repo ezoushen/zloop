@@ -96,15 +96,22 @@ class ExplicitGate(unittest.TestCase):
         self.assertFalse(result['native_dispatch'])
 
     def test_without_a_t3_route_the_resolver_behaves_exactly_as_before(self):
-        # A caller key is preferred over the explicit t3 fallback; no herdr appears outside HERDR_ENV.
-        self.user.write_text(json.dumps({
+        # A caller key is preferred over the explicit t3 fallback; and REMOVING the t3 key must leave the resolution
+        # byte-identical, so the t3 route's presence is provably not what the caller-key path consumed.
+        config = {
             'models': {'sol': {'description': 'Implementation and repair.',
                                'runtimes': {'pi': {'id': 'pi-sol', 'provider': 'pi'}}}},
             'runtimes': {'pi': {'executors': {'codex': {'type': 'skill', 'config': {'skill': 'pi-bridge', 'instruction': 'Run it.'}},
                                               't3': {'type': 't3'}}}},
-            'agents': {'reviewer': {'model': 'sol'}}}))
+            'agents': {'reviewer': {'model': 'sol'}}}
+        self.user.write_text(json.dumps(config))
+        with_t3 = self.resolve(host='codex')
+        without = dict(config)
+        without['runtimes'] = {'pi': {'executors': {'codex': config['runtimes']['pi']['executors']['codex']}}}
+        self.user.write_text(json.dumps(without))
         result = self.resolve(host='codex')
         self.assertEqual((result['executor_type'], result['executor_context']), ('skill', 'codex'))
+        self.assertEqual(result, with_t3)
         self.assertFalse(result['native_dispatch'])
 
     def test_no_t3_route_means_no_route_even_inside_herdr(self):

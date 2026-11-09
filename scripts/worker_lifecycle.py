@@ -883,8 +883,8 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
     if kind == 'result' and data.get('status') == 'completed':
         target_for_t3 = get(db, attempt)
         if target_for_t3.get('t3'):
-            # The T3 thread itself is the completion evidence: its turn must have settled and answered (review
-            # The status maps to the lifecycle's vocabulary at this one read.
+            # The T3 thread itself is the completion evidence: its turn must have settled and answered; the
+            # status maps to the lifecycle's vocabulary at this one read.
             thread = target_for_t3['t3']['thread']
             code, response = t3('thread', 'show', '--json', thread)
             placed = response.get('thread') if isinstance(response, dict) and isinstance(response.get('thread'), dict) else response

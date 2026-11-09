@@ -42,7 +42,7 @@ def profile(scope, worktree, reports):
                                  capture_output=True, text=True)
             if git.returncode == 0 and git.stdout.strip():
                 git_real = os.path.realpath(git.stdout.strip())
-                for part in ('objects', 'refs', f'worktrees/{Path(worktree_real).name}'):
+                for part in ('objects', 'refs', 'logs', f'worktrees/{Path(worktree_real).name}'):
                     writes.append(f'       (subpath "{git_real}/{part}")')
     home = os.path.realpath(Path.home())
     lines = [

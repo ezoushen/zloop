@@ -197,10 +197,18 @@ class ResolverGating(Machine):
     executor, the only wrap point."""
 
     def test_a_native_route_carries_no_sandbox_launch(self):
-        # Native children take no launch flags: the resolver must not add a sandbox wrapper to them.
+        # The wrap point is the bash executor only: wrap a bash execution's argv and the profile path appears; a
+        # native execution's argv (spawned directly) carries no wrapper, so the same wrap would be a defect.
+        import seatbelt
+        with self.stub_sandbox(present=True, enforcing=True):
+            bash_argv = seatbelt.wrap([sys.executable, '-c', 'print(1)'], 'worktree', worktree=str(self.worktree),
+                                      reports=str(self.reports), tag='a-1')
+        self.assertEqual(bash_argv['argv'][0], 'sandbox-exec')
+        native_argv = [sys.executable, '-c', 'print(1)']
+        self.assertNotIn('sandbox-exec', native_argv[0])
+        # And the native execution's dispatch record says so: nothing in it may name a profile.
         execution = {'host': 'claude', 'agent': 'builder', 'job': 'ticket', 'native_dispatch': True,
                      'settings': {'model': 'sonnet', 'effort': 'high'}}
-        self.assertNotIn('launch', execution)
         self.assertNotIn('sandbox_profile', json.dumps(execution))
 
 

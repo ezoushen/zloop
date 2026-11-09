@@ -66,6 +66,35 @@ sys.exit(3)
         return path
 
 
+class NativeRecord(T3Threads):
+    def test_the_native_record_reads_the_thread_state(self):
+        # Rule (R4-04): a t3 worker's startup record IS the thread state; observation reads its model and status,
+        # and the collection's packet-reply check walks the thread's messages for the packet and its reply.
+        self.registered(worker='th-1')
+        # The startup record for a t3 worker is the thread state `t3 thread show --json` wrote (the live-run
+        # convention); the fixture writes the same shape the stub CLI answers.
+        state = {'thread': {'threadId': 'th-1', 'status': 'completed', 'providerInstanceId': 'claude',
+                            'model': 'sonnet'},
+                 'messages': [{'role': 'assistant', 'text': 'assignment done'}]}
+        path = self.root / 'th-thread-state.json'
+        path.write_text(json.dumps(state))
+        from native_settings import observe
+        observed = observe(str(path), 't3', 'th-1', str(self.root))
+        self.assertEqual(observed['observed'], {'runtime': 't3', 'model': 'sonnet', 'status': 'completed'})
+        # Packet reply: a thread holding the packet followed by an assistant answer verifies; one without the
+        # packet does not.
+        from native_settings import packet_reply
+        verified = packet_reply(str(path), 't3', 'th-1', 'ticket-1/1')
+        # The fixture's thread has only an assistant line, no packet: the packet proof must be absent, not faked.
+        self.assertFalse(verified[0])
+        path.write_text(json.dumps(
+            {'thread': state['thread'],
+             'messages': [{'role': 'user', 'text': 'assignment: a attempt: ticket-1/1'},
+                          {'role': 'assistant', 'text': 'assignment done'}]}))
+        verified = packet_reply(str(path), 't3', 'th-1', 'ticket-1/1')
+        self.assertEqual(verified, (True, True))
+
+
 class Registration(T3Threads):
     def test_registration_records_the_thread_t3_itself_reports(self):
         # Rule: a t3 worker registers the thread id T3 confirms; a thread that does not exist refuses.
@@ -81,10 +110,16 @@ class Registration(T3Threads):
         self.assertIn('th-1', str(error))
 
     def test_a_herdr_registration_does_not_ask_t3(self):
-        # Rule: the transports are distinct; a herdr route never triggers a t3 lookup.
+        # Rule: the transports are distinct; a herdr route never triggers a t3 lookup — while a t3 registration on
+        # the same fixture does consult the CLI, so the log's absence for herdr is meaningful, not vacuous.
+        self.t3_fixture()  # the stub exists and logs any t3 invocation
         self.herdr_fixture()
         self.register(worker='builder-1', herdr={'session': 'fixture-session'})
         self.assertFalse((self.root / 't3-argv.log').exists())
+        self.t3_route()
+        self.register(worker='th-1', assignment='ticket-2', attempt='ticket-2/1', session='th-thread',
+                      t3={'thread': 'th-1'})
+        self.assertTrue((self.root / 't3-argv.log').exists())
 
 
 class RegistrationRefusals(T3Threads):

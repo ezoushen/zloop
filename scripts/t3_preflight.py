@@ -53,13 +53,10 @@ def verify(project, home=None):
         return {'ok': False, 'reason': 'server', 'home': str(resolved),
                 'detail': body[:200] if body else 't3 thread list did not answer'}
     if not isinstance(parsed, list):
-        # Exit 0 with a message (no project registered) or a body that is not a JSON array; the doc contract names
-        # both, so an unparseable body is its own reason, distinct from the no-project message .
-        return {'ok': False, 'reason': 'project' if code == 0 and 'No T3 Code project matches' in body else 'body',
+        # Exit 0 with the no-project message means the project is not registered; any other non-array body did not
+        # parse — a distinct reason from the no-project message.
+        return {'ok': False, 'reason': 'project' if 'No T3 Code project matches' in body else 'body',
                 'home': str(resolved), 'detail': body[:200]}
-    if not parsed:
-        return {'ok': False, 'reason': 'project', 'home': str(resolved),
-                'detail': 'the project is registered but holds no threads'}
     return {'ok': True, 'reason': None, 'home': str(resolved),
             'thread_list': {'ok': True, 'threads': len(parsed)}}
 

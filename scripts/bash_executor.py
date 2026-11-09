@@ -38,8 +38,6 @@ def run(execution, assignment):
         # macOS Seatbelt bounds the worker's writes to its scope (the bash executor is zloop's own
         # subprocess, so the profile wraps here); an unavailable sandbox records its fallback reason, never silent.
         import seatbelt
-        # The worker interpreter's tree must stay readable under read bounding: the plugin's own venv, the real
-        # interpreter behind its symlinks, and the plugin root.
         wrapped = seatbelt.wrap(argv, scope, worktree=str(worktree), reports=str(execution.get('reports') or worktree),
                                 tag=assignment['assignment_id'].replace('/', '-'))
         argv, fallback = wrapped['argv'], wrapped.get('fallback_reason')

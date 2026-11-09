@@ -34,7 +34,10 @@ retain the assignment's permissions using its runtime controls. On macOS the
 helper wraps the program in a Seatbelt profile that bounds its writes to the
 assignment's scope and denies reads of the user's credential directories; when
 sandbox-exec is missing or does not enforce, the helper falls back to the
-tool allowlist and records the reason. Use stderr for diagnostics.
+tool allowlist and records the reason. The helper passes the reports directory
+to the worker as `ZLOOP_REPORTS`. A macOS bash route must resolve with a reports
+directory outside the assigned worktree, or the helper refuses. Use stderr for
+diagnostics.
 
 Wait for the actual worker, then return one JSON object on stdout:
 

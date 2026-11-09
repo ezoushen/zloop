@@ -51,6 +51,7 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
      "assignment": "ticket-12", "repo": "/absolute/main-checkout",
      "worktree": "/absolute/ticket-worktree", "head": "pinned-input-revision",
      "execution": "/absolute/reports/resolved-execution.json", "runtime": "claude",
+     // a T3 Code worker instead: "runtime": "t3", "t3": {"thread": "<thread id>"},
      "worker": "returned-transport-handle", "native_session": "native-conversation-id",
      "owned": true, "packet": "/absolute/reports/ticket-12-assignment.txt"
    }
