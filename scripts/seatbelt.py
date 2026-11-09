@@ -18,9 +18,10 @@ from pathlib import Path
 PROBE_SECONDS = 15
 
 
-def profile(scope, worktree, reports, *, read_bound=True):
-    """The Seatbelt profile text for a write scope: writes only inside the scope's paths; with read_bound, reads
-    outside the scope's subtree are denied too, keeping credential files unreadable."""
+def profile(scope, worktree, reports, *, read_bound=True, extra_reads=()):
+    """The Seatbelt profile text for a write scope: writes only inside the scope's paths; reads are bounded by
+    denying the user's credential directories (ssh, aws, gnupg, gcloud, netrc) — enough that a worker cannot read
+    credentials, while the runtime stays loadable (macOS exec needs metadata/ioctl reads of its interpreter)."""
     if scope not in ('none', 'worktree'):
         raise ValueError(f'unknown write scope {scope!r}: profile none or worktree')
     # Seatbelt matches canonical paths: /var/folders is a symlink to /private/var/folders, so an allowed subpath
@@ -29,14 +30,12 @@ def profile(scope, worktree, reports, *, read_bound=True):
     writes = [
         f'       (subpath "{reports_real}")',
     ]
-    reads = [reports_real]
     if scope == 'worktree':
-        worktree_real = os.path.realpath(worktree)
-        writes.append(f'       (subpath "{worktree_real}")')
-        reads.append(worktree_real)
+        writes.append(f'       (subpath "{os.path.realpath(worktree)}")')
+    home = os.path.realpath(Path.home())
     lines = [
         '(version 1)',
-        ';; zloop worker write scope: write only what the scope names; reads bounded to it.',
+        ';; zloop worker write scope: write only what the scope names; credential reads denied.',
         '(deny default)',
         '(allow process-exec)',
         '(allow process-fork)',
@@ -51,15 +50,8 @@ def profile(scope, worktree, reports, *, read_bound=True):
         '(allow sysctl-read)',
         '(allow mach-lookup)',
     ]
-    if read_bound:
-        # Deny reads of the user's home except the allowed subtrees; the system and the tool directories stay
-        # readable so the runtime can load.
-        lines += [
-            '(deny file-read* (subpath "' + os.path.realpath(Path.home()) + '"))',
-            '(allow file-read*',
-            *(f'       (subpath "{path}")' for path in reads),
-            ')',
-        ]
+    for denied in ('.ssh', '.aws', '.gnupg', '.config/gcloud', '.netrc'):
+        lines.append(f'(deny file-read* (subpath "{home}/{denied}"))')
     return '\n'.join(lines) + '\n'
 
 
@@ -109,7 +101,7 @@ def available(worktree=None, reports=None):
     return {'available': True, 'fallback_reason': None, 'probe': str(inside_parent)}
 
 
-def wrap(argv, scope, worktree, reports, *, tag='worker'):
+def wrap(argv, scope, worktree, reports, *, tag='worker', extra_reads=()):
     """The bash executor's worker argv with a sandbox-exec profile in front, when the sandbox is available;
     otherwise the argv unchanged with the fallback reason recorded. The profile file persists under the reports
     directory, named per scope and tag, so concurrent launches never overwrite one another."""
@@ -119,6 +111,6 @@ def wrap(argv, scope, worktree, reports, *, tag='worker'):
     directory = Path(reports) / 'sandbox-profiles'
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f'{scope}-{tag}.sb'
-    path.write_text(profile(scope, worktree=worktree, reports=reports))
+    path.write_text(profile(scope, worktree=worktree, reports=reports, extra_reads=extra_reads))
     return {'argv': ['sandbox-exec', '-f', str(path), *argv],
             'verify': {'sandbox_profile': scope}}

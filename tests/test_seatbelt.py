@@ -74,11 +74,15 @@ class ProfileGeneration(Machine):
         profile = sandbox.profile('worktree', worktree=str(self.worktree), reports=str(self.reports))
         self.assertIn(f'(subpath "{os.path.realpath(self.worktree)}")', profile)
 
-    def test_read_bounding_denies_home_reads_outside_the_scope(self):
-        # Rule (SR-04, ticket 02 crit 4): reads outside the scope's subtrees are denied — credential files unreadable.
+    def test_read_bounding_denies_credential_reads(self):
+        # Rule (SR-04, ticket 02 crit 4): the user's credential directories are unreadable under any scope, while
+        # the runtime stays loadable.
         profile = sandbox.profile('worktree', worktree=str(self.worktree), reports=str(self.reports))
         self.assertIn('(deny default)', profile)
-        self.assertIn(f'(deny file-read* (subpath "{os.path.realpath(Path.home())}"))', profile)
+        home = os.path.realpath(Path.home())
+        self.assertIn(f'(deny file-read* (subpath "{home}/.ssh"))', profile)
+        self.assertIn(f'(deny file-read* (subpath "{home}/.aws"))', profile)
+        self.assertIn(f'(deny file-read* (subpath "{home}/.netrc"))', profile)
         self.assertIn(f'(subpath "{os.path.realpath(self.worktree)}")', profile)
 
     def test_unknown_scope_is_refused(self):
