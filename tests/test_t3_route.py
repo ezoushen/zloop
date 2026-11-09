@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+"""The built-in `t3` executor type routes workers through T3 Code like `herdr` routes them through Herdr.
+
+Business rules (from .scratch/t3code-support/alignment.md, U2/A1-A5):
+- `t3` is a built-in executor type: valid wherever the built-in `herdr` type is valid,
+  expanding with no executor_types definition, and replaceable by a same-named type.
+- Unlike `herdr`, it is never ambient: a configuration layer must select it (a `t3`
+  context key in a runtime's executors map, or a `{"type": "t3"}` route). No
+  environment variable activates it.
+- Its executor guide is hosts/t3.md.
+"""
+
+import json
+import os
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import support
+
+
+models = support.load_script('agent_models.py', 'agent_models')
+
+
+class BuiltInType(unittest.TestCase):
+    def test_t3_expands_as_a_built_in_type_like_herdr(self):
+        # A user type named t3 replaces the built-in in full; without one it expands as built-in.
+        for name, expect_source in (('t3', 'built-in'), ('herdr', 'built-in')):
+            instance, detail = models.expand_executor_type({'executor': {'type': name}}, {})
+            self.assertEqual(instance['executor'], {'type': name})
+            self.assertEqual((detail['configured_executor_type'], detail['executor_definition_source']),
+                             (name, expect_source))
+        wrapper = {'type': 'skill', 'config': {'skill': 't3-bridge', 'instruction': 'Run it.'}}
+        instance, detail = models.expand_executor_type({'executor': {'type': 't3'}},
+                                                       {'t3': (wrapper, 'user:executor_types.t3')})
+        self.assertEqual((instance['executor'], detail['executor_definition_source']),
+                         (wrapper, 'user:executor_types.t3'))
+        for name in ('subagent', 'skill', 'bash'):
+            with self.assertRaisesRegex(ValueError, 'Unknown executor type'):
+                models.expand_executor_type({'executor': {'type': 'no-such-type'}}, {})
+
+    def test_schema_accepts_t3_where_it_accepts_herdr(self):
+        from executor_config import validate_schema
+        validate_schema({'agents': {'reviewer': {'executor': {'type': 't3'}}}}, 'test', 'executors.schema.json')
+        validate_schema({'executor_types': {'t3': {'type': 't3'}}}, 'test', 'executors.schema.json')
+        with self.assertRaises(ValueError):
+            validate_schema({'runtimes': {'pi': {'executors': {'no-such-key': {'type': 't3'}}}}},
+                            'test', 'executors.schema.json')
+
+
+class ExplicitGate(unittest.TestCase):
+    """U2: the t3 route activates only by configuration selection, never by environment detection."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix='zloop t3 gate ')
+        self.addCleanup(tmp.cleanup)
+        machine = tempfile.TemporaryDirectory(prefix='zloop machine ')
+        self.addCleanup(machine.cleanup)
+        env = patch.dict(os.environ, support.isolated_env(machine.name, ZLOOP_PROFILE='', HERDR_ENV=''))
+        env.start()
+        self.addCleanup(env.stop)
+        self.root = Path(tmp.name)
+        self.user = self.root / 'executors.json'
+        self.user.write_text(json.dumps({
+            'models': {'sol': {'description': 'Implementation and repair.',
+                               'runtimes': {'pi': {'id': 'pi-sol'}}}},
+            'runtimes': {'pi': {'executors': {'t3': {'type': 't3'}}}},
+            'agents': {'reviewer': {'model': 'sol'}}}))
+
+    def resolve(self, host='codex', **task):
+        return models.resolve_execution(self.root, self.root / 'absent.json', self.user,
+                                        host, 'reviewer', task)
+
+    def test_a_configured_t3_route_selects_without_any_environment_marker(self):
+        result = self.resolve()
+        self.assertEqual((result['executor_type'], result['executor_context']), ('t3', 't3'))
+        self.assertEqual(result['settings'], {'model': 'pi-sol'})
+        self.assertEqual(result['executor_guide'], str(models.ROOT / 'hosts/t3.md'))
+        self.assertFalse(result['native_dispatch'])
+
+    def test_without_a_t3_route_the_resolver_behaves_exactly_as_before(self):
+        # A caller key is preferred over the explicit t3 fallback; no herdr appears outside HERDR_ENV.
+        self.user.write_text(json.dumps({
+            'models': {'sol': {'description': 'Implementation and repair.',
+                               'runtimes': {'pi': {'id': 'pi-sol'}}}},
+            'runtimes': {'pi': {'executors': {'codex': {'type': 'skill', 'config': {'skill': 'pi-bridge', 'instruction': 'Run it.'}},
+                                              't3': {'type': 't3'}}}},
+            'agents': {'reviewer': {'model': 'sol'}}}))
+        result = self.resolve(host='codex')
+        self.assertEqual((result['executor_type'], result['executor_context']), ('skill', 'codex'))
+        self.assertFalse(result['native_dispatch'])
+
+    def test_no_t3_route_means_no_route_even_inside_herdr(self):
+        # Ambient Herdr activation does not make t3 reachable: the explicit gate is the only entry.
+        self.user.write_text(json.dumps({
+            'models': {'sol': {'description': 'Implementation and repair.',
+                               'runtimes': {'pi': {'id': 'pi-sol'}}}},
+            'runtimes': {'pi': {'executors': {'pi': {'type': 'subagent'}, 'herdr': {'type': 'herdr'}}}},
+            'agents': {'reviewer': {'model': 'sol'}}}))
+        with patch.dict(os.environ, {'HERDR_ENV': '1'}):
+            result = self.resolve()
+        # The ambient herdr fallback serves the Pi binding even without a configured route; t3 stays unreachable because
+        # nothing selected it.
+        self.assertEqual((result['executor_type'], result['executor_context']), ('herdr', 'herdr'))
+
+    def test_a_t3_type_route_in_an_agent_entry_selects_by_itself(self):
+        self.user.write_text(json.dumps({
+            'agents': {'reviewer': {'executor': {'type': 't3'},
+                                    'models': {'mode': 'override', 'model': 'direct-model'}}}}))
+        result = self.resolve()
+        self.assertEqual((result['executor_type'], result['executor_guide']),
+                         ('t3', str(models.ROOT / 'hosts/t3.md')))
+        self.assertEqual(result['settings'], {'model': 'direct-model'})
+
+
+if __name__ == '__main__':
+    unittest.main()

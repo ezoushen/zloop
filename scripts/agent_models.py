@@ -27,9 +27,12 @@ from decisions import systemone_request
 ROOT = Path(__file__).resolve().parents[1]
 HOSTS = ('claude', 'codex', 'pi', 'opencode')
 # Herdr is zloop's built-in worker provider: in a Herdr session every runtime is reachable through it, and a host whose
-# own delegation would come from a third-party extension (Pi) prefers it. Its procedure is hosts/herdr.md.
-BUILT_IN_ROUTES = {'herdr': {'type': 'herdr'}}
-BUILT_IN_TYPES = ('herdr',)
+# own delegation would come from a third-party extension (Pi) prefers it. Its procedure is hosts/herdr.md. T3 Code is
+# the other built-in provider, but it has no ambient marker: a configuration layer selects it (a `t3` context key or a
+# `{"type": "t3"}` route); outside that selection it is unreachable. Its procedure is hosts/t3.md.
+BUILT_IN_ROUTES = {'herdr': {'type': 'herdr'}, 't3': {'type': 't3'}}
+BUILT_IN_TYPES = ('herdr', 't3')
+BUILT_IN_GUIDES = {'herdr': 'hosts/herdr.md', 't3': 'hosts/t3.md'}
 EXTENSION_DELEGATION = ('pi',)
 DEFINITIONS = agent_defs.load()
 AGENTS = tuple(sorted(DEFINITIONS['agents']))
@@ -399,8 +402,15 @@ def expand_model(name, catalog, runtimes, host, target_runtime=None):
         runtime_definition, runtime_source = runtimes[runtime]
         executors = runtime_definition['executors']
         contexts = [host]
-        if os.environ.get('HERDR_ENV') == '1':
-            contexts = ['herdr', host] if host in EXTENSION_DELEGATION else [host, 'herdr']
+        if 't3' in executors:
+            # T3 Code is never ambient (user decision U2): only an explicit `t3` context key selects it, after the
+            # caller's own key and before the Herdr fallback.
+            contexts.append('t3')
+        if os.environ.get('HERDR_ENV') == '1' and host in EXTENSION_DELEGATION:
+            # Pi's own delegation is a third-party extension, so Herdr precedes the caller key in a Herdr session.
+            contexts.insert(0, 'herdr')
+        elif os.environ.get('HERDR_ENV') == '1':
+            contexts.append('herdr')
         context = next((name for name in contexts if name in executors or name in BUILT_IN_ROUTES), None)
         if context is None:
             continue
@@ -847,7 +857,7 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
             'thinking_baseline': thinking['default'] if bounded else thinking,
             **({'thinking_allowed': thinking['allowed']} if bounded else {}),
             'route_source': source, **metadata, **({'launch': launch} if launch else {}),
-            'executor_guide': str(ROOT / {'bash': 'runtime/config/bash-executor.md', 'herdr': 'hosts/herdr.md'}.get(
+            'executor_guide': str(ROOT / {'bash': 'runtime/config/bash-executor.md', **BUILT_IN_GUIDES}.get(
                 kind, f'hosts/executors/{kind}.md'))}
 
 

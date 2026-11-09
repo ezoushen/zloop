@@ -206,7 +206,7 @@
     },
     "builtInExecutor": {
       "type": "object",
-      "properties": { "type": { "const": "herdr" } },
+      "properties": { "type": { "enum": ["herdr", "t3"] } },
       "required": ["type"],
       "additionalProperties": false
     },
@@ -258,9 +258,9 @@
       "properties": {
         "executors": {
           "type": "object",
-          "description": "Launch routes keyed by the actual caller runtime. The herdr key is a shared fallback only in a managed Herdr environment; every selected route still requires caller-specific preflight.",
+          "description": "Launch routes keyed by the actual caller runtime. The herdr key is a shared fallback only in a managed Herdr environment; every selected route still requires caller-specific preflight. The t3 key selects the built-in T3 Code route explicitly.",
           "minProperties": 1,
-          "propertyNames": { "enum": ["claude", "codex", "pi", "opencode", "herdr"] },
+          "propertyNames": { "enum": ["claude", "codex", "pi", "opencode", "herdr", "t3"] },
           "additionalProperties": { "$ref": "#/$defs/executor" }
         }
       },
