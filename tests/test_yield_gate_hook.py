@@ -141,6 +141,13 @@ class ReviewHold(GateRepo):
         self.assertEqual(len(gaps), 1, gaps)
         self.assertIn('review_by: review/2 (the Pi reviewer) names no collected worker attempt', gaps[0])
         self.assertEqual(self.stop(session='host-1')['decision'], 'block')
+        # Every reviewer settling without completing still releases the blocker.
+        shutil.rmtree(self.repo / '.scratch/reviewer', ignore_errors=True)
+        for attempt, status in (('review/1', 'failed'), ('review/2', 'cancelled')):
+            state = support.collected_attempt(self.repo, 'reviewer', attempt, self.report, job='diff-review',
+                                               head='a' * 40, status=status)
+        shutil.copy2(state, self.state)
+        self.assertEqual(self.check(session='host-1'), [])
 
     def test_a_blocker_releases_with_a_recorded_no_route_only_while_the_router_still_finds_no_reviewer(self):
         # Review (Sonnet): a blocker with a hand-written no_route record released the hold without asking the router.

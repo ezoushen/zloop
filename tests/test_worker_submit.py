@@ -498,26 +498,35 @@ class Submission(WorkerLifecycleCase):
                                                 self.packet().read_text() if text is None else text, *flags]}))
         return request
 
-    def test_registration_names_the_attempt_in_a_packet_it_has_yet_to_submit(self):
-        # Follow-up 2 (host-followups: hosts left the line out on every host): a worker started as its own process gets
-        # the packet file by submit, after registration, so registration adds the attempt line itself; a native child
-        # got its text with its spawn, so its packet must already name the attempt.
+    def test_registration_names_the_attempt_only_in_a_herdr_packet_it_has_yet_to_submit(self):
+        # Follow-up 2 (host-followups: hosts left the line out on every host): a Herdr worker gets the packet file by
+        # submit, after registration, so registration adds the attempt line once it accepts the worker; a native child
+        # or a T3 or skill route already holds its text, so its packet must name the attempt itself.
         body = self.packet().read_text().partition('\n')[2]
         packet = self.root / 'unnamed-assignment.txt'
-        for native in (True, False):
-            with self.subTest(native_dispatch=native):
-                packet.write_text(body)
-                execution = json.loads(self.execution.read_text())
-                execution.update(native_dispatch=native,
-                                 launch={'writes': 'worktree', 'verify': {'permission_mode': 'dontAsk'}})
-                self.execution.write_text(json.dumps(execution))
-                if native:
-                    error = self.register(packet=str(packet), code=2)
-                    self.assertIn('Registration packet lacks its attempt line; add `attempt: ticket-1/1`', error)
-                    self.assertEqual(packet.read_text(), body)
-                else:
-                    self.register(packet=str(packet))
-                    self.assertEqual(packet.read_text(), 'attempt: ticket-1/1\n' + body)
+        packet.write_text(body)
+        execution = json.loads(self.execution.read_text())
+        launch = {'writes': 'worktree', 'verify': {'permission_mode': 'dontAsk'}}
+        for case, route in (('native child', {}),
+                            ('skill route', dict(native_dispatch=False, executor='skill', target_runtime='claude',
+                                                 launch=launch))):
+            with self.subTest(case=case):
+                self.execution.write_text(json.dumps(dict(execution, **route)))
+                error = self.register(packet=str(packet), code=2)
+                self.assertIn('Registration packet lacks its attempt line; add `attempt: ticket-1/1`', error)
+                self.assertEqual(packet.read_text(), body)
+        self.herdr_fixture()
+        herdr = dict(execution, native_dispatch=False, executor='skill', executor_context='herdr',
+                     target_runtime='claude', launch=launch)
+        with self.subTest(case='herdr worker refused for another reason'):
+            self.execution.write_text(json.dumps(dict(herdr, target_runtime='codex')))
+            error = self.register(worker='builder-1', herdr={'session': 'fixture-session'}, packet=str(packet), code=2)
+            self.assertIn('Runtime conflicts with resolved execution', error)
+            self.assertEqual(packet.read_text(), body)
+        with self.subTest(case='herdr worker'):
+            self.execution.write_text(json.dumps(herdr))
+            self.register(worker='builder-1', herdr={'session': 'fixture-session'}, packet=str(packet))
+            self.assertEqual(packet.read_text(), 'attempt: ticket-1/1\n' + body)
 
     def test_a_herdr_submit_sends_the_registered_packet_and_nothing_else(self):
         # Rule (stforestkit: the packet went out by hand and a later `submit` of `attempt: <id>` to the finished

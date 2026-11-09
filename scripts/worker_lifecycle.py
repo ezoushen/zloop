@@ -1013,11 +1013,9 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
             packet = Path(data.get('packet') or '')
             require(packet.is_absolute() and packet.is_file(),
                     'Registration requires packet: the absolute path of the assignment text sent to the worker')
-            if not native_settings.has_attempt(packet.read_text(errors='replace'), attempt):
-                # A native child got its text with its spawn; any other worker gets this file by submit, after this.
-                require(not execution.get('native_dispatch'),
-                        f'Registration packet lacks its attempt line; add `attempt: {attempt}` to the packet')
-                packet.write_bytes(f'attempt: {attempt}\n'.encode() + packet.read_bytes())
+            named = native_settings.has_attempt(packet.read_text(errors='replace'), attempt)
+            # A Herdr worker gets this file by submit, after registration; any other worker already has its text.
+            require(named or in_herdr, f'Registration packet lacks its attempt line; add `attempt: {attempt}` to the packet')
             missing = agent_defs.missing_inputs(job, packet.read_text(errors='replace'))
             require(not missing, f'The {execution["job"]} assignment lacks {", ".join(missing)}; write each as '
                                  f'`name: value` (see {job["path"]})')
@@ -1117,6 +1115,8 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                 # A local backend's slot is shared by every workstream on this machine.
                 capacity.acquire(execution['backend'], execution.get('capacity') or {},
                                  state_path(db), attempt)
+            if not named:
+                packet.write_bytes(f'attempt: {attempt}\n'.encode() + packet.read_bytes())
         else:
             saved = get(db, attempt)
             require((saved['runtime'], saved['native_session']) not in closed_sessions(db)
