@@ -56,6 +56,9 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    }
    ```
 
+   A T3 Code worker registers the same event with `"runtime": "t3"` and the thread id T3 reports in place of the
+   Herdr handle: `"t3": {"thread": "<thread id>"}`; hosts/t3.md names the rest of the T3 flow.
+
    Pass the event file with `record --state /absolute/reports/workers.sqlite
    --input /absolute/register.json`; registration takes only the fields named here (plus `native`, a Pi child's
    session record). Assignment IDs identify a ticket and bounded
@@ -71,6 +74,9 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    or the orchestrator's. Herdr registration submits its own bounded startup probe and
    waits for Herdr's session identity, which fills `native_session`: Herdr's ID, or the session its record path
    names once the probe has written it.
+   A worker started through T3 Code adds `"t3": {"thread": "<thread id>"}`, naming the
+   thread T3 reports; registration confirms the thread with the t3 CLI and refuses one another attempt
+   holds.
 
    When the snapshot applied a decision-model recommendation, the helper records
    that decision for you: its action at registration, its execution at verified

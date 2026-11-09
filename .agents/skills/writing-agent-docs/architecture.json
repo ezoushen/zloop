@@ -241,9 +241,9 @@
     "runtime/workers/**/*.md"
    ],
    "code": [
+    "scripts/native_wait.py",
     "scripts/worker_lifecycle.py",
-    "scripts/workstream_spend.py",
-    "scripts/native_wait.py"
+    "scripts/workstream_spend.py"
    ]
   },
   "checks": {
@@ -261,7 +261,9 @@
    ],
    "code": [
     "scripts/agent_models.py",
-    "scripts/outcomes.py"
+    "scripts/outcomes.py",
+    "scripts/seatbelt.py",
+    "scripts/t3_preflight.py"
    ]
   },
   "decisions": {

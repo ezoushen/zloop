@@ -208,7 +208,7 @@ def assigned_findings(db, assignment, value):
 # The fields of a register event, in its own order: every other field of an attempt the lifecycle records itself, from
 # its packet, its host and its later events.
 REGISTERED = ('assignment', 'attempt', 'execution', 'head', 'herdr', 'journal', 'kind', 'native', 'native_session',
-              'owned', 'packet', 'premise', 'repairs', 'repo', 'runtime', 'worker', 'worktree')
+              'owned', 'packet', 'premise', 'repairs', 'repo', 'runtime', 't3', 'worker', 'worktree')
 SETTLED = ('repaired', 'open', 'runtime-bug')  # What a repair attempt's result says of each finding it holds.
 
 
@@ -883,6 +883,26 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
     # A read-only worktree is read before the write lock is taken; the result check and any refusal use that one read.
     now = observed_state(get(db, attempt)) if kind == 'result' and data.get('status') == 'completed' else None
     located = elsewhere = observation = weighed = None
+    if kind == 'result' and data.get('status') == 'completed':
+        target_for_t3 = get(db, attempt)
+        if target_for_t3.get('t3'):
+            # The T3 thread itself is the completion evidence: its turn must have settled and answered; the
+            # status maps to the lifecycle's vocabulary at this one read.
+            thread = target_for_t3['t3']['thread']
+            code, response = t3('thread', 'show', '--json', thread)
+            placed = response.get('thread') if isinstance(response, dict) and isinstance(response.get('thread'), dict) else response
+            require(code == 0 and isinstance(placed, dict) and placed.get('threadId') == thread,
+                    f'T3 cannot confirm thread {thread} at collection: reconcile it and collect again')
+            status = placed.get('status')
+            require(status not in ('running', 'queued', 'starting', 'preparing'),
+                    f'T3 thread {thread} is still {status}; let its turn settle, then collect again')
+            if status == 'waiting':
+                raise ValueError(f'T3 thread {thread} waits for an answer in the T3 app: answer it or decline the '
+                                 'worker there; the choice is not the orchestrator\'s')
+            messages = response.get('messages') or []
+            reply = next((m.get('text') for m in reversed(messages) if m.get('role') == 'assistant'), None)
+            require(text(reply), f'T3 thread {thread} answered no reply; let the worker answer, then collect again')
+            data.setdefault('evidence', []).append(f't3 thread show --json {thread}: {status}; reply: {reply[:120]}')
     if kind == 'startup':
         require('observed' not in data and 'evidence' not in data,
                 'record startup takes native: the absolute worker session record, not observed or evidence')
@@ -931,6 +951,7 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
     if kind == 'register':
         execution = read_object(data['execution']) if text(data.get('execution')) else None
         route = execution or {}
+        kind_route_is_t3 = 't3' in (route.get('executor_context'), route.get('executor_type')) or 't3' in data
         # The resolver marks a Herdr route by its context or, under a caller key, by the built-in herdr type; a skill
         # route may name the Herdr skill with a plugin prefix.
         skill = str(route.get('executor_config', {}).get('skill', ''))
@@ -945,6 +966,10 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
             data['native_session'] = native_settings.session_id(session, data['runtime'])
         if in_herdr:
             placed = herdr_placement(data)
+        elif 't3' in (route.get('executor_context'), route.get('executor_type')) or 't3' in data:
+            # T3 Code is never ambient: only an explicit t3 route or registration field asks it. T3 has no pane to
+            # place, so the lookup keeps the thread's state instead.
+            placed = t3_placement(data)
     db.execute('BEGIN IMMEDIATE')
     with db:
         if kind == 'register':
@@ -1028,7 +1053,9 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
             # complete executor instance) is judged by the runtime it registers as.
             own_process = execution.get('native_dispatch') is False or (
                 execution.get('target_runtime') in TOP_LEVEL and not execution.get('native_dispatch'))
-            require(scope or not own_process or data['runtime'] not in TOP_LEVEL,
+            # A t3 route is hosted by T3 Code, not started from zloop's argv: its controls are the T3 project's
+            # runtime mode, not zloop launch flags.
+            require(scope or not own_process or data['runtime'] not in TOP_LEVEL or kind_route_is_t3,
                     f'A route to a {data["runtime"]} worker started as its own process requires its launch controls '
                     '(launch.verify); resolve it again with agent_models.py --route')
             saved = dict(data, agent=execution['agent'], job=execution['job'], execution_snapshot=execution,
@@ -1038,7 +1065,17 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
             if ticket is not None:
                 saved['ticket'] = ticket
             if placed:
-                saved['herdr'] = placed
+                # A Herdr placement names the tab the worker occupies; a T3 placement names the thread and its state.
+                if placed.get('thread'):
+                    for previous in attempts(db):
+                        held = (previous.get('t3') or {}).get('thread')
+                        if held == placed['thread'] and previous['attempt'] != attempt \
+                                and (previous['runtime'], previous['native_session']) not in closed_sessions(db):
+                            require(False, f'T3 thread {placed["thread"]} already holds attempt '
+                                           f'{previous["attempt"]}: a thread runs one worker; register a fresh thread')
+                    saved['t3'] = placed
+                else:
+                    saved['herdr'] = placed
             if DEFINITIONS['agents'][execution['agent']]['writes'] == 'none':
                 saved['worktree_baseline'] = worktree_state(data['worktree'])  # Not in the event: it can be large.
             decision = linked_decision(execution)
@@ -1519,6 +1556,10 @@ def watch(db, state, attempt, request, *, productive=False):
                     break
                 time.sleep(min(1, max(0, deadline - time.monotonic())))
             reason = 'settled' if code == 0 else 'completion-error' if command is completion else 'wait-error'
+            if productive and saved.get('t3') and code in (1, 2):
+                # A t3 send's exit codes map to the lifecycle's vocabulary: 2 is the agent
+                # waiting for an answer in the T3 app, 1 is the run failing or stopping.
+                reason = 'waiting-on-answer' if code == 2 else 'send-failed'
     except subprocess.TimeoutExpired:
         if process is not None:
             stop(process)
@@ -1563,8 +1604,41 @@ def herdr_prompt(argv):
     return None if index is None else ((argv[index + 3:index + 4] or [''])[0], argv[index + 4:])
 
 
+def t3_send(argv):
+    """(thread id, message text) of a `t3 thread send <thread> <message> --wait` argv, or None for any other."""
+    if (not isinstance(argv, list) or len(argv) < 5 or argv[0] != 't3'
+            or argv[1:3] != ['thread', 'send']):
+        return None
+    flags = [a for a in argv[3:] if a.startswith('-')]
+    require('--wait' in flags,
+            'A t3 submit waits for the reply: use `t3 thread send <thread> <assignment> --wait`')
+    return argv[3], argv[4]
+
+
 def submit(db, state, attempt, request):
     """Verify native settings and arm a durable wait before invoking productive submission once."""
+    t3_target = t3_send(request.get('argv'))
+    saved_for_route = get(db, attempt)
+    if t3_target is None and saved_for_route and saved_for_route.get('t3'):
+        require(False, 'A t3 worker submits through `t3 thread send <thread> <assignment> --wait`; this argv is '
+                       'not a t3 thread send')
+    if t3_target is not None:
+        # The acceptance a t3 submit records is the packet's, sent to the registered thread . The
+        # send runs through watch(productive=True): its exit codes map 0 done, 2 waiting-on-answer, 1 failed.
+        thread, text = t3_target
+        saved = get(db, attempt)
+        placed = saved.get('t3') or {}
+        require(placed.get('thread') == thread,
+                f'A t3 submit sends the registered thread {placed.get("thread")}, not {thread}')
+        packet = Path(saved.get('packet') or '')
+        require(packet.is_file() and text.strip() == packet.read_text(errors='replace').strip(),
+                f'A t3 submit sends the registered packet: send the text of {packet}; a worker that already has '
+                'it is recorded with `record` of `submitted` and the evidence that it does')
+        require('observed' not in request and 'evidence' not in request,
+                'submit takes the t3 argv, not observed or evidence')
+        record(db, dict(kind='startup', attempt=attempt, native=request.get('native'),
+                        model_alias_evidence=request.get('model_alias_evidence', [])), submitting=True)
+        return watch(db, state, attempt, request, productive=True)
     text, flags = herdr_prompt(request.get('argv')) or (None, None)
     # Plain --wait returns when the worker's turn settles, which would hold the orchestrator for the whole job.
     require(flags is None or '--wait' in flags and ('--until=working' in flags or any(
@@ -1637,6 +1711,53 @@ def named_session(identity, runtime):
         return native_settings.session_id(value, runtime) if Path(value).is_file() else None
     except ValueError:
         return None
+
+
+def t3(*args, timeout=LOOKUP_SECONDS):
+    """(exit code, the JSON object the t3 CLI answered with, from stdout) for `t3 thread ...` on this machine's
+    environment; ValueError with the reason when the CLI is absent, does not answer within `timeout` seconds, or
+    answers without a JSON document."""
+    try:
+        process = subprocess.run(['t3', *args], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise ValueError(f't3 did not answer {" ".join(args)} within {timeout} s') from None
+    except FileNotFoundError:
+        raise ValueError(f't3 is not on PATH: the t3 route needs the T3 Code CLI installed') from None
+    document = process.stdout.strip() or process.stderr.strip()
+    try:
+        response = json.loads(document)
+    except ValueError:
+        raise ValueError(f't3 {" ".join(args)} answered no JSON: {document[:200]}') from None
+    return process.returncode, response
+
+
+def t3_thread(data):
+    """The claimed thread id of a t3 registration, or None when the route is not T3 Code's."""
+    route = data.get('execution_snapshot') if isinstance(data.get('execution_snapshot'), dict) else None
+    claimed = data.get('t3') if isinstance(data.get('t3'), dict) else {}
+    is_t3 = ('t3' in (route.get('executor_context'), route.get('executor_type'))
+             or route.get('executor_type') == 't3' or claimed) if route else bool(claimed)
+    if not is_t3:
+        return None
+    thread = claimed.get('thread') or data.get('worker')
+    require(text(thread), 'A T3 worker registers with t3.thread or a worker handle naming its thread')
+    return thread
+
+
+def t3_placement(data):
+    """Where T3 Code itself placed a registration's worker: the state of the thread the route names."""
+    thread = t3_thread(data)
+    require(text(thread), 'Registration requires worker')
+    code, response = t3('thread', 'show', '--json', thread)
+    if code != 0:
+        reason = response.get('error', {}).get('code') if isinstance(response, dict) else response
+        raise ValueError(f'T3 cannot confirm thread {thread}: {reason or "no running server answered"}')
+    # The real CLI nests the thread under `thread` beside `messages`.
+    placed = response.get('thread') if isinstance(response.get('thread'), dict) else response
+    require(isinstance(placed, dict) and placed.get('threadId') == thread,
+            f'T3 thread show named {placed.get("threadId")!r}, not the registered thread {thread!r}')
+    return dict(thread=thread, status=placed.get('status'),
+                runtime=placed.get('providerInstanceId'), model=placed.get('model'))
 
 
 def herdr_placement(data):
@@ -1750,6 +1871,26 @@ def retire_worker(db, state, attempt, request):
         return {'attempt': attempt, 'closed': True, 'native_closed_by': closure['attempt'],
                 'evidence': closure['closed']['evidence']}
     acceptance = request.get('acceptance')
+    placed = saved.get('herdr') or {}
+    if saved.get('t3'):
+        # T3 Code has no CLI stop: the thread stays, so retirement records its idle state as the closure evidence.
+        require_closable(db, saved, acceptance)
+        evidence = request.get('evidence')
+        require(isinstance(evidence, list) and evidence and all(text(x) for x in evidence),
+                'T3 retirement requires evidence naming how the thread was confirmed idle (t3 thread show --json)')
+        code, response = t3('thread', 'show', '--json', saved['t3']['thread'])
+        placed = response.get('thread') if isinstance(response, dict) and isinstance(response.get('thread'), dict) else response
+        require(code == 0 and isinstance(placed, dict) and placed.get('threadId') == saved['t3']['thread'],
+                f'T3 cannot confirm thread {saved["t3"]["thread"]} for retirement; reconcile it and retire again')
+        require(placed.get('status') not in ('running', 'queued', 'starting', 'preparing', 'waiting'),
+                f'T3 thread {saved["t3"]["thread"]} is {response.get("status")}'
+                + ('; it waits for an answer in the T3 app, which is the user\'s decision — answer it or decline '
+                   'the worker there, then retire again' if placed.get('status') == 'waiting'
+                  else '; let its turn settle, then retire again'))
+        line = f't3 thread show --json {saved["t3"]["thread"]}: {placed.get("status")}, left idle (no CLI stop)'
+        record(db, dict(kind='closed', attempt=attempt, evidence=[line, *evidence],
+                        **({'acceptance': acceptance} if 'acceptance' in request else {})))
+        return {'attempt': attempt, 'closed': True, 'evidence': [line, *evidence]}
     if not saved['owned']:
         require_closable(db, saved, acceptance)
         record(db, dict(kind='closed', attempt=attempt, evidence=[RELEASED],
@@ -2068,7 +2209,7 @@ def status(db, attempt=None):
                for row in pending(db, saved['attempt'])):
             attention.append('inspect parent and recover pending notification')
         summary = {key: saved[key] for key in ('attempt', 'assignment', 'agent', 'job', 'worker', 'native_session',
-                   'herdr', 'head', 'requested', 'observed', 'observed_cwd', 'verified', 'monitor', 'result',
+                   'herdr', 't3', 'head', 'requested', 'observed', 'observed_cwd', 'verified', 'monitor', 'result',
                    'accepted', 'declined', 'acceptance_deferred', 'retained', 'closed',
                    'premise', 'findings') if key in saved}
         if saved.get('observed_cwd') and native_settings.outside(saved['observed_cwd'], saved['worktree'],

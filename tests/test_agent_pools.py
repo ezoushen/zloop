@@ -144,7 +144,9 @@ print(json.dumps({'assignment_id': request['assignment']['assignment_id'],
         executor = {'type': 'bash', 'config': {'argv': [sys.executable, str(script)]}}
         models.save_session(self.root, 'run', {'agents': {'builder': worker('before', executor=executor)}})
         frozen = self.root / 'resolved.json'
-        frozen.write_text(json.dumps(self.resolve(session_id='run')))
+        reports = self.root.parent / (self.root.name + '-reports')
+        reports.mkdir(exist_ok=True)
+        frozen.write_text(json.dumps(self.resolve(session_id='run', reports=str(reports))))
         models.save_session(self.root, 'run', {'agents': {'builder': worker('after', executor=executor)}})
         assignment = self.root / 'assignment.json'
         assignment.write_text(json.dumps({'assignment_id': 'frozen-1', 'worktree': str(self.root),

@@ -3,8 +3,10 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
+import sys
 
 import agent_models as models
 
@@ -30,10 +32,31 @@ def run(execution, assignment):
             raise ValueError(f'assignment.{field} must be an existing absolute file')
     request = {'assignment': assignment, 'models': policy}
     # argv remains literal: prompts and model selections travel through stdin, never shell expansion.
-    process = subprocess.run(execution['executor_config']['argv'], cwd=worktree,
+    argv = execution['executor_config']['argv']
+    scope = models.DEFINITIONS['agents'][execution['agent']]['writes']
+    if sys.platform == 'darwin':
+        # macOS Seatbelt bounds the worker's writes to its scope (the bash executor is zloop's own
+        # subprocess, so the profile wraps here); the profile lives under the reports directory, so a route with no
+        # reports directory outside the worktree is refused rather than bounded by a profile inside what it bounds.
+        reports = execution.get('reports')
+        reports_real = Path(reports).resolve() if reports else None
+        worktree_real = Path(worktree).resolve()
+        if not reports_real or reports_real == worktree_real or reports_real in worktree_real.parents:
+            raise ValueError('A bash route on macOS needs a reports directory outside the assigned worktree: '
+                             'the Seatbelt profile lives there; resolve the route again with --reports')
+        import seatbelt
+        wrapped = seatbelt.wrap(argv, scope, worktree=str(worktree), reports=str(reports),
+                                tag=assignment['assignment_id'].replace('/', '-'))
+        argv, fallback = wrapped['argv'], wrapped.get('fallback_reason')
+    else:
+        fallback = None
+    # The worker learns its reports directory through the environment; a bounded worker writes its receipt there.
+    env = dict(os.environ, ZLOOP_REPORTS=str(execution.get('reports')))
+    process = subprocess.run(argv, cwd=worktree, env=env,
                              input=json.dumps(request), text=True, stdout=subprocess.PIPE)
     if process.returncode:
-        raise ValueError(f'Executor exited with status {process.returncode}; reconcile before retrying')
+        raise ValueError(f'Executor exited with status {process.returncode}'
+                         + (f' (sandbox fallback: {fallback})' if fallback else '') + '; reconcile before retrying')
     try:
         outcome = json.loads(process.stdout)
     except ValueError as error:

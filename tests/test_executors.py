@@ -93,7 +93,8 @@ class Executors(unittest.TestCase):
 
             def resolve(host='claude', agent='reviewer', choice=None, adaptive_thinking=None, **task):
                 return models.resolve_execution(root, preferences, user, host, agent, task, choice,
-                                                adaptive_thinking=adaptive_thinking)
+                                                adaptive_thinking=adaptive_thinking,
+                                                worktree=str(root), reports=str(root / 'reports'))
 
             for host in models.HOSTS:
                 for agent in models.AGENTS:
@@ -244,7 +245,8 @@ class Executors(unittest.TestCase):
             worker = root / 'worker.py'
             worker.write_text('''import json, os, pathlib, sys
 request = json.load(sys.stdin)
-pathlib.Path('received.json').write_text(json.dumps({'request': request, 'cwd': os.getcwd(), 'args': sys.argv[1:]}))
+target = pathlib.Path(os.environ.get('ZLOOP_REPORTS', '.')) / 'received.json'
+target.write_text(json.dumps({'request': request, 'cwd': os.getcwd(), 'args': sys.argv[1:]}))
 assignment_id = request['assignment']['assignment_id']
 mode = sys.argv[1]
 if mode == 'exit': sys.exit(7)
@@ -261,12 +263,14 @@ print(json.dumps({'assignment_id': 'wrong' if mode == 'mismatch' else assignment
                           'prompt': 'Literal $(touch unexpected); `touch unexpected`'}
 
             def execution(mode='completed', policy=None):
+                # The sandbox bounds a writes:none worker's output to the reports directory, so the fixture's
+                # receipt lands there and the assertions read it from the same place.
                 return resolve(choice=instance('bash', {'argv': ['bash', str(launcher), mode, assignment['prompt']]}, policy))
 
             for policy in ({'mode': 'inherit'}, override['models']):
                 outcome = bash.run(execution(policy=policy), assignment)
                 assert outcome['status'] == 'completed'
-                received = json.loads((root / 'received.json').read_text())
+                received = json.loads((root / 'reports' / 'received.json').read_text())
                 assert received['request'] == {'assignment': assignment, 'models': policy}
                 assert Path(received['cwd']).resolve() == root.resolve() and received['args'][1] == assignment['prompt']
                 assert not (root / 'unexpected').exists()
@@ -274,7 +278,7 @@ print(json.dumps({'assignment_id': 'wrong' if mode == 'mismatch' else assignment
                                               dict(override['models'], allow_thinking_override=True)),
                               adaptive_thinking='xhigh')
             assert bash.run(adapted, assignment)['status'] == 'completed'
-            received = json.loads((root / 'received.json').read_text())
+            received = json.loads((root / 'reports' / 'received.json').read_text())
             assert received['request']['models'] == dict(override['models'], thinking='xhigh')
             for mode in ('blocked', 'failed', 'unknown'):
                 assert bash.run(execution(mode), assignment)['status'] == mode
