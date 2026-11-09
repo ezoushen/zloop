@@ -17,6 +17,19 @@ def has_attempt(text, attempt):
                           + re.escape(attempt) + r'[ \t]*$', text))
 
 
+def _packet_reply_t3(messages, attempt):
+    """Packet proof and reply from a T3 thread's messages: the packet is the user text naming the attempt; the
+    reply is the first assistant text after it."""
+    packet = False
+    for message in messages:
+        role, body = message.get('role'), message.get('text') or ''
+        if role == 'user':
+            packet = packet or has_attempt(body, attempt)
+        elif role == 'assistant' and packet:
+            return True, True
+    return packet, False
+
+
 def packet_reply(path, runtime, session, attempt, *, parents=None):
     """Return packet proof and its reply, or parent proof and a reply for a Codex native child.
 
@@ -24,6 +37,11 @@ def packet_reply(path, runtime, session, attempt, *, parents=None):
     Pi follows its active branch.
     """
     path = Path(path)
+    if runtime == 't3':
+        # A T3 worker's record is the thread state `t3 thread show --json` wrote: nested thread beside messages
+        # whose text rides a 'text' field.
+        document = json.loads(path.read_bytes())
+        return _packet_reply_t3(document.get('messages') or [], attempt)
     if runtime == 'opencode':
         rows = json.loads(path.read_bytes())['messages']
     else:
