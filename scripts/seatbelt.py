@@ -40,13 +40,20 @@ def profile(scope, worktree, reports):
 
 
 def _probe_profile(worktree):
-    """A profile for the probe itself: deny a write to the probe target's own path, so an enforcing sandbox-exec
-    makes the probe touch fail."""
-    outside = Path(tempfile.gettempdir()) / f'zloop-sandbox-probe-{os.getuid()}-{os.getpid()}'
+    """The real worker profile shape, probing enforcement by a touch outside every allowed subpath (under the
+    user's home): an enforcing sandbox-exec makes that touch fail. A deny-literal after (allow default) is not
+    reliable on this macOS build; deny-all-then-allow is what the worker profiles use."""
+    outside = Path.home() / f'zloop-sandbox-probe-{os.getuid()}-{os.getpid()}'
     lines = [
         '(version 1)',
         '(allow default)',
-        '(deny file-write* (literal "' + str(outside) + '"))',
+        '(deny file-write*)',
+        '(allow file-write*',
+        '       (subpath "/private/tmp")',
+        '       (subpath "/tmp")',
+        '       (literal "/dev/null")',
+        '       (subpath "' + str(worktree) + '")',
+        ')',
     ]
     return '\n'.join(lines) + '\n', outside
 

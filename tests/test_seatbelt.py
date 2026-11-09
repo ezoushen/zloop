@@ -52,8 +52,11 @@ if args and args[0] == "-f" and len(args) > 3 and "zloop-sandbox-probe" in args[
 sys.exit(0)
 ''')
             executable.chmod(stat.S_IRWXU)
-        env = dict(os.environ, PATH=(str(directory) + os.pathsep if present else '')
-                   + os.environ['PATH'])
+        import shutil
+        import shutil
+        bare = str(directory) if present else tempfile.mkdtemp(prefix='zloop no-sandbox ')
+        env = dict(os.environ, PATH=bare + os.pathsep + '/bin' if present
+                   else bare + os.pathsep + '/bin')
         return patch.dict(os.environ, env)
 
 
