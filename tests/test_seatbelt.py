@@ -210,8 +210,9 @@ class ResolverGating(Machine):
         # launch keys or profile anywhere — mutating the resolver to add a sandbox launch to native routes would
         # surface here. The bash side of the contract is covered where the wrap lives (Wrapping, BashExecution).
         self.user.write_text(json.dumps({
-            'models': {'sol': {'description': 'Review.', 'runtimes': {'claude': {'id': 'sol'}}}},
-            'agents': {'reviewer': {'executor': {'type': 'subagent'}, 'models': {'mode': 'inherit'}}}}))
+            'models': {'sol': {'description': 'Review.', 'runtimes': {'claude': {'id': 'sol-1'}}}},
+            'runtimes': {'claude': {'executors': {'claude': {'type': 'subagent'}}}},
+            'agents': {'reviewer': {'model': 'sol'}}}))
         native = self.resolve(str(self.worktree), str(self.reports))
         self.assertTrue(native.get('native_dispatch'))
         self.assertNotIn('launch', native)
