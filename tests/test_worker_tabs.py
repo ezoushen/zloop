@@ -77,7 +77,6 @@ class HerdrTabs(WorkerLifecycleCase):
 
     def test_registration_names_the_session_step_when_no_identity_arrives(self):
         self.herdr_route()
-        # Every lookup takes 4 s, so the last one straddles the 45 s deadline.
         self.herdr_fixture(session_after=1000000, agent_delay=4)
         started = time.monotonic()
         error = self.register(worker='builder-1', herdr={'session': 'fixture-session'}, code=2)
@@ -205,21 +204,20 @@ class HerdrTabs(WorkerLifecycleCase):
         self.assertNotIn('agent prompt', (self.root / 'herdr-argv.log').read_text())
 
     def test_a_session_record_herdr_names_by_path_fills_native_session_once_the_probe_writes_it(self):
-        # Rule: Herdr names a Pi worker's session by a record path that exists only after its first turn, the probe
-        # registration sends; registration reads the session that record names, whether the caller omitted
-        # native_session or passed Herdr's path, and refuses a supplied ID the record contradicts.
         record = self.root / 'pi-session.jsonl'
-        for supplied, code in ((None, 0), (str(record), 0), ('native-9', 2)):
-            with self.subTest(supplied=supplied):
-                self.state = self.root / f'path-{code}-{bool(supplied)}.sqlite'
+        placements = (('builder-1', {'herdr': {'session': 'fixture-session'}}), ('fixture-session/pane-1/builder-1', {}))
+        cases = [(worker, placement, supplied, code) for worker, placement in placements
+                 for supplied, code in ((None, 0), (str(record), 0), ('native-9', 2))]
+        for number, (worker, placement, supplied, code) in enumerate(cases):
+            with self.subTest(worker=worker, supplied=supplied):
+                self.state = self.root / f'path-{number}.sqlite'
                 for name in ('agent-lookups', 'probe-submitted'):
                     (self.root / name).unlink(missing_ok=True)
                 record.unlink(missing_ok=True)
                 self.herdr_route('pi')
                 self.herdr_fixture(agent_kind='pi', native_session=str(record), session_kind='path',
                                    probe_record=(str(record), 'pi-session-1'))
-                error = self.register(worker='builder-1', runtime='pi', session=supplied,
-                                      herdr={'session': 'fixture-session'}, code=code)
+                error = self.register(worker=worker, runtime='pi', session=supplied, code=code, **placement)
                 if code:
                     self.assertIn('native_session native-9', error)
                     self.assertIn('Herdr reports pi-session-1', error)

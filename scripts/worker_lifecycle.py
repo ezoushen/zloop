@@ -929,21 +929,21 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
     # execution is read once, here, so the attempt keeps the route that decided whether to ask.
     placed = execution = None
     if kind == 'register':
-        session = data.get('native_session')
-        if (data.get('runtime') in ('claude', 'codex', 'pi') and text(session) and Path(session).is_absolute()
-                and (Path(session).is_file() or not (data['runtime'] == 'codex' and session.startswith('/root/')
-                                                     or isinstance(data.get('herdr'), dict)))):
-            # An existing file is a session record, and stands for the session it names; a Codex child's agent_path
-            # (/root/<task>) is no file, nor yet is a Herdr worker's record before the probe registration sends.
-            # Herdr is asked about the session, so this comes first.
-            data['native_session'] = native_settings.session_id(session, data['runtime'])
         execution = read_object(data['execution']) if text(data.get('execution')) else None
         route = execution or {}
         # The resolver marks a Herdr route by its context or, under a caller key, by the built-in herdr type; a skill
         # route may name the Herdr skill with a plugin prefix.
         skill = str(route.get('executor_config', {}).get('skill', ''))
-        if 'herdr' in (route.get('executor_context'), route.get('executor_type')) \
-                or skill.rpartition(':')[2] == 'herdr' or 'herdr' in data:
+        in_herdr = ('herdr' in (route.get('executor_context'), route.get('executor_type'))
+                    or skill.rpartition(':')[2] == 'herdr' or 'herdr' in data)
+        session = data.get('native_session')
+        if (data.get('runtime') in ('claude', 'codex', 'pi') and text(session) and Path(session).is_absolute()
+                and (Path(session).is_file() or not (data['runtime'] == 'codex' and session.startswith('/root/')
+                                                     or in_herdr))):
+            # An existing file is a session record, and stands for the session it names; a Codex child's agent_path
+            # (/root/<task>) is no file. Herdr is asked about the session, so this comes first.
+            data['native_session'] = native_settings.session_id(session, data['runtime'])
+        if in_herdr:
             placed = herdr_placement(data)
     db.execute('BEGIN IMMEDIATE')
     with db:
@@ -1709,8 +1709,6 @@ def herdr_placement(data):
                 f'inspect `herdr --session {session} agent read {worker}` before retrying registration')
         identity = agent.get('agent_session') or {}
         native_session = named_session(identity, agent.get('agent'))
-        # Until a record path names its session, a supplied ID stands, as does any ID for a runtime whose records
-        # name none; with neither, registration waits for the record the probe writes.
         if native_session or identity.get('kind') == 'path' and (supplied_id or agent.get('agent') not in ('claude', 'codex', 'pi')):
             break
         time.sleep(min(0.25, max(0, deadline - time.monotonic())))
