@@ -88,8 +88,8 @@ pane, whatever placement the installed skill defaults to:
 Registration owns the startup probe: from an `idle` or `done` worker it sends a
 fixed READY/no-tools prompt with `--wait --timeout 45000`, then polls for Herdr's
 session identity for at most 45 seconds (each lookup at most five seconds).
-An ID fills an omitted `native_session`; a native record path still needs its
-session ID in the registration. A stalled, failed or blocked probe never registers.
+Herdr's ID, or the session a Claude, Codex or Pi record path names once the probe has written it, fills
+`native_session`; omit it, or pass Herdr's ID or path. A stalled, failed or blocked probe never registers.
 The refusal names the probe or session step and an inspection command. Inspect
 that same worker before retrying registration; do not send a second probe blindly
 or press Enter into an unidentified input UI.

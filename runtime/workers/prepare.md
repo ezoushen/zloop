@@ -69,8 +69,8 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    its `worker` is a `session/pane/name` handle; registration reads its pane, tab,
    workspace and name from Herdr and refuses what Herdr or the handle contradicts, or a tab the worker shares
    or the orchestrator's. Herdr registration submits its own bounded startup probe and
-   waits for Herdr's session identity; an omitted `native_session` is filled from an ID Herdr reports.
-   When Herdr reports a native record path instead, supply the session ID that record names.
+   waits for Herdr's session identity, which fills `native_session`: Herdr's ID, or the session its record path
+   names once the probe has written it.
 
    When the snapshot applied a decision-model recommendation, the helper records
    that decision for you: its action at registration, its execution at verified

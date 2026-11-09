@@ -931,9 +931,11 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
     if kind == 'register':
         session = data.get('native_session')
         if (data.get('runtime') in ('claude', 'codex', 'pi') and text(session) and Path(session).is_absolute()
-                and (Path(session).is_file() or not (data['runtime'] == 'codex' and session.startswith('/root/')))):
+                and (Path(session).is_file() or not (data['runtime'] == 'codex' and session.startswith('/root/')
+                                                     or isinstance(data.get('herdr'), dict)))):
             # An existing file is a session record, and stands for the session it names; a Codex child's agent_path
-            # (/root/<task>) is no file. Herdr is asked about the session, so this comes first.
+            # (/root/<task>) is no file, nor yet is a Herdr worker's record before the probe registration sends.
+            # Herdr is asked about the session, so this comes first.
             data['native_session'] = native_settings.session_id(session, data['runtime'])
         execution = read_object(data['execution']) if text(data.get('execution')) else None
         route = execution or {}
@@ -1624,6 +1626,19 @@ def herdr(session, *args, timeout=15):
     return process.returncode, response
 
 
+def named_session(identity, runtime):
+    """The session a Herdr agent_session names: its ID, or the session its record path names once that record exists."""
+    value = identity.get('value')
+    if not text(value) or identity.get('kind') not in ('id', 'path'):
+        return None
+    if identity['kind'] == 'id':
+        return value
+    try:
+        return native_settings.session_id(value, runtime) if Path(value).is_file() else None
+    except ValueError:
+        return None
+
+
 def herdr_placement(data):
     """Confirm a worker's own tab, probe activity and session within bounded waits; fill an omitted native ID."""
     worker = data.get('worker')
@@ -1678,12 +1693,14 @@ def herdr_placement(data):
                            '--wait', '--timeout', str(STARTUP_SECONDS * 1000), timeout=STARTUP_SECONDS + LOOKUP_SECONDS)
     require(code == 0, f'Herdr launch probe step failed for {worker}: {response.get("error", {}).get("code")}; '
                        f'inspect `herdr --session {session} agent read {worker}` before retrying registration')
+    supplied = claimed.get('native_session')
+    supplied_id = text(supplied) and not Path(supplied).is_absolute()
     deadline = time.monotonic() + STARTUP_SECONDS
     while True:
         remaining = deadline - time.monotonic()
         require(remaining > 0, f'Herdr launch session step timed out for {worker} after {STARTUP_SECONDS} s; '
                               f'inspect `herdr --session {session} agent get {worker}` and its integration, then retry registration')
-        code, response = herdr(session, 'agent', 'get', worker, timeout=min(LOOKUP_SECONDS, remaining))
+        code, response = herdr(session, 'agent', 'get', worker, timeout=LOOKUP_SECONDS)
         require(code == 0, f'Herdr cannot confirm worker {worker} in session {session}: '
                            f'{response.get("error", {}).get("code")}')
         agent = response['result']['agent']
@@ -1691,13 +1708,15 @@ def herdr_placement(data):
                 f'Herdr launch probe step did not settle idle or done for {worker}: {agent.get("agent_status")}; '
                 f'inspect `herdr --session {session} agent read {worker}` before retrying registration')
         identity = agent.get('agent_session') or {}
-        if identity.get('kind') in ('id', 'path') and text(identity.get('value')):
+        native_session = named_session(identity, agent.get('agent'))
+        # Until a record path names its session, a supplied ID stands, as does any ID for a runtime whose records
+        # name none; with neither, registration waits for the record the probe writes.
+        if native_session or identity.get('kind') == 'path' and (supplied_id or agent.get('agent') not in ('claude', 'codex', 'pi')):
             break
         time.sleep(min(0.25, max(0, deadline - time.monotonic())))
-    native_session = identity.get('value') if identity.get('kind') == 'id' else None
-    require('native_session' not in claimed or native_session is None or claimed['native_session'] == native_session,
+    require(native_session is None or supplied in (None, native_session, identity.get('value')),
             f'Registration names native_session {claimed.get("native_session")}, but Herdr reports {native_session} for {worker}')
-    if not text(data.get('native_session')) and text(native_session):
+    if native_session:
         data['native_session'] = native_session
     return placed
 
