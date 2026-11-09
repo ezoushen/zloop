@@ -39,7 +39,7 @@ class RepairFindings(WorkerLifecycleCase):
                                                worker='pane-autofix-2', code=2, **supplied).strip(),
                                  f'Registration takes no {", ".join(sorted(supplied))}: it takes only '
                                  'assignment, attempt, execution, head, herdr, journal, kind, native, native_session, '
-                                 'owned, packet, premise, repairs, repo, runtime, worker, worktree; the lifecycle '
+                                 'owned, packet, premise, repairs, repo, runtime, t3, worker, worktree; the lifecycle '
                                  'records the rest itself, findings from the packet')
         self.cli('plan', '--job', 'repair', '--finding', 'P01-001', '--finding', 'P01-002', '--finding', 'P05-001')
         refused = self.repair('r1/1', "the CONFIRMED candidates in the listed audit report(s) (IDs and proposed "
