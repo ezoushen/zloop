@@ -5,6 +5,7 @@ fails; a missing or unenforcing sandbox selects the tool-allowlist fallback with
 
 import json
 import os
+import subprocess
 import stat
 import sys
 import tempfile
@@ -85,6 +86,22 @@ class ProfileGeneration(Machine):
         self.assertIn(f'(deny file-read* (subpath "{home}/.netrc"))', profile)
         self.assertIn(f'(subpath "{os.path.realpath(self.worktree)}")', profile)
 
+    def test_a_worktree_profile_writes_the_shared_git_dir_and_the_user_temp(self):
+        # Rule (RR-03): a linked worktree's commits land in the main checkout's git directory, and the per-user
+        # temp tree must be writable for runtimes that need it.
+        main = self.root / 'main'
+        subprocess.run(['git', 'init', '-q', str(main)], check=True)
+        subprocess.run(['git', '-C', str(main), 'commit', '-q', '--allow-empty',
+                        '--allow-empty-message', '-m', 'init'], check=True,
+                       env=dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@t',
+                                GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@t'))
+        subprocess.run(['git', '-C', str(main), 'worktree', 'add', '-q', str(self.worktree)], check=True)
+        profile = sandbox.profile('worktree', worktree=str(self.worktree), reports=str(self.reports))
+        git_dir = os.path.realpath(subprocess.run(['git', '-C', str(self.worktree), 'rev-parse', '--git-common-dir'],
+                                                  capture_output=True, text=True).stdout.strip())
+        self.assertIn(f'(subpath "{git_dir}")', profile)
+        self.assertIn(f'(subpath "{os.path.realpath(tempfile.gettempdir())}")', profile)
+
     def test_unknown_scope_is_refused(self):
         with self.assertRaisesRegex(ValueError, 'scope'):
             sandbox.profile('everywhere', worktree=str(self.worktree), reports=str(self.reports))
@@ -95,8 +112,8 @@ class Preflight(Machine):
         with self.stub_sandbox(present=True, enforcing=True):
             result = sandbox.available(worktree=str(self.worktree))
         self.assertEqual((result['available'], result.get('fallback_reason')), (True, None))
-        # The probe's evidence survives: an inside-scope file exists.
-        self.assertTrue(Path(result['probe']).exists())
+        # The probe leaves nothing behind: no stray files in the temp tree after a pass.
+        self.assertFalse(Path(result['probe']).exists())
 
     def test_a_missing_binary_selects_the_allowlist_fallback_with_its_reason(self):
         with self.stub_sandbox(present=False):
@@ -180,6 +197,38 @@ class ResolverGating(Machine):
         self.assertNotIn('launch', execution)
         self.assertNotIn('sandbox_profile', json.dumps(execution))
 
+
+
+
+class BashExecutionCarriesScope(unittest.TestCase):
+    """RR-01: a resolved bash execution carries the worktree, reports directory and attempt the executor needs,
+    so its Seatbelt profile bounds the real scope instead of falling back to the worktree."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix='zloop bash exec ')
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.user = self.root / 'executors.json'
+        self.user.write_text(json.dumps({
+            'agents': {'reviewer': {'executor': {'type': 'bash', 'config': {'argv': ['bash', '/tmp/w.sh']}},
+                                    'models': {'mode': 'inherit'}}}}))
+
+    def resolve(self, worktree, reports):
+        return models.resolve_execution(self.root, self.root / 'absent.json', self.user,
+                                        'claude', 'reviewer', {}, worktree=worktree, reports=reports)
+
+    def test_a_resolved_bash_execution_names_its_scope_and_attempt(self):
+        execution = self.resolve(str(self.root / 'wt'), str(self.root / 'reports'))
+        self.assertEqual(execution.get('worktree'), str(self.root / 'wt'))
+        self.assertEqual(execution.get('reports'), str(self.root / 'reports'))
+        self.assertNotIn('attempt', execution)  # The executor tags its profile with the assignment id it receives.
+
+    def test_a_missing_reports_path_leaves_the_scope_fields_absent(self):
+        # Without a reports directory the executor records its fallback reason instead of a profile; the resolver
+        # carries no scope fields rather than inventing one inside the worktree it would bound.
+        execution = self.resolve(str(self.root / 'wt'), None)
+        self.assertIsNone(execution.get('reports'))
+        self.assertEqual(execution.get('worktree'), str(self.root / 'wt'))
 
 if __name__ == '__main__':
     unittest.main()

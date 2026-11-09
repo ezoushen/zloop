@@ -5,9 +5,10 @@ retirement leaves the thread idle. The `t3` CLI is stubbed like the Herdr fixtur
 import json
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from lifecycle_case import WorkerLifecycleCase
+from lifecycle_case import WorkerLifecycleCase, SCRIPT
 
 
 class T3Threads(WorkerLifecycleCase):
@@ -27,7 +28,7 @@ class T3Threads(WorkerLifecycleCase):
         executable = directory / 't3'
         payload = {'threadId': thread, 'title': title, 'status': status,
                    'providerInstanceId': runtime, 'model': model,
-                   'messages': [{'role': 'assistant', 'content': [{'type': 'text', 'text': 'assignment done'}]}]}
+                   'messages': [{'role': 'assistant', 'text': 'assignment done'}]}
         body = (json.dumps(payload) if show_error is None
                 else json.dumps({'error': {'code': show_error}}))
         exit_code = 1 if show_error else 0
@@ -85,6 +86,24 @@ class Registration(T3Threads):
         self.assertFalse((self.root / 't3-argv.log').exists())
 
 
+class RegistrationRefusals(T3Threads):
+    def test_registration_refuses_a_thread_another_live_attempt_holds(self):
+        # Rule (SR-10): a T3 thread runs one worker; a second attempt on the same live thread is refused with the
+        # holder named, even from a fresh worker handle and session.
+        self.registered()
+        self.record('startup', attempt='ticket-1/1', native=str(self.native('ticket-1/1')))
+        error = self.register('ticket-2/1', assignment='ticket-2', session='native-2', worker='th-2',
+                              t3={'thread': 'th-1'}, code=2)
+        self.assertIn('already holds attempt ticket-1/1', str(error))
+
+    def test_registration_refuses_an_unknown_thread_with_its_reason(self):
+        # Rule (SR-20): the not-found reason is the refusal, not a generic failure.
+        self.t3_route()
+        self.t3_fixture(show_error='not_found')
+        error = self.register(worker='th-1', t3={'thread': 'th-1'}, code=2)
+        self.assertIn('not_found', str(error))
+
+
 class Retirement(T3Threads):
     def test_retirement_leaves_the_thread_idle_and_needs_no_pane(self):
         # Rule: T3 has no CLI stop, so retirement records the thread idle-retained with its state evidence.
@@ -99,6 +118,21 @@ class Retirement(T3Threads):
         self.assertIn('t3 thread show --json th-1', str(attempt.get('closed_evidence', attempt)))
 
 
+
+
+class WaitingThreadRetirement(T3Threads):
+    def test_retirement_refuses_a_thread_waiting_for_an_answer(self):
+        # Rule (SR-14): waiting-on-answer is the user's decision, not the orchestrator's.
+        self.registered()
+        self.ready()
+        report = self.collect()
+        self.acknowledge()
+        self.t3_fixture(status='waiting')
+        request = self.root / 'retire-waiting.json'
+        request.write_text(json.dumps({'evidence': ['t3 thread show th-1: waiting'],
+                                       'acceptance': {'decision': 'deferred', 'reason': 'waiting on the user'}}))
+        error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+        self.assertIn('waits for an answer', str(error))
 
 
 class T3Submit(T3Threads):
@@ -130,27 +164,23 @@ sys.exit(3)
         import os
         self.send_env = dict(self.native_env, PATH=str(directory) + os.pathsep + self.native_env['PATH'])
 
-    def submit_request(self, code=0):
-        path = self.root / 'submit.json'
-        path.write_text(json.dumps({'argv': ['t3', 'thread', 'send', 'th-1', 'PACKET', '--wait'],
-                                    'timeout': 5}))
-        return path
-
     def submit_send(self, thread='th-1', text='PACKET', **fixture):
-        self.t3_send_fixture(**fixture)
+        if fixture:
+            self.t3_send_fixture(**fixture)
+        if not hasattr(self, 'send_env'):
+            self.send_env = self.native_env
         request = self.root / 'submit-send.json'
-        request.write_text(json.dumps({'argv': ['t3', 'thread', 'send', thread, text, '--wait'], 'timeout': 5}))
+        request.write_text(json.dumps({'argv': ['t3', 'thread', 'send', thread, text, '--wait'], 'timeout': 5,
+                                       'native': str(self.native('ticket-1/1'))}))
         import subprocess
-        return subprocess.run([sys.executable, '-B',
-                               '/Users/ezou/Workspace/zloop/.worktrees/t3code-support/scripts/worker_lifecycle.py',
+        return subprocess.run([sys.executable, '-B', str(SCRIPT),
                                'submit', '--state', str(self.state), '--attempt', 'ticket-1/1',
-                               '--input', str(request)], capture_output=True, text=True)
+                               '--input', str(request)], capture_output=True, text=True, env=self.send_env)
 
     def test_submit_rejects_a_message_that_is_not_the_registered_packet(self):
         # Rule: the acceptance a t3 submit records is the packet's; any other text is refused before it runs.
         self.registered()
         self.ready()
-        self.ready = lambda *a, **k: None  # ready() already ran; submit records startup from the real record
         process = self.submit_send(text='something else')
         self.assertEqual(process.returncode, 2)
         self.assertIn('registered packet', process.stderr + process.stdout)
@@ -159,10 +189,38 @@ sys.exit(3)
         # Rule: a t3 submit sends the registered thread.
         self.registered()
         self.ready()
-        self.ready = lambda *a, **k: None
         process = self.submit_send(thread='th-other')
         self.assertEqual(process.returncode, 2)
         self.assertIn('registered thread', process.stderr + process.stdout)
+
+    def test_submit_runs_the_registered_send_and_arms_the_wait(self):
+        # Rule: a t3 submit records the startup, sends the registered packet text to the registered thread through
+        # `t3 thread send --wait`, and arms the wait on that send.
+        import subprocess
+        self.registered()
+        # Startup was already recorded by registered()? registered() only registers. Record startup with the native record.
+        self.record('startup', native=str(self.native('ticket-1/1')))
+        self.t3_send_fixture(exit_code=0, reply='packet received')
+        packet = Path(self.packet('ticket-1/1'))
+        process = self.submit_send(text=packet.read_text(errors='replace').strip())
+        self.assertEqual(process.returncode, 0, process.stderr + process.stdout)
+        sends = (self.root / 't3-send-argv.log').read_text()
+        self.assertIn('thread send th-1', sends)
+        saved = json.loads(process.stdout)
+        # The stub settles instantly: the wait ran to its settled receipt.
+        self.assertEqual((saved['reason'], saved['exit_code']), ('settled', 0))
+
+    def test_submit_exit_two_maps_to_waiting_on_answer(self):
+        # Rule: a send exit 2 means the agent waits for an answer; the wait result carries the mapped reason.
+        self.registered()
+        self.record('startup', native=str(self.native('ticket-1/1')))
+        self.t3_send_fixture(exit_code=2, send_error='agent waiting for an answer')
+        packet = Path(self.packet('ticket-1/1'))
+        process = self.submit_send(text=packet.read_text(errors='replace').strip())
+        # The CLI mirrors the semantics: exit 2 IS the waiting-on-answer state.
+        self.assertEqual(process.returncode, 2)
+        saved = json.loads(process.stdout)
+        self.assertEqual((saved['reason'], saved['exit_code']), ('waiting-on-answer', 2))
 
     def test_submit_rejects_an_argv_that_is_not_a_t3_thread_send(self):
         # Rule: the registered packet is what a t3 submit sends; any other command is refused before it runs.

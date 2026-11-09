@@ -10,6 +10,7 @@ an outside-scope write must fail — and its failure selects the tool-allowlist 
 never silently. Non-macOS hosts never wrap.
 """
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -31,7 +32,15 @@ def profile(scope, worktree, reports, *, read_bound=True, extra_reads=()):
         f'       (subpath "{reports_real}")',
     ]
     if scope == 'worktree':
-        writes.append(f'       (subpath "{os.path.realpath(worktree)}")')
+        worktree_real = os.path.realpath(worktree)
+        writes.append(f'       (subpath "{worktree_real}")')
+        # A linked worktree's commits land in the main checkout's shared git directory.
+        import shutil as _shutil
+        if _shutil.which('git'):
+            git = subprocess.run(['git', '-C', worktree_real, 'rev-parse', '--git-common-dir'],
+                                 capture_output=True, text=True)
+            if git.returncode == 0 and git.stdout.strip():
+                writes.append(f'       (subpath "{os.path.realpath(git.stdout.strip())}")')
     home = os.path.realpath(Path.home())
     lines = [
         '(version 1)',
@@ -43,6 +52,7 @@ def profile(scope, worktree, reports, *, read_bound=True, extra_reads=()):
         '(allow file-write*',
         '       (subpath "/private/tmp")',
         '       (subpath "/tmp")',
+        '       (subpath "' + os.path.realpath(tempfile.gettempdir()) + '")',
         '       (literal "/dev/null")',
         *writes,
         ')',
@@ -98,7 +108,8 @@ def available(worktree=None, reports=None):
                         'probe': str(path)}
     finally:
         outside.unlink(missing_ok=True)
-    return {'available': True, 'fallback_reason': None, 'probe': str(inside_parent)}
+        shutil.rmtree(inside_parent, ignore_errors=True)
+    return {'available': True, 'fallback_reason': None, 'probe': str(inside)}
 
 
 def wrap(argv, scope, worktree, reports, *, tag='worker', extra_reads=()):

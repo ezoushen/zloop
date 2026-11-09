@@ -880,6 +880,25 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
     # A read-only worktree is read before the write lock is taken; the result check and any refusal use that one read.
     now = observed_state(get(db, attempt)) if kind == 'result' and data.get('status') == 'completed' else None
     located = elsewhere = observation = weighed = None
+    if kind == 'result' and data.get('status') == 'completed':
+        target_for_t3 = get(db, attempt)
+        if target_for_t3.get('t3'):
+            # The T3 thread itself is the completion evidence: its turn must have settled and answered (review
+            # SR-09/RR-05). The status maps to the lifecycle's vocabulary at this one read.
+            thread = target_for_t3['t3']['thread']
+            code, response = t3('thread', 'show', '--json', thread)
+            require(code == 0 and isinstance(response, dict) and response.get('threadId') == thread,
+                    f'T3 cannot confirm thread {thread} at collection: reconcile it and collect again')
+            status = response.get('status')
+            require(status not in ('running', 'queued', 'starting', 'preparing'),
+                    f'T3 thread {thread} is still {status}; let its turn settle, then collect again')
+            if status == 'waiting':
+                raise ValueError(f'T3 thread {thread} waits for an answer in the T3 app: answer it or decline the '
+                                 'worker there; the choice is not the orchestrator\'s')
+            messages = response.get('messages') or []
+            reply = next((m.get('text') for m in reversed(messages) if m.get('role') == 'assistant'), None)
+            require(text(reply), f'T3 thread {thread} answered no reply; let the worker answer, then collect again')
+            data.setdefault('evidence', []).append(f't3 thread show --json {thread}: {status}; reply: {reply[:120]}')
     if kind == 'startup':
         require('observed' not in data and 'evidence' not in data,
                 'record startup takes native: the absolute worker session record, not observed or evidence')
@@ -1506,6 +1525,10 @@ def watch(db, state, attempt, request, *, productive=False):
             code = process.wait(timeout=timeout)
             code = code if code >= 0 else 128 - code
             reason = 'settled' if code == 0 else 'wait-error'
+            if productive and saved.get('t3') and code in (1, 2):
+                # A t3 send's exit codes map to the lifecycle's vocabulary : 2 is the agent
+                # waiting for an answer in the T3 app, 1 is the run failing or stopping.
+                reason = 'waiting-on-answer' if code == 2 else 'send-failed'
     except subprocess.TimeoutExpired:
         stop(process)
         code, reason = 124, 'timeout'
@@ -1568,7 +1591,8 @@ def submit(db, state, attempt, request):
         require(False, 'A t3 worker submits through `t3 thread send <thread> <assignment> --wait`; this argv is '
                        'not a t3 thread send')
     if t3_target is not None:
-        # The acceptance a t3 submit records is the packet's, sent to the registered thread (review SR-09).
+        # The acceptance a t3 submit records is the packet's, sent to the registered thread . The
+        # send runs through watch(productive=True): its exit codes map 0 done, 2 waiting-on-answer, 1 failed.
         thread, text = t3_target
         saved = get(db, attempt)
         placed = saved.get('t3') or {}
@@ -1580,10 +1604,9 @@ def submit(db, state, attempt, request):
                 'it is recorded with `record` of `submitted` and the evidence that it does')
         require('observed' not in request and 'evidence' not in request,
                 'submit takes the t3 argv, not observed or evidence')
-        record(db, dict(kind='submitted', attempt=attempt,
-                        evidence=[f't3 thread send {thread}: accepted (exit-code mapping: 0 done, 2 waiting-on-'
-                                  f'answer, 1 failed)']))
-        return dict(submitted=True, exit_semantics={0: 'completed', 2: 'waiting-on-answer', 1: 'failed'})
+        record(db, dict(kind='startup', attempt=attempt, native=request.get('native'),
+                        model_alias_evidence=request.get('model_alias_evidence', [])), submitting=True)
+        return watch(db, state, attempt, request, productive=True)
     text, flags = herdr_prompt(request.get('argv')) or (None, None)
     # Plain --wait returns when the worker's turn settles, which would hold the orchestrator for the whole job.
     require(flags is None or '--wait' in flags and ('--until=working' in flags or any(

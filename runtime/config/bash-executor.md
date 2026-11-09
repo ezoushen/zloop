@@ -30,8 +30,11 @@ runs argv in that worktree and supplies this JSON on stdin:
 The program must validate and honor the model policy before launching its worker;
 unknown model/thinking support returns a blocked outcome. Inherit preserves the
 destination's native settings; override changes only supplied fields. It must
-retain the assignment's permissions using its runtime controls. The helper does
-not sandbox a program or prove it applied settings. Use stderr for diagnostics.
+retain the assignment's permissions using its runtime controls. On macOS the
+helper wraps the program in a Seatbelt profile that bounds its writes to the
+assignment's scope and denies reads of the user's credential directories; when
+sandbox-exec is missing or does not enforce, the helper falls back to the
+tool allowlist and records the reason. Use stderr for diagnostics.
 
 Wait for the actual worker, then return one JSON object on stdout:
 

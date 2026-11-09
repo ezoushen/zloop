@@ -856,6 +856,9 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
         verdict = t3_preflight.verify(repo.resolve())
         if not verdict['ok']:
             raise NoRoute(f'T3 environment preflight failed at {verdict["reason"]}: {verdict.get("detail", "")}')
+    scope_fields = ({} if kind != 'bash' else
+                    {'worktree': str(worktree) if worktree else None,
+                     'reports': str(reports) if reports else None})
     return {'host': host, 'agent': agent, 'job': job,
             'settings': settings, 'sources': sources, 'files': [],
             'executor': 'native' if native else kind, 'executor_type': kind,
@@ -864,6 +867,7 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
             'thinking_baseline': thinking['default'] if bounded else thinking,
             **({'thinking_allowed': thinking['allowed']} if bounded else {}),
             'route_source': source, **metadata, **({'launch': launch} if launch else {}),
+            **scope_fields,
             'executor_guide': str(ROOT / {'bash': 'runtime/config/bash-executor.md', **BUILT_IN_GUIDES}.get(
                 kind, f'hosts/executors/{kind}.md'))}
 

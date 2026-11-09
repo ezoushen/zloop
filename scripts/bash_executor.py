@@ -35,7 +35,7 @@ def run(execution, assignment):
     argv = execution['executor_config']['argv']
     scope = models.DEFINITIONS['agents'][execution['agent']]['writes']
     if sys.platform == 'darwin':
-        # macOS Seatbelt bounds the worker's writes to its scope (ledger A11: the bash executor is zloop's own
+        # macOS Seatbelt bounds the worker's writes to its scope (the bash executor is zloop's own
         # subprocess, so the profile wraps here); an unavailable sandbox records its fallback reason, never silent.
         import seatbelt
         # The worker interpreter's tree must stay readable under read bounding: the plugin's own venv, the real
@@ -49,7 +49,9 @@ def run(execution, assignment):
         argv, fallback = wrapped['argv'], wrapped.get('fallback_reason')
     else:
         fallback = None
-    process = subprocess.run(argv, cwd=worktree,
+    import os as _os
+    env = dict(_os.environ, ZLOOP_TEST_REPORTS=str(execution.get('reports') or worktree))
+    process = subprocess.run(argv, cwd=worktree, env=env,
                              input=json.dumps(request), text=True, stdout=subprocess.PIPE)
     if process.returncode:
         raise ValueError(f'Executor exited with status {process.returncode}'
