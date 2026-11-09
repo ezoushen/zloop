@@ -99,5 +99,88 @@ class Retirement(T3Threads):
         self.assertIn('t3 thread show --json th-1', str(attempt.get('closed_evidence', attempt)))
 
 
+
+
+class T3Submit(T3Threads):
+    """SR-09: a t3 submit goes through `t3 thread send --wait`; the lifecycle checks the packet text, maps the
+    exit codes (0 done, 2 waiting-on-answer, 1 failed) and collects the final reply from `thread show --json`."""
+
+    def t3_send_fixture(self, *, exit_code=0, reply='assignment done', send_error=None):
+        import stat
+        directory = self.root / 'sendbin'
+        directory.mkdir(exist_ok=True)
+        executable = directory / 't3'
+        body = json.dumps({'threadId': 'th-1', 'status': 'completed',
+                           'messages': [{'role': 'assistant', 'content': [{'type': 'text', 'text': reply}]}]})
+        executable.write_text('#!' + sys.executable + '\n' + f'''
+import json, sys
+args = sys.argv[1:]
+with open({str(self.root / 't3-send-argv.log')!r}, 'a') as log:
+    log.write(' '.join(args) + chr(10))
+if args[:2] == ['thread', 'send']:
+    if {send_error!r}:
+        print({send_error!r}); sys.exit(2)
+    print({reply!r})
+    sys.exit({exit_code!r})
+if args[:2] == ['thread', 'show'] and args[2] == '--json':
+    print({body!r}); sys.exit(0)
+sys.exit(3)
+''')
+        executable.chmod(stat.S_IRWXU)
+        import os
+        self.send_env = dict(self.native_env, PATH=str(directory) + os.pathsep + self.native_env['PATH'])
+
+    def submit_request(self, code=0):
+        path = self.root / 'submit.json'
+        path.write_text(json.dumps({'argv': ['t3', 'thread', 'send', 'th-1', 'PACKET', '--wait'],
+                                    'timeout': 5}))
+        return path
+
+    def submit_send(self, thread='th-1', text='PACKET', **fixture):
+        self.t3_send_fixture(**fixture)
+        request = self.root / 'submit-send.json'
+        request.write_text(json.dumps({'argv': ['t3', 'thread', 'send', thread, text, '--wait'], 'timeout': 5}))
+        import subprocess
+        return subprocess.run([sys.executable, '-B',
+                               '/Users/ezou/Workspace/zloop/.worktrees/t3code-support/scripts/worker_lifecycle.py',
+                               'submit', '--state', str(self.state), '--attempt', 'ticket-1/1',
+                               '--input', str(request)], capture_output=True, text=True)
+
+    def test_submit_rejects_a_message_that_is_not_the_registered_packet(self):
+        # Rule: the acceptance a t3 submit records is the packet's; any other text is refused before it runs.
+        self.registered()
+        self.ready()
+        self.ready = lambda *a, **k: None  # ready() already ran; submit records startup from the real record
+        process = self.submit_send(text='something else')
+        self.assertEqual(process.returncode, 2)
+        self.assertIn('registered packet', process.stderr + process.stdout)
+
+    def test_submit_rejects_a_thread_other_than_the_registered_one(self):
+        # Rule: a t3 submit sends the registered thread.
+        self.registered()
+        self.ready()
+        self.ready = lambda *a, **k: None
+        process = self.submit_send(thread='th-other')
+        self.assertEqual(process.returncode, 2)
+        self.assertIn('registered thread', process.stderr + process.stdout)
+
+    def test_submit_rejects_an_argv_that_is_not_a_t3_thread_send(self):
+        # Rule: the registered packet is what a t3 submit sends; any other command is refused before it runs.
+        self.registered()
+        self.ready()
+        request = self.root / 'submit-bad.json'
+        request.write_text(json.dumps({'argv': ['t3', 'thread', 'list'], 'timeout': 5}))
+        error = self.cli('submit', '--attempt', 'ticket-1/1', '--input', str(request), code=2,
+                         env_override=None) if False else None
+        # submit runs through the lifecycle CLI; use record-level expectations instead:
+        # the submit guard fires inside `submit`; call it via the CLI with a bad argv and expect exit 2.
+        import subprocess
+        process = subprocess.run([sys.executable, '-B',
+                                  '/Users/ezou/Workspace/zloop/.worktrees/t3code-support/scripts/worker_lifecycle.py',
+                                  'submit', '--state', str(self.state), '--attempt', 'ticket-1/1',
+                                  '--input', str(request)], capture_output=True, text=True)
+        self.assertEqual(process.returncode, 2)
+        self.assertIn('t3 thread send', process.stderr + process.stdout)
+
 if __name__ == '__main__':
     unittest.main()

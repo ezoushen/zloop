@@ -59,6 +59,11 @@ invocation rules still apply; names are not assumed available across hosts.
 For different delegation skills in Claude Code and Codex, configure
 [caller-specific skill routes](catalog.md#caller-specific-skill-routes).
 
+**T3 Code** (`{"type": "t3"}`), for a worker in a T3 Code thread (its procedure is the T3 guide the bootstrap names): the second built-in
+type, with the same replace-by-name layering as `herdr`. Unlike `herdr` it is never ambient — a configuration
+layer must select it (a `t3` context key or this type), and the resolver then runs the T3 environment preflight
+(server marker plus a parsed `t3 thread list` body) before returning the route.
+
 **Bash**, for a program implementing the assignment/result contract ([Bash executor](bash-executor.md)):
 
 ```json

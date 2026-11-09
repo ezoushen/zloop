@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The built-in `t3` executor type routes workers through T3 Code like `herdr` routes them through Herdr.
 
-Business rules (from .scratch/t3code-support/alignment.md, U2/A1-A5):
+Business rules: the t3 route mirrors the built-in herdr route; the design doc lives in the workstream alignment.
 - `t3` is a built-in executor type: valid wherever the built-in `herdr` type is valid,
   expanding with no executor_types definition, and replaceable by a same-named type.
 - Unlike `herdr`, it is never ambient: a configuration layer must select it (a `t3`
@@ -12,6 +12,7 @@ Business rules (from .scratch/t3code-support/alignment.md, U2/A1-A5):
 
 import json
 import os
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -50,7 +51,7 @@ class BuiltInType(unittest.TestCase):
 
 
 class ExplicitGate(unittest.TestCase):
-    """U2: the t3 route activates only by configuration selection, never by environment detection."""
+    """The t3 route activates only by configuration selection, never by environment detection."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix='zloop t3 gate ')
@@ -67,6 +68,21 @@ class ExplicitGate(unittest.TestCase):
                                'runtimes': {'pi': {'id': 'pi-sol'}}}},
             'runtimes': {'pi': {'executors': {'t3': {'type': 't3'}}}},
             'agents': {'reviewer': {'model': 'sol'}}}))
+        # A live T3 environment: home marker plus a t3 stub on PATH.
+        home = self.root / 't3home' / 'userdata'
+        home.mkdir(parents=True)
+        (home / 'server-runtime.json').write_text('{}')
+        import stat
+        directory = self.root / 'bin'
+        directory.mkdir(exist_ok=True)
+        t3 = directory / 't3'
+        t3.write_text('#!' + sys.executable + '\nimport json, sys\n'
+                      'print(json.dumps([{"threadId": "th-1"}]))\n')
+        t3.chmod(stat.S_IRWXU)
+        env2 = patch.dict(os.environ, {'PATH': str(directory) + os.pathsep + os.environ['PATH'],
+                                       'T3CODE_HOME': str(self.root / 't3home')})
+        env2.start()
+        self.addCleanup(env2.stop)
 
     def resolve(self, host='codex', **task):
         return models.resolve_execution(self.root, self.root / 'absent.json', self.user,
@@ -113,6 +129,84 @@ class ExplicitGate(unittest.TestCase):
                          ('t3', str(models.ROOT / 'hosts/t3.md')))
         self.assertEqual(result['settings'], {'model': 'direct-model'})
 
+
+
+
+class ResolverPreflight(unittest.TestCase):
+    """SR-08: the resolver runs the layered T3 preflight before returning a t3 route; a failing environment refuses
+    with the layer's reason (the explicit gate includes the environment, not just the config key)."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix='zloop t3 resolver preflight ')
+        self.addCleanup(tmp.cleanup)
+        machine = tempfile.TemporaryDirectory(prefix='zloop machine ')
+        self.addCleanup(machine.cleanup)
+        env = patch.dict(os.environ, support.isolated_env(machine.name, ZLOOP_PROFILE='', HERDR_ENV=''))
+        env.start()
+        self.addCleanup(env.stop)
+        self.root = Path(tmp.name)
+        self.user = self.root / 'executors.json'
+        self.user.write_text(json.dumps({
+            'models': {'sol': {'description': 'Implementation and repair.',
+                               'runtimes': {'pi': {'id': 'pi-sol'}}}},
+            'runtimes': {'pi': {'executors': {'t3': {'type': 't3'}}}},
+            'agents': {'reviewer': {'model': 'sol'}}}))
+        # A t3 stub on PATH; each test decides whether the home marker exists.
+        import stat
+        directory = self.root / 'bin'
+        directory.mkdir(exist_ok=True)
+        t3 = directory / 't3'
+        t3.write_text('#!' + sys.executable + '\nimport json, sys\n'
+                      'print(json.dumps([{"threadId": "th-1"}]))\n')
+        t3.chmod(stat.S_IRWXU)
+        env2 = patch.dict(os.environ, {'PATH': str(directory) + os.pathsep + os.environ['PATH'],
+                                       'T3CODE_HOME': str(self.root / 't3home')})
+        env2.start()
+        self.addCleanup(env2.stop)
+
+    def resolve(self):
+        return models.resolve_execution(self.root, self.root / 'absent.json', self.user,
+                                        'codex', 'reviewer', {})
+
+    def stub_t3(self, *, server=True, project=True):
+        import stat
+        directory = self.root / 'bin'
+        directory.mkdir(exist_ok=True)
+        executable = directory / 't3'
+        body = (json.dumps([{'threadId': 'th-1'}]) if server and project else
+                ('No T3 Code project matches. Pass a project id or a path inside a project.' if server
+                 else 'No running T3 Code server uses /home. Start T3 Code, then retry.'))
+        code = 0 if server else 1
+        executable.write_text('#!' + sys.executable + '\n' + f'''
+import sys
+print({body!r})
+sys.exit({code})
+''')
+        executable.chmod(stat.S_IRWXU)
+        return patch.dict(os.environ, {'PATH': str(directory) + os.pathsep + os.environ['PATH'],
+                                       'T3CODE_HOME': str(self.root / 't3home')})
+
+    def home_marker(self):
+        home = self.root / 't3home' / 'userdata'
+        home.mkdir(parents=True, exist_ok=True)
+        (home / 'server-runtime.json').write_text('{}')
+
+    def test_a_live_environment_returns_the_route(self):
+        self.home_marker()
+        with self.stub_t3():
+            result = self.resolve()
+        self.assertEqual(result['executor_type'], 't3')
+
+    def test_a_dead_environment_refuses_with_the_layers_reason(self):
+        self.home_marker()
+        with self.stub_t3(server=False):
+            with self.assertRaisesRegex(ValueError, 'server'):
+                self.resolve()
+
+    def test_a_missing_home_refuses_before_any_cli_call(self):
+        with self.stub_t3():
+            with self.assertRaisesRegex(ValueError, 'home'):
+                self.resolve()
 
 if __name__ == '__main__':
     unittest.main()

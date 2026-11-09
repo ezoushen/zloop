@@ -1039,6 +1039,12 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
             if placed:
                 # A Herdr placement names the tab the worker occupies; a T3 placement names the thread and its state.
                 if placed.get('thread'):
+                    for previous in attempts(db):
+                        held = (previous.get('t3') or {}).get('thread')
+                        if held == placed['thread'] and previous['attempt'] != attempt \
+                                and (previous['runtime'], previous['native_session']) not in closed_sessions(db):
+                            require(False, f'T3 thread {placed["thread"]} already holds attempt '
+                                           f'{previous["attempt"]}: a thread runs one worker; register a fresh thread')
                     saved['t3'] = placed
                 else:
                     saved['herdr'] = placed
@@ -1543,8 +1549,41 @@ def herdr_prompt(argv):
     return None if index is None else ((argv[index + 3:index + 4] or [''])[0], argv[index + 4:])
 
 
+def t3_send(argv):
+    """(thread id, message text) of a `t3 thread send <thread> <message> --wait` argv, or None for any other."""
+    if (not isinstance(argv, list) or len(argv) < 5 or argv[0] != 't3'
+            or argv[1:3] != ['thread', 'send']):
+        return None
+    flags = [a for a in argv[3:] if a.startswith('-')]
+    require('--wait' in flags,
+            'A t3 submit waits for the reply: use `t3 thread send <thread> <assignment> --wait`')
+    return argv[3], argv[4]
+
+
 def submit(db, state, attempt, request):
     """Verify native settings and arm a durable wait before invoking productive submission once."""
+    t3_target = t3_send(request.get('argv'))
+    saved_for_route = get(db, attempt)
+    if t3_target is None and saved_for_route and saved_for_route.get('t3'):
+        require(False, 'A t3 worker submits through `t3 thread send <thread> <assignment> --wait`; this argv is '
+                       'not a t3 thread send')
+    if t3_target is not None:
+        # The acceptance a t3 submit records is the packet's, sent to the registered thread (review SR-09).
+        thread, text = t3_target
+        saved = get(db, attempt)
+        placed = saved.get('t3') or {}
+        require(placed.get('thread') == thread,
+                f'A t3 submit sends the registered thread {placed.get("thread")}, not {thread}')
+        packet = Path(saved.get('packet') or '')
+        require(packet.is_file() and text.strip() == packet.read_text(errors='replace').strip(),
+                f'A t3 submit sends the registered packet: send the text of {packet}; a worker that already has '
+                'it is recorded with `record` of `submitted` and the evidence that it does')
+        require('observed' not in request and 'evidence' not in request,
+                'submit takes the t3 argv, not observed or evidence')
+        record(db, dict(kind='submitted', attempt=attempt,
+                        evidence=[f't3 thread send {thread}: accepted (exit-code mapping: 0 done, 2 waiting-on-'
+                                  f'answer, 1 failed)']))
+        return dict(submitted=True, exit_semantics={0: 'completed', 2: 'waiting-on-answer', 1: 'failed'})
     text, flags = herdr_prompt(request.get('argv')) or (None, None)
     # Plain --wait returns when the worker's turn settles, which would hold the orchestrator for the whole job.
     require(flags is None or '--wait' in flags and ('--until=working' in flags or any(
@@ -1608,11 +1647,14 @@ def herdr(session, *args, timeout=15):
 
 def t3(*args, timeout=LOOKUP_SECONDS):
     """(exit code, the JSON object the t3 CLI answered with, from stdout) for `t3 thread ...` on this machine's
-    environment; ValueError when it does not answer within `timeout` seconds or not with a JSON document."""
+    environment; ValueError with the reason when the CLI is absent, does not answer within `timeout` seconds, or
+    answers without a JSON document."""
     try:
         process = subprocess.run(['t3', *args], capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         raise ValueError(f't3 did not answer {" ".join(args)} within {timeout} s') from None
+    except FileNotFoundError:
+        raise ValueError(f't3 is not on PATH: the t3 route needs the T3 Code CLI installed') from None
     document = process.stdout.strip() or process.stderr.strip()
     try:
         response = json.loads(document)
@@ -1727,8 +1769,11 @@ def retire_worker(db, state, attempt, request):
         code, response = t3('thread', 'show', '--json', saved['t3']['thread'])
         require(code == 0 and isinstance(response, dict) and response.get('threadId') == saved['t3']['thread'],
                 f'T3 cannot confirm thread {saved["t3"]["thread"]} for retirement; reconcile it and retire again')
-        require(response.get('status') not in ('running', 'queued', 'starting', 'preparing'),
-                f'T3 thread {saved["t3"]["thread"]} is still {response.get("status")}; let its turn settle, then retire again')
+        require(response.get('status') not in ('running', 'queued', 'starting', 'preparing', 'waiting'),
+                f'T3 thread {saved["t3"]["thread"]} is {response.get("status")}'
+                + ('; it waits for an answer in the T3 app, which is the user\'s decision — answer it or decline '
+                   'the worker there, then retire again' if response.get('status') == 'waiting'
+                  else '; let its turn settle, then retire again'))
         line = f't3 thread show --json {saved["t3"]["thread"]}: {response.get("status")}, left idle (no CLI stop)'
         record(db, dict(kind='closed', attempt=attempt, evidence=[line, *evidence],
                         **({'acceptance': acceptance} if 'acceptance' in request else {})))

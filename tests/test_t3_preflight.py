@@ -119,7 +119,7 @@ class LayeredGate(Home):
         (home / 'userdata' / 'server-runtime.json').write_text('{}')
         self.stub = Stub(self.root, raw='garbage')
         result = self.verify(home, self.stub)
-        self.assertEqual((result['ok'], result['reason']), (False, 'project'))
+        self.assertEqual((result['ok'], result['reason']), (False, 'body'))
 
     def test_liveness_never_runs_bare_doctor_even_when_asked_for_diagnostics(self):
         # A diagnostic call must carry --dry-run; the gate itself never calls doctor at all.

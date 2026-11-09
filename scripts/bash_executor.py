@@ -5,6 +5,7 @@ import argparse
 import json
 from pathlib import Path
 import subprocess
+import sys
 
 import agent_models as models
 
@@ -30,10 +31,22 @@ def run(execution, assignment):
             raise ValueError(f'assignment.{field} must be an existing absolute file')
     request = {'assignment': assignment, 'models': policy}
     # argv remains literal: prompts and model selections travel through stdin, never shell expansion.
-    process = subprocess.run(execution['executor_config']['argv'], cwd=worktree,
+    argv = execution['executor_config']['argv']
+    scope = models.DEFINITIONS['agents'][execution['agent']]['writes']
+    if sys.platform == 'darwin':
+        # macOS Seatbelt bounds the worker's writes to its scope (ledger A11: the bash executor is zloop's own
+        # subprocess, so the profile wraps here); an unavailable sandbox records its fallback reason, never silent.
+        import seatbelt
+        wrapped = seatbelt.wrap(argv, scope, worktree=str(worktree), reports=str(execution.get('reports') or worktree),
+                                tag=execution.get('attempt', 'worker').replace('/', '-'))
+        argv, fallback = wrapped['argv'], wrapped.get('fallback_reason')
+    else:
+        fallback = None
+    process = subprocess.run(argv, cwd=worktree,
                              input=json.dumps(request), text=True, stdout=subprocess.PIPE)
     if process.returncode:
-        raise ValueError(f'Executor exited with status {process.returncode}; reconcile before retrying')
+        raise ValueError(f'Executor exited with status {process.returncode}'
+                         + (f' (sandbox fallback: {fallback})' if fallback else '') + '; reconcile before retrying')
     try:
         outcome = json.loads(process.stdout)
     except ValueError as error:

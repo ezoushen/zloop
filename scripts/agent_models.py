@@ -18,7 +18,6 @@ import decisions
 import front_matter
 import journal_store
 import outcomes
-import seatbelt
 from executor_config import (read_executors, read_session, reset_session, save_session, session_path,
                              validate_execution_config, validate_schema, validate_settings)
 
@@ -404,7 +403,7 @@ def expand_model(name, catalog, runtimes, host, target_runtime=None):
         executors = runtime_definition['executors']
         contexts = [host]
         if 't3' in executors:
-            # T3 Code is never ambient (user decision U2): only an explicit `t3` context key selects it, after the
+            # T3 Code is never ambient: only an explicit `t3` context key selects it, after the
             # caller's own key and before the Herdr fallback.
             contexts.append('t3')
         if os.environ.get('HERDR_ENV') == '1' and host in EXTENSION_DELEGATION:
@@ -849,12 +848,14 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
     runtime = metadata.get('target_runtime')
     launch = (launch_controls(runtime, agent, settings, repo.resolve(), worktree, reports)
               if not native and runtime in HOSTS else None)
-    if launch and kind in ('subagent', 'bash') and sys.platform == 'darwin' and worktree and reports:
-        # macOS Seatbelt: zloop assembles this argv, so the write scope is enforced by the OS (macos-sandbox.md).
-        # An unavailable sandbox records its fallback reason instead of wrapping; herdr/t3/skill launch argv the
-        # provider owns, so their restriction stays with the CLI's own flags or the provider defaults.
-        launch = seatbelt.wrap(launch, worktree=str(worktree), reports=str(reports))
     # Named delegates and skills can forward to another runtime; the host is not the destination.
+    if kind == 't3':
+        # The explicit t3 gate includes the environment: the layered preflight runs at resolution, before any
+        # launch, and its layer's reason (home/server/project) refuses the route.
+        import t3_preflight
+        verdict = t3_preflight.verify(repo.resolve())
+        if not verdict['ok']:
+            raise NoRoute(f'T3 environment preflight failed at {verdict["reason"]}: {verdict.get("detail", "")}')
     return {'host': host, 'agent': agent, 'job': job,
             'settings': settings, 'sources': sources, 'files': [],
             'executor': 'native' if native else kind, 'executor_type': kind,

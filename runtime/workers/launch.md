@@ -13,7 +13,9 @@ Core owns assignments, scope, capacity, worktrees and acceptance gates. A worker
 starts the worker of the target runtime in the assigned worktree with the resolved launch controls, leaves a
 native record the worker lifecycle reads, ends in the lifecycle's wait and closes when retired; the lifecycle
 checks each step. Herdr is the built-in provider (`herdr`; its procedure is the Herdr guide the bootstrap names):
-in a Herdr session every runtime is reachable through it with no configuration. The adapters `subagent`, `skill`
+in a Herdr session every runtime is reachable through it with no configuration. T3 Code is the second built-in
+(`t3`; its procedure is the T3 guide), selected by configuration and preflighted at resolution, per its guide.
+The adapters `subagent`, `skill`
 and `bash` cover the others (JSON Schemas in `schemas/executors/`; instances in runtime launch routes or directly
 in `agents`).
 User-defined `executor_types` wrap skill usage and expand to the skill adapter.

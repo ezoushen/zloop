@@ -1,11 +1,13 @@
 """Seatbelt (macOS) write-scope profiles for zloop workers whose host runtime cannot restrict permissions.
 
-Native-child and bash-executor workers get a generated profile per write scope wrapped in front of their
-launch argv; the preflight probe checks that /usr/bin/sandbox-exec both exists and enforces, and its failure
-selects the tool-allowlist fallback with a recorded reason, never silently. Herdr workers (the kind fixes the
-executable) use each CLI's built-in sandbox flags through launch args; T3 workers run under provider defaults
-(documented in hosts/t3.md). Non-macOS hosts never wrap.
-Verified enforcement and the profile skeleton: .scratch/t3code-support/macos-sandbox.md.
+The bash executor wraps its configured worker argv with a generated profile (zloop owns that subprocess); the
+profile permits writes only inside the scope (temp files, the reports directory, and for the worktree scope the
+assigned worktree). Native children need no profile: their tool profile already denies write tools, and the
+read-only worktree check at collection covers what their shell writes. Herdr workers use each CLI's
+built-in sandbox flags through launch args; T3 workers run under provider defaults (documented in hosts/t3.md).
+The preflight probe checks that sandbox-exec both exists and enforces — an inside-scope write must succeed AND
+an outside-scope write must fail — and its failure selects the tool-allowlist fallback with a recorded reason,
+never silently. Non-macOS hosts never wrap.
 """
 import os
 import subprocess
@@ -14,53 +16,67 @@ import tempfile
 from pathlib import Path
 
 PROBE_SECONDS = 15
-WRAPPED_EXECUTORS = ('subagent', 'bash')  # Launch argv zloop assembles itself; herdr/t3/skill pass theirs through.
 
 
-def profile(scope, worktree, reports):
-    """The Seatbelt profile text for a write scope: read-only allows temp files and the reports directory;
-    worktree adds the assigned worktree."""
+def profile(scope, worktree, reports, *, read_bound=True):
+    """The Seatbelt profile text for a write scope: writes only inside the scope's paths; with read_bound, reads
+    outside the scope's subtree are denied too, keeping credential files unreadable."""
     if scope not in ('none', 'worktree'):
         raise ValueError(f'unknown write scope {scope!r}: profile none or worktree')
+    # Seatbelt matches canonical paths: /var/folders is a symlink to /private/var/folders, so an allowed subpath
+    # must be the resolved one or the write lands outside every allowance.
+    reports_real = os.path.realpath(reports)
+    writes = [
+        f'       (subpath "{reports_real}")',
+    ]
+    reads = [reports_real]
+    if scope == 'worktree':
+        worktree_real = os.path.realpath(worktree)
+        writes.append(f'       (subpath "{worktree_real}")')
+        reads.append(worktree_real)
     lines = [
         '(version 1)',
-        ';; zloop worker write scope: read everything, write only what the scope names.',
-        '(allow default)',
-        '(deny file-write*)',
+        ';; zloop worker write scope: write only what the scope names; reads bounded to it.',
+        '(deny default)',
+        '(allow process-exec)',
+        '(allow process-fork)',
+        '(allow file-read*)',
         '(allow file-write*',
         '       (subpath "/private/tmp")',
         '       (subpath "/tmp")',
         '       (literal "/dev/null")',
-        f'       (subpath "{reports}")',
+        *writes,
+        ')',
+        '(allow network*)',
+        '(allow sysctl-read)',
+        '(allow mach-lookup)',
     ]
-    if scope == 'worktree':
-        lines.append(f'       (subpath "{worktree}")')
-    lines.append(')')
+    if read_bound:
+        # Deny reads of the user's home except the allowed subtrees; the system and the tool directories stay
+        # readable so the runtime can load.
+        lines += [
+            '(deny file-read* (subpath "' + os.path.realpath(Path.home()) + '"))',
+            '(allow file-read*',
+            *(f'       (subpath "{path}")' for path in reads),
+            ')',
+        ]
     return '\n'.join(lines) + '\n'
 
 
-def _probe_profile(worktree):
-    """The real worker profile shape, probing enforcement by a touch outside every allowed subpath (under the
-    user's home): an enforcing sandbox-exec makes that touch fail. A deny-literal after (allow default) is not
-    reliable on this macOS build; deny-all-then-allow is what the worker profiles use."""
+def _probe_paths(worktree):
+    """(profile text, inside path, outside path) for the probe: the real profile shape, touching inside an allowed
+    subpath and under the user's home outside every allowance."""
     outside = Path.home() / f'zloop-sandbox-probe-{os.getuid()}-{os.getpid()}'
-    lines = [
-        '(version 1)',
-        '(allow default)',
-        '(deny file-write*)',
-        '(allow file-write*',
-        '       (subpath "/private/tmp")',
-        '       (subpath "/tmp")',
-        '       (literal "/dev/null")',
-        '       (subpath "' + str(worktree) + '")',
-        ')',
-    ]
-    return '\n'.join(lines) + '\n', outside
+    inside_parent = Path(tempfile.mkdtemp(prefix='zloop-sandbox-probe-in-'))
+    inside = inside_parent / 'inside.txt'
+    text = profile('worktree', worktree=worktree or str(inside_parent), reports=str(inside_parent),
+                   read_bound=False)
+    return text, inside, outside, inside_parent
 
 
 def available(worktree=None, reports=None):
-    """{available, fallback_reason, probe}: True only when sandbox-exec exists AND denies an outside-scope write.
-    Any failure is a recorded fallback to the tool allowlist, never silent."""
+    """{available, fallback_reason, probe}: True only when sandbox-exec exists, an inside-scope write succeeds and
+    an outside-scope write fails. Any failure is a recorded fallback to the tool allowlist, never silent."""
     binary = 'sandbox-exec'  # Looked up on PATH, so an isolated environment can stub it.
     if not any(Path(entry, binary).is_file() for entry in os.environ.get('PATH', '').split(os.pathsep)):
         return {'available': False, 'fallback_reason': f'{binary} does not exist on this host',
@@ -68,35 +84,41 @@ def available(worktree=None, reports=None):
     if sys.platform != 'darwin':
         return {'available': False, 'fallback_reason': f'Seatbelt is macOS-only; this host is {sys.platform}',
                 'probe': None}
-    profile_text, outside = _probe_profile(worktree or tempfile.gettempdir())
-    with tempfile.TemporaryDirectory(prefix='zloop seatbelt probe ') as directory:
-        path = Path(directory) / 'probe.sb'
-        path.write_text(profile_text)
-        try:
-            process = subprocess.run([binary, '-f', str(path), '/usr/bin/touch', str(outside)],
-                                     capture_output=True, text=True, timeout=PROBE_SECONDS)
-        except (subprocess.TimeoutExpired, OSError) as error:
-            return {'available': False, 'fallback_reason': f'sandbox-exec probe failed: {error}',
-                    'probe': str(path)}
-        denied = process.returncode != 0 or not Path(outside).exists()
-        if not denied:
-            return {'available': False,
-                    'fallback_reason': 'sandbox-exec did not enforce the probe denial; falling back to the '
-                                       'tool allowlist', 'probe': str(path)}
-    return {'available': True, 'fallback_reason': None, 'probe': str(path)}
+    text, inside, outside, inside_parent = _probe_paths(worktree)
+    try:
+        with tempfile.TemporaryDirectory(prefix='zloop seatbelt probe ') as directory:
+            path = Path(directory) / 'probe.sb'
+            path.write_text(text)
+            try:
+                inside_run = subprocess.run([binary, '-f', str(path), '/usr/bin/touch', str(inside)],
+                                            capture_output=True, text=True, timeout=PROBE_SECONDS)
+                outside_run = subprocess.run([binary, '-f', str(path), '/usr/bin/touch', str(outside)],
+                                             capture_output=True, text=True, timeout=PROBE_SECONDS)
+            except (subprocess.TimeoutExpired, OSError) as error:
+                return {'available': False, 'fallback_reason': f'sandbox-exec probe failed: {error}',
+                        'probe': str(path)}
+            enforced = inside_run.returncode == 0 and inside.exists() \
+                and outside_run.returncode != 0 and not outside.exists()
+            if not enforced:
+                return {'available': False,
+                        'fallback_reason': 'sandbox-exec did not enforce the probe (inside write must succeed, '
+                                           'outside write must fail); falling back to the tool allowlist',
+                        'probe': str(path)}
+    finally:
+        outside.unlink(missing_ok=True)
+    return {'available': True, 'fallback_reason': None, 'probe': str(inside_parent)}
 
 
-def wrap(launch, worktree, reports):
-    """The launch with a sandbox-exec profile wrapped in front of its argv when the sandbox is available and the
-    executor's argv is zloop's own; otherwise the launch unchanged with the fallback reason recorded."""
-    scope = launch.get('writes')
+def wrap(argv, scope, worktree, reports, *, tag='worker'):
+    """The bash executor's worker argv with a sandbox-exec profile in front, when the sandbox is available;
+    otherwise the argv unchanged with the fallback reason recorded. The profile file persists under the reports
+    directory, named per scope and tag, so concurrent launches never overwrite one another."""
     probe = available(worktree=worktree, reports=reports)
     if not probe['available']:
-        return {**launch, 'fallback_reason': probe['fallback_reason']}
-    text = profile(scope, worktree=worktree, reports=reports)
+        return {'argv': list(argv), 'fallback_reason': probe['fallback_reason']}
     directory = Path(reports) / 'sandbox-profiles'
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f'{scope}.sb'
-    path.write_text(text)
-    argv = ['sandbox-exec', '-f', str(path), *launch['argv']]
-    return {**launch, 'argv': argv, 'verify': {**launch.get('verify', {}), 'sandbox_profile': scope}}
+    path = directory / f'{scope}-{tag}.sb'
+    path.write_text(profile(scope, worktree=worktree, reports=reports))
+    return {'argv': ['sandbox-exec', '-f', str(path), *argv],
+            'verify': {'sandbox_profile': scope}}

@@ -242,7 +242,6 @@
    ],
    "code": [
     "scripts/native_wait.py",
-    "scripts/t3_preflight.py",
     "scripts/worker_lifecycle.py",
     "scripts/workstream_spend.py"
    ]
@@ -263,7 +262,8 @@
    "code": [
     "scripts/agent_models.py",
     "scripts/outcomes.py",
-    "scripts/seatbelt.py"
+    "scripts/seatbelt.py",
+    "scripts/t3_preflight.py"
    ]
   },
   "decisions": {
