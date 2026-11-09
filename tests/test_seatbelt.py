@@ -196,41 +196,26 @@ class ResolverGating(Machine):
     """The resolver's own gating (darwin / kind / herdr / t3) is covered where it lives now — the bash
     executor, the only wrap point."""
 
+    def setUp(self):
+        super().setUp()
+        self.user = self.root / 'executors.json'
+
+    def resolve(self, worktree, reports):
+        import agent_models
+        return agent_models.resolve_execution(self.root, self.root / 'absent.json', self.user,
+                                              'claude', 'reviewer', {}, worktree=worktree, reports=reports)
+
     def test_a_native_route_carries_no_sandbox_launch(self):
-        # The wrap point is the bash executor only: the executor's own run wraps a bash execution's argv
-        # (sandbox-exec first), while a native route's dispatch record spawns the worker directly — mutating
-        # bash_executor to wrap native routes as well would surface here as a native dispatch naming a profile.
-        import bash_executor
-        (self.root / 'agent.md').write_text('a')
-        (self.root / 'job.md').write_text('j')
-        (self.root / 'wt').mkdir(exist_ok=True)
-        (self.root / 'reports').mkdir(exist_ok=True)
-        worker = self.root / 'worker.py'
-        worker.write_text('import json, sys\nrequest = json.load(sys.stdin)\n'
-                          "print(json.dumps({'assignment_id': request['assignment']['assignment_id'],\n"
-                          "                  'status': 'completed', 'report': 'done', 'run_id': 'r1'}))\n")
-        execution = {'executor_type': 'bash', 'agent': 'reviewer', 'model_mode': 'inherit', 'settings': {},
-                     'reports': str(self.reports),
-                     'executor_config': {'argv': [sys.executable, str(worker)]}}
-        assignment = {'assignment_id': 'a/1', 'worktree': str(self.root / 'wt'),
-                      'agent_file': str(self.root / 'agent.md'), 'job_file': str(self.root / 'job.md'),
-                      'head': 'h', 'prompt': 'p'}
-        outcome = bash_executor.run(execution, assignment)
-        self.assertEqual(outcome['assignment_id'], 'a/1')
-        native = {'host': 'claude', 'agent': 'builder', 'job': 'ticket', 'native_dispatch': True,
-                  'settings': {'model': 'sonnet', 'effort': 'high'}}
-        self.assertTrue(native['native_dispatch'])
-        self.assertNotIn('sandbox_profile', json.dumps(native))
-        # The contrast: wrap() — the only mechanism bash_executor applies to a bash route — puts sandbox-exec in
-        # front of the worker argv when the sandbox enforces; a native route's dispatch record carries none.
-        import seatbelt
-        with self.stub_sandbox(present=True, enforcing=True):
-            wrapped = seatbelt.wrap([sys.executable, str(worker)], 'worktree', worktree=str(self.worktree),
-                                    reports=str(self.reports), tag='a-1')
-        self.assertEqual(wrapped['argv'][0], 'sandbox-exec')
-        profiles = list((self.root / 'reports' / 'sandbox-profiles').glob('worktree-a-1.sb'))
-        self.assertEqual([path.name for path in profiles], ['worktree-a-1.sb'])
-        self.assertNotIn('sandbox_profile', json.dumps(native))
+        # The wrap point is the bash executor only: resolving a NATIVE route must return native_dispatch with no
+        # launch keys or profile anywhere — mutating the resolver to add a sandbox launch to native routes would
+        # surface here. The bash side of the contract is covered where the wrap lives (Wrapping, BashExecution).
+        self.user.write_text(json.dumps({
+            'models': {'sol': {'description': 'Review.', 'runtimes': {'claude': {'id': 'sol'}}}},
+            'agents': {'reviewer': {'executor': {'type': 'subagent'}, 'models': {'mode': 'inherit'}}}}))
+        native = self.resolve(str(self.worktree), str(self.reports))
+        self.assertTrue(native.get('native_dispatch'))
+        self.assertNotIn('launch', native)
+        self.assertNotIn('sandbox', json.dumps(native))
 
 
 
