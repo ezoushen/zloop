@@ -864,6 +864,23 @@ class BoardCLI(unittest.TestCase):
         self.git('merge', '-q', '--ff-only', 'inline/second')
         self.cli('inline', '--set', 'inline/01', 'status=done')
 
+    def test_a_ticket_whose_change_the_diff_settings_hide_is_not_done_until_it_lands(self):
+        # A change the user's diff settings leave out of the log (here a submodule pointer under
+        # diff.ignoreSubmodules=all) still has to land; it is never read as a commit that changes nothing.
+        self.write_stacked_ticket('01', 'second')
+        base = self.commit('base')
+        self.git('switch', '-q', '-c', 'feat/inline')
+        self.git('switch', '-q', '-c', 'inline/second')
+        self.git('update-index', '--add', '--cacheinfo', f'160000,{base},vendor')
+        bump = self.commit('point vendor at the base')
+        self.write_report(base, commits=[bump])
+        self.cli('inline', '--accept', 'inline/01')
+        self.git('switch', '-q', 'feat/inline')
+        self.git('config', 'diff.ignoreSubmodules', 'all')
+        self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
+        self.git('merge', '-q', '--ff-only', 'inline/second')
+        self.cli('inline', '--set', 'inline/01', 'status=done')
+
     def test_a_ticket_with_commits_missing_from_the_workstream_is_refused_naming_rebase_and_fast_forward(self):
         # A partly landed ticket is not done, and the refusal names the step that lands the rest, whatever the user's
         # git colours its output with.
