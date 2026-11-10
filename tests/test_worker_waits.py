@@ -144,6 +144,22 @@ class Waits(WorkerLifecycleCase):
         self.record('submitted', evidence=['native.jsonl:2:accepted prompt'])
         self.assertEqual(self.watch()['exit_code'], 0)
 
+    def test_a_process_worker_completes_only_once_its_prompt_was_accepted(self):
+        # Rule: a worker started as its own process gets its assignment by a prompt, so its completed result needs that
+        # prompt accepted on record.
+        execution = json.loads(self.execution.read_text())
+        execution.update(native_dispatch=False, launch={'writes': 'worktree', 'verify': {'permission_mode': 'dontAsk'}})
+        self.execution.write_text(json.dumps(execution))
+        self.register()
+        self.record('startup', native=str(self.native()))
+        report = self.root / 'report.md'
+        report.write_text('Verified assignment report at head-1\n')
+        result = dict(status='completed', head='head-1', report=str(report), evidence=['checks.log'])
+        refused = self.completed(code=2, **result)
+        self.assertIn('Completion requires verified settings, accepted prompt and resolved design hold', refused)
+        self.record('submitted', evidence=['native.jsonl:2:accepted prompt'])
+        self.completed(**result)
+
     def test_a_wait_after_an_unconfirmed_submission_names_what_settles_it(self):
         # Review (Codex): a submission that failed cannot be sent again for its attempt, so the refusal names the
         # records that settle it rather than `submit`.
@@ -281,7 +297,7 @@ class Waits(WorkerLifecycleCase):
         self.record('reconciled', evidence=['native worker still running tests'])
         report = self.root / 'late-report.md'
         report.write_text('## Implemented\n\nVerified assignment report at head-1\n')
-        later = time.time() + 5  # Written after the wake, by more than the one-second tolerance.
+        later = time.time() + 1.5  # Written after the wake, by more than its one-second tolerance and not much more.
         os.utime(report, (later, later))
         self.collect(report=report)
         self.assertEqual([row['event'] for row in journal_store.read(journal)], ['decision'])
