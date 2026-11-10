@@ -16,7 +16,7 @@ class RepoAdrs(unittest.TestCase):
                                  '--index'], capture_output=True, text=True)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         out = json.loads(result.stdout)
-        self.assertEqual('0018', out['next'])
+        self.assertEqual('0020', out['next'])
         index = (ROOT / 'docs/adr/README.md').read_text()
         accepted = index[index.index('## Accepted'):index.index('## Superseded')]
         for name in ('0001-adr-numbers-are-checked-on-main.md', '0002-grilling-asks-principles-only.md',
@@ -32,7 +32,9 @@ class RepoAdrs(unittest.TestCase):
                      '0014-the-doc-checker-enforces-the-glossary.md',
                      '0015-effort-levels-scale-thoroughness-above-a-fixed-floor.md',
                      '0016-a-worker-counts-only-with-its-own-session-record.md',
-                     '0017-zloop-does-not-police-hand-edits-of-its-worker-records.md'):
+                     '0017-zloop-does-not-police-hand-edits-of-its-worker-records.md',
+                     '0018-tickets-land-by-rebase-proven-by-patch-equivalence.md',
+                     '0019-titles-follow-gits-summary-line-convention.md'):
             self.assertIn(f']({name})', accepted)
 
     def test_adr_0004_states_the_repair_exception(self):
@@ -68,7 +70,7 @@ class RepoAdrs(unittest.TestCase):
         index = (ROOT / 'docs/adr/README.md').read_text()
         accepted = index[index.index('## Accepted'):index.index('## Superseded')]
         entries = re.findall(r'^- \[\d{4}\]\((\d{4}-[^)]+\.md)\) (.+)$', accepted, re.M)
-        self.assertEqual(17, len(entries))
+        self.assertEqual(19, len(entries))
         for name, text in entries:
             title = (ROOT / 'docs/adr' / name).read_text().splitlines()[0].removeprefix('# ')
             with self.subTest(adr=name):

@@ -39,6 +39,10 @@ only accepted ADRs bind, and a change that conflicts with one is raised, not wor
   holds a review until its configured reviewer is collected, a launched one failed, or no route exists ([ADR 0016](adr/0016-a-worker-counts-only-with-its-own-session-record.md)).
 - A gap reachable through zloop's own commands is closed in the script that writes the worker record; a hand edit of a
   record gets no tamper check or reminder ([ADR 0017](adr/0017-zloop-does-not-police-hand-edits-of-its-worker-records.md)).
+- A local ticket branch lands by rebase and fast-forward, and its done check compares each commit's change, never
+  its id ([ADR 0018](adr/0018-tickets-land-by-rebase-proven-by-patch-equivalence.md)).
+- Ticket, commit and PR titles follow git's summary-line convention in standards/titles.md
+  ([ADR 0019](adr/0019-titles-follow-gits-summary-line-convention.md)).
 
 ## Suite and hooks
 
