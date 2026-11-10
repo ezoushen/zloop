@@ -17,10 +17,10 @@ check these rules wherever they run.
   `type[(scope)][!]: ` prefix and continues in lowercase. A ticket title carries no prefix
   and starts with a capital.
 
-Scripts refuse what they can check: `next_tickets.py --new` (ticket titles),
-`lint_pr_body.py --title` (PR titles) and the `commit-msg` hook (commit headers). Each
-refusal names the broken rule. Mood is left to review, since a verb detector would flag
-valid verbs such as "embed" or "speed".
+Scripts refuse part of it, each refusal naming the broken rule: `next_tickets.py --new` a ticket
+title's length, full stop, leading article or missing English word; `lint_pr_body.py --title` and the
+`commit-msg` hook a PR title's or commit header's length, missing type or full stop. Capitals, a prefix
+on a ticket title and mood are left to review; a verb detector would flag valid verbs such as "embed" or "speed".
 
 ## Sources
 

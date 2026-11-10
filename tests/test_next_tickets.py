@@ -229,6 +229,10 @@ class BoardCLI(unittest.TestCase):
                 refused = self.cli('fx', '--new', title, code=2)
                 self.assertIn(f'--new wrote nothing: the title {rule}', refused.stderr)
                 self.assertIn("git's summary-line convention", refused.stderr)
+        # Every broken rule is named at once, so fixing one does not uncover the next.
+        refused = self.cli('fx', '--new', 'The quick brown fox jumps over the lazy dog again and again.', code=2)
+        for rule in ('is 60 characters; keep it at most 50', 'ends with a full stop', 'starts with an article'):
+            self.assertIn(f'--new wrote nothing: the title {rule}', refused.stderr)
         self.assertEqual(sorted(self.root.glob('.scratch/*/issues/*.md')), before)
         for title in ('Show a running worker as running', fifty, 'Another worker reads as idle', 'Theme the board'):
             with self.subTest(title=title):
@@ -833,7 +837,8 @@ class BoardCLI(unittest.TestCase):
         self.git('cherry-pick', first)
         refused = self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
         assert (f'inline/01: accepted {second} is not in feat/inline; rebase the ticket branch onto feat/inline '
-                f'and fast-forward feat/inline to it before status=done\n') == refused.stderr, refused
+                f'and fast-forward feat/inline to it, or, when that rebase resolved a conflict, --accept its resolved head, '
+                f'before status=done\n') == refused.stderr, refused
         self.git('cherry-pick', second)
         self.cli('inline', '--set', 'inline/01', 'status=done')
 

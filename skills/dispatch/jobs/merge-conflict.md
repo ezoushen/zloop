@@ -1,7 +1,7 @@
 ---
 name: merge-conflict
 agent: builder
-inputs: ["worktree", "branch", "head", "report", "conflict"]
+inputs: ["worktree", "branch", "head", "onto", "report", "conflict"]
 returns: []
 independent_of: []
 acceptance: false
@@ -16,7 +16,7 @@ branch that is still local.
 ## Inputs
 
 The assignment names the ticket `worktree`, its `branch` and starting `head`, the workstream branch to rebase
-onto, the conflicting files and their `conflict` details, and the `report`: the ticket's own report. No other worker uses that
+`onto`, the conflicting files and their `conflict` details, and the `report`: the ticket's own report. No other worker uses that
 worktree while this job runs.
 
 ## Finish line

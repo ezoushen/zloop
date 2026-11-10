@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The summary-line rules a script can check (the titles standard names them and their sources).
+"""The summary-line rules the scripts refuse (the titles standard names them, the ones left to review and the sources).
 
 Usage: title_rules.py <commit message file>   (the commit-msg hook; exits 1 naming each broken rule)
 """

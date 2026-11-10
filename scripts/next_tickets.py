@@ -1028,7 +1028,7 @@ def new_ticket(slug, title, blocked_by, touches):
     with state_files.locked(ISSUES / ".new-ticket"):  # One lock for the whole board: its check spans workstreams.
         tickets = load_whole()  # Read under the lock: a parallel call wrote its ticket before letting go of it.
         nn = f"{max((int(t.split('/')[1]) for t in tickets if spec_of(t) == slug), default=0) + 1:02}"
-        words = "-".join(re.findall(r"[a-z0-9]+", re.sub("['\u2019]", "", title.lower())))[:60].strip("-") or "ticket"
+        words = "-".join(re.findall(r"[a-z0-9]+", re.sub("['\u2019]", "", title.lower())))
         path = issues / f"{nn}-{words}.md"
         taken = next((p for p in issues.glob(f"*-{words}.md") if p != path and p.stem.split("-", 1)[1] == words), None)
         if taken:  # The title words name the ticket's branch and worktree: two tickets would share them.
@@ -1096,7 +1096,8 @@ def set_field(tickets, name, assignments):
         ref = branch_ref(workstream)
         if not ref or landed(accepted, ref) is not True:
             sys.exit(f"{name}: accepted {accepted} is not in {workstream}; rebase the ticket branch onto {workstream} "
-                     f"and fast-forward {workstream} to it before status=done")
+                     f"and fast-forward {workstream} to it, or, when that rebase resolved a conflict, --accept its "
+                     f"resolved head, before status=done")
         slug, nn = name.split("/")
         if report_digest(ISSUES / slug / "reports" / f"{nn}.md") != fm.get("accepted_report"):
             sys.exit(f"{name}: the report changed after its --accept; accept it again")
@@ -1225,8 +1226,10 @@ def main(argv):
             parser.error("--new needs the workstream slug")
         if not title or len(f"{title}x".splitlines()) > 1:
             parser.error("--new takes a one-line title")
-        for problem in title_rules.ticket_problems(title):
+        problems = title_rules.ticket_problems(title)
+        for problem in problems:
             print(f"--new wrote nothing: the title {problem} ({title_rules.STANDARD})", file=sys.stderr)
+        if problems:
             sys.exit(2)
         unknown = [name for name in args.blocked_by if name not in tickets]
         if unknown:
