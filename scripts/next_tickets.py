@@ -1132,8 +1132,9 @@ def landed(sha, ref):
 
     def changes(tip):
         """The patch ids of the commits with a change between the fork and tip."""
-        log = subprocess.run(["git", "-C", str(ROOT), "log", "-p", "-U0", "--no-merges", "--format=commit %H",
-                              f"{base.stdout.strip()}..{tip}"], capture_output=True, text=True, check=True).stdout
+        log = subprocess.run(["git", "-C", str(ROOT), "log", "-p", "-U0", "--no-color", "--no-merges",
+                              "--format=commit %H", f"{base.stdout.strip()}..{tip}"],
+                             capture_output=True, text=True, check=True).stdout
         ids = subprocess.run(["git", "-C", str(ROOT), "patch-id", "--stable"], input=log, capture_output=True,
                              text=True, check=True).stdout
         return {line.split()[0] for line in ids.splitlines()}

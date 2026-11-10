@@ -865,7 +865,9 @@ class BoardCLI(unittest.TestCase):
         self.cli('inline', '--set', 'inline/01', 'status=done')
 
     def test_a_ticket_with_commits_missing_from_the_workstream_is_refused_naming_rebase_and_fast_forward(self):
-        # A partly landed ticket is not done, and the refusal names the step that lands the rest.
+        # A partly landed ticket is not done, and the refusal names the step that lands the rest, whatever the user's
+        # git colours its output with.
+        self.git('config', 'color.ui', 'always')
         first, second = self.accepted_ticket_branch(('a.txt', 'a\n'), ('b.txt', 'b\n'))
         self.git('cherry-pick', first)
         refused = self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
