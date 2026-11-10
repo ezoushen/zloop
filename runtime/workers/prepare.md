@@ -68,9 +68,9 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    attempt whose work it fixes; a third repair in a chain also adds `premise`, a sentence naming the earlier
    fixes' shared assumption and why it is being changed. When `wake-triage` is enabled, add `journal`, the
    absolute session decisions journal. A worker started through Herdr adds
-   `"herdr": {"session": "<herdr session>"}` (`herdr session list` names it), unless
-   its `worker` is a `session/pane/name` handle; registration reads its pane, tab,
-   workspace and name from Herdr and refuses what Herdr or the handle contradicts, or a tab the worker shares
+   `"herdr": {"session": "<herdr session>"}` (`herdr session list` names it), with its agent name or pane as
+   `worker`; registration reads its pane, tab,
+   workspace and name from Herdr and refuses what Herdr contradicts, or a tab the worker shares
    or the orchestrator's. Herdr registration submits its own bounded startup probe and
    waits for Herdr's session identity, which fills `native_session`: Herdr's ID, or the session its record path
    names once the probe has written it.

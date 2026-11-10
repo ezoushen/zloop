@@ -1769,12 +1769,6 @@ def herdr_placement(data):
     require(text(worker), 'Registration requires worker')
     claimed = dict(data['herdr']) if isinstance(data.get('herdr'), dict) else {}
     claimed.update({key: data[key] for key in ('runtime', 'native_session') if text(data.get(key))})
-    if worker.count('/') == 2:
-        # A cross-session handle names its session, pane and agent: ask that session for the pane, confirm the rest.
-        for key, value in zip(('session', 'pane_id', 'name'), worker.split('/')):
-            require(claimed.setdefault(key, value) == value,
-                    f'Registration names {key} {claimed[key]}, but its worker handle {worker} names {value}')
-        worker = claimed['pane_id']
     require(text(claimed.get('session')), 'A Herdr worker registers with herdr.session, the Herdr session it runs in')
     session = claimed['session']
     code, response = herdr(session, 'agent', 'get', worker, timeout=LOOKUP_SECONDS)

@@ -171,18 +171,13 @@ class HerdrTabs(WorkerLifecycleCase):
         saved = self.cli('status')['attempts'][0]
         self.assertEqual((saved['native_session'], saved['herdr']['pane_id']), ('native-1', 'pane-1'))
 
-    def test_registration_splits_a_session_pane_name_handle_and_asks_that_session(self):
-        # Rule: a `session/pane/name` handle needs no herdr.session; its pane is looked up in its own session,
-        # and Herdr must confirm the agent name it gives.
+    def test_a_herdr_worker_names_its_session_only_in_herdr_session(self):
+        # Rule: one form names a Herdr worker's session, herdr.session; a `session/pane/name` worker is no handle.
         self.herdr_route()
         self.herdr_fixture()
-        error = self.register(worker='fixture-session/pane-1/builder-2', code=2)
-        self.assertIn('name builder-2', error)
-        self.assertIn('Herdr reports builder-1', error)
-        self.register(worker='fixture-session/pane-1/builder-1')
-        self.assertEqual(self.cli('status')['attempts'][0]['herdr'],
-                         {'session': 'fixture-session', 'workspace_id': 'ws-1', 'tab_id': 'tab-1',
-                          'pane_id': 'pane-1', 'name': 'builder-1'})
+        error = self.register(worker='fixture-session/pane-1/builder-1', code=2)
+        self.assertIn('A Herdr worker registers with herdr.session, the Herdr session it runs in', error)
+        self.assertEqual(self.cli('status')['attempts'], [])
 
     def test_registration_refuses_a_runtime_that_herdr_contradicts(self):
         # Rule: the agent kind Herdr reports must be the registration's runtime; the refusal names both.
@@ -205,11 +200,8 @@ class HerdrTabs(WorkerLifecycleCase):
 
     def test_a_session_record_herdr_names_by_path_fills_native_session_once_the_probe_writes_it(self):
         record = self.root / 'pi-session.jsonl'
-        placements = (('builder-1', {'herdr': {'session': 'fixture-session'}}), ('fixture-session/pane-1/builder-1', {}))
-        cases = [(worker, placement, supplied, code) for worker, placement in placements
-                 for supplied, code in ((None, 0), (str(record), 0), ('native-9', 2))]
-        for number, (worker, placement, supplied, code) in enumerate(cases):
-            with self.subTest(worker=worker, supplied=supplied):
+        for number, (supplied, code) in enumerate(((None, 0), (str(record), 0), ('native-9', 2))):
+            with self.subTest(supplied=supplied):
                 self.state = self.root / f'path-{number}.sqlite'
                 for name in ('agent-lookups', 'probe-submitted'):
                     (self.root / name).unlink(missing_ok=True)
@@ -217,23 +209,14 @@ class HerdrTabs(WorkerLifecycleCase):
                 self.herdr_route('pi')
                 self.herdr_fixture(agent_kind='pi', native_session=str(record), session_kind='path',
                                    probe_record=(str(record), 'pi-session-1'))
-                error = self.register(worker=worker, runtime='pi', session=supplied, code=code, **placement)
+                error = self.register(worker='builder-1', runtime='pi', session=supplied, code=code,
+                                      herdr={'session': 'fixture-session'})
                 if code:
                     self.assertIn('native_session native-9', error)
                     self.assertIn('Herdr reports pi-session-1', error)
                     self.assertEqual(self.cli('status')['attempts'], [])
                 else:
                     self.assertEqual(self.cli('status')['attempts'][0]['native_session'], 'pi-session-1')
-
-    def test_a_handle_whose_session_differs_from_herdr_session_is_refused(self):
-        # Rule: the parts of a `session/pane/name` handle are claims like any other; a herdr.session that differs
-        # from the handle's is refused, naming both sessions.
-        self.herdr_route()
-        self.herdr_fixture()
-        error = self.register(worker='fixture-session/pane-1/builder-1', herdr={'session': 'other-session'}, code=2)
-        self.assertIn('session other-session', error)
-        self.assertIn('names fixture-session', error)
-        self.assertEqual(self.cli('status')['attempts'], [])
 
     def test_a_herdr_that_does_not_answer_holds_no_state_lock_and_is_refused_within_five_seconds(self):
         # Rule: Herdr is asked before the state's write lock is taken and waited on about 5 s per call, so a hung

@@ -732,37 +732,38 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
                                           '--session', 'host-1', '--reason', 'failed launch')
                     self.assertEqual((result.returncode, result.stderr), (0, ''))
                 else:
-                    self.register(name if how == 'name' else f'other/{pane}/{name}',
-                                  f'socket-{index}/1', pane=None, session='host-1')
+                    self.register(name if how == 'name' else pane, f'socket-{index}/1', pane=None, session='host-1')
                 self.assertEqual(self.check(pane=None, session='host-1'), [])
                 self.assertIsNone(self.stop(pane=None, session='host-1'))
 
     def test_a_launch_without_a_server_option_ran_in_its_shells_server_and_only_that_servers_registration_clears_it(self):
         # Review 1: no `--session` means the server the launching shell talks to (its HERDR_SOCKET_PATH names it), not
-        # a wildcard: a handle on another server clears neither the launch nor hides the live agent of the same pane.
+        # a wildcard: a worker placed on another server clears neither the launch nor hides the live agent of the
+        # same pane.
         s2 = {'HERDR_SOCKET_PATH': '/home/u/.config/herdr/sessions/s2/herdr.sock'}
         self.launch('herdr agent start alpha --kind codex --pane w1:p5', pane=None)
         self.launch('herdr agent start beta --kind codex --pane w1:p6', pane=None, env=s2)
         self.assertEqual([record['herdr_session'] for record in self.logged()], ['default', 's2'])
         self.serve()
-        self.register('s2/w1:p5/x', 'ticket-1/1', pane=None, session='host-1')
-        self.register('default/w1:p6/y', 'ticket-2/1', pane=None, session='host-1')
         with (self.repo / '.scratch/herdr-launches.jsonl').open('a') as stream:  # A line that names no server.
             stream.write(json.dumps({'time': '2026-10-20T10:00:00Z', 'agent': 'gamma', 'pane': 'w1:p7',
                                      'herdr_session': None, 'orchestrator': {'pane': None, 'session': 'host-1'}}) + '\n')
-        self.register('s2/w1:p7/z', 'ticket-7/1', pane=None, session='host-1')
+        rows = [self.placed('w1:p5', 'ticket-1/1', 's2'), self.placed('w1:p6', 'ticket-2/1', 'default'),
+                self.placed('w1:p7', 'ticket-7/1', 's2')]
+        self.write_rows(*rows)
         gaps = [self.gap('alpha', 'w1:p5'), self.gap('beta', 'w1:p6')]
         self.assertEqual(self.check(pane=None, session='host-1'), gaps)
-        self.register('default/w1:p5/x', 'ticket-3/1', pane=None, session='host-1')
-        self.register('s2/w1:p6/y', 'ticket-4/1', pane=None, session='host-1')
-        self.register('default/w1:p7/z', 'ticket-8/1', pane=None, session='host-1')
+        rows += [self.placed('w1:p5', 'ticket-3/1', 'default'), self.placed('w1:p6', 'ticket-4/1', 's2'),
+                 self.placed('w1:p7', 'ticket-8/1', 'default')]
+        self.write_rows(*rows)
         self.assertEqual(self.check(pane=None, session='host-1'), [])
         live = self.agent('live-1', 'w1:p9', self.worktree)
         self.serve(agents=[live])
-        self.register('s2/w1:p9/other', 'ticket-5/1', pane='w1:p3', session='host-2')
+        rows.append(self.placed('w1:p9', 'ticket-5/1', 's2', session='host-2', orchestrator='w1:p3'))
+        self.write_rows(*rows)
         self.assertEqual(self.check(session='host-1'), [self.live('live-1', 'w1:p9', self.worktree)])
         self.assertEqual(self.check(session='host-1', env=s2), [])
-        self.register('default/w1:p9/other', 'ticket-6/1', pane='w1:p3', session='host-2')
+        self.write_rows(*rows, self.placed('w1:p9', 'ticket-6/1', 'default', session='host-2', orchestrator='w1:p3'))
         self.assertEqual(self.check(session='host-1'), [])
 
     def test_a_pi_subagents_child_binds_and_registers_under_the_same_sessions(self):
@@ -897,23 +898,26 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.assertEqual(self.check(session='host-1'), missing)
         self.assertEqual(self.check(pane=None, session='host-1'), missing)
 
-    def test_a_session_pane_name_handle_clears_only_the_launch_of_its_pane_and_server(self):
-        # Decision 2, audit A3: the lifecycle also accepts `<session>/<pane>/<name>` as a worker handle, and it names
-        # one pane of one Herdr server: a name another handle shares, or a pane of another server, clears nothing.
-        self.serve(panes={'default': {pane: {'pane_id': pane, 'cwd': str(self.worktree)}
-                                      for pane in ('w1:p5', 'w1:p6', 'w1:p7')}})
-        for agent, pane in (('builder-1', 'w1:p5'), ('builder-2', 'w1:p6'), ('builder-3', 'w1:p7')):
+    def test_a_worker_clears_a_launch_only_by_its_whole_name_or_pane(self):
+        # Rule: one form names a registered worker, its agent name or pane, whole; a `server/pane/name` worker is no
+        # handle, so it clears no launch of that pane.
+        self.serve(panes={'default': {pane: {'pane_id': pane, 'cwd': str(self.worktree)} for pane in ('w1:p5', 'w1:p6')}})
+        for agent, pane in (('builder-1', 'w1:p5'), ('builder-2', 'w1:p6')):
             self.launch(f'herdr agent start {agent} --kind codex --pane {pane}', pane=None)
         self.serve()
-        self.register('default/w1:p5/renamed-1', 'ticket-1/1', pane=None, session='host-1')
-        self.register('s2/w1:p9/builder-2', 'ticket-2/1', pane=None, session='host-1')
-        self.register('default/w1:p8/builder-9', 'ticket-3/1', pane=None, session='host-1')
-        self.assertEqual(self.check(pane=None, session='host-1'),
-                         [self.gap('builder-2', 'w1:p6'), self.gap('builder-3', 'w1:p7')])
+        self.register('default/w1:p5/builder-9', 'ticket-1/1', pane=None, session='host-1')
+        self.register('w1:p6', 'ticket-2/1', pane=None, session='host-1')
+        self.assertEqual(self.check(pane=None, session='host-1'), [self.gap('builder-1', 'w1:p5')])
 
-    def test_a_handle_clears_only_the_launch_in_its_own_herdr_server(self):
-        # Audit A3: the launch log keeps the Herdr server a launch ran in, so `s1/w1:p5/alpha` does not also clear an
-        # unrelated launch in pane w1:p5 of server s2.
+    def placed(self, worker, attempt, server, session='host-1', orchestrator=None):
+        """A collected attempt of `session` whose worker (an agent name or pane) Herdr placed on `server`."""
+        return support.attempt_row(self.repo, attempt=attempt, assignment=attempt.split('/')[0], worker=worker,
+                                   sessions=[session], orchestrator=orchestrator, result={'status': 'completed'},
+                                   herdr={'session': server, 'workspace_id': 'w1', 'tab_id': 'w1:t9'})
+
+    def test_a_registration_clears_only_the_launch_in_its_own_herdr_server(self):
+        # Rule: the launch log keeps the Herdr server a launch ran in, so a worker placed in pane w1:p5 of server
+        # s1 does not also clear an unrelated launch in pane w1:p5 of server s2.
         panes = {server: {'w1:p5': {'pane_id': 'w1:p5', 'cwd': str(self.worktree)}} for server in ('s1', 's2')}
         self.serve(panes=panes)
         self.launch('herdr --session s1 agent start alpha --kind codex --pane w1:p5', pane=None)
@@ -921,10 +925,11 @@ console.log(JSON.stringify([await call('bash', 'herdr agent start builder-1 --ki
         self.launch('herdr agent start gamma --kind codex --pane w1:p6', pane=None)
         self.assertEqual([record['herdr_session'] for record in self.logged()], ['s1', 's2', 'default'])
         self.serve()
-        self.register('s1/w1:p5/alpha', 'ticket-1/1', pane=None, session='host-1')
+        rows = [self.placed('w1:p5', 'ticket-1/1', 's1')]
+        self.write_rows(*rows)
         self.assertEqual(self.check(pane=None, session='host-1'),
                          [self.gap('beta', 'w1:p5'), self.gap('gamma', 'w1:p6')])
-        self.register('s2/w1:p5/beta', 'ticket-2/1', pane=None, session='host-1')
+        self.write_rows(*rows, self.placed('w1:p5', 'ticket-2/1', 's2'))
         self.assertEqual(self.check(pane=None, session='host-1'), [self.gap('gamma', 'w1:p6')])
 
     def test_another_sessions_attempt_hides_a_live_agent_only_by_its_pane_or_its_logged_name_and_pane(self):

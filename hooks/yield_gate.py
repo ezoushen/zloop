@@ -521,24 +521,16 @@ def same_orchestrator(theirs, pane, session):
 
 
 def server_of(saved):
-    """The Herdr server session an attempt's worker runs in, when it recorded one: its handle's or its placement's."""
-    parts = saved['worker'].rsplit('/', 2)
-    return parts[0] if len(parts) == 3 else (saved.get('herdr') or {}).get('session')
-
-
-def named(worker):
-    """What a registered worker names: the pane of a `<server session>/<pane>/<name>` handle, whatever name it carries
-    now; else the worker itself, a pane or an agent name."""
-    parts = worker.rsplit('/', 2)
-    return parts[1] if len(parts) == 3 else worker
+    """The Herdr server session an attempt's worker runs in, when its placement recorded one."""
+    return (saved.get('herdr') or {}).get('session')
 
 
 def clears(saved, launch):
-    """Whether an attempt accounts for a logged launch: it names the launch's pane (a handle only its pane) or agent,
-    in its Herdr server (an unknown launch server or an attempt naming no server matches any), and a host session
+    """Whether an attempt accounts for a logged launch: its worker is the launch's pane or agent name, in its Herdr
+    server (an unknown launch server or an attempt naming no server matches any), and a host session
     recorded at registration, or one whose launches it was recorded to clear, is the one that launched it when both
     know one; else the orchestrator recorded at registration is the pane that launched it."""
-    if named(saved['worker']) not in (launch['agent'], launch['pane']):
+    if saved['worker'] not in (launch['agent'], launch['pane']):
         return False
     if launch.get('herdr_session') and server_of(saved) not in (None, launch['herdr_session']):
         return False
@@ -584,8 +576,8 @@ def unregistered(root, pane, session, runs, siblings=True):
     attempts = [saved for saved_attempts, _, _ in runs.values() for saved in saved_attempts]
     by_name = {}
     for saved in attempts:
-        by_name.setdefault(named(saved['worker']), []).append(saved)
-    placed = {(server_of(saved), named(saved['worker'])) for saved in attempts}
+        by_name.setdefault(saved['worker'], []).append(saved)
+    placed = {(server_of(saved), saved['worker']) for saved in attempts}
     # What this session registered by name: in the Herdr server and tab it recorded, when it recorded them.
     mine = {(server_of(saved), saved['worker'], (saved.get('herdr') or {}).get('tab_id'))
             for saved in attempts if owns(saved, pane, session)}

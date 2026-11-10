@@ -498,7 +498,7 @@ class Retirement(WorkerLifecycleCase):
     def test_a_closure_by_hand_meets_the_lifecycle_s_own_refusals_before_herdr_is_asked(self):
         for number, (owned, collected, worker, refusal) in enumerate((
                 (True, False, 'builder-1', 'lacks a collected result'),
-                (True, True, 'fixture-session/pane-1/builder-1', 'acknowledged (`python3')), 1):
+                (True, True, 'pane-1', 'acknowledged (`python3')), 1):
             with self.subTest(refusal=refusal):
                 attempt, session = f'ticket-{number}/1', f'native-{number}'
                 self.herdr_fixture(native_session=session)
