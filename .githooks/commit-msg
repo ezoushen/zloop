@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Holds each commit header to the summary-line standard (standards/titles.md).
+# Enable once per clone: git config core.hooksPath .githooks
+set -uo pipefail
+root=$(git rev-parse --show-toplevel)
+command -v python3 >/dev/null || { echo "commit-msg: python3 not found; the check needs it" >&2; exit 1; }
+exec python3 "$root/scripts/title_rules.py" "$1"

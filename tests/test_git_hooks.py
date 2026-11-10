@@ -3,6 +3,7 @@
 import subprocess
 import unittest
 
+import support
 from hook_case import IDENTITY, HookRepo
 from test_doc_checker import GUIDE, git
 
@@ -83,6 +84,44 @@ class PreCommit(HookRepo):
         (self.root / 'scripts/latin.py').write_bytes(b'# -*- coding: latin-1 -*-\nNAME = "caf\xe9"\n')
         encoded = self.commit()
         self.assertEqual(encoded.returncode, 0, encoded.stdout + encoded.stderr)
+
+
+class CommitMsg(HookRepo):
+    """Rule (ledger A8, git's summary-line convention): a commit header is at most 72 characters, has a Conventional Commits
+    type and no full stop; git's own and autosquash headers pass."""
+
+    def setUp(self):
+        super().setUp()
+        hook = self.root / '.githooks/commit-msg'
+        hook.write_text((support.ROOT / '.githooks/commit-msg').read_text())
+        hook.chmod(0o755)
+        (self.root / 'scripts/title_rules.py').write_text((support.ROOT / 'scripts/title_rules.py').read_text())
+        git(self.root, 'add', '-A')
+        self.assertEqual(self.say('feat: start the fixture', '--no-verify').returncode, 0)
+
+    def say(self, header, *flags, editor=None):
+        env = dict(self.env, GIT_EDITOR=editor) if editor else self.env
+        return subprocess.run(['git', '-C', str(self.root), *IDENTITY, 'commit', '-q', '--allow-empty', *flags,
+                               *(['-e', '-m', header] if editor else ['-m', header])],
+                              capture_output=True, text=True, env=env)
+
+    def test_a_header_breaking_a_rule_is_refused_naming_it_and_the_standard(self):
+        for header, rule in (('feat: ' + 'x' * 67, 'header is 73 characters; keep it at most 72'),
+                             ('update things', 'header has no type'),
+                             ('feat: add the thing.', 'header ends with a full stop')):
+            with self.subTest(header=header):
+                refused = self.say(header)
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertIn(f'commit-msg: the {rule}', refused.stderr)
+                self.assertIn("git's summary-line convention", refused.stderr)
+
+    def test_a_valid_header_and_the_headers_git_writes_pass(self):
+        for header in ('feat: ' + 'x' * 66, 'fix(hooks): refuse a header without a type', 'feat!: drop the old flag',
+                       'Merge branch \'main\' into feat/x', 'Revert "feat: add a thing"', 'fixup! feat: add a thing',
+                       'squash! feat: add a thing'):
+            with self.subTest(header=header):
+                accepted = self.say(header)
+                self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
 
 
 if __name__ == '__main__':

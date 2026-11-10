@@ -213,6 +213,26 @@ class BoardCLI(unittest.TestCase):
                 self.cli(*args, code=2)
         self.assertEqual(sorted(self.root.glob('.scratch/*/issues/*.md')), before)
 
+    def test_new_refuses_a_title_that_breaks_the_summary_line_convention(self):
+        # Rule (ledger A8, standards/titles.md): a ticket title is at most 50 characters, has no full stop and does
+        # not start with an article. Each refusal writes nothing, names the broken rule and the standard.
+        before = sorted(self.root.glob('.scratch/*/issues/*.md'))
+        fifty, fifty_one = 'Show every running worker as running in the boards', 'Show every running worker as running in the sidebar'
+        self.assertEqual((len(fifty), len(fifty_one)), (50, 51))
+        for title, rule in (('A running worker reads as running', 'starts with an article'),
+                            ('The running worker reads as running', 'starts with an article'),
+                            ('an idle worker reads as idle', 'starts with an article'),
+                            (fifty_one, 'is 51 characters; keep it at most 50'),
+                            ('Show a running worker as running.', 'ends with a full stop')):
+            with self.subTest(title=title):
+                refused = self.cli('fx', '--new', title, code=2)
+                self.assertIn(f'--new wrote nothing: the title {rule}', refused.stderr)
+                self.assertIn("git's summary-line convention", refused.stderr)
+        self.assertEqual(sorted(self.root.glob('.scratch/*/issues/*.md')), before)
+        for title in ('Show a running worker as running', fifty, 'Another worker reads as idle', 'Theme the board'):
+            with self.subTest(title=title):
+                self.assertTrue(Path(self.cli('fx', '--new', title).stdout.strip()).is_file())
+
     def test_new_keeps_an_apostrophe_inside_its_word_in_the_file_stem(self):
         # The stem is the ticket's branch name: "git's" is one word, not "git" and "s".
         made = Path(self.cli('fx', '--new', "Hold titles to git's summary-line convention").stdout.strip())
@@ -232,7 +252,7 @@ class BoardCLI(unittest.TestCase):
         self.write_ticket('a/01')
         self.write_ticket('b/01', blocked='a/01')
         before = sorted(self.root.glob('.scratch/*/issues/*.md'))
-        refused = self.cli('a', '--new', 'A two', '--blocked-by', 'b/01', code=2)
+        refused = self.cli('a', '--new', 'Add two', '--blocked-by', 'b/01', code=2)
         self.assertIn('workstream dependency cycle', refused.stderr)
         self.assertIn('--new wrote nothing: the board with this ticket fails its check', refused.stderr)
         self.assertEqual(sorted(self.root.glob('.scratch/*/issues/*.md')), before)
@@ -249,12 +269,12 @@ class BoardCLI(unittest.TestCase):
         self.cli('c', '--check')
         # Review (Sonnet): a note beside the tickets, named by a date, is no ticket number.
         (self.root / '.scratch/a/issues/2026-11-06-handoff.md').write_text('# handoff\n')
-        self.assertEqual(Path(self.cli('a', '--new', 'A two').stdout.strip()).name, '02-a-two.md')
+        self.assertEqual(Path(self.cli('a', '--new', 'Add two').stdout.strip()).name, '02-add-two.md')
         # Review (Codex, Sonnet): a note holding the next ticket's file name is named, not a traceback.
-        (self.root / '.scratch/a/issues/03-a-three.md').write_text('# notes\n')
-        refused = self.cli('a', '--new', 'A three', code=2)
+        (self.root / '.scratch/a/issues/03-add-three.md').write_text('# notes\n')
+        refused = self.cli('a', '--new', 'Add three', code=2)
         self.assertIn('--new wrote nothing: ', refused.stderr)
-        self.assertIn('03-a-three.md is taken by a file that is no ticket on the board', refused.stderr)
+        self.assertIn('03-add-three.md is taken by a file that is no ticket on the board', refused.stderr)
 
     def test_set_keeps_the_comment_lines_beside_the_fields_it_writes(self):
         # Review (Sonnet): replacing a block list must not take the comments and blank lines after a scalar field.

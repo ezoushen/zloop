@@ -57,6 +57,9 @@ Enable the Git hooks once per clone with `git config core.hooksPath .githooks`:
 - `pre-commit` (about a second) runs the doc checker on changed files and checks the
   syntax of staged Python and shell files. The doc check reads files as they are on
   disk, so unstaged edits and untracked docs count, not only what is staged.
+- `commit-msg` holds each commit header to the [titles standard](../standards/titles.md): at most 72
+  characters, a Conventional Commits type and no full stop; git's own `Merge`, `Revert`, `fixup!` and `squash!`
+  headers pass.
 - `pre-push` checks out each pushed commit into a temporary worktree and runs the
   whole-repo doc check and the suite there, so the result is the pushed code's.
   Commits the remote already has are not rerun; an older commit without the checker

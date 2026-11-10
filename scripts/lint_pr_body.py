@@ -9,7 +9,11 @@ import argparse
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import title_rules  # noqa: E402
 
 TITLE = re.compile(r'(feat|fix|refactor|docs|test|chore|perf|ci|build|style|revert)(\([^)]+\))?!?: \S.{4,}')
 PRIVATE = re.compile(r'\.scratch/|claude\.ai/(?:code/)?(?:artifact|chat|project|share)|/Users/|/home/|/private/tmp|file://')
@@ -47,6 +51,8 @@ def lint(body, title=None):
     if title is not None:
         if 'wip' in title.lower() or not TITLE.fullmatch(title) or len(title) > 72:
             errors.append(f'title "{title}": use "<type>(scope): <resulting behavior>", at most 72 chars, no WIP')
+        if title.endswith('.'):
+            errors.append(f'title "{title}" {title_rules.FULL_STOP} ({title_rules.STANDARD})')
     return errors, warnings
 
 

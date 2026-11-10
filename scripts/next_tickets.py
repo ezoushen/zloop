@@ -45,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import capability_probe  # noqa: E402
 import front_matter  # noqa: E402
 import state_files  # noqa: E402
+import title_rules  # noqa: E402
 import worker_lifecycle  # noqa: E402
 
 ROOT = Path.cwd()
@@ -1219,6 +1220,9 @@ def main(argv):
             parser.error("--new needs the workstream slug")
         if not title or len(f"{title}x".splitlines()) > 1:
             parser.error("--new takes a one-line title")
+        for problem in title_rules.ticket_problems(title):
+            print(f"--new wrote nothing: the title {problem} ({title_rules.STANDARD})", file=sys.stderr)
+            sys.exit(2)
         unknown = [name for name in args.blocked_by if name not in tickets]
         if unknown:
             parser.error(f"--blocked-by {', '.join(unknown)}: no such ticket on the board")

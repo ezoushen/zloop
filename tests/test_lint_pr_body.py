@@ -86,6 +86,13 @@ class LintPrBody(unittest.TestCase):
                 self.assertTrue(self.lint(GOOD, '--title', title, code=1)['errors'])
         self.assertEqual(self.lint(GOOD, '--title', 'fix(ios): keep plural forms at the active locale')['errors'], [])
 
+    def test_a_title_ending_in_a_full_stop_is_refused_naming_the_rule(self):
+        # Rule (ledger A8, standards/titles.md): a summary line has no full stop.
+        report = self.lint(GOOD, '--title', 'feat: each build reads one packaged value store.', code=1)
+        self.assertEqual(len(report['errors']), 1, report)
+        self.assertIn('ends with a full stop', report['errors'][0])
+        self.assertIn("git's summary-line convention", report['errors'][0])
+
     def test_published_body_must_equal_the_file(self):
         gh = self.root / 'bin/gh'
         gh.write_text(f"#!{sys.executable}\nimport json\nprint(json.dumps({{'body': 'older body'}}))\n")

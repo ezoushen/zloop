@@ -106,7 +106,8 @@
    ],
    "code": [
     "scripts/next_tickets.py",
-    "scripts/panel_state.py"
+    "scripts/panel_state.py",
+    "scripts/title_rules.py"
    ]
   },
   "autopilot": {

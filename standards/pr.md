@@ -56,8 +56,8 @@ one.
 
 ## Title
 
-Use `<type>[(scope)]: <resulting behavior>`, at most 72 characters, in the
-repository's commit format, with `!` for a breaking change. It describes the
+Use `<type>[(scope)]: <resulting behavior>` in the repository's commit format
+and the [titles standard](titles.md), with `!` for a breaking change. It describes the
 current merged scope and stands alone in `git log`. Never use `WIP` or internal
 IDs. On every refresh, compare the title with the Summary and rename it in the same
 step when the scope moved. A title edit is covered by authorization to edit the

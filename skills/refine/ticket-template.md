@@ -12,7 +12,7 @@ needs: []
 model: standard
 worker:
 ---
-# NN: <title, a behaviour not a component>
+# NN: <title, a behaviour not a component, per the [titles standard](../../standards/titles.md)>
 
 **Story:** As a <actor>, I want <capability>, so that <benefit>.
 

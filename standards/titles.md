@@ -1,0 +1,33 @@
+# Titles
+
+Every title zloop writes (a ticket title, a commit subject, a PR title, and so the branch
+named after a ticket) follows git's summary-line convention. This file is the only place
+that defines it; other docs link here and restate none of it.
+
+- **Imperative mood.** The title completes "If applied, this change will …": "Show a
+  running worker as running", not "Shows" or "Showing".
+- **Short.** Aim for 50 characters; 72 is the hard limit for a commit or PR title. A ticket
+  title is cut at 50, since a ticket's branch and worktree are named after it.
+- **No full stop** at the end.
+- **No leading article** in a ticket title: lead with the verb.
+- **Lowercase after the type.** A commit or PR title opens with a Conventional Commits
+  `type[(scope)][!]: ` prefix and continues in lowercase. A ticket title carries no prefix
+  and starts with a capital.
+
+Scripts refuse what they can check: `next_tickets.py --new` (ticket titles),
+`lint_pr_body.py --title` (PR titles) and the `commit-msg` hook (commit headers). Each
+refusal names the broken rule. Mood is left to review, since a verb detector would flag
+valid verbs such as "embed" or "speed".
+
+## Sources
+
+- [git: SubmittingPatches](https://git-scm.com/docs/SubmittingPatches), the imperative
+  mood and the short summary line.
+- [How to write a git commit message](https://cbea.ms/git-commit/), the 50 and 72
+  character limits and the "If applied" test; its capitalized subject is not adopted,
+  because git's own `type: ` prefix is lowercase.
+- [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/), the
+  `type[(scope)]: ` prefix.
+
+Why a named standard: a model already knows git's convention, so naming it works better
+than a rule list of our own; zloop adopts the part that fits titles and drops the rest.
