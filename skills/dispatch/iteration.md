@@ -32,11 +32,11 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    worktree, or `main` when the user said to work [directly on main](modes.md#directly-on-main). A new workstream
    branches from `main` after fetching and comparing it with its remote; a stale or diverged base is reported and the
    verified remote tip used (on `main`, ask the user). Apart from working directly on main, never commit to the user's local `main`.
-   Choose [how a ticket runs](modes.md). An inline ticket skips only the ticket branch and worktree, their preparation, the builder launch with its launch decision record, and the merge; everything else in steps 4 and 5 applies to both modes.
+   Choose [how a ticket runs](modes.md). An inline ticket skips only the ticket branch and worktree, their preparation, the builder launch with its launch decision record, and the landing; everything else in steps 4 and 5 applies to both modes.
    A delegated ticket gets a ticket branch and worktree from the workstream branch (project naming, else
    `<slug>/<description>` in `.worktrees/<slug>-<description>`, where the description is the ticket file's name
-   without its `NN-` prefix, or a remote issue's title in the same lowercase-hyphen form); reuse existing ones after checking their identity, and rebase a resumed one onto the workstream
-   branch, keeping its local edits. While a ticket branch is local, history stays linear: it is rebased, never merged into, and never rebased once pushed. When the user allows stacking, a dependent ticket may
+   without its `NN-` prefix, or a remote issue's title in the same lowercase-hyphen form); reuse existing ones after checking their identity; commit a resumed one's local edits, then rebase it onto the
+   workstream branch. While a ticket branch is local, history stays linear: it is rebased, never merged into, and never rebased once pushed. When the user allows stacking, a dependent ticket may
    branch from an accepted but unintegrated ticket branch: record the stack in the dispatch report and rebase it onto
    the base's later head before accepting it. Prepare fresh and recreated worktrees with the project's
    gitignored build inputs and verify the required paths, never printing credential-bearing files.
@@ -93,8 +93,8 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    Retire a worker only after an [acceptance decision](../../runtime/workers/collect.md#accept-and-record-outcomes); keep
    ticket worktrees through review, repair and E2E.
    Once an integrated build allows checks only the user can observe (`Verify (user)`), send the user one request covering all of them, [with context](../../runtime/ask/ask.md).
-   On a conflict in the rebase, assign a builder the `merge-conflict` job in the ticket worktree; the orchestrator accepts
-   the resolved head again, then fast-forwards. No other worker uses that worktree meanwhile. Main still merges into a workstream (step 2).
+   On a conflict in the rebase, assign a builder the `merge-conflict` job in the ticket worktree with the ticket's own
+   report; it returns that report at the resolved head, so the orchestrator accepts that head again, then fast-forwards. No other worker uses that worktree meanwhile. Main still merges into a workstream (step 2).
 6. **Unblock.** A blocked ticket is the orchestrator's work: [research](../research/SKILL.md) missing facts,
    diagnose defects under [diagnosis](../diagnose/SKILL.md), decide engineering choices within the constraints, or
    return design errors to align/refine. Apply [escalation checkpoints](../../runtime/workers/escalation.md) before a

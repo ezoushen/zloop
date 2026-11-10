@@ -16,7 +16,7 @@ branch that is still local.
 ## Inputs
 
 The assignment names the ticket `worktree`, its `branch` and starting `head`, the workstream branch to rebase
-onto, the conflicting files and their `conflict` details, and the `report`. No other worker uses that
+onto, the conflicting files and their `conflict` details, and the `report`: the ticket's own report. No other worker uses that
 worktree while this job runs.
 
 ## Finish line
@@ -27,6 +27,6 @@ the checks the assignment tiers for you on the resolved tree.
 
 ## Return
 
-Finish the rebase and return control with the new head: the orchestrator accepts it again and fast-forwards
-the workstream branch. Report the files resolved, how each conflict
+Finish the rebase and return the ticket's report at the new head: the orchestrator accepts it again and
+fast-forwards the workstream branch. Report the files resolved, how each conflict
 was decided, the checks run with their results, and any unresolved boundary.

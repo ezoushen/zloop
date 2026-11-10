@@ -28,7 +28,7 @@ worktree to retire.
 Accept it with the same structural checks as a delegated ticket (`--accept` on a local
 board reads the recorded branch), then judge each criterion. The orchestrator wrote this
 work, so its acceptance is a self-check: the integrated review is its independent check.
-Commit inline work before merging a delegated ticket into the workstream worktree, so the two
+Commit inline work before landing a delegated ticket in the workstream worktree, so the two
 never write there at once. A blocked inline ticket follows the same escalation and
 two-attempt rules; delegating it is one of the recovery choices.
 

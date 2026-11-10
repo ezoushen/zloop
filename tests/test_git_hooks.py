@@ -87,7 +87,7 @@ class PreCommit(HookRepo):
 
 
 class CommitMsg(HookRepo):
-    """Rule (ledger A8, git's summary-line convention): a commit header is at most 72 characters, has a Conventional Commits
+    """Rule (git's summary-line convention): a commit header is at most 72 characters, has a Conventional Commits
     type and no full stop; git's own and autosquash headers pass."""
 
     def setUp(self):

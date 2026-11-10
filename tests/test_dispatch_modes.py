@@ -47,10 +47,10 @@ class TicketModes(unittest.TestCase):
     def test_an_inline_ticket_skips_only_the_builder_setup(self):
         iteration = prose(DISPATCH / 'iteration.md')
         self.assertIn('An inline ticket skips only the ticket branch and worktree, their preparation, the builder '
-                      'launch with its launch decision record, and the merge', iteration)
+                      'launch with its launch decision record, and the landing', iteration)
         self.assertIn('everything else in steps 4 and 5 applies to both modes', iteration)
         text = prose(MODES)
-        for rule in ('Commit inline work before merging a delegated ticket',
+        for rule in ('Commit inline work before landing a delegated ticket',
                      'A blocked inline ticket follows the same escalation and two-attempt rules'):
             self.assertIn(rule, text)
 

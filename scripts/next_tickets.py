@@ -1030,6 +1030,11 @@ def new_ticket(slug, title, blocked_by, touches):
         nn = f"{max((int(t.split('/')[1]) for t in tickets if spec_of(t) == slug), default=0) + 1:02}"
         words = "-".join(re.findall(r"[a-z0-9]+", re.sub("['\u2019]", "", title.lower())))[:60].strip("-") or "ticket"
         path = issues / f"{nn}-{words}.md"
+        taken = next((p for p in issues.glob(f"*-{words}.md") if p != path and p.stem.split("-", 1)[1] == words), None)
+        if taken:  # The title words name the ticket's branch and worktree: two tickets would share them.
+            print(f"--new wrote nothing: ticket {slug}/{taken.stem.split('-', 1)[0]} already has the title words "
+                  f"{words}, which name its branch {slug}/{words}; reword the title", file=sys.stderr)
+            sys.exit(2)
         fields = {"ticket": f"{slug}/{nn}", "status": "ready", "blocked_by": blocked_by, "touches": touches,
                   "devices": [], "needs": [], "path": str(path.relative_to(ROOT))}
         if not check({**tickets, fields["ticket"]: fields}):

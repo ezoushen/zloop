@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import title_rules  # noqa: E402
 
-TITLE = re.compile(r'(feat|fix|refactor|docs|test|chore|perf|ci|build|style|revert)(\([^)]+\))?!?: \S.{4,}')
+TITLE = re.compile(title_rules.TYPE.pattern + r'.{4,}')
 PRIVATE = re.compile(r'\.scratch/|claude\.ai/(?:code/)?(?:artifact|chat|project|share)|/Users/|/home/|/private/tmp|file://')
 INTERNAL = re.compile(r'\b(D\d{1,3}|FU(?:-[A-Za-z0-9]+)+|F-\d+|R-\d+|[Tt]icket\s*#?\d+)\b')
 FENCE = re.compile(r'^```([^\s`]*).*$')

@@ -87,7 +87,7 @@ class LintPrBody(unittest.TestCase):
         self.assertEqual(self.lint(GOOD, '--title', 'fix(ios): keep plural forms at the active locale')['errors'], [])
 
     def test_a_title_ending_in_a_full_stop_is_refused_naming_the_rule(self):
-        # Rule (ledger A8, standards/titles.md): a summary line has no full stop.
+        # Rule (standards/titles.md): a summary line has no full stop.
         report = self.lint(GOOD, '--title', 'feat: each build reads one packaged value store.', code=1)
         self.assertEqual(len(report['errors']), 1, report)
         self.assertIn('ends with a full stop', report['errors'][0])

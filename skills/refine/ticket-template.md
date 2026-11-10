@@ -1,5 +1,7 @@
 # Local Markdown ticket template
 
+The title follows the [titles standard](../../standards/titles.md).
+
 ```markdown
 ---
 ticket: <slug>/NN
@@ -12,7 +14,7 @@ needs: []
 model: standard
 worker:
 ---
-# NN: <title, a behaviour not a component, per the [titles standard](../../standards/titles.md)>
+# NN: <title, a behaviour not a component>
 
 **Story:** As a <actor>, I want <capability>, so that <benefit>.
 

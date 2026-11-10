@@ -2,12 +2,13 @@
 
 Every title zloop writes (a ticket title, a commit subject, a PR title, and so the branch
 named after a ticket) follows git's summary-line convention. This file is the only place
-that defines it; other docs link here and restate none of it.
+that defines it; other docs link here and restate none of it. A project's own documented title or
+commit convention takes precedence, as its branch convention does.
 
 - **Imperative mood.** The title completes "If applied, this change will …": "Show a
   running worker as running", not "Shows" or "Showing".
 - **Short.** Aim for 50 characters; 72 is the hard limit for a commit or PR title. A ticket
-  title is cut at 50, since a ticket's branch and worktree are named after it.
+  title is at most 50, since a ticket's branch and worktree are named after it; `--new` refuses a longer one.
 - **No full stop** at the end.
 - **No leading article** in a ticket title: lead with the verb.
 - **Lowercase after the type.** A commit or PR title opens with a Conventional Commits
@@ -25,7 +26,7 @@ valid verbs such as "embed" or "speed".
   mood and the short summary line.
 - [How to write a git commit message](https://cbea.ms/git-commit/), the 50 and 72
   character limits and the "If applied" test; its capitalized subject is not adopted,
-  because git's own `type: ` prefix is lowercase.
+  because the prefix is lowercase in git's own `area: ` form and in Conventional Commits.
 - [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/), the
   `type[(scope)]: ` prefix.
 

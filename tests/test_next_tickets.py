@@ -214,7 +214,7 @@ class BoardCLI(unittest.TestCase):
         self.assertEqual(sorted(self.root.glob('.scratch/*/issues/*.md')), before)
 
     def test_new_refuses_a_title_that_breaks_the_summary_line_convention(self):
-        # Rule (ledger A8, standards/titles.md): a ticket title is at most 50 characters, has no full stop and does
+        # Rule (standards/titles.md): a ticket title is at most 50 characters, has no full stop and does
         # not start with an article. Each refusal writes nothing, names the broken rule and the standard.
         before = sorted(self.root.glob('.scratch/*/issues/*.md'))
         fifty, fifty_one = 'Show every running worker as running in the boards', 'Show every running worker as running in the sidebar'
@@ -232,6 +232,16 @@ class BoardCLI(unittest.TestCase):
         for title in ('Show a running worker as running', fifty, 'Another worker reads as idle', 'Theme the board'):
             with self.subTest(title=title):
                 self.assertTrue(Path(self.cli('fx', '--new', title).stdout.strip()).is_file())
+
+    def test_new_refuses_a_title_another_ticket_of_the_workstream_has(self):
+        # A ticket's branch and worktree are named after its title, so two tickets with one title would share them.
+        self.cli('fx', '--new', 'Fix the typo')
+        before = sorted(self.root.glob('.scratch/*/issues/*.md'))
+        refused = self.cli('fx', '--new', 'Fix the typo!', code=2)
+        self.assertIn('--new wrote nothing: ticket fx/01 already has the title words fix-the-typo, which name its branch '
+                      'fx/fix-the-typo; reword the title', refused.stderr)
+        self.assertEqual(sorted(self.root.glob('.scratch/*/issues/*.md')), before)
+        self.assertTrue(Path(self.cli('other', '--new', 'Fix the typo').stdout.strip()).is_file())
 
     def test_new_keeps_an_apostrophe_inside_its_word_in_the_file_stem(self):
         # The stem is the ticket's branch name: "git's" is one word, not "git" and "s".
@@ -806,7 +816,7 @@ class BoardCLI(unittest.TestCase):
         return commits
 
     def test_a_ticket_rebased_onto_a_moved_workstream_and_fast_forwarded_is_done(self):
-        # A3: integration is proven by patch equivalence, because rebasing gives the commits new ids.
+        # Integration is proven by patch equivalence, because rebasing gives the commits new ids.
         self.accepted_ticket_branch(('a.txt', 'a\n'), ('b.txt', 'b\n'))
         self.write_files({'moved.txt': 'the workstream moved after the fork\n'})
         self.commit('the workstream moves on')
@@ -817,7 +827,7 @@ class BoardCLI(unittest.TestCase):
         self.cli('inline', '--set', 'inline/01', 'status=done')
 
     def test_a_ticket_with_commits_missing_from_the_workstream_is_refused_naming_rebase_and_fast_forward(self):
-        # A3: a partly landed ticket is not done, and the refusal names the step that lands the rest.
+        # A partly landed ticket is not done, and the refusal names the step that lands the rest.
         first, second = self.accepted_ticket_branch(('a.txt', 'a\n'), ('b.txt', 'b\n'))
         self.git('cherry-pick', first)
         refused = self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
