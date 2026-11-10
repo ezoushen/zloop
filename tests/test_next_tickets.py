@@ -853,6 +853,24 @@ class BoardCLI(unittest.TestCase):
         self.git('merge', '-q', '--ff-only', 'inline/second')
         self.cli('inline', '--set', 'inline/01', 'status=done')
 
+    def test_a_clean_rebase_lands_whatever_the_diff_attributes_and_environment(self):
+        # The landing check reads changes as text, without context and without external converters, so neither a
+        # `-diff` attribute, a broken textconv driver nor GIT_DIFF_OPTS turns a clean rebase into a refusal.
+        lines = [f'line {n}' for n in range(40)]
+        self.write_files({'.gitattributes': '*.lock -diff\n*.x diff=nx\n', 'pkg.lock': '\n'.join(lines) + '\n',
+                          'notes.x': 'notes\n'})
+        self.git('config', 'diff.nx.textconv', '/nonexistent/textconv')
+        self.accepted_ticket_branch(('pkg.lock', '\n'.join(lines[:10] + ['the ticket'] + lines[11:]) + '\n'))
+        self.write_files({'pkg.lock': '\n'.join(lines[:12] + ['the workstream'] + lines[13:]) + '\n',
+                          'notes.x': 'more notes\n'})
+        self.commit('the workstream edits two lines away')
+        self.git('switch', '-q', 'inline/second')
+        self.git('rebase', '-q', 'feat/inline')
+        self.git('switch', '-q', 'feat/inline')
+        self.git('merge', '-q', '--ff-only', 'inline/second')
+        with patch.dict(os.environ, {'GIT_DIFF_OPTS': '-u5'}):
+            self.cli('inline', '--set', 'inline/01', 'status=done')
+
     def test_a_rebased_ticket_with_a_commit_that_changes_nothing_is_done(self):
         # Only commits with a change carry anything to land; a rebase gives a commit with none a new id.
         self.accepted_ticket_branch(('a.txt', 'a\n'), ('a.txt', 'a\n'))

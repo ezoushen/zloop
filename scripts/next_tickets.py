@@ -1124,9 +1124,9 @@ def set_field(tickets, name, assignments):
 def landed(sha, ref):
     """Whether every change of `sha` not reachable from `ref` is in `ref` as a commit with the same change: a ticket
     branch rebased onto the workstream and fast-forwarded gets new commit ids, and a clean rebase can move the lines
-    around a change. Changes are compared without context (`-U0` patch ids), so only the changed lines count; a commit
-    that changes nothing carries nothing to land. Whether a commit changes anything is read with plumbing, so a diff
-    setting that leaves a change out of the log refuses rather than passes."""
+    around a change. Changes are compared as text without context (`-U0` patch ids, no converters, no GIT_DIFF_OPTS),
+    so only the changed lines count; a commit that changes nothing carries nothing to land. Whether a commit changes
+    anything is read with plumbing, so a diff setting that leaves a change out of the log refuses rather than passes."""
     base = subprocess.run(["git", "-C", str(ROOT), "merge-base", sha, ref], capture_output=True, text=True)
     if base.returncode != 0:
         return False
@@ -1134,14 +1134,18 @@ def landed(sha, ref):
 
     def changes(tip):
         """{commit: patch id} for each commit between the fork and tip whose log shows a change."""
-        log = subprocess.run(["git", "-C", str(ROOT), "log", "-p", "-U0", "--no-color", "--no-ext-diff",
-                              "--submodule=short", "--ignore-submodules=none", "--no-merges", "--format=commit %H",
-                              f"{fork}..{tip}"], capture_output=True, text=True, check=True).stdout
+        log = subprocess.run(["git", "-C", str(ROOT), "log", "-p", "-U0", "--text", "--no-textconv", "--no-color",
+                              "--no-ext-diff", "--submodule=short", "--ignore-submodules=none", "--no-merges",
+                              "--format=commit %H", f"{fork}..{tip}"], capture_output=True, text=True, check=True,
+                             env={k: v for k, v in os.environ.items() if k != "GIT_DIFF_OPTS"}).stdout
         ids = subprocess.run(["git", "-C", str(ROOT), "patch-id", "--stable"], input=log, capture_output=True,
                              text=True, check=True).stdout
         return {commit: patch for patch, commit in (line.split() for line in ids.splitlines())}
 
-    ours, theirs = changes(sha), set(changes(ref).values())
+    try:
+        ours, theirs = changes(sha), set(changes(ref).values())
+    except subprocess.CalledProcessError:  # Git could not show the changes: refuse, never pass.
+        return False
     commits = subprocess.run(["git", "-C", str(ROOT), "rev-list", "--no-merges", f"{fork}..{sha}"],
                              capture_output=True, text=True, check=True).stdout.split()
     changed = [c for c in commits if subprocess.run(["git", "-C", str(ROOT), "diff-tree", "--quiet", f"{c}^", c],
