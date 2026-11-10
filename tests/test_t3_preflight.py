@@ -21,9 +21,8 @@ class Stub:
     """A stub `t3` on PATH whose thread list answers like the real CLI: exit 1 without a server, exit 0 with a
     JSON array or a no-project message."""
 
-    def __init__(self, root, *, server=True, project=True, raw=None, argv_log='t3-preflight-argv.log',
-                 doctor_repairs=False):
-        self.root, self.argv_log, self.doctor_repairs = Path(root), argv_log, doctor_repairs
+    def __init__(self, root, *, server=True, project=True, raw=None, doctor_repairs=False):
+        self.argv_log, self.root, self.doctor_repairs = 't3-preflight-argv.log', Path(root), doctor_repairs
         self.server, self.project, self.raw = server, project, raw
         directory = Path(root) / 'bin'
         directory.mkdir(exist_ok=True)
@@ -31,7 +30,7 @@ class Stub:
         self.executable.write_text('#!' + sys.executable + '\n' + f'''
 import json, sys
 args = sys.argv[1:]
-with open({str(Path(root) / argv_log)!r}, 'a') as log:
+with open({str(Path(root) / self.argv_log)!r}, 'a') as log:
     log.write(' '.join(args) + chr(10))
 if args[:2] == ['thread', 'list'] and '--json' in args:
     if {self.raw!r} is not None:

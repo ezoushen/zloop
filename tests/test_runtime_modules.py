@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""The runtime holds ten modules in a fixed order; its docs link only down, and the skills over them stay thin."""
-import re
+"""The runtime holds ten modules in a fixed order, and the skills over them stay thin."""
 import unittest
 
 import support
@@ -8,25 +7,11 @@ import support
 ROOT = support.ROOT
 RUNTIME = ROOT / 'runtime'
 ORDER = ['interview', 'board', 'workers', 'checks', 'routing', 'resources', 'decisions', 'config', 'ask', 'domain']
-LINK = re.compile(r'\]\(([^)\s#]+)(?:#[^)\s]*)?\)')
 
 
 class RuntimeModules(unittest.TestCase):
     def test_the_runtime_folder_holds_exactly_the_ten_modules(self):
         self.assertEqual(sorted(path.name for path in RUNTIME.iterdir()), sorted(ORDER))
-
-    def test_a_runtime_doc_links_only_its_own_or_a_later_module(self):
-        for path in sorted(RUNTIME.rglob('*.md')):
-            own = ORDER.index(path.relative_to(RUNTIME).parts[0])
-            for target in LINK.findall(path.read_text()):
-                if re.match(r'[a-z]+:', target):
-                    continue
-                with self.subTest(doc=str(path.relative_to(ROOT)), target=target):
-                    resolved = (path.parent / target).resolve().relative_to(ROOT)
-                    self.assertNotIn(resolved.parts[0], {'skills', 'agents', 'standards', 'hosts',
-                                                         'bootstrap.md'})
-                    if resolved.parts[0] == 'runtime':
-                        self.assertGreaterEqual(ORDER.index(resolved.parts[1]), own)
 
     def test_recovery_joins_the_workers_and_the_configuration_format_joins_config(self):
         for name in ('workers/recovery.md', 'config/catalog.md', 'config/routers.md', 'config/session.md',

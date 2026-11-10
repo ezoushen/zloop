@@ -3,13 +3,10 @@
 import unittest
 
 import support
+from support import prose
 
 ROOT = support.ROOT
 DOC = 'skills/research/SKILL.md'
-
-
-def prose(path):
-    return ' '.join((ROOT / path).read_text().split())
 
 
 class Research(unittest.TestCase):
@@ -25,10 +22,9 @@ class Research(unittest.TestCase):
             with self.subTest(rule=rule):
                 self.assertIn(rule, text)
 
-    def test_align_review_and_the_pipeline_map_use_it(self):
+    def test_align_review_and_iteration_use_it(self):
         for path, link in (('skills/align/SKILL.md', '../research/SKILL.md'),
                            ('skills/review/SKILL.md', '../research/SKILL.md'),
-                           ('skills/brief/pipeline.md', '../research/SKILL.md'),
                            ('skills/dispatch/iteration.md', '../research/SKILL.md')):
             with self.subTest(path=path):
                 text = prose(path)
@@ -52,10 +48,6 @@ class Research(unittest.TestCase):
                 self.assertIn(rule, section)
         self.assertIn('First read: the runtime bootstrap (`../../bootstrap.md`), the host session part.', prose(DOC))
         self.assertFalse((ROOT / 'runtime/research').exists())
-
-    def test_the_pipeline_map_sends_a_defect_to_diagnosis(self):
-        text = prose('skills/brief/pipeline.md')
-        self.assertIn('](../diagnose/SKILL.md)', text)
 
 
 if __name__ == '__main__':

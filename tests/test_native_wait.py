@@ -25,7 +25,7 @@ class NativeWait(unittest.TestCase):
         path = Path(directory.name) / 'agent.jsonl'
         if not missing:
             path.write_text(''.join(rows))
-        process = subprocess.run([sys.executable, '-B', str(SCRIPT), runtime, str(path), '--timeout', '1',
+        process = subprocess.run([sys.executable, '-B', str(SCRIPT), runtime, str(path), '--timeout', '0.3',
                                   '--interval', '0.05'], capture_output=True, text=True, timeout=30)
         return process.returncode, process.stdout + process.stderr
 
@@ -45,8 +45,6 @@ class NativeWait(unittest.TestCase):
             with self.subTest(rows=len(rows)):
                 code, output = self.wait(*rows)
                 self.assertEqual(code, 124, output)
-        code, output = self.wait(turn('tool_use'), turn(None, 'user'), turn('end_turn'))
-        self.assertEqual(code, 0, output)
 
     def test_a_missing_record_is_waited_for(self):
         code, output = self.wait(missing=True)

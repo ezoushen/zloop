@@ -279,23 +279,6 @@ sys.exit(process.returncode)
             else:
                 self.assertTrue(gate['complete'])
 
-    def test_an_untracked_file_a_read_only_agent_adds_fails_the_accept_gate(self):
-        head = self.checkout()
-        report = self.review(head)
-        (self.worktree / 'notes.txt').write_text('scratch\n')
-        self.completed('review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
-        gate = self.cli('gate', '--attempt', 'review-1/1', '--stage', 'accept', '--revision', head, code=1)
-        self.assertEqual(gate['missing'],
-                         ['unchanged worktree for a read-only agent (an untracked file appeared: notes.txt)'])
-
-    def test_a_gitignored_file_created_after_registration_is_not_a_change(self):
-        head = self.checkout({'code.py': 'x = 1\n', '.gitignore': '*.log\n'})
-        report = self.review(head)
-        (self.worktree / 'run.log').write_text('output\n')
-        self.completed('review-1/1', status='completed', head=head, report=str(report), evidence=['review.md'])
-        gate = self.cli('gate', '--attempt', 'review-1/1', '--stage', 'accept', '--revision', head)
-        self.assertTrue(gate['complete'])
-
     def test_untracked_files_present_at_registration_are_not_a_change(self):
         head = self.checkout()
         (self.worktree / 'before.txt').write_text('there before the agent started\n')

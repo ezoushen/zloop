@@ -3,9 +3,11 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -53,7 +55,7 @@ open({str(self.bin / 'argv')!r}, 'a').write(' '.join(args) + '\\n')
 if args[:1] == ['--session']:
     session, args = args[1], args[2:]
 open({str(self.bin / 'calls')!r}, 'a').write(session + ' ' + ' '.join(args) + '\\n')
-if served['hang'] or served.get('hang_panes') and args[:2] == ['pane', 'get']:
+if served['hang']:
     time.sleep(30)
 if served['fail']:
     print(json.dumps({{'error': {{'code': 'server_unavailable', 'message': served['fail']}}}}), file=sys.stderr)
@@ -92,11 +94,10 @@ else:
 ''')
         stub.chmod(0o700)
 
-    def serve(self, agents=(), panes=None, fail=None, hang=False, tabs=None, hang_panes=False):
-        """What the stub Herdr server reports: live agents, panes and tabs by server, or a failure; `hang_panes` hangs
-        `pane get` alone."""
+    def serve(self, agents=(), panes=None, fail=None, hang=False, tabs=None):
+        """What the stub Herdr server reports: live agents, panes and tabs by server, or a failure."""
         self.served.write_text(json.dumps({'agents': list(agents), 'panes': panes or {}, 'tabs': tabs or {},
-                                           'fail': fail, 'hang': hang, 'hang_panes': hang_panes}))
+                                           'fail': fail, 'hang': hang}))
 
     def env(self, pane='w1:p1', **values):
         """The environment of a session in Herdr pane `pane` of workspace w1, or outside Herdr when None."""
@@ -151,6 +152,8 @@ else:
 
     def pi(self, body, pane=None, env=None):
         """Run `body` with Pi's extension `handlers` (the last of each event) and a `ctx` for session pi-1 here."""
+        if not shutil.which('node'):
+            self.skipTest('Node.js runs the Pi extension')
         script = f"""
 const bootstrap = await import({json.dumps((ROOT / 'hosts/pi/bootstrap.ts').as_uri())});
 const handlers = {{}};
@@ -163,6 +166,36 @@ const ctx = {{ cwd: {json.dumps(str(self.repo))}, sessionManager: {{ getSessionI
                                 timeout=60, env=self.env(pane, **(env or {})))
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
+
+    def start_wait(self, attempt):
+        """Start a watched wait of `attempt` on a 30 s sleeper once it is running; the wait's pid file. The watcher and
+        the sleeper's process group are stopped at cleanup, so a failing test leaks neither."""
+        pidfile, request = self.state.parent / 'wait.pid', self.state.parent / 'wait.json'
+        def stop_sleeper():
+            if pidfile.exists():
+                try:
+                    os.killpg(int(pidfile.read_text()), 9)
+                except ProcessLookupError:
+                    pass
+        self.addCleanup(stop_sleeper)
+        request.write_text(json.dumps({'argv': [sys.executable, '-c',
+            f'import os,time; open({str(pidfile)!r}, "w").write(str(os.getpid())); time.sleep(30)'], 'timeout': 40,
+            'notify': {'argv': [sys.executable, '-c', 'pass', '{receipt}'], 'timeout': 2}}))
+        self.watcher = subprocess.Popen([sys.executable, '-B', str(LIFECYCLE), 'watch', '--state', str(self.state),
+                                         '--attempt', attempt, '--input', str(request)], stdout=subprocess.PIPE,
+                                        text=True, env=self.env('w1:p1'))
+        self.addCleanup(lambda: self.watcher.poll() is None and (self.watcher.kill(), self.watcher.communicate()))
+        deadline = time.monotonic() + 5
+        while not pidfile.exists() and time.monotonic() < deadline:
+            time.sleep(.02)
+        self.assertTrue(pidfile.exists())
+        return pidfile
+
+    def lose_wait(self, pidfile):
+        """Kill the watcher and its sleeper, as a wait lost to a crash."""
+        self.watcher.kill()
+        self.watcher.communicate(timeout=5)
+        os.killpg(int(pidfile.read_text()), 9)
 
     def bind(self, pane='w1:p1', slug='fix', autofix=False, code=0, **sessions):
         """Run dispatch's binding for workstream `slug` (None: every workstream), with `--autofix` when `autofix`, as an

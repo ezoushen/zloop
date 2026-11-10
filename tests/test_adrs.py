@@ -3,13 +3,10 @@
 import unittest
 
 import support
+from support import prose
 
 ROOT = support.ROOT
 ADR = ROOT / 'runtime/domain/adr.md'
-
-
-def prose(path):
-    return ' '.join((ROOT / path).read_text().split())
 
 
 class Adrs(unittest.TestCase):

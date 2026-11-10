@@ -28,8 +28,8 @@ class ArchitectureDocs(unittest.TestCase):
     def test_the_readme_layout_has_a_row_for_every_top_level_folder(self):
         rows = [line.split('|')[1] for line in README.split('## Layout', 1)[1].split('\n## ', 1)[0].splitlines()
                 if line.startswith('| `')]
-        for name in ('skills/<skill>/', 'runtime/interview/', 'standards/', 'hosts/claude/',
-                     'bootstrap.md'):
+        # docs/ has no row in the README today; it is the one top-level path left out.
+        for name in (name for name in TOP if name != 'docs'):
             self.assertTrue(any(f'`{name}' in row for row in rows), name)
         self.assertIn('writing-agent-docs/SKILL.md', README)
 
@@ -115,7 +115,9 @@ class ArchitectureDocs(unittest.TestCase):
     def test_no_recorded_debt_remains(self):
         base = ROOT / '.agents/skills/writing-agent-docs'
         self.assertEqual(json.loads((base / 'config.json').read_text())['debt'], {})
-        self.assertTrue(all(not value for value in json.loads((base / 'architecture.json').read_text())['debt'].values()))
+        debt = json.loads((base / 'architecture.json').read_text())['debt']
+        self.assertEqual(set(debt), {'links', 'cycles', 'first_read', 'imports', 'import_cycles'})
+        self.assertTrue(all(not value for value in debt.values()))
 
 
 if __name__ == '__main__':

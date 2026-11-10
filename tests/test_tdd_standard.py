@@ -3,14 +3,11 @@
 import unittest
 
 import support
+from support import prose
 
 ROOT = support.ROOT
 TDD = ROOT / 'standards/tdd.md'
 KIND = ROOT / 'standards/kinds/tautological-tests.md'
-
-
-def prose(path):
-    return ' '.join(path.read_text().split())
 
 
 class TddStandard(unittest.TestCase):
@@ -70,13 +67,11 @@ class TddStandard(unittest.TestCase):
     def test_the_standard_has_no_code_in_any_language(self):
         self.assertEqual([], support.code_samples(TDD.read_text()))
 
-    def test_builders_ticket_and_repair_jobs_and_the_pipeline_use_it(self):
+    def test_the_builder_core_skills_the_repair_job_and_the_pipeline_use_it(self):
         import agent_defs
         builder = agent_defs.load(ROOT)['agents']['builder']
         self.assertIn('standards/tdd.md', builder['core_skills'])
-        for name, link in (('agents/builder.md', '[TDD standard](../standards/tdd.md)'),
-                           ('skills/dispatch/jobs/ticket.md', '[TDD standard](../../../standards/tdd.md)'),
-                           ('skills/review/jobs/repair.md', '[TDD standard](../../../standards/tdd.md)'),
+        for name, link in (('skills/review/jobs/repair.md', '[TDD standard](../../../standards/tdd.md)'),
                            ('skills/brief/pipeline.md', '[TDD standard](../../standards/tdd.md)')):
             with self.subTest(doc=name):
                 self.assertIn(link, prose(ROOT / name))

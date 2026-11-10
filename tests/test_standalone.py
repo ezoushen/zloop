@@ -6,6 +6,7 @@ import subprocess
 import unittest
 
 import support
+from support import prose
 
 ROOT = support.ROOT
 # Journals and accepted decisions are history: they may say where a method came from.
@@ -23,10 +24,6 @@ SETUP = ('docs/agents/issue-tracker.md', 'docs/agents/triage-labels.md', 'docs/a
 NAME = r'(?-i:(?<![A-Za-z])[Mm]atts?(?![a-z])|(?<=[a-z])Matts?(?![a-z])|(?<![A-Z])MATTS?(?![A-Za-z]))'
 DISTINCT = '|'.join(map(re.escape, SKILLS + SETUP))
 EXTERNAL = re.compile(r'mattpocock|%s|pocock|(?<![\w-])(?:%s)(?![\w-])' % (NAME, DISTINCT), re.IGNORECASE)
-
-
-def prose(path):
-    return ' '.join((ROOT / path).read_text().split())
 
 
 def files():

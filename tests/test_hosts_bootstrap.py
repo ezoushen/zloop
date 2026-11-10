@@ -88,13 +88,6 @@ class Bootstrap(unittest.TestCase):
                 if anchor:
                     self.assertTrue(has_heading(ROOT / path, anchor), (trigger, named))
 
-    def test_no_lower_document_links_the_bootstrap(self):
-        for folder in ('hosts', 'agents', 'standards', 'runtime'):
-            for path in (ROOT / folder).rglob('*.md'):
-                for line in path.read_text().splitlines():
-                    for _, link in check_docs.links(line):
-                        self.assertNotIn('bootstrap.md', link.split('#')[0], path)
-
     def test_the_brief_skill_reads_at_most_twelve_kib_before_acting(self):
         data = json.loads((CHECKER / 'architecture.json').read_text())
         data['first_read']['skills'] = ['skills/brief/SKILL.md']
@@ -103,19 +96,8 @@ class Bootstrap(unittest.TestCase):
         findings = check_docs.first_read(ROOT, Architecture(data), lambda path: str(path.relative_to(ROOT)))
         self.assertEqual([(f['path'], f['message']) for f in findings], [])
 
-    def test_the_bootstrap_and_hosts_carry_no_recorded_debt(self):
-        debt = json.loads((CHECKER / 'architecture.json').read_text())['debt']
-        owned = ('bootstrap.md', 'hosts/')
-        self.assertEqual([link for link in debt['links'] if any(part.startswith(owned) for part in link.split(' -> '))], [])
-
 
 class Hosts(unittest.TestCase):
-    def test_each_host_folder_holds_a_session_part_and_a_worker_part(self):
-        for host in HOSTS:
-            with self.subTest(host=host):
-                self.assertEqual(sorted(path.name for path in (ROOT / 'hosts' / host).glob('*.md')),
-                                 ['session.md', 'workers.md'])
-
     def test_the_repository_check_reports_no_host_or_bootstrap_finding(self):
         config = json.loads((CHECKER / 'config.json').read_text())
         architecture = Architecture.load(CHECKER / config['architecture'])

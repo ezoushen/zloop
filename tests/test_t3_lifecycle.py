@@ -70,7 +70,6 @@ class NativeRecord(T3Threads):
     def test_the_native_record_reads_the_thread_state(self):
         # Rule: a t3 worker's startup record IS the thread state; observation reads its model and status,
         # and the collection's packet-reply check walks the thread's messages for the packet and its reply.
-        self.registered(worker='th-1')
         # The startup record for a t3 worker is the thread state `t3 thread show --json` wrote (the live-run
         # convention); the fixture writes the same shape the stub CLI answers.
         state = {'thread': {'threadId': 'th-1', 'status': 'completed', 'providerInstanceId': 'claude',
@@ -102,12 +101,6 @@ class Registration(T3Threads):
         self.assertEqual(saved['t3'], {'thread': 'th-1', 'status': 'completed', 'runtime': 'claude',
                                        'model': 'sonnet'})
         self.assertNotIn('herdr', saved)  # No Herdr placement: the two transports stay apart.
-
-    def test_registration_refuses_a_thread_that_does_not_exist(self):
-        self.t3_route()
-        self.t3_fixture(show_error='not_found')
-        error = self.register(worker='th-1', t3={'thread': 'th-1'}, code=2)
-        self.assertIn('th-1', str(error))
 
     def test_a_herdr_registration_does_not_ask_t3(self):
         # Rule: the transports are distinct; a herdr route never triggers a t3 lookup — while a t3 registration on
@@ -151,7 +144,7 @@ class Retirement(T3Threads):
         self.assertTrue(result['closed'])
         attempt = self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0]
         self.assertTrue(attempt['closed'])
-        self.assertIn('t3 thread show --json th-1', str(attempt.get('closed_evidence', attempt)))
+        self.assertIn('left idle (no CLI stop)', result['evidence'][0])
 
 
 

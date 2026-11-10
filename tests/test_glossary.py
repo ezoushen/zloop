@@ -7,16 +7,13 @@ import sys
 import unittest
 
 import support
+from support import prose
 
 ROOT = support.ROOT
 CHECKER = ROOT / '.agents/skills/writing-agent-docs'
 sys.path.insert(0, str(CHECKER))
 import check_docs  # noqa: E402
 GLOSSARY = ROOT / 'runtime/domain/glossary.md'
-
-
-def prose(path):
-    return ' '.join((ROOT / path).read_text().split())
 
 
 class ZloopGlossary(unittest.TestCase):

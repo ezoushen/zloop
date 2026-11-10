@@ -4,6 +4,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -146,6 +147,7 @@ print(json.dumps({'assignment_id': request['assignment']['assignment_id'],
         frozen = self.root / 'resolved.json'
         reports = self.root.parent / (self.root.name + '-reports')
         reports.mkdir(exist_ok=True)
+        self.addCleanup(shutil.rmtree, reports, ignore_errors=True)
         frozen.write_text(json.dumps(self.resolve(session_id='run', reports=str(reports))))
         models.save_session(self.root, 'run', {'agents': {'builder': worker('after', executor=executor)}})
         assignment = self.root / 'assignment.json'

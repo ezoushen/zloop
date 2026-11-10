@@ -3,15 +3,12 @@
 import unittest
 
 import support
+from support import prose
 
 ROOT = support.ROOT
 REFINE = ROOT / 'skills/refine'
 DISPATCH = ROOT / 'skills/dispatch'
 CHAT_PLAN = REFINE / 'chat-plan.md'
-
-
-def prose(path):
-    return ' '.join(path.read_text().split())
 
 
 class ChatPlanEntry(unittest.TestCase):

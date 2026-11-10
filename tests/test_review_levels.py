@@ -5,6 +5,7 @@ import re
 import unittest
 
 import support
+from support import prose
 import agent_defs
 
 ROOT = support.ROOT
@@ -55,11 +56,6 @@ def inputs(path):
     """A job's declared assignment inputs."""
     match = re.search(r'^inputs: (\S.*)$', path.read_text().split('---', 2)[1], re.M)
     return json.loads(match.group(1)) if match else []
-
-
-def prose(path):
-    """A doc's text with runs of whitespace flattened."""
-    return ' '.join(path.read_text().split())
 
 
 def section(path, name):

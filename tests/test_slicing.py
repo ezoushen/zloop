@@ -4,13 +4,10 @@ import re
 import unittest
 
 import support
+from support import prose
 
 ROOT = support.ROOT
 SLICING = ROOT / 'runtime/board/slicing.md'
-
-
-def prose(path):
-    return ' '.join(path.read_text().split())
 
 
 class Slicing(unittest.TestCase):
@@ -70,7 +67,6 @@ class Slicing(unittest.TestCase):
         refine = prose(ROOT / 'skills/refine/SKILL.md')
         self.assertIn("Dispatch's split step cuts already-selected work by the same slicing rules", refine)
         self.assertNotIn('Dispatch also uses it to split', refine)
-        self.assertLess(len((ROOT / 'skills/refine/SKILL.md').read_bytes()), 12 * 1024)
 
     def test_a_split_child_meets_the_bar_a_refined_ticket_meets(self):
         text = re.sub(r'<!--.*?-->', '', prose(ROOT / 'skills/dispatch/split-work.md'))

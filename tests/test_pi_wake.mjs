@@ -23,18 +23,18 @@ const { sent, tool } = await load();
 assert.ok(tool, "the extension registers zloop_wake");
 
 // At the time given, the command is typed back into the session, expanded as a skill command, queued when busy.
-const scheduled = await tool.execute("call-1", { at: inMs(500), command: COMMAND });
+const scheduled = await tool.execute("call-1", { at: inMs(250), command: COMMAND });
 assert.match(text(scheduled), /timer \S+/);
-await sleep(100);
+await sleep(40);
 assert.equal(sent.length, 0, "nothing is sent before its time");
-await sleep(800);
+await sleep(400);
 assert.deepEqual(sent, [[COMMAND, { deliverAs: "followUp", expandPromptTemplates: true }]]);
 
 // A cancelled timer never fires, and cancelling says which timer it dropped.
-const second = await tool.execute("call-2", { at: inMs(80), command: COMMAND });
+const second = await tool.execute("call-2", { at: inMs(60), command: COMMAND });
 const id = text(second).match(/timer (\S+)/)[1];
 assert.match(text(await tool.execute("call-3", { cancel: id })), new RegExp(`cancelled timer ${id}`));
-await sleep(250);
+await sleep(120);
 assert.equal(sent.length, 1);
 await assert.rejects(tool.execute("call-4", { cancel: id }), /no timer/);
 
@@ -51,8 +51,8 @@ stale.pi.sendUserMessage = () => { throw new Error("SDK stale extension after /r
 const crashes = [];
 const record = (error) => crashes.push(error);
 process.on("uncaughtException", record);
-await stale.tool.execute("call-9", { at: inMs(40), command: COMMAND });
-await sleep(150);
+await stale.tool.execute("call-9", { at: inMs(30), command: COMMAND });
+await sleep(100);
 process.off("uncaughtException", record);
 assert.deepEqual(crashes.map(String), []);
 

@@ -5,15 +5,12 @@ import re
 import unittest
 
 import support
+from support import prose
 import agent_defs
 
 ROOT = support.ROOT
 SKILL = 'skills/prototype/SKILL.md'
 JOB = 'skills/align/jobs/prototype.md'
-
-
-def prose(path):
-    return ' '.join((ROOT / path).read_text().split())
 
 
 class Prototype(unittest.TestCase):
@@ -74,9 +71,8 @@ class Prototype(unittest.TestCase):
                              'swift run', 'html file', 'url search param'):
                     self.assertNotIn(tool, text)
 
-    def test_align_uses_the_job_and_the_pipeline_map_names_the_skill(self):
+    def test_align_uses_the_job(self):
         self.assertIn('](jobs/prototype.md)', prose('skills/align/SKILL.md'))
-        self.assertIn('](../prototype/SKILL.md)', prose('skills/brief/pipeline.md'))
 
 
 if __name__ == '__main__':

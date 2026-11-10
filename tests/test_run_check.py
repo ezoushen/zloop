@@ -100,6 +100,14 @@ class RunCheckTests(unittest.TestCase):
             self.assertEqual(report['command_exit_code'], 0)
             self.assertEqual(report['missing_output'], [])
             self.assertEqual(report['exit_source'], 'command')
+            # One marker present and one missing still fails: every marker is required, not any one.
+            result = subprocess.run(
+                [sys.executable, str(RUNNER), '--timeout', '3', '--log', str(Path(tmp) / 'half.log'),
+                 '--require-output', 'started scenario', '--require-output', 'Executed 12 tests', '--',
+                 sys.executable, '-c', 'print("started scenario")'],
+                capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(json.loads(result.stdout)['missing_output'], ['Executed 12 tests'])
 
     def test_required_output_does_not_replace_command_failure_or_timeout_provenance(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -175,7 +183,7 @@ class RunCheckTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 2, result.stderr)
                     self.assertFalse(log.exists())
 
-    def test_failed_gate_is_classified_in_shadow_when_given_a_journal(self):
+    def test_failed_gate_writes_a_journal_decision_and_keeps_its_exit_code_when_the_backend_is_down(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             config = root / 'home/.config/zloop/executors.json'
@@ -199,7 +207,7 @@ class RunCheckTests(unittest.TestCase):
             self.assertNotIn('failure_cause', passed)
             self.assertFalse(journal.exists())
             failed = run('failing', 1)
-            # The local backend is unreachable here; the label stays hidden either way.
+            # The backend is unreachable here: the request is journaled and no label is shown.
             self.assertEqual(failed['failure_cause']['status'], 'unavailable')
             self.assertNotIn('choice', failed['failure_cause'])
             decision = json.loads(journal.read_text().splitlines()[0])

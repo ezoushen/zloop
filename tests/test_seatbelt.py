@@ -37,7 +37,8 @@ class Machine(unittest.TestCase):
 
     def stub_sandbox(self, *, present=True, enforcing=True):
         """A sandbox-exec stub on PATH whose behavior follows the probe contract: the inside write (zloop-sandbox-
-        probe-in) succeeds; the outside write (zloop-sandbox-probe) fails only when enforcing."""
+        probe-in) succeeds; the outside write (zloop-sandbox-probe) fails only when enforcing, and otherwise
+        really creates its target, as an unenforcing sandbox would."""
         directory = self.root / 'bin'
         directory.mkdir(exist_ok=True)
         self.enforcing = enforcing
@@ -53,11 +54,19 @@ if args and args[0] == "-f" and len(args) > 3:
         pathlib.Path(target).write_text("x")
         sys.exit(0)
     if "zloop-sandbox-probe-" in target:
-        sys.exit(1 if {self.enforcing!r} else 0)
+        if {self.enforcing!r}:
+            sys.exit(1)
+        import pathlib
+        pathlib.Path(target).write_text("x")
+        sys.exit(0)
 sys.exit(0)
 ''')
             executable.chmod(stat.S_IRWXU)
-        bare = str(directory) if present else tempfile.mkdtemp(prefix='zloop no-sandbox ')
+        if present:
+            bare = str(directory)
+        else:
+            (self.root / 'empty').mkdir(exist_ok=True)
+            bare = str(self.root / 'empty')
         return patch.dict(os.environ, {'PATH': bare + os.pathsep + '/bin'})
 
 
@@ -111,6 +120,7 @@ class ProfileGeneration(Machine):
 
 
 class Preflight(Machine):
+    @unittest.skipUnless(sys.platform == 'darwin', 'Seatbelt is macOS-only')
     def test_an_enforcing_probe_passes_and_records_no_fallback(self):
         with self.stub_sandbox(present=True, enforcing=True):
             result = sandbox.available(worktree=str(self.worktree))
@@ -127,16 +137,20 @@ class Preflight(Machine):
         self.assertNotIn('probe failed', result['fallback_reason'])
         self.assertIsNone(result['probe'])
 
+    @unittest.skipUnless(sys.platform == 'darwin', 'Seatbelt is macOS-only')
     def test_a_present_but_unenforcing_binary_selects_the_fallback(self):
         with self.stub_sandbox(present=True, enforcing=False):
             result = sandbox.available(worktree=str(self.worktree))
         self.assertEqual(result['available'], False)
         self.assertIn('enforce', result['fallback_reason'])
 
+    @unittest.skipUnless(sys.platform == 'darwin', 'Seatbelt is macOS-only')
     def test_the_probe_cleans_up_its_outside_target(self):
         # Rule: the probe never leaves files in the user's home.
-        with self.stub_sandbox(present=True, enforcing=True):
-            sandbox.available(worktree=str(self.worktree))
+        # The unenforcing stub really creates the outside target, so only the probe's cleanup can remove it.
+        with self.stub_sandbox(present=True, enforcing=False):
+            result = sandbox.available(worktree=str(self.worktree))
+        self.assertFalse(result['available'])
         self.assertEqual(list(Path.home().glob('zloop-sandbox-probe-*')), [])
 
     def test_a_profile_parse_failure_is_not_enforcement(self):
@@ -159,6 +173,7 @@ class Wrapping(Machine):
         """A bash route's executor argv, as bash_executor receives it."""
         return {'argv': ['bash', str(self.root / 'worker.sh')], 'writes': 'worktree'}
 
+    @unittest.skipUnless(sys.platform == 'darwin', 'Seatbelt is macOS-only')
     def test_the_bash_executor_wraps_its_worker_argv(self):
         # Rule: the wrap point is bash_executor's subprocess — sandbox-exec in front of the configured argv.
         with self.stub_sandbox(present=True, enforcing=True):
@@ -179,6 +194,7 @@ class Wrapping(Machine):
         self.assertIn('sandbox-exec', wrapped['fallback_reason'])
         self.assertNotIn('sandbox_profile', wrapped.get('verify', {}))
 
+    @unittest.skipUnless(sys.platform == 'darwin', 'Seatbelt is macOS-only')
     def test_concurrent_launches_do_not_overwrite_one_anothers_profile(self):
         # Rule: profile paths are per scope AND tag, so a second resolution never rewrites the first's
         # write allowance.
@@ -251,13 +267,16 @@ class BashExecutionCarriesScope(unittest.TestCase):
         self.assertIsNone(execution.get('reports'))
         self.assertEqual(execution.get('worktree'), str(self.root / 'wt'))
 
+    @unittest.skipUnless(sys.platform == 'darwin', 'Seatbelt is macOS-only')
     def test_a_macos_bash_route_without_an_outside_reports_directory_is_refused(self):
         # The Seatbelt profile lives under the reports directory; with none outside the worktree there is nowhere
         # for it, so the executor refuses rather than bounding a worker by a profile inside what it bounds.
         import bash_executor
         execution = {'executor_type': 'bash', 'agent': 'reviewer', 'model_mode': 'inherit', 'settings': {},
                      'executor_config': {'argv': [sys.executable, '-c', 'print(1)']}}
+        # No reports value, and one inside the worktree: both must be refused.
         for reports in (None, str(self.root / 'wt')):
+            execution = dict(execution, reports=reports)
             assignment = {'assignment_id': 'a/1', 'worktree': str(self.root / 'wt'),
                           'agent_file': str(self.root / 'agent.md'), 'job_file': str(self.root / 'job.md'),
                           'head': 'h', 'prompt': 'p'}

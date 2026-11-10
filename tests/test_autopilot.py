@@ -6,6 +6,7 @@ import re
 import unittest
 
 import support
+from support import prose
 
 ROOT = support.ROOT
 SKILL = ROOT / 'skills/autopilot/SKILL.md'
@@ -15,10 +16,6 @@ STATES = ('`delivered`', '`delivered-local`', '`merged`', '`waiting-on-user`', '
           '`blocked`')
 PAUSES = ('login or permission prompt', 'credentials', 'spending money', 'deleting data', 'production change',
           'merging without `--auto-merge`', 'missing approval')
-
-
-def prose(path):
-    return ' '.join(path.read_text().split())
 
 
 class RunCard(unittest.TestCase):

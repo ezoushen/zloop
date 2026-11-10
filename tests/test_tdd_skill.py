@@ -5,14 +5,11 @@ import re
 import unittest
 
 import support
+from support import prose
 
 ROOT = support.ROOT
 SKILL = ROOT / 'skills/tdd/SKILL.md'
 STANDARD_LINK = '](../../standards/tdd.md)'
-
-
-def prose(path):
-    return ' '.join(path.read_text().split())
 
 
 class TddSkill(unittest.TestCase):

@@ -352,12 +352,14 @@ class CrossHost(unittest.TestCase):
             wrapper = str(PLUGIN / 'scripts/resource_lock.py')
             # The exec'd build holds the descriptor: a contender must fail until it exits.
             holder = subprocess.Popen([sys.executable, wrapper, sys.executable, '-c',
-                                       'import time; print("locked", flush=True); time.sleep(0.5)'],
-                                      env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                                       'import sys; print("locked", flush=True); sys.stdin.readline()'],
+                                      env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             try:
                 assert holder.stdout.readline().strip() == 'locked'
                 contender = subprocess.run([sys.executable, wrapper, 'true'], env=env, capture_output=True, text=True)
                 assert contender.returncode != 0 and 'still held' in contender.stderr
+                holder.stdin.write('\n')  # The holder keeps the lock until the test releases it.
+                holder.stdin.close()
                 assert holder.wait(timeout=5) == 0
                 done = subprocess.run([sys.executable, wrapper, 'true'], env=env, capture_output=True, text=True)
                 assert done.returncode == 0, done.stderr

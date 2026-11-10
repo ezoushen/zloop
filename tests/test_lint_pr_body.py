@@ -67,10 +67,12 @@ class LintPrBody(unittest.TestCase):
         self.assertEqual(self.lint(body)['errors'], [])
 
     def test_private_paths_and_links_are_errors(self):
-        for leak in ('.scratch/workstream/reports/12.md', 'https://claude.ai/artifact/abc', '/Users/me/repo/file'):
+        for leak, named in (('.scratch/workstream/reports/12.md', '.scratch/'),
+                            ('https://claude.ai/artifact/abc', 'claude.ai/artifact'),
+                            ('/Users/me/repo/file', '/Users/')):
             with self.subTest(leak=leak):
                 report = self.lint(GOOD + f'\nSee {leak}.\n', code=1)
-                self.assertTrue(any(leak.split('/')[0] in e or 'private' in e for e in report['errors']))
+                self.assertTrue(any(f'private path or link "{named}"' in e for e in report['errors']), report)
 
     def test_internal_identifiers_are_warnings(self):
         report = self.lint(GOOD + '\nPer D42 and FU-iOS-1, ticket 15 and F-07 stay open; review R-02.\n')

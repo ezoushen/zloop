@@ -10,7 +10,8 @@ import support
 class PiHint(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node runs the Pi extension')
     def test_the_hint_names_the_host(self):
-        run = subprocess.run(['node', str(support.ROOT / 'tests/test_pi_hint.mjs')], capture_output=True, text=True)
+        run = subprocess.run(['node', str(support.ROOT / 'tests/test_pi_hint.mjs')], capture_output=True, text=True,
+                             timeout=120)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertIn('Pi startup hint: names the host as `zloop host: pi`: ok', run.stdout)
 

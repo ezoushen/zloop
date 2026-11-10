@@ -229,7 +229,7 @@ class WorkstreamSpend(unittest.TestCase):
 
     def test_each_yield_gate_header_traces_its_turn_to_the_yield_hook(self):
         # Decision 5: the Stop reason's header changed twice; a transcript holding any of them is a yield-hook turn.
-        self.attempt('t1/1', 't1', 'sess-a')
+        support.write_attempts(self.state, [])
         host = self.claude_host([
             'Stop hook feedback:\nThese lifecycle workers could finish without waking you:\n- t1/1',
             ('2026-10-14T02:00:01Z', 'h1', 10, []),
@@ -290,7 +290,7 @@ class WorkstreamSpend(unittest.TestCase):
         self.assertEqual([gap['reason'] for gap in result['coverage']['missing']], ['compressed pages not read'])
 
     def test_host_commands_are_named_by_the_program_that_runs(self):
-        self.attempt('t1/1', 't1', 'sess-a')
+        support.write_attempts(self.state, [])
         bash = lambda command: {'type': 'tool_use', 'name': 'Bash', 'input': {'command': command}}
         host = self.claude_host(['go'] + [(f'2026-10-14T02:00:0{index}Z', f'h{index}', index + 1, [bash(command)])
                                           for index, command in enumerate([
@@ -319,7 +319,7 @@ class WorkstreamSpend(unittest.TestCase):
                           'command:sim-mirror': 2, 'read': 1})
 
     def test_lifecycle_calls_through_aliases_are_named_and_shell_keywords_are_not_programs(self):
-        self.attempt('t1/1', 't1', 'sess-a')
+        support.write_attempts(self.state, [])
         bash = lambda command: {'type': 'tool_use', 'name': 'Bash', 'input': {'command': command}}
         lifecycle = '/plugin/scripts/worker_lifecycle.py'
         commands = [
@@ -341,7 +341,7 @@ class WorkstreamSpend(unittest.TestCase):
                           'read': 16, 'command:gh': 32, 'git:clone': 64, 'command:make': 128, 'git:fetch': 256})
 
     def test_wrappers_heredocs_and_continuations_do_not_hide_the_command(self):
-        self.attempt('t1/1', 't1', 'sess-a')
+        support.write_attempts(self.state, [])
         bash = lambda command: {'type': 'tool_use', 'name': 'Bash', 'input': {'command': command}}
         lifecycle = '/a/scripts/worker_lifecycle.py'
         commands = [
@@ -365,7 +365,7 @@ class WorkstreamSpend(unittest.TestCase):
                           'lifecycle:watch': 256, 'lifecycle:ack': 512})
 
     def test_transcripts_from_before_the_underscore_rename_keep_their_activities(self):
-        self.attempt('t1/1', 't1', 'sess-a')
+        support.write_attempts(self.state, [])
         bash = lambda command: {'type': 'tool_use', 'name': 'Bash', 'input': {'command': command}}
         commands = ['L=/p/scripts/worker-lifecycle.py; python3 $L ack --event-id 3',
                     'python3 /p/scripts/worker-lifecycle.py --state /s/w.sqlite collect',

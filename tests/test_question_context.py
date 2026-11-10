@@ -3,12 +3,7 @@
 import unittest
 
 import support
-
-ROOT = support.ROOT
-
-
-def prose(path):
-    return ' '.join((ROOT / path).read_text().split())
+from support import prose
 
 
 class QuestionContext(unittest.TestCase):

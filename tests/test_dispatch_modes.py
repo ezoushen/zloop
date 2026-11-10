@@ -4,14 +4,11 @@ import subprocess
 import unittest
 
 import support
+from support import prose
 
 ROOT = support.ROOT
 DISPATCH = ROOT / 'skills/dispatch'
 MODES = DISPATCH / 'modes.md'
-
-
-def prose(path):
-    return ' '.join(path.read_text().split())
 
 
 class TicketModes(unittest.TestCase):

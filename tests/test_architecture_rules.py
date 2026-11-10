@@ -413,13 +413,10 @@ RUNTIME_MODULES = ('workers', 'checks', 'routing', 'resources', 'decisions', 'co
 
 
 class RepositoryDebt(unittest.TestCase):
-    def test_the_runtime_modules_record_no_debt(self):
+    def test_the_runtime_module_docs_all_live_under_runtime(self):
         data = json.loads((support.ROOT / '.agents/skills/writing-agent-docs/architecture.json').read_text())
         runtime_docs = [glob for name in RUNTIME_MODULES for glob in data['modules'][name]['docs']]
         self.assertTrue(all(glob.startswith('runtime/') for glob in runtime_docs), runtime_docs)
-        debt = data['debt']
-        self.assertEqual([link for link in debt['links'] if link.startswith('runtime/')], [])
-        self.assertEqual([cycle for cycle in debt['cycles'] if set(cycle) & set(RUNTIME_MODULES)], [])
 
 
 if __name__ == "__main__":

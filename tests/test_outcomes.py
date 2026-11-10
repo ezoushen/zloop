@@ -117,27 +117,14 @@ class OutcomeLedger(unittest.TestCase):
 
     def test_past_decision_journals_import_once(self):
         journal = self.root / 'decisions.jsonl'
-        options = {f'option_{index}': json.dumps({'candidate': name, 'model': name, 'runtime': 'claude'})
-                   for index, name in enumerate(('sonnet', 'haiku'))}
-
-        def transport(backend, payload):
-            qid, question = next(iter(payload['questions'].items()))
-            return {'model': backend['model'], 'answers': {qid: {
-                'type': 'choice', 'choice': 'option_0',
-                'probabilities': {key: float(key == 'option_0') for key in question['criteria']}}}}
-        policy = {'enabled': ['worker-selection'], 'backend': {
-            'protocol': 'systemone', 'endpoint': 'http://localhost:1241/v1/systemone', 'model': 'test-model'}}
-        for assignment, state, chosen, status, metrics in (
-                ('t1/1', 'Agent: builder\nJob: ticket\n', None, 'succeeded', {}),
-                ('t2/1', 'Agent: builder\nJob: ticket\n', 'option_1', 'failed', {}),
-                ('t3/1', 'Agent: builder\nJob: ticket\n', None, 'succeeded', {'reverts': 1}),
-                ('t4/1', 'Agent: verifier\nJob: e2e-gate\n', None, None, {}),
+        for assignment, agent, job, chosen, status, metrics in (
+                ('t1/1', 'builder', 'ticket', None, 'succeeded', {}),
+                ('t2/1', 'builder', 'ticket', 'option_1', 'failed', {}),
+                ('t3/1', 'builder', 'ticket', None, 'succeeded', {'reverts': 1}),
+                ('t4/1', 'verifier', 'e2e-gate', None, None, {}),
                 # The lifecycle records success at completion, so its journal outcome is not an acceptance.
-                ('t5/1', 'Agent: builder\nJob: ticket\n', 'lifecycle', 'succeeded', {})):
-            trace = journal_store.trace_config(journal, self.root, assignment)
-            result = decisions.decide(policy, {'family': 'worker-selection', 'state': state,
-                                               'instruction': 'Choose a worker.', 'options': options},
-                                      trace=trace, transport=transport)
+                ('t5/1', 'builder', 'ticket', 'lifecycle', 'succeeded', {})):
+            result = self.decide(journal, assignment, agent, job)
             did = result['decision_id']
             lifecycle = chosen == 'lifecycle'
             chosen = None if lifecycle else chosen

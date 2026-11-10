@@ -3,14 +3,11 @@
 import unittest
 
 import support
+from support import prose
 
 ROOT = support.ROOT
 REFINE = ROOT / 'skills/refine/SKILL.md'
 TEMPLATE = ROOT / 'skills/refine/ticket-template.md'
-
-
-def prose(path):
-    return ' '.join(path.read_text().split())
 
 
 class TicketSeams(unittest.TestCase):

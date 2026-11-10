@@ -10,7 +10,8 @@ import support
 class PiCommands(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node runs the Pi extension')
     def test_commands_hand_off_as_skill_commands_and_complete_the_hint(self):
-        run = subprocess.run(['node', str(support.ROOT / 'tests/test_pi_commands.mjs')], capture_output=True, text=True)
+        run = subprocess.run(['node', str(support.ROOT / 'tests/test_pi_commands.mjs')], capture_output=True, text=True,
+                             timeout=120)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertIn('Pi zloop commands: registered, hand off as /skill:, complete the hinted flags and modes: ok',
                       run.stdout)

@@ -199,7 +199,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   host.push("succeeded", "ses_w");
   setTimeout(() => { written.ses_w = there; }, 5);  // Moved after the first setup looked it up, before the second.
   await until(() => host.holds("ses_w") === 1, "the hold");
-  await new Promise((done) => setTimeout(done, 1000));
+  await new Promise((done) => setTimeout(done, 500));
   assert.equal(host.holds("ses_w"), 1);
   await other();
   await host.cleanup();
@@ -224,15 +224,14 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
 {
   // A setup that is replaced while its hold is admitted, and whose prompt then fails, leaves its replacement's hold alone.
   const host = await load(["ses_y"]);
-  Object.assign(host.control, { refuse: true, admission: 600 });
+  Object.assign(host.control, { refuse: true, admission: 200 });
   host.push("succeeded", "ses_y");
   await until(() => host.holds("ses_y") === 1, "the first hold to be sent");
   await host.cleanup();
   Object.assign(host.control, { refuse: false, admission: undefined });
   const again = await host.elsewhere(host.repo);
   host.push("succeeded", "ses_y");  // A newer turn, held by the replacement.
-  await until(() => host.holds("ses_y") === 2, "the replacement's hold");
-  await new Promise((done) => setTimeout(done, 700));  // The replaced setup's prompt has failed by now.
+  await host.holding("ses_y", 2);  // Admitted prompts include the replaced setup's, which has failed by now.
   host.push("succeeded", "ses_y");  // The held turn's end: checked, once.
   await host.holding("ses_y", 3);
   await host.settle();
@@ -257,12 +256,12 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
 {
   // A setup replaced while its hold is admitted leaves no hold behind: the session's next turn is checked.
   const host = await load(["ses_t"]);
-  host.control.admission = 300;
+  host.control.admission = 150;
   host.push("succeeded", "ses_t");
   await until(() => host.holds("ses_t") === 1, "the hold to be sent");
   await host.cleanup();  // Replaced while the hold is admitted.
   host.control.admission = undefined;
-  await new Promise((done) => setTimeout(done, 400));
+  await host.holding("ses_t", 1);  // The replaced setup's hold has been admitted and let go.
   const again = await host.elsewhere(host.repo);
   host.push("succeeded", "ses_t");
   await until(() => host.holds("ses_t") === 2, "the next turn's hold");
@@ -272,7 +271,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
 {
   // A setup replaced while its check runs sends nothing: its replacement answers for the session.
   const host = await load(["ses_c"]);
-  process.env.ZLOOP_TEST_SLOW = "1";
+  process.env.ZLOOP_TEST_SLOW = "0.3";
   host.push("succeeded", "ses_c");
   await until(() => checked("ses_c"), "the check to start");
   await host.cleanup();  // Replaced while the check runs.
@@ -290,7 +289,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   const replacement = await host.elsewhere(host.repo, () => wait);
   host.push("succeeded", "ses_k");
   await until(() => host.holds("ses_k") === 1, "the first hold");
-  await new Promise((done) => setTimeout(done, 1000));  // Both setups have handled it.
+  await new Promise((done) => setTimeout(done, 500));  // Both setups have handled it.
   wait = 400;
   host.push("succeeded", "ses_k");  // The held turn's end.
   setTimeout(() => replaced(), 100);  // Replaced while it looks the session up.
@@ -334,7 +333,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
 {
   // A turn that ends while the hold is being admitted is older than the hold's own turn: it is not held, and the end of
   // the turn the hold started is.
-  const host = await load(["ses_r"], {}, 300);
+  const host = await load(["ses_r"], {}, 150);
   host.push("succeeded", "ses_r");
   await until(() => host.holds("ses_r") === 1, "the hold to be sent");
   host.push("succeeded", "ses_r");  // Published before the hold is admitted.
@@ -369,7 +368,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   assert.match(host.sent[0].text, /retry once it can/);
   assert.doesNotMatch(host.sent[0].text, /Register each launched worker/);
   host.push("succeeded", "ses_clean");  // The end of the turn that hold started, the check still unable to run.
-  await new Promise((done) => setTimeout(done, 500));
+  await new Promise((done) => setTimeout(done, 250));
   assert.equal(host.holds("ses_clean"), 1, "a check that could not run holds once");
   process.env.PATH = path;
   host.push("succeeded", "ses_clean");  // The check runs again and finds no gap.
@@ -429,7 +428,7 @@ async function load(gaps, parents = {}, admission = 0, written = {}) {
   process.env.ZLOOP_YIELD_HOOK = "off";
   const host = await load(["ses_o"]);
   host.push("succeeded", "ses_o");
-  await new Promise((done) => setTimeout(done, 1500));
+  await new Promise((done) => setTimeout(done, 400));
   assert.deepEqual(host.sent, []);
   assert.equal(checked("ses_o"), false, "no check runs");
   await host.cleanup();

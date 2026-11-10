@@ -34,6 +34,11 @@ def load_script(filename, name=None):
     return module
 
 
+def prose(path):
+    """A doc's text with runs of whitespace flattened; `path` is absolute or relative to the plugin root."""
+    return ' '.join((ROOT / path).read_text().split())
+
+
 def without_host_sessions(env=None):
     """A copy of env (default: the current environment) with no host session ID, as in a shell no host started."""
     return {key: value for key, value in (os.environ if env is None else env).items()
@@ -64,13 +69,14 @@ def ticket_file(repo, name, status='ready', *, blocked_by='', touches=None, devi
 
 
 def run_card(path, slug=None, *, confirmed='2026-10-27 "go"', session='host-1', terminal='', evidence='',
-             phase='dispatch', board='local', resume='`autopilot --take-over`', **extra):
+             phase='dispatch', board='local', **extra):
     """A run card at `path` with the State section the panel, the stop hook and reap read; `board:` only when given
     (None leaves it out) and `extra` fields after the standard ones."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = dict(confirmed=confirmed, session=session, **{'auto-merge': 'no'}, **({'board': board} if board else {}),
-                  phase=phase, terminal=terminal, history='', evidence=evidence, timer='', resume=resume, **extra)
+                  phase=phase, terminal=terminal, history='', evidence=evidence, timer='',
+                  resume='`autopilot --take-over`', **extra)
     path.write_text(f'# {slug or path.parent.name} \u2014 autopilot run card\n\n## Goal\nx\n\n## State\n'
                     + ''.join(f'{key}: {value}\n'.replace(': \n', ':\n') for key, value in fields.items()))
     return path

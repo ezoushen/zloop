@@ -16,6 +16,8 @@ import support
 
 
 SCRIPT = support.script('agent_models.py')
+# A machine without a global git identity or with commit signing on must still commit the fixtures.
+IDENTITY = ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false']
 
 
 class LaunchControls(unittest.TestCase):
@@ -61,7 +63,7 @@ class LaunchControls(unittest.TestCase):
         # worktree's own git directory. Approval never, model and effort explicit.
         options, worktree, reports, git = self.places()
         for args in (['init', '-q', str(self.root)],
-                     ['-C', str(self.root), 'commit', '-q', '--allow-empty', '-m', 'init'],
+                     ['-C', str(self.root), *IDENTITY, 'commit', '-q', '--allow-empty', '-m', 'init'],
                      ['-C', str(self.root), 'worktree', 'add', '-q', worktree]):
             subprocess.run(['git', *args], check=True, capture_output=True)
         tail = ['-a', 'never', '-m', 'gpt-6.1-sol', '-c', 'model_reasoning_effort="high"']
@@ -116,26 +118,14 @@ class LaunchControls(unittest.TestCase):
         # Rule: a linked worktree's commits land in the main checkout's git directory, which git reports as the
         # common dir; a --repo that is itself a linked worktree must still name it.
         main, linked = self.root / 'main', self.root / 'linked'
-        for args in (['init', '-q', str(main)], ['-C', str(main), 'commit', '-q', '--allow-empty', '-m', 'init'],
+        for args in (['init', '-q', str(main)],
+                     ['-C', str(main), *IDENTITY, 'commit', '-q', '--allow-empty', '-m', 'init'],
                      ['-C', str(main), 'worktree', 'add', '-q', str(linked)]):
             subprocess.run(['git', *args], check=True, capture_output=True)
         launch = self.route('sol', 'ticket', 'claude', '--repo', str(linked), '--worktree', str(linked),
                             '--reports', str(self.root / 'reports'))['launch']
         self.assertIn(f'write {main.resolve() / ".git"}', launch['verify']['filesystem'])
         self.assertNotIn(f'write {linked.resolve() / ".git"}', launch['verify']['filesystem'])
-
-    def test_codex_builder_writes_its_own_worktree_git_directory(self):
-        # Rule: Codex keeps a linked worktree's own git directory (.git/worktrees/<name>, where its index.lock goes)
-        # read-only under a write on the common dir, so the builder needs an explicit write entry for it.
-        main, worktree = self.root / 'main', self.root / 'wt'
-        for args in (['init', '-q', str(main)], ['-C', str(main), 'commit', '-q', '--allow-empty', '-m', 'init'],
-                     ['-C', str(main), 'worktree', 'add', '-q', str(worktree)]):
-            subprocess.run(['git', *args], check=True, capture_output=True)
-        options, _, _, _ = self.places()
-        launch = self.route('sol', 'ticket', 'claude', '--repo', str(main), *options)['launch']
-        own = main.resolve() / '.git' / 'worktrees' / 'wt'
-        self.assertIn(f'write {own}', launch['verify']['filesystem'])
-        self.assertIn(f'"{own}"="write"', launch['argv'][3])
 
     def test_a_route_whose_launch_needs_its_worktree_or_reports_is_refused_without_them(self):
         # Rule: Codex needs --reports for every scope and --worktree for `worktree`; Claude `none` needs both.

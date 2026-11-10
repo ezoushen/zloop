@@ -4,13 +4,10 @@ import re
 import unittest
 
 import support
+from support import prose
 
 ROOT = support.ROOT
 DOC = 'skills/diagnose/SKILL.md'
-
-
-def prose(path):
-    return ' '.join((ROOT / path).read_text().split())
 
 
 class Diagnose(unittest.TestCase):

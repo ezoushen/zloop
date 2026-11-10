@@ -16,7 +16,8 @@ TICKET = support.ROOT / 'skills/dispatch/jobs/ticket.md'
 
 def assignment(job_file=TICKET, drop=()):
     """A launch prompt naming a job file and every input that job lists, less any dropped ones."""
-    text = support.assignment_file(tempfile.mkdtemp(), Path(job_file).stem).read_text()
+    with tempfile.TemporaryDirectory() as root:
+        text = support.assignment_file(root, Path(job_file).stem).read_text()
     lines = [line for line in text.splitlines() if line.split(':', 1)[0] not in drop]
     return '\n'.join(line if not line.startswith('job_file:') else f'job_file: {job_file}' for line in lines)
 

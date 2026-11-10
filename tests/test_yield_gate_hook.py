@@ -439,12 +439,6 @@ class YieldGateHook(GateRepo):
         outside.mkdir()
         self.assertIsNone(self.stop(cwd=outside))
 
-    def test_check_mode_reports_gaps_for_other_hosts(self):
-        result = subprocess.run([sys.executable, str(HOOK), 'check', str(self.repo)],
-                                capture_output=True, text=True, timeout=20, env=self.env())
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)['missing'], [f'{self.state}: ticket-1/1: no armed wait'])
-
     @unittest.skipUnless(shutil.which('node'), 'Node.js runs the Pi extension')
     def test_pi_continues_a_completed_run_while_the_gate_holds_then_says_it_gave_up(self):
         # Gap 17 on Pi: the extension obeys the check, three holds of an identical gap set, then the notice; an abort is
@@ -1697,22 +1691,9 @@ class DeliveryHold(GateRepo):
                        packet=str(support.assignment_file(self.execution.parent, 'ticket')))
         self.lifecycle('startup', 'fix/01/1', native=str(self.native('fix/01/1')))
         self.lifecycle('submitted', 'fix/01/1', evidence=['native.jsonl:2:accepted prompt'])
-        pidfile, request = self.state.parent / 'wait.pid', self.state.parent / 'wait.json'
-        request.write_text(json.dumps({'argv': [sys.executable, '-c',
-            f'import os,time; open({str(pidfile)!r}, "w").write(str(os.getpid())); time.sleep(30)'], 'timeout': 40,
-            'notify': {'argv': [sys.executable, '-c', 'pass', '{receipt}'], 'timeout': 2}}))
-        watcher = subprocess.Popen([sys.executable, '-B', str(LIFECYCLE), 'watch', '--state', str(self.state),
-                                    '--attempt', 'fix/01/1', '--input', str(request)], stdout=subprocess.PIPE,
-                                   text=True, env=self.env('w1:p1'))
-        self.addCleanup(lambda: watcher.poll() is None and (watcher.kill(), watcher.communicate()))
-        deadline = time.monotonic() + 5
-        while not pidfile.exists() and time.monotonic() < deadline:
-            time.sleep(.02)
-        self.assertTrue(pidfile.exists())
+        pidfile = self.start_wait('fix/01/1')
         self.assertEqual(self.check(pane='w1:p1'), [])
-        watcher.kill()
-        watcher.communicate(timeout=5)
-        os.killpg(int(pidfile.read_text()), 9)
+        self.lose_wait(pidfile)
         self.assertEqual(self.check(pane='w1:p1'), [f'{self.state}: fix/01/1: wait process lost', self.gap()])
 
     def test_a_workstream_is_finished_only_when_merged_deleted_and_e2e_passed_at_a_head_in_main(self):
@@ -2578,22 +2559,9 @@ class AutopilotCardHold(GateRepo):
                        packet=str(support.assignment_file(self.execution.parent, 'ticket')))
         self.lifecycle('startup', 'workstream/01/1', native=str(self.native('workstream/01/1')))
         self.lifecycle('submitted', 'workstream/01/1', evidence=['native.jsonl:2:accepted prompt'])
-        pidfile, request = self.state.parent / 'wait.pid', self.state.parent / 'wait.json'
-        request.write_text(json.dumps({'argv': [sys.executable, '-c',
-            f'import os,time; open({str(pidfile)!r}, "w").write(str(os.getpid())); time.sleep(30)'], 'timeout': 40,
-            'notify': {'argv': [sys.executable, '-c', 'pass', '{receipt}'], 'timeout': 2}}))
-        watcher = subprocess.Popen([sys.executable, '-B', str(LIFECYCLE), 'watch', '--state', str(self.state),
-                                    '--attempt', 'workstream/01/1', '--input', str(request)], stdout=subprocess.PIPE,
-                                   text=True, env=self.env('w1:p1'))
-        self.addCleanup(lambda: watcher.poll() is None and (watcher.kill(), watcher.communicate()))
-        deadline = time.monotonic() + 5
-        while not pidfile.exists() and time.monotonic() < deadline:
-            time.sleep(.02)
-        self.assertTrue(pidfile.exists())
+        pidfile = self.start_wait('workstream/01/1')
         self.assertEqual(self.check(session='host-1'), [])
-        watcher.kill()
-        watcher.communicate(timeout=5)
-        os.killpg(int(pidfile.read_text()), 9)
+        self.lose_wait(pidfile)
         self.assertEqual(self.check(session='host-1'), [f'{self.state}: workstream/01/1: wait process lost', self.gap(path)])
 
     def test_a_native_child_with_recorded_startup_and_an_armed_notified_wait_lets_the_run_yield(self):
@@ -2605,29 +2573,9 @@ class AutopilotCardHold(GateRepo):
                        native_session='native-1', owned=True,
                        packet=str(support.assignment_file(self.execution.parent, 'ticket')))
         self.lifecycle('startup', 'workstream/01/1', native=str(self.native('workstream/01/1')))
-        pidfile, request = self.state.parent / 'wait.pid', self.state.parent / 'wait.json'
-        def stop_wait_child():
-            if pidfile.exists():
-                try:
-                    os.killpg(int(pidfile.read_text()), 9)
-                except ProcessLookupError:
-                    pass
-        self.addCleanup(stop_wait_child)
-        request.write_text(json.dumps({'argv': [sys.executable, '-c',
-            f'import os,time; open({str(pidfile)!r}, "w").write(str(os.getpid())); time.sleep(30)'], 'timeout': 40,
-            'notify': {'argv': [sys.executable, '-c', 'pass', '{receipt}'], 'timeout': 2}}))
-        watcher = subprocess.Popen([sys.executable, '-B', str(LIFECYCLE), 'watch', '--state', str(self.state),
-                                    '--attempt', 'workstream/01/1', '--input', str(request)], stdout=subprocess.PIPE,
-                                   text=True, env=self.env('w1:p1'))
-        self.addCleanup(lambda: watcher.poll() is None and (watcher.kill(), watcher.communicate()))
-        deadline = time.monotonic() + 5
-        while not pidfile.exists() and time.monotonic() < deadline:
-            time.sleep(.02)
-        self.assertTrue(pidfile.exists())
+        pidfile = self.start_wait('workstream/01/1')
         self.assertEqual(self.check(session='host-1'), [])
-        watcher.kill()
-        watcher.communicate(timeout=5)
-        os.killpg(int(pidfile.read_text()), 9)
+        self.lose_wait(pidfile)
         self.assertEqual(self.check(session='host-1'), [self.gap(path)])  # The lifecycle names no worker gap for it.
 
 

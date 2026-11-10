@@ -593,7 +593,10 @@ class CodexChildren(Checkouts):
             (self.main / f'src/pkg{index}').mkdir(parents=True)
         patch = self.patch(*(line for index in range(400)
                              for line in (f'*** Update File: src/pkg{index}/m.py', '@@', '-a', '+b')))
-        for tool, tool_input in (('Bash', {'command': f"git commit -m '{body}'"}), ('apply_patch', {'command': patch})):
+        # The 1 MB quoted word costs seconds to lex (see the timeout test below), so only parsing it could cost that.
+        huge = "git commit -m '" + ('x' * 79 + '\n') * 13108 + "'"
+        for tool, tool_input in (('Bash', {'command': f"git commit -m '{body}'"}), ('apply_patch', {'command': patch}),
+                                 ('Bash', {'command': huge})):
             with self.subTest(tool=tool):
                 # CPU time, not wall time: a loaded machine delays the hook without making it do more work.
                 before = resource.getrusage(resource.RUSAGE_CHILDREN)

@@ -93,10 +93,18 @@ const rendered = (call, width) => call.content({}, THEME).render(width).map(plai
   assert.deepEqual(widgets(broken.calls).map((widget) => widget.content), [undefined]);
 }
 
-// A stale context cannot break the tick: the panel drops its surfaces instead of raising.
+// A stale context cannot break the tick: it raises nothing and forgets what it drew, so the same words draw again
+// once the context works.
 {
-  const throws = { hasUI: true, ui: { setWidget: () => { throw new Error("stale ctx"); }, setStatus: () => { throw new Error("stale ctx"); } } };
-  await panel.panelTick(throws, snapshot([{ kind: "headline", text: "demo · stale" }]));
+  const { calls, ctx } = recording();
+  let stale = true;
+  const flaky = { hasUI: true, ui: { ...ctx.ui, setWidget: (...args) => { if (stale) throw new Error("stale ctx"); ctx.ui.setWidget(...args); } } };
+  const found = snapshot([{ kind: "headline", text: "demo · stale" }]);
+  await panel.panelTick(flaky, found);
+  assert.deepEqual(widgets(calls), []);
+  stale = false;
+  await panel.panelTick(flaky, found);
+  assert.equal(widgets(calls).length, 1);
 }
 
 // Wide characters the terminal draws in two cells — including emoji outside the CJK blocks — keep the line inside the
@@ -345,4 +353,4 @@ const EXPANDED = ["many", ROW(1), ROW(2), ROW(3), ROW(4), ROW(5), "show fewer ·
   assert.deepEqual(shown(closed.calls), []);
 }
 
-console.log("pi panel: 15 cases passed");
+console.log("pi panel: all cases passed");

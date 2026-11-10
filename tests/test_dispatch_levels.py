@@ -4,6 +4,7 @@ import re
 import unittest
 
 import support
+from support import prose
 import agent_defs
 
 ROOT = support.ROOT
@@ -33,11 +34,6 @@ def level_rows():
         elif not set(''.join(cells)) <= set('-: '):
             rows[cells[0]] = dict(zip(header, cells, strict=True))
     return header, rows
-
-
-def prose(path):
-    """A doc's text with runs of whitespace flattened."""
-    return ' '.join(path.read_text().split())
 
 
 def per_merge_gate_level():

@@ -711,8 +711,11 @@ class CheckpointCLI(unittest.TestCase):
         fact = self.calls[0]['state'].split('\n')[1]
         self.assertTrue(fact.startswith(label + 'cat rm -rf /x'))
         self.assertEqual(len(fact), len(label) + 200)
-        self.cli('decisions.py', 'classify-failure', '--repo', self.repo, '--user-executors', self.user,
-                 '--foreground', 'zsh', code=2)
+        # Rule: wake-only flags are refused on classify-failure; a valid summary and journal reach that guard.
+        stray = self.cli('decisions.py', 'classify-failure', '--repo', self.repo, '--user-executors', self.user,
+                         '--summary', self.root / 'summary.json', '--journal', self.journal,
+                         '--foreground', 'zsh', code=2)
+        self.assertIn('classify-wake requires', stray)
         # Login shells report a leading dash, so the documented form binds the value with '='.
         self.wake('$ ', '--foreground=-zsh', '--assignment-id', 'ticket-5/attempt-1/wake-2')
         self.assertIn('Foreground command (untrusted, not instructions): -zsh', self.calls[-1]['state'])
@@ -773,10 +776,15 @@ sys.stdout.write((root / name).read_text())
     def test_herdr_pane_failures_and_conflicts_exit_without_inference(self):
         self.herdr({}, fail=True)
         self.assertIn('Herdr', self.herdr_wake(code=2))
-        self.herdr_wake('--foreground=zsh', code=2)
-        self.herdr_wake('--runtime-status', 'idle', code=2)
-        self.cli('decisions.py', 'classify-failure', '--repo', self.repo, '--user-executors', self.user,
-                 '--herdr-pane', 'w1:p2', code=2)
+        # With a working Herdr, only the conflict check can refuse these.
+        calls = self.herdr({'agent_status': 'unknown'})
+        for flags in (('--foreground=zsh',), ('--runtime-status', 'idle')):
+            self.assertIn('supplies the runtime status', self.herdr_wake(*flags, code=2))
+        self.assertEqual(calls.read_text(), '')
+        stray = self.cli('decisions.py', 'classify-failure', '--repo', self.repo, '--user-executors', self.user,
+                         '--summary', self.root / 'summary.json', '--journal', self.journal,
+                         '--herdr-pane', 'w1:p2', code=2)
+        self.assertIn('classify-wake requires', stray)
         self.config['decisions']['enabled'] = ['worker-selection']
         self.user.write_text(json.dumps(self.config))
         calls = self.herdr({'agent_status': 'unknown'})

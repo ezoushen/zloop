@@ -55,7 +55,7 @@ def session_record(path, runtime, session, worktree, *, model='sonnet', effort='
     return path
 
 
-def assistant_turn(path, runtime, *, timestamp=None, role='assistant'):
+def assistant_turn(path, runtime, *, timestamp=None):
     """Append a turn to a fixture record, preserving its session and Pi branch identity."""
     path = Path(path)
     when = timestamp if timestamp is not None else time.time()
@@ -63,18 +63,18 @@ def assistant_turn(path, runtime, *, timestamp=None, role='assistant'):
     if runtime == 'opencode':
         data = json.loads(path.read_text())
         source = next(row['info'] for row in reversed(data['messages']) if row['info'].get('role') == 'assistant')
-        message = dict(source, role=role, time={'created': int(when * 1000)})
+        message = dict(source, role='assistant', time={'created': int(when * 1000)})
         data['messages'].append({'info': message, 'parts': []})
         path.write_text(json.dumps(data))
         return
     rows = [json.loads(line) for line in path.read_text().splitlines()]
     if runtime == 'claude':
-        row = dict(next(row for row in rows if row.get('type') == 'assistant'), type=role, timestamp=stamp)
+        row = dict(next(row for row in rows if row.get('type') == 'assistant'), type='assistant', timestamp=stamp)
     elif runtime == 'codex':
-        row = {'type': 'response_item', 'timestamp': stamp, 'payload': {'type': 'message', 'role': role,
+        row = {'type': 'response_item', 'timestamp': stamp, 'payload': {'type': 'message', 'role': 'assistant',
                'content': [{'type': 'output_text', 'text': 'done'}]}}
     else:
-        message = dict(next(row['message'] for row in rows if row.get('type') == 'message'), role=role)
+        message = dict(next(row['message'] for row in rows if row.get('type') == 'message'), role='assistant')
         row = {'type': 'message', 'id': f'turn-{len(rows)}', 'parentId': rows[-1]['id'],
                'timestamp': stamp, 'message': message}
     with path.open('a') as stream:

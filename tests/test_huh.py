@@ -5,15 +5,12 @@ import subprocess
 import unittest
 
 import support
+from support import prose
 
 ROOT = support.ROOT
 HUH = ROOT / 'skills/huh/SKILL.md'
 EXPLAIN = ROOT / 'skills/explain/SKILL.md'
 ASK = ROOT / 'runtime/ask/ask.md'
-
-
-def prose(path):
-    return ' '.join(path.read_text().split())
 
 
 class Huh(unittest.TestCase):
@@ -75,10 +72,6 @@ class Huh(unittest.TestCase):
 
     def test_the_pipeline_map_names_huh(self):
         self.assertIn('`/zloop:huh`', (ROOT / 'skills/brief/pipeline.md').read_text())
-
-    def test_every_explaining_command_reads_the_explain_skill(self):
-        for name in ('skills/brief/SKILL.md', 'skills/review/walkthrough.md', 'skills/setup/tour.md'):
-            self.assertIn('](../explain/SKILL.md', (ROOT / name).read_text(), name)
 
     def test_invoked_directly_explain_reads_what_the_question_concerns_first(self):
         section = prose(EXPLAIN).split('## Invoked directly', 1)[1]

@@ -279,8 +279,11 @@ class Waits(WorkerLifecycleCase):
             'capture': [sys.executable, '-c', 'print("Running tests... 12/40")']}))
         self.cli('watch', '--attempt', 'ticket-1/1', '--input', str(request))
         self.record('reconciled', evidence=['native worker still running tests'])
-        time.sleep(1.1)
-        self.collect()
+        report = self.root / 'late-report.md'
+        report.write_text('## Implemented\n\nVerified assignment report at head-1\n')
+        later = time.time() + 5  # Written after the wake, by more than the one-second tolerance.
+        os.utime(report, (later, later))
+        self.collect(report=report)
         self.assertEqual([row['event'] for row in journal_store.read(journal)], ['decision'])
 
     def test_an_invalid_wait_is_refused_before_its_channel_is_checked(self):
@@ -395,20 +398,22 @@ class Waits(WorkerLifecycleCase):
         self.assertEqual(self.cli('status')['pending'], [])
         self.assertTrue(log.is_file())
 
-    def test_stale_idle_is_a_wait_receipt_and_requires_prompt_and_report(self):
+    # Rule: a finished wait is a receipt; the assignment result and a second wait both wait for its reconciliation.
+    def test_a_finished_wait_must_be_reconciled_before_the_result_or_another_wait(self):
         self.register()
         self.record('startup', native=str(self.native()))
         self.watch()
         self.cli('gate', '--attempt', 'ticket-1/1', '--stage', 'accept', '--revision', 'head-1', code=1)
         report = self.root / 'report.md'
         report.write_text('An older report\n')
-        self.record('result', code=2, status='completed', head='head-1', report=str(report), evidence=['older report'])
+        refused = self.record('result', code=2, status='completed', head='head-1', report=str(report),
+                              evidence=['older report'], **self.completion_evidence())
+        self.assertIn('Collect or reconcile the wait before the assignment result', refused)
         self.record('reconciled', evidence=['native idle, prompt not received'])
-        self.record('result', code=2, status='completed', head='head-1', report=str(report), evidence=['older report'])
         self.record('submitted', evidence=['accepted prompt with working activity'])
         self.record('submitted', code=2, evidence=['duplicate prompt'])
         self.watch()
-        self.watch(code=2)
+        self.assertIn('Wait already owned or awaits reconciliation', self.watch(code=2))
         self.record('reconciled', evidence=['native completed this assignment at head-1'])
         self.collect()
 
@@ -495,7 +500,7 @@ class Waits(WorkerLifecycleCase):
             # Hold the database's write lock from the moment the monitor has launched (its log exists).
             deadline = time.monotonic() + 10
             while not (logs.is_dir() and any(logs.iterdir())) and time.monotonic() < deadline:
-                pass
+                time.sleep(.005)
             lock.execute('BEGIN IMMEDIATE')
             # Kill the monitor as soon as its wait process has started, before the lock is released.
             deadline = time.monotonic() + 1.5

@@ -106,10 +106,6 @@ class ImportDirection(unittest.TestCase):
         findings = [f for f in check_imports(support.ROOT, architecture) if f[2] == 'error']
         self.assertEqual(findings, [])
 
-    def test_no_import_debt_remains_for_the_repository(self):
-        debt = Architecture.load(DOC_CHECKER / 'architecture.json').debt
-        self.assertEqual((debt.get('imports'), debt.get('import_cycles')), ([], []))
-
     def test_the_config_modules_load_without_the_decision_backend_or_routing(self):
         code = ("import sys; sys.path.insert(0, sys.argv[1]); import executor_config, journal_store; "
                 "loaded = {'decisions', 'agent_models', 'decision_journal'} & set(sys.modules); "

@@ -653,14 +653,14 @@ class BoardCLI(unittest.TestCase):
         self.write_ticket('inline/01', 'implementing')
         base = self.commit('base')
         self.git('switch', '-q', '-c', 'feat/inline')
-        self.write_report(base, 'feat/inline')
+        self.write_report(base, 'feat/inline', returned=False)
         assert 'no commit past base on feat/inline' in self.cli('inline', '--accept', 'inline/01', code=1).stderr
         work = self.commit('ticket work')
         self.write_report(base, 'feat/inline', [work])
         assert 'carry the evidence' in self.cli('inline', '--accept', 'inline/01').stdout
-        self.write_report(base)
+        self.write_report(base, returned=False)
         assert 'feat/inline-01' in self.cli('inline', '--accept', 'inline/01', code=1).stderr
-        self.write_report(base, body=f'Checked branch: feat/inline\nbranch: feat/inline\n')
+        self.write_report(base, body=f'Checked branch: feat/inline\nbranch: feat/inline\n', returned=False)
         assert 'feat/inline-01' in self.cli('inline', '--accept', 'inline/01', code=1).stderr
 
     def test_a_builder_commit_in_its_orchestrators_checkout_is_not_accepted(self):
@@ -1124,9 +1124,17 @@ class BoardCLI(unittest.TestCase):
         self.record_measurement('echo recall 100', timeout_seconds=0.5)
         self.cli('inline', '--accept', 'inline/01')
 
-    def test_a_measurement_without_timeout_seconds_is_not_cut_short(self):
-        self.measured_ticket('sleep 2; echo recall 100')
-        self.cli('inline', '--accept', 'inline/01')
+    def test_a_measurement_without_timeout_seconds_runs_under_the_ten_minute_default(self):
+        seen = []
+
+        def run(command, **kwargs):
+            seen.append(command[command.index('--timeout') + 1])
+            return subprocess.CompletedProcess(command, 0, stdout='{"timed_out": false, "exit_code": 0}')
+        log = self.root / 'measure.log'
+        log.write_text('recall 100\n')
+        with patch.object(nt.subprocess, 'run', run):
+            assert nt.measure({'command': 'true', 'metric': 'recall'}, self.root, log) == (100, '100')
+        assert seen == ['600'], seen
 
     def test_a_ticket_worktree_with_uncommitted_changes_is_refused_naming_them(self):
         # The committed head regresses (83); an uncommitted edit would hide that, so the measurement would not be of the head.
@@ -1579,7 +1587,7 @@ class BoardCLI(unittest.TestCase):
         self.git('switch', '-q', '-c', 'feat/inline')
         work = self.commit('ticket work')
         for value in ('HEAD', work, 'feat/inline~1', '-h', 'feat/missing'):
-            self.write_report(base, value, [work])
+            self.write_report(base, value, [work], returned=False)
             assert 'not an existing branch' in self.cli('inline', '--accept', 'inline/01', code=1).stderr, value
         for name in ('feat/x+01', '_workstream', 'feat/v1.2'):
             self.git('branch', name)
@@ -1692,18 +1700,11 @@ class BoardCLI(unittest.TestCase):
         self.git('branch', '-D', f'feat/{slug}')
         return start, head
 
-    def test_a_workstream_merged_on_the_remote_is_finished_though_local_main_is_stale(self):
-        # Rule: finished means the branch is gone and the reviewed and E2E heads are in the remote's main, even when
-        # local main has not been updated from it.
-        start, head = self.merged_on_remote('fx')
-        assert self.git('rev-parse', 'main') == start
-        with patch.object(nt, 'ROOT', self.root), patch.object(nt, 'ISSUES', self.root / '.scratch'):
-            assert nt.finished('fx') is True
-
     def test_the_board_reads_the_remote_tracking_main_and_never_fetches(self):
         # The stop-hook checks run under a 20 s budget, so a finished check reads refs/remotes/origin/main as the repo
         # has it: heads the remote holds but the tracking ref lacks are not finished, and the ref stays as it was.
         start, head = self.merged_on_remote('fx')
+        assert self.git('rev-parse', 'main') == start  # local main is stale; only the tracking ref can show the heads
         self.git('update-ref', 'refs/remotes/origin/main', start)
         with patch.object(nt, 'ROOT', self.root), patch.object(nt, 'ISSUES', self.root / '.scratch'):
             assert nt.finished('fx') is False
