@@ -261,6 +261,9 @@ class BoardCLI(unittest.TestCase):
         self.assertEqual(made.name, '01-hold-titles-to-gits-summary-line-convention.md')
         made = Path(self.cli('fx', '--new', 'Don\u2019t split a curly one').stdout.strip())
         self.assertEqual(made.name, '02-dont-split-a-curly-one.md')
+        # An accented letter keeps its base letter rather than dropping out of the branch name.
+        made = Path(self.cli('fx', '--new', 'Fix r\u00e9sum\u00e9 parsing').stdout.strip())
+        self.assertEqual(made.name, '03-fix-resume-parsing.md')
 
     def test_new_keeps_the_board_valid_under_parallel_calls_and_dependency_cycles(self):
         # Review (Codex, Sonnet): parallel calls all took the same number, which broke every board command; and a
