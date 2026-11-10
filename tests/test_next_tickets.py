@@ -871,6 +871,39 @@ class BoardCLI(unittest.TestCase):
         with patch.dict(os.environ, {'GIT_DIFF_OPTS': '-u5'}):
             self.cli('inline', '--set', 'inline/01', 'status=done')
 
+    def test_a_rebased_ticket_that_adds_a_binary_file_is_done(self):
+        # A binary change lands like any other; reading it must not break the check.
+        self.accepted_ticket_branch(('logo.png', b'\x89PNG\r\n\x1a\n\x00\x01\xff'))
+        self.write_files({'moved.txt': 'the workstream moved after the fork\n'})
+        self.commit('the workstream moves on')
+        self.git('switch', '-q', 'inline/second')
+        self.git('rebase', '-q', 'feat/inline')
+        self.git('switch', '-q', 'feat/inline')
+        self.git('merge', '-q', '--ff-only', 'inline/second')
+        self.cli('inline', '--set', 'inline/01', 'status=done')
+
+    def test_a_ticket_is_not_done_while_its_binary_change_is_missing(self):
+        # Two different edits of one binary file are different changes, even when their bytes share a prefix.
+        self.write_files({'d.bin': b'HDR\x00old-content\n'})
+        self.accepted_ticket_branch(('d.bin', b'HDR\x00TICKET-content\n'))
+        self.write_files({'d.bin': b'HDR\x00WORKSTREAM-content\n'})
+        self.commit('the workstream edits the binary its own way')
+        self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
+
+    def test_a_submodule_pointer_ignored_by_gitmodules_still_has_to_land(self):
+        # A pointer change hidden by `ignore = all` in .gitmodules is a change, never a commit that changes nothing.
+        self.write_stacked_ticket('01', 'second')
+        self.write_files({'.gitmodules': '[submodule "vendor"]\n\tpath = vendor\n\turl = ./vendor\n\tignore = all\n'})
+        base = self.commit('base')
+        self.git('switch', '-q', '-c', 'feat/inline')
+        self.git('switch', '-q', '-c', 'inline/second')
+        self.git('update-index', '--add', '--cacheinfo', f'160000,{base},vendor')
+        bump = self.commit('point vendor at the base')
+        self.write_report(base, commits=[bump])
+        self.cli('inline', '--accept', 'inline/01')
+        self.git('switch', '-q', 'feat/inline')
+        self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
+
     def test_a_rebased_ticket_with_a_commit_that_changes_nothing_is_done(self):
         # Only commits with a change carry anything to land; a rebase gives a commit with none a new id.
         self.accepted_ticket_branch(('a.txt', 'a\n'), ('a.txt', 'a\n'))
@@ -1036,7 +1069,8 @@ class BoardCLI(unittest.TestCase):
                 self.git('rm', '-q', name)
                 continue
             (self.root / name).parent.mkdir(parents=True, exist_ok=True)
-            (self.root / name).write_text(text)
+            path = self.root / name
+            path.write_bytes(text) if isinstance(text, bytes) else path.write_text(text)
             self.git('add', name)
 
     def test_a_metric_worse_than_its_baseline_refuses_acceptance_and_names_it(self):
