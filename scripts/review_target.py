@@ -206,7 +206,7 @@ def start(args):
         if 'result' in route:
             state_files.write_atomic(directory / 'execution.json', json.dumps(route['result'], indent=2) + '\n')
     return dict(resolved, report=str(report), state=str(state), binding=str(binding_path), route=route,
-                next_commands=commands)
+                review_worktree=str(agent_models.review_worktree(main, directory)), next_commands=commands)
 
 
 if __name__ == '__main__':

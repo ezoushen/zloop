@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Target/options regressions with real temporary Git history and a local gh stub."""
 import json
+import shlex
 import os
 from pathlib import Path
 import shutil
@@ -355,6 +356,20 @@ class ReviewTarget(unittest.TestCase):
             'first': {'executor': {'type': 'subagent'}}, 'second': {'executor': {'type': 'subagent'}}}}}}))
         selected = self.launch('--workstream', 'fx')
         self.assertEqual(selected['route']['status'], 'selection_required')
+
+    def test_a_reviewer_that_starts_its_own_process_resolves_in_the_review_worktree_it_names(self):
+        # A reviewer route with its own process needs a worktree for its launch controls; start names the review's.
+        config = self.repo / '.zloop/executors.json'
+        config.parent.mkdir()
+        config.write_text(json.dumps({'models': {'sonnet-x': {'description': 'Reviewer', 'runtimes': {'claude': {
+            'id': 'claude-sonnet-5-5', 'thinking': {'default': 'medium', 'allowed': ['medium']}}}}},
+            'runtimes': {'claude': {'executors': {'claude': {'type': 'subagent'}}}},
+            'agents': {'reviewer': {'candidates': ['sonnet-x']}}}))
+        result = self.launch('--workstream', 'fx', host='claude', HERDR_ENV='1', CLAUDE_CODE_SESSION_ID='s1')
+        worktree = str(Path(self.directory).resolve() / '.worktrees/review-fx')
+        self.assertEqual(result['review_worktree'], worktree)
+        self.assertEqual(result['route']['status'], 'resolved', result['route'])
+        self.assertIn(f'--worktree {shlex.quote(worktree)}', result['next_commands']['route'])
 
     def test_the_router_exit_status_decides_no_route_whatever_its_refusal_says(self):
         old = "Model 'm': No configured route from 'codex' to model runtimes ['pi'] in this environment"

@@ -433,11 +433,19 @@ class NoRoute(ValueError):
     exit_status = 3
 
 
+def review_worktree(repo, reports):
+    """The review's own worktree: .worktrees/review-<workstream>, or review-<id> for a standalone review's reports."""
+    reports = Path(reports)
+    return Path(repo) / '.worktrees' / f"review-{reports.parent.name if reports.name == 'reports' else reports.name}"
+
+
 def route_argv(repo, host, reports):
-    """The command asking the router for `host`'s diff-review, on the plugin's python, which has jsonschema."""
+    """The command asking the router for `host`'s diff-review, on the plugin's python, which has jsonschema; it names
+    the review's worktree, which a reviewer that starts its own process needs for its launch controls."""
     python = Path(__file__).resolve().parents[1] / '.venv/bin/python'
     return [str(python) if python.is_file() else sys.executable, str(Path(__file__).resolve()), '--repo', str(repo),
-            '--host', host, '--route', '--job', 'diff-review', '--reports', str(reports)]
+            '--host', host, '--route', '--job', 'diff-review', '--worktree', str(review_worktree(repo, reports)),
+            '--reports', str(reports)]
 
 
 def ask_route(repo, host, reports, timeout, cwd=None):

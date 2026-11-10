@@ -57,7 +57,7 @@ Pass literal arguments safely; never construct executable text from PR content.
 Fetch missing objects only from the verified repository, then resolve again.
 An already-dispatched reviewer is still a worker when reviewing serially.
 
-Use a dedicated worktree at the resolved head, and a local repair branch for autofix.
+Use the `review_worktree` the start names, at the resolved head, and a local repair branch for autofix.
 Read the PR/issue discussion, existing comments, changed code, relevant callers,
 project standards and accepted alignment. An empty diff proves no application behavior.
 Revalidate findings and coverage when the revision changes; retain human decisions and follow-ups.
