@@ -770,6 +770,42 @@ class BoardCLI(unittest.TestCase):
         self.git('merge', '-q', '--ff-only', 'inline/second')
         self.cli('inline', '--set', 'inline/02', 'status=done')
 
+    def accepted_ticket_branch(self, *changes):
+        """inline/01 accepted on inline/second, forked from feat/inline, one commit per (file, text) change."""
+        self.write_stacked_ticket('01', 'second')
+        base = self.commit('base')
+        self.git('switch', '-q', '-c', 'feat/inline')
+        self.git('switch', '-q', '-c', 'inline/second')
+        commits = []
+        for name, text in changes:
+            self.write_files({name: text})
+            commits.append(self.commit(f'add {name}'))
+        self.write_report(base, commits=commits)
+        self.cli('inline', '--accept', 'inline/01')
+        self.git('switch', '-q', 'feat/inline')
+        return commits
+
+    def test_a_ticket_rebased_onto_a_moved_workstream_and_fast_forwarded_is_done(self):
+        # A3: integration is proven by patch equivalence, because rebasing gives the commits new ids.
+        self.accepted_ticket_branch(('a.txt', 'a\n'), ('b.txt', 'b\n'))
+        self.write_files({'moved.txt': 'the workstream moved after the fork\n'})
+        self.commit('the workstream moves on')
+        self.git('switch', '-q', 'inline/second')
+        self.git('rebase', '-q', 'feat/inline')
+        self.git('switch', '-q', 'feat/inline')
+        self.git('merge', '-q', '--ff-only', 'inline/second')
+        self.cli('inline', '--set', 'inline/01', 'status=done')
+
+    def test_a_ticket_with_commits_missing_from_the_workstream_is_refused_naming_rebase_and_fast_forward(self):
+        # A3: a partly landed ticket is not done, and the refusal names the step that lands the rest.
+        first, second = self.accepted_ticket_branch(('a.txt', 'a\n'), ('b.txt', 'b\n'))
+        self.git('cherry-pick', first)
+        refused = self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
+        assert (f'inline/01: accepted {second} is not in feat/inline; rebase the ticket branch onto feat/inline '
+                f'and fast-forward feat/inline to it before status=done\n') == refused.stderr, refused
+        self.git('cherry-pick', second)
+        self.cli('inline', '--set', 'inline/01', 'status=done')
+
     def test_a_worker_result_counts_only_at_the_commit_it_names(self):
         # A symbolic head such as HEAD would be read in the orchestrator's checkout, not the worker's.
         self.write_ticket('inline/01', 'implementing')

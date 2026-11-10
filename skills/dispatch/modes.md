@@ -22,7 +22,7 @@ and return bind it as they bind a builder. Set `worker=inline` on a local ticket
 (`--set <ticket> status=implementing worker=inline`), write
 `base:` and `branch: <workstream branch>` as the first lines of the ticket report, then work
 test-first and run the assigned checks with their evidence before appending
-`## Implemented`. Commit on the workstream branch; there is nothing to merge and no ticket
+`## Implemented`. Commit on the workstream branch; there is nothing to land and no ticket
 worktree to retire.
 
 Accept it with the same structural checks as a delegated ticket (`--accept` on a local
@@ -38,9 +38,8 @@ Every workstream gets a dedicated branch by default. Only an explicit user instr
 work directly on main makes `main` the workstream branch and the main checkout its worktree;
 record that instruction and the starting commit in the dispatch report. A stale or diverged
 local `main` is reported and the user asked before the first commit. Inline tickets commit
-there, and delegated tickets merge into `main` under that instruction, which is the merge
-authorization. On `main` the orchestrator resolves an integration conflict itself: a
-builder never works on `main`. Never push. The integrated review covers the starting
+there, and delegated tickets land on `main` by rebase and fast-forward under that instruction, which is the integration
+authorization. A conflict is resolved in the ticket worktree by the `merge-conflict` job; a builder never works on `main`. Never push. The integrated review covers the starting
 commit to the current `main` (pass `--base <starting commit>` to the review target), its
 report records `workstream_branch: main` so the delivery gate reads
 `main`, and PR publication is reported as not applicable; its delivery report lists the candidate ADRs

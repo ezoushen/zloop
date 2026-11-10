@@ -64,7 +64,7 @@ class TicketModes(unittest.TestCase):
         for rule in ('Every workstream gets a dedicated branch by default',
                      'Only an explicit user instruction to work directly on main makes `main` the workstream branch',
                      'record that instruction and the starting commit in the dispatch report',
-                     'delegated tickets merge into `main` under that instruction', 'Never push'):
+                     'delegated tickets land on `main` by rebase and fast-forward under that instruction', 'Never push'):
             self.assertIn(rule, text)
         self.assertIn('[directly on main](modes.md#directly-on-main)', prose(DISPATCH / 'iteration.md'))
         self.assertIn('ensure the workstream branch', prose(DISPATCH / 'iteration.md'))
@@ -73,7 +73,7 @@ class TicketModes(unittest.TestCase):
         self.assertIn('With `workstream_branch: main` the reviewed head must instead be an ancestor of the current `main`', board)
         self.assertIn('later commits on `main` are not covered by that evidence', board)
         for rule in ('A stale or diverged local `main` is reported and the user asked before the first commit',
-                     'On `main` the orchestrator resolves an integration conflict itself',
+                     'A conflict is resolved in the ticket worktree by the `merge-conflict` job; a builder never works on `main`',
                      'pass `--base <starting commit>`'):
             self.assertIn(rule, prose(MODES))
 

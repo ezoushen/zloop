@@ -35,10 +35,10 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    Choose [how a ticket runs](modes.md). An inline ticket skips only the ticket branch and worktree, their preparation, the builder launch with its launch decision record, and the merge; everything else in steps 4 and 5 applies to both modes.
    A delegated ticket gets a ticket branch and worktree from the workstream branch (project naming, else
    `<slug>/<description>` in `.worktrees/<slug>-<description>`, where the description is the ticket file's name
-   without its `NN-` prefix, or a remote issue's title in the same lowercase-hyphen form); reuse existing ones after checking their identity, and merge the workstream
-   branch into a resumed one, keeping its local edits. When the user allows stacking, a dependent ticket may
-   branch from an accepted but unintegrated ticket branch: record the stack in the dispatch report and merge the
-   base's later fixes into it before accepting it. Prepare fresh and recreated worktrees with the project's
+   without its `NN-` prefix, or a remote issue's title in the same lowercase-hyphen form); reuse existing ones after checking their identity, and rebase a resumed one onto the workstream
+   branch, keeping its local edits. While a ticket branch is local, history stays linear: it is rebased, never merged into, and never rebased once pushed. When the user allows stacking, a dependent ticket may
+   branch from an accepted but unintegrated ticket branch: record the stack in the dispatch report and rebase it onto
+   the base's later head before accepting it. Prepare fresh and recreated worktrees with the project's
    gitignored build inputs and verify the required paths, never printing credential-bearing files.
    Plan checks with [plan and accept checks](../../runtime/checks/accept.md); verify the runner's current
    contract and the worker's checkpoint capability, and carry its supported wait/status/log/cancel operations
@@ -87,13 +87,14 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    keep a capture gap visible; bookkeeping failure never justifies repeating implementation or inventing
    evidence. A failed return goes to recovery ([worker return](../../runtime/workers/return.md)), not to the
    user. Missing assigned implementation evidence → blocked, with the failure.
-   Accepted → keep the [check evidence](../../runtime/checks/evidence.md) outside the worktree, merge the branch in the
-   workstream worktree, record `accepted` with the commit and the tracker transition. Not accepted → `declined` with the reason.
+   Accepted → keep the [check evidence](../../runtime/checks/evidence.md) outside the worktree, land the branch: rebase it
+   onto the workstream tip in the ticket worktree, then fast-forward the workstream branch to it in the workstream
+   worktree, so no merge commit comes from a ticket branch; record `accepted` with the commit and the tracker transition. Not accepted → `declined` with the reason.
    Retire a worker only after an [acceptance decision](../../runtime/workers/collect.md#accept-and-record-outcomes); keep
    ticket worktrees through review, repair and E2E.
    Once an integrated build allows checks only the user can observe (`Verify (user)`), send the user one request covering all of them, [with context](../../runtime/ask/ask.md).
-   On a merge conflict, assign a builder the `merge-conflict` job in the workstream worktree (not on
-   [main](modes.md#directly-on-main)); no other worker uses it until the orchestrator completes the merge.
+   On a conflict in the rebase, assign a builder the `merge-conflict` job in the ticket worktree; the orchestrator accepts
+   the resolved head again, then fast-forwards. No other worker uses that worktree meanwhile. Main still merges into a workstream (step 2).
 6. **Unblock.** A blocked ticket is the orchestrator's work: [research](../research/SKILL.md) missing facts,
    diagnose defects under [diagnosis](../diagnose/SKILL.md), decide engineering choices within the constraints, or
    return design errors to align/refine. Apply [escalation checkpoints](../../runtime/workers/escalation.md) before a

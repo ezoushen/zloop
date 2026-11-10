@@ -8,7 +8,8 @@ Actions: --board, --counts, --check, --accept TICKET,
          --can-verify TICKET, --delivery, --set TICKET status=VALUE (or worker=ID, start=SHA), --orchestrate.
 --set TICKET status=blocked also needs blocker=REASON, which the ticket's front matter keeps. Entering implementing
 records start: (the workstream branch head) when the ticket has none; start never changes once recorded. A passing
---accept records accepted: (the head it accepted); status=done needs it, merged into the workstream branch.
+--accept records accepted: (the head it accepted); status=done needs it, landed on the workstream branch
+(its commits there as they are or as patch-equivalent rebased copies).
 --accept TICKET --delivered-by URL accepts it instead by the PRs gh reports merged and the CI runs gh reports
 successful, recorded as delivered_by:; status=done asks gh again.
 Only --set may be combined with --counts. --accept of a delegated ticket (its branch is not the workstream branch)
@@ -625,7 +626,7 @@ def verify(tickets, name):
     if not problems:
         for note in notes:
             print(f"{name}: {note}")
-        # The head and the report that passed: done needs both, the head merged into the workstream branch.
+        # The head and the report that passed: done needs both, the head landed on the workstream branch.
         write_fields(tickets[name], {"accepted": commit_of(ref), "accepted_report": report_digest(report)})
         print(f"{name}: report and branch carry the evidence; judge the content now")
     return not problems
@@ -1087,9 +1088,9 @@ def set_field(tickets, name, assignments):
             sys.exit(f"{name}: status=done needs a passing --accept first")
         workstream = workstream_branch(spec_of(name))
         ref = branch_ref(workstream)
-        if not ref or subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor", accepted, ref],
-                                     capture_output=True).returncode != 0:
-            sys.exit(f"{name}: accepted {accepted} is not in {workstream}; merge it before status=done")
+        if not ref or landed(accepted, ref) is not True:
+            sys.exit(f"{name}: accepted {accepted} is not in {workstream}; rebase the ticket branch onto {workstream} "
+                     f"and fast-forward {workstream} to it before status=done")
         slug, nn = name.split("/")
         if report_digest(ISSUES / slug / "reports" / f"{nn}.md") != fm.get("accepted_report"):
             sys.exit(f"{name}: the report changed after its --accept; accept it again")
@@ -1104,6 +1105,13 @@ def set_field(tickets, name, assignments):
     for key, value in fields.items():
         if value is not None:
             print(f"{name}: {key} = {value}")
+
+
+def landed(sha, ref):
+    """Whether every commit of `sha` not reachable from `ref` has a patch-equivalent commit in `ref`: a ticket branch
+    rebased onto the workstream and fast-forwarded gets new commit ids, so ancestry alone would refuse it."""
+    cherry = subprocess.run(["git", "-C", str(ROOT), "cherry", ref, sha], capture_output=True, text=True)
+    return cherry.returncode == 0 and not any(line.startswith("+") for line in cherry.stdout.splitlines())
 
 
 def write_fields(fm, fields):

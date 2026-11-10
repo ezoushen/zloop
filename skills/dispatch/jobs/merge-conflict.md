@@ -9,14 +9,15 @@ acceptance: false
 
 # merge-conflict
 
-Resolve an integration conflict in the workstream worktree. Dispatch assigns it when a
-ticket branch does not merge cleanly; this assignment is its authorization.
+Resolve an integration conflict in the ticket worktree by rebasing the ticket branch onto the workstream tip. Dispatch
+assigns it when the ticket branch does not rebase cleanly; this assignment is its authorization. Rebase only a
+branch that is still local.
 
 ## Inputs
 
-The assignment names the workstream `worktree`, its `branch` and starting `head`, the
-integration scope, the conflicting files and their `conflict` details, and the
-`report`. No other worker uses that worktree while this job runs.
+The assignment names the ticket `worktree`, its `branch` and starting `head`, the workstream branch to rebase
+onto, the conflicting files and their `conflict` details, and the `report`. No other worker uses that
+worktree while this job runs.
 
 ## Finish line
 
@@ -26,6 +27,6 @@ the checks the assignment tiers for you on the resolved tree.
 
 ## Return
 
-Leave the resolution staged or committed as the assignment says and return control
-with the new head: the orchestrator completes the merge. Report the files resolved, how each conflict
+Finish the rebase and return control with the new head: the orchestrator accepts it again and fast-forwards
+the workstream branch. Report the files resolved, how each conflict
 was decided, the checks run with their results, and any unresolved boundary.
