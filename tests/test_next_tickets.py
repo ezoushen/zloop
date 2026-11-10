@@ -223,7 +223,8 @@ class BoardCLI(unittest.TestCase):
                             ('The running worker reads as running', 'starts with an article'),
                             ('an idle worker reads as idle', 'starts with an article'),
                             (fifty_one, 'is 51 characters; keep it at most 50'),
-                            ('Show a running worker as running.', 'ends with a full stop')):
+                            ('Show a running worker as running.', 'ends with a full stop'),
+                            ('修正拼字錯誤', 'has no English word; write it in English')):
             with self.subTest(title=title):
                 refused = self.cli('fx', '--new', title, code=2)
                 self.assertIn(f'--new wrote nothing: the title {rule}', refused.stderr)

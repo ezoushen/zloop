@@ -27,6 +27,6 @@ the checks the assignment tiers for you on the resolved tree.
 
 ## Return
 
-Finish the rebase and return the ticket's report at the new head: the orchestrator accepts it again and
-fast-forwards the workstream branch. Report the files resolved, how each conflict
+Finish the rebase, point the report's `Commit:` lines at the rebased commits, and return the ticket's report at the
+new head: the orchestrator accepts it again and fast-forwards the workstream branch. Report the files resolved, how each conflict
 was decided, the checks run with their results, and any unresolved boundary.

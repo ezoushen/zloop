@@ -14,7 +14,7 @@ GIT_OWN = ('Merge ', 'Revert ', 'fixup! ', 'squash! ', 'amend! ')  # git writes 
 
 
 def ticket_problems(title):
-    """The rules a ticket title breaks: over 50 characters, a full stop, a leading article."""
+    """The rules a ticket title breaks: over 50 characters, a full stop, a leading article, no English word."""
     problems = []
     if len(title) > 50:
         problems.append(f'is {len(title)} characters; keep it at most 50')
@@ -22,6 +22,8 @@ def ticket_problems(title):
         problems.append(FULL_STOP)
     if title.split(maxsplit=1)[0].lower() in ('a', 'an', 'the'):
         problems.append('starts with an article; lead with the imperative verb')
+    if not re.search('[A-Za-z]', title):  # Its words name the ticket's branch.
+        problems.append('has no English word; write it in English')
     return problems
 
 

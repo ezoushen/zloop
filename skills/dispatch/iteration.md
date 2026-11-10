@@ -87,9 +87,10 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    keep a capture gap visible; bookkeeping failure never justifies repeating implementation or inventing
    evidence. A failed return goes to recovery ([worker return](../../runtime/workers/return.md)), not to the
    user. Missing assigned implementation evidence → blocked, with the failure.
-   Accepted → keep the [check evidence](../../runtime/checks/evidence.md) outside the worktree, land the branch: rebase it
-   onto the workstream tip in the ticket worktree, then fast-forward the workstream branch to it in the workstream
-   worktree, so no merge commit comes from a ticket branch; record `accepted` with the commit and the tracker transition. Not accepted → `declined` with the reason.
+   Accepted → record `accepted` with the commit and the tracker transition, keep the
+   [check evidence](../../runtime/checks/evidence.md) outside the worktree, then land the branch: rebase it onto the
+   workstream tip in the ticket worktree and fast-forward the workstream branch to it in the workstream worktree, so
+   no merge commit comes from a ticket branch. Not accepted → `declined` with the reason.
    Retire a worker only after an [acceptance decision](../../runtime/workers/collect.md#accept-and-record-outcomes); keep
    ticket worktrees through review, repair and E2E.
    Once an integrated build allows checks only the user can observe (`Verify (user)`), send the user one request covering all of them, [with context](../../runtime/ask/ask.md).

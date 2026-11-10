@@ -2,8 +2,9 @@
 
 Every title zloop writes (a ticket title, a commit subject, a PR title, and so the branch
 named after a ticket) follows git's summary-line convention. This file is the only place
-that defines it; other docs link here and restate none of it. A project's own documented title or
-commit convention takes precedence, as its branch convention does.
+that defines it; other docs link here and restate none of it. In what an agent writes, a project's own
+documented title or commit convention takes precedence, as its branch convention does; the scripts that refuse titles
+check these rules wherever they run.
 
 - **Imperative mood.** The title completes "If applied, this change will …": "Show a
   running worker as running", not "Shows" or "Showing".
@@ -11,6 +12,7 @@ commit convention takes precedence, as its branch convention does.
   title is at most 50, since a ticket's branch and worktree are named after it; `--new` refuses a longer one.
 - **No full stop** at the end.
 - **No leading article** in a ticket title: lead with the verb.
+- **English words** in a ticket title, since they name its branch.
 - **Lowercase after the type.** A commit or PR title opens with a Conventional Commits
   `type[(scope)][!]: ` prefix and continues in lowercase. A ticket title carries no prefix
   and starts with a capital.
