@@ -34,8 +34,8 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    verified remote tip used (on `main`, ask the user). Apart from working directly on main, never commit to the user's local `main`.
    Choose [how a ticket runs](modes.md). An inline ticket skips only the ticket branch and worktree, their preparation, the builder launch with its launch decision record, and the merge; everything else in steps 4 and 5 applies to both modes.
    A delegated ticket gets a ticket branch and worktree from the workstream branch (project naming, else
-   `feat/<slug>-<key>` in `.worktrees/<slug>-<key>`, where the key is the local `NN` or a stable safe remote
-   issue key from board operations); reuse existing ones after checking their identity, and merge the workstream
+   `<slug>/<description>` in `.worktrees/<slug>-<description>`, where the description is the ticket file's name
+   without its `NN-` prefix, or a remote issue's title in the same lowercase-hyphen form); reuse existing ones after checking their identity, and merge the workstream
    branch into a resumed one, keeping its local edits. When the user allows stacking, a dependent ticket may
    branch from an accepted but unintegrated ticket branch: record the stack in the dispatch report and merge the
    base's later fixes into it before accepting it. Prepare fresh and recreated worktrees with the project's

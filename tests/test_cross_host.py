@@ -125,7 +125,7 @@ class CrossHost(unittest.TestCase):
             assert cli('--set', 'b/01', 'worker=x\nstatus: done', ok=False).returncode != 0
             # Acceptance requires a real branch descendant and a report in the main checkout.
             base = git('rev-parse', 'feat/b')
-            git('checkout', '-b', 'feat/b-01', 'feat/b')
+            git('checkout', '-b', 'b/task', 'feat/b')
             git('commit', '--allow-empty', '-m', 'ticket')
             git('checkout', 'main')
             reports = repo / '.scratch/b/reports'
@@ -133,7 +133,7 @@ class CrossHost(unittest.TestCase):
             report = reports / '01.md'
             report.write_text(f'base: {base}\n## Implemented\n- [x] done\n')
             assert cli('b', '--accept', 'b/01', ok=False).returncode != 0  # No worker returned it yet.
-            support.collected_attempt(repo, 'b', 'b/01/implementation-1', report, head=git('rev-parse', 'feat/b-01'))
+            support.collected_attempt(repo, 'b', 'b/01/implementation-1', report, head=git('rev-parse', 'b/task'))
             cli('b', '--accept', 'b/01')
             report.write_text('# empty\n')
             assert cli('b', '--accept', 'b/01', ok=False).returncode != 0

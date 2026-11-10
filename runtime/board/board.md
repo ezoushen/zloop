@@ -88,8 +88,9 @@ next selection; a stale live row must not strand integrated work or cause a dupl
 assignment. Keep unresolved discrepancies explicit rather than overwriting them.
 Do not copy issue bodies into local tickets. On resume, reconstruct execution
 from that log, Git and native worker status; re-read requirements from the tracker.
-Use the project branch convention; otherwise a stable filesystem-safe issue key
-(for example `eng-123` or `gh-123`) replaces local `NN` in branch/report names.
+Use the project branch convention; otherwise a ticket branch is `<slug>/<description>`, the issue title in
+lowercase-hyphen form. A stable filesystem-safe issue key (for example `eng-123` or `gh-123`) replaces local `NN` in
+report names only.
 
 Acceptance requires the worker report's original base, each criterion's evidence,
 required checks, and reported commits verified on the branch the report records:

@@ -565,10 +565,14 @@ def report_problems(text):
 
 
 def report_branch(slug, nn, text):
-    """(branch, recorded): the branch a ticket report's header names under `branch:`, else feat/<slug>-<NN>."""
+    """(branch, recorded): the branch a ticket report's header names under `branch:`, else <slug>/<its ticket file's
+    stem without NN->."""
     header = text.split("\n## ", 1)[0]
     recorded = re.search(r"^branch:\s*`?([^\s`]+)`?\s*$", header, re.M)
-    return (recorded.group(1), True) if recorded else (f"feat/{slug}-{nn}", False)
+    if recorded:
+        return recorded.group(1), True
+    stem = next((ISSUES / slug / "issues").glob(f"{nn}-*.md"), Path(f"{nn}-ticket.md")).stem
+    return f"{slug}/{stem.split('-', 1)[1]}", False
 
 
 def accept(tickets, name):
@@ -784,7 +788,7 @@ def changed_files(start, ref):
 def dependency_heads(fm, ref, fork):
     """The branch heads of the ticket's same-workstream `blocked_by` tickets that ref contains and is not, and that its
     fork with the workstream branch does not contain: a stacked ticket forks from them. Each branch is the one its
-    report names, else feat/<slug>-<NN>."""
+    report names, else <slug>/<its ticket file's stem without NN->."""
     slug = spec_of(fm["ticket"])
     own = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--verify", f"{ref}^{{commit}}"],
                          capture_output=True, text=True).stdout.strip()
@@ -1022,7 +1026,7 @@ def new_ticket(slug, title, blocked_by, touches):
     with state_files.locked(ISSUES / ".new-ticket"):  # One lock for the whole board: its check spans workstreams.
         tickets = load_whole()  # Read under the lock: a parallel call wrote its ticket before letting go of it.
         nn = f"{max((int(t.split('/')[1]) for t in tickets if spec_of(t) == slug), default=0) + 1:02}"
-        words = "-".join(re.findall(r"[a-z0-9]+", title.lower()))[:60].strip("-") or "ticket"
+        words = "-".join(re.findall(r"[a-z0-9]+", re.sub("['\u2019]", "", title.lower())))[:60].strip("-") or "ticket"
         path = issues / f"{nn}-{words}.md"
         fields = {"ticket": f"{slug}/{nn}", "status": "ready", "blocked_by": blocked_by, "touches": touches,
                   "devices": [], "needs": [], "path": str(path.relative_to(ROOT))}
