@@ -242,6 +242,16 @@ class RunAll(unittest.TestCase):
         output = nested.communicate(timeout=10)[0]
         self.assertEqual(nested.returncode, 0, output)
 
+    def test_units_start_with_the_checkouts_python_already_compiled(self):
+        # Rule: units run with -B, which writes no bytecode, so in a fresh checkout (a worktree, the pre-push gate)
+        # every process a test starts would compile what it imports; the runner compiles the checkout's Python first.
+        unit = ('import importlib.util, os\n'
+                'spec = importlib.util.find_spec("helper_module")\n'
+                'raise SystemExit(0 if os.path.exists(spec.cached) else "no bytecode for " + spec.origin)\n')
+        result = self.suite({'test_compiled.py': unit, 'helper_module.py': 'VALUE = 1\n'})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f'1 regression scripts passed ({sys.executable})', result.stdout)
+
     def test_scripts_do_not_inherit_the_git_hook_environment(self):
         result = self.suite({'test_env.py': 'import os\nraise SystemExit(1 if "GIT_DIR" in os.environ else 0)\n'})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

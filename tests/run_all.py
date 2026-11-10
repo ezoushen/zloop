@@ -6,7 +6,7 @@ usage: tests/run_all.py [tests/test_<name>.py ...]
 Named scripts run alone, a focused run while editing; with none, every script runs, the full gate.
 
 Uses the plugin environment's .venv (the main checkout's, from a worktree) unless
-PYTHON names another interpreter. Concurrent runs on the machine share one budget of
+PYTHON names another interpreter, and first compiles the checkout's Python with it. Concurrent runs on the machine share one budget of
 ZLOOP_TEST_SLOTS units (default: the CPU count), held as file locks in ZLOOP_TEST_SLOT_DIR
 (default: zloop-test-slots-<uid> under the temporary directory, $TMPDIR); a lock vanishes with its run, so a killed run frees its slots.
 A run started by one of those scripts (ZLOOP_TEST_SLOT_HELD is set) counts its own units against a private
@@ -111,6 +111,14 @@ def main(paths=()):
         signal.signal(number, lambda number, frame: sys.exit(128 + number))
     env = {key: value for key, value in os.environ.items() if key not in GIT_VARIABLES}
     python = interpreter(env)
+    # Units run with -B, which writes no bytecode: compile the checkout's Python once, so no process a test starts in a
+    # fresh checkout compiles what it imports. A file that does not compile fails in its own test instead.
+    listed = subprocess.run(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', '*.py'],
+                            cwd=ROOT, env=env, capture_output=True).stdout.decode(errors='surrogateescape')
+    sources = [name for name in listed.split('\0') if name]
+    if sources:  # compileall given no file compiles the interpreter's whole sys.path instead.
+        subprocess.run([python, '-m', 'compileall', '-q', '-i', '-'], cwd=ROOT, env=env, input='\n'.join(sources),
+                       text=True, errors='surrogateescape', stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     with tempfile.TemporaryDirectory() as logs:
         slots = int(os.environ.get('ZLOOP_TEST_SLOTS') or os.cpu_count() or 1)
         if os.environ.get('ZLOOP_TEST_SLOT_HELD'):
