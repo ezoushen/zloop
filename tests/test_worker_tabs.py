@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Each Herdr worker lives in a tab of its own: registration asks Herdr where it is; retire confirms the tab closed."""
 
+from contextlib import redirect_stderr
 import fcntl
+import io
 import json
+import os
 import sys
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from lifecycle_case import WorkerLifecycleCase
 from native_records import session_record
@@ -76,16 +80,29 @@ class HerdrTabs(WorkerLifecycleCase):
                               '--wait --timeout 45000', (self.root / 'herdr-argv.log').read_text())
 
     def test_registration_names_the_session_step_when_no_identity_arrives(self):
+        # Rule: the session step gives up at its deadline with a message naming the step, and the lookup that straddles
+        # the deadline keeps its whole bound rather than the time left. The CLI runs in this process with the step at
+        # 1 s and each lookup bound at 3 s, so the test does not wait the real 45 s.
         self.herdr_route()
-        self.herdr_fixture(session_after=1000000, agent_delay=4)
+        self.herdr_fixture(session_after=1000000, agent_delay=2)  # Each lookup takes 2 s, so the step's one straddles it.
+        event = self.root / 'event.json'
+        event.write_text(json.dumps(dict(kind='register', attempt='ticket-1/1',
+                                         **self.registration(worker='builder-1', herdr={'session': 'fixture-session'}))))
+        lifecycle = support.load_script('worker_lifecycle.py')
+        error = io.StringIO()
+        argv = ['worker_lifecycle.py', 'record', '--state', str(self.state), '--input', str(event)]
         started = time.monotonic()
-        error = self.register(worker='builder-1', herdr={'session': 'fixture-session'}, code=2)
+        with patch.object(lifecycle, 'STARTUP_SECONDS', 1), patch.object(lifecycle, 'LOOKUP_SECONDS', 3), \
+                patch.dict(os.environ, self.native_env, clear=True), patch.object(sys, 'argv', argv), \
+                redirect_stderr(error), self.assertRaises(SystemExit) as exit:
+            lifecycle.main()
         seconds = time.monotonic() - started
-        self.assertIn('Herdr launch session step timed out for builder-1 after 45 s', error)
-        self.assertIn('agent get builder-1', error)
-        self.assertIn('then retry registration', error)
-        self.assertGreaterEqual(seconds, 45)
-        self.assertLess(seconds, 60)
+        self.assertEqual(exit.exception.code, 2, error.getvalue())
+        self.assertIn('Herdr launch session step timed out for builder-1 after 1 s', error.getvalue())
+        self.assertIn('agent get builder-1', error.getvalue())
+        self.assertIn('then retry registration', error.getvalue())
+        self.assertGreaterEqual(seconds, 1)
+        self.assertLess(seconds, 15)
         self.assertEqual(self.cli('status')['attempts'], [])
 
     def test_registration_waits_when_herdr_has_not_filled_its_session_id(self):
