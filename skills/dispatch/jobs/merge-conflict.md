@@ -9,7 +9,8 @@ acceptance: false
 
 # merge-conflict
 
-Resolve an integration conflict in the ticket worktree by rebasing the ticket branch onto the workstream tip. Dispatch
+Resolve an integration conflict in the ticket worktree by rebasing the ticket branch onto the workstream tip; the
+orchestrator has aborted its own failed rebase, so the job starts the rebase itself. Dispatch
 assigns it when the ticket branch does not rebase cleanly; this assignment is its authorization. Rebase only a
 branch that is still local.
 

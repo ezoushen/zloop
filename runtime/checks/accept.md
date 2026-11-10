@@ -9,7 +9,7 @@ check a tier in the assignment:
 - **full gate:** the project's complete required gate, run once on the workstream's
   integrated head before review and E2E (not per ticket) and once after the
   last repair, by the orchestrator or by an E2E run that already includes it;
-  `high` and higher run it after every ticket is integrated, merged or committed inline, too.
+  `high` and higher run it after every ticket is landed or committed inline, too.
 
 Workers run the full gate only when the project requires it per change; name that
 requirement and its source in the assignment. E2E adds only what CI and the full
@@ -74,7 +74,7 @@ the level scales only the checks beyond the ones the project requires, never tho
 | --- | --- |
 | low | each ticket's focused tests only |
 | medium (default) | + each ticket's affected suites before it returns |
-| high | + the full gate after every ticket is integrated, merged or committed inline, and one verifier per ticket re-runs that ticket's acceptance on the integrated head |
+| high | + the full gate after every ticket is landed or committed inline, and one verifier per ticket re-runs that ticket's acceptance on the integrated head |
 | xhigh | + E2E for every acceptance criterion with an observable path, even where CI covers it |
 | max (only when the user asks) | + each E2E check and flaky-prone suite run three times |
 

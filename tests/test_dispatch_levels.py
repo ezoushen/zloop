@@ -15,7 +15,7 @@ COLUMNS = ('Level', 'Beyond the required checks')
 CELLS = {
     'low': "each ticket's focused tests only",
     'medium': "+ each ticket's affected suites before it returns",
-    'high': "+ the full gate after every ticket is integrated, merged or committed inline, and one verifier per "
+    'high': "+ the full gate after every ticket is landed or committed inline, and one verifier per "
             "ticket re-runs that ticket's acceptance on the integrated head",
     'xhigh': '+ E2E for every acceptance criterion with an observable path, even where CI covers it',
     'max': '+ each E2E check and flaky-prone suite run three times',
@@ -78,7 +78,7 @@ class DispatchLevels(unittest.TestCase):
         # higher add every criterion; max runs each E2E check and flaky-prone suite three times on request.
         text = prose(ACCEPT)
         for phrase in ('names the effort levels that relax it, and only those',
-                       'run it after every ticket is integrated, merged or committed inline, too',
+                       'run it after every ticket is landed or committed inline, too',
                        'E2E adds only what CI and the full gate do not cover',
                        '`xhigh` and higher add E2E for every criterion with an observable path',
                        'rather than adding another batch for confidence alone',
@@ -94,7 +94,7 @@ class DispatchLevels(unittest.TestCase):
         # iteration's launch step all name it.
         level = per_merge_gate_level()
         self.assertEqual(level, 'high')
-        self.assertIn(f'`{level}` and higher run it after every ticket is integrated', prose(ACCEPT))
+        self.assertIn(f'`{level}` and higher run it after every ticket is landed', prose(ACCEPT))
         self.assertIn(f'`{level}` and higher also name the full gate', prose(DISPATCH / 'iteration.md'))
 
     def test_the_xhigh_e2e_belongs_to_the_review_stage_and_needs_autofix(self):
@@ -158,7 +158,7 @@ class DispatchLevels(unittest.TestCase):
                        '`high` and higher also name the full gate after each ticket is integrated',
                        '`xhigh` and higher the E2E of every criterion with an observable path',
                        '`max` the three-run repeats',
-                       'run the full gate after every ticket is integrated, merged or committed inline',
+                       'run the full gate after every ticket is landed or committed inline',
                        '`xhigh` and higher add E2E for every criterion with an observable path, and `max` runs '
                        'each E2E check and flaky-prone suite three times, both in the review\'s '
                        '[autofix E2E stage](../review/e2e.md)',

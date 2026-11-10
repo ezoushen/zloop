@@ -957,7 +957,7 @@ class BoardCLI(unittest.TestCase):
         self.cli('inline', '--set', 'inline/01', 'status=done')
 
     def test_a_clean_rebase_lands_whatever_the_users_attributes_file_says(self):
-        # A -diff rule in the user's own attributes file (core.attributesFile) does not turn a clean rebase into a refusal.
+        # A -diff rule in the user's attributes file (core.attributesFile) does not make a clean rebase refuse.
         attributes = self.root.parent / f'{self.root.name}-attributes'
         attributes.write_text('*.lock -diff\n')
         self.addCleanup(attributes.unlink)

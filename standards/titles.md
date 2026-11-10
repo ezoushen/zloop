@@ -19,7 +19,8 @@ check these rules wherever they run.
 
 Scripts refuse part of it, each refusal naming the broken rule: `next_tickets.py --new` a ticket
 title's length, full stop, leading article or missing English word; `lint_pr_body.py --title` and the
-`commit-msg` hook a PR title's or commit header's length, missing type or full stop. Capitals, a prefix
+`commit-msg` hook, zloop's own, enabled per clone, a PR title's or commit header's length, missing type or full
+stop. Capitals, a prefix
 on a ticket title and mood are left to review; a verb detector would flag valid verbs such as "embed" or "speed".
 
 ## Sources

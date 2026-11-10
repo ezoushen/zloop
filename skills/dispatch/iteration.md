@@ -75,7 +75,7 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    [standing measurements](../../runtime/board/project-loop.md#standing-measurements), which refuse a missing or worse
    value unless a ledger-cited `allows` excuses it). Judge every criterion in `## Implemented`; later-phase gates
    stay with their owners and block delivery, not integration. Apply the dispatch's verification level
-   as acceptance runs: `high` and higher run the full gate after every ticket is integrated, merged or committed
+   as acceptance runs: `high` and higher run the full gate after every ticket is landed or committed
    inline, and register one verifier attempt per ticket with the [acceptance-rerun](jobs/acceptance-rerun.md) job, which
    re-runs that ticket's `Verify (code)` commands on the integrated head; `xhigh` and higher add E2E for every
    criterion with an observable path, and `max` runs each E2E check and flaky-prone suite three times, both in the
@@ -94,8 +94,8 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    Retire a worker only after an [acceptance decision](../../runtime/workers/collect.md#accept-and-record-outcomes); keep
    ticket worktrees through review, repair and E2E.
    Once an integrated build allows checks only the user can observe (`Verify (user)`), send the user one request covering all of them, [with context](../../runtime/ask/ask.md).
-   On a conflict in the rebase, assign a builder the `merge-conflict` job in the ticket worktree with the ticket's own
-   report; it returns that report at the resolved head, so the orchestrator accepts that head again, then fast-forwards. No other worker uses that worktree meanwhile. Main still merges into a workstream (step 2).
+   On a conflict in the rebase, abort it (`git rebase --abort`), then assign a builder the `merge-conflict` job in the
+   ticket worktree with the ticket's own report and the branch to rebase `onto`; it returns that report at the resolved head, so the orchestrator accepts that head again, then fast-forwards. No other worker uses that worktree meanwhile. Main still merges into a workstream (step 2).
 6. **Unblock.** A blocked ticket is the orchestrator's work: [research](../research/SKILL.md) missing facts,
    diagnose defects under [diagnosis](../diagnose/SKILL.md), decide engineering choices within the constraints, or
    return design errors to align/refine. Apply [escalation checkpoints](../../runtime/workers/escalation.md) before a

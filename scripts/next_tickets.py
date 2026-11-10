@@ -748,7 +748,7 @@ def tool_changes(fm, entries, allowed, ref, report):
     """(problems, notes) for tickets that changed files an entry lists in `paths`.
 
     A delegated ticket is compared with the merge-base with its workstream branch (main when the workstream has
-    none): that excludes what it merged in from the workstream, and a builder cannot hide an edit by moving `base:`. A
+    none): that excludes the workstream's own commits under a ticket rebased onto it, and a builder cannot hide an edit by moving `base:`. A
     stacked ticket changed a file only when it also differs from each dependency head its head contains, so a
     dependency's own change waits for that ticket's own acceptance. A ticket on the workstream branch itself (inline) is
     compared from the `start:` recorded when it moved into implementing, which the workstream branch must contain, with
