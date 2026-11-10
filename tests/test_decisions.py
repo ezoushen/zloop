@@ -937,5 +937,17 @@ sys.stdout.write((root / name).read_text())
         self.assertEqual(self.calls, [])
         self.phase('test-shape', 'review/head-a', '--request', self.request, code=2)
 
+
+class Startup(unittest.TestCase):
+    def test_the_lifecycle_and_board_scripts_start_without_the_http_client(self):
+        # Rule: hooks and worker commands start these scripts many times a turn; only a router call or a backend health
+        # check speaks HTTP, so the HTTP client loads when one is made, not at every start.
+        code = ('import sys\nsys.path.insert(0, sys.argv[1])\nimport worker_lifecycle, next_tickets\n'
+                'print(*sorted(name for name in ("http.client", "urllib.request") if name in sys.modules))')
+        loaded = subprocess.run([sys.executable, '-B', '-c', code, str(support.SCRIPTS)], capture_output=True,
+                                text=True, check=True).stdout
+        self.assertEqual(loaded.strip(), '')
+
+
 if __name__ == '__main__':
     unittest.main()

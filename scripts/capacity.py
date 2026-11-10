@@ -13,8 +13,6 @@ import sqlite3
 import subprocess
 import threading
 import time
-import urllib.error
-import urllib.request
 
 # A lease taken while its attempt is still being registered must not look abandoned.
 REGISTRATION_GRACE = 60
@@ -87,10 +85,11 @@ def check(backend, config):
         answer = {}
 
         def probe():
+            import urllib.request  # Here, not at the top: most starts of this script check no backend.
             try:
                 with urllib.request.urlopen(config['health'], timeout=HEALTH_SECONDS) as response:
                     answer['status'] = response.status
-            except (OSError, urllib.error.URLError, ValueError) as error:
+            except (OSError, ValueError) as error:
                 answer['error'] = str(error)
         # A thread bounds the whole check, including a host name that never resolves.
         thread = threading.Thread(target=probe, daemon=True)

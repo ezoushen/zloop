@@ -5,7 +5,6 @@ import argparse
 import ast
 import fcntl
 import hashlib
-import http.client
 import json
 import math
 import os
@@ -13,7 +12,6 @@ from pathlib import Path
 import subprocess
 import tempfile
 import time
-import urllib.request
 
 import decision_images
 import journal_store
@@ -113,6 +111,9 @@ def validate_request(request):
 
 def systemone_request(backend, payload):
     """Send one bounded request without forwarding context through redirects."""
+    import http.client  # Here, not at the top: most starts of this script make no request.
+    import urllib.request
+
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, headers, newurl):
             return None
