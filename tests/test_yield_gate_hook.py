@@ -1450,8 +1450,10 @@ class DeliveryHold(GateRepo):
 
     def gap(self):
         return (f'fix: delivery incomplete under autofix: e2e_status: not-run (needs passed); e2e_by: none names no '
-                f'worker run; review_head: {self.reviewed} is stale against feat/fix head {self.head}; e2e_head: none '
-                f'is stale against feat/fix head {self.head}. Continue the autofix handoff '
+                f'worker run; review_head: {self.reviewed} is stale against feat/fix head {self.head}, so review the '
+                f'whole range at that head and name its reviewer attempts in review_by; e2e_head: none is stale against '
+                f'feat/fix head {self.head}, so name in e2e_by a passing E2E run at that head, rerunning only the checks '
+                f'the commits since the last run can affect. Continue the autofix handoff '
                 f'({ROOT}/skills/dispatch/handoff.md) until `python3 {ROOT}/scripts/next_tickets.py --repo {self.repo} '
                 f'fix --delivery` passes, or record `blocker: <reason>` in {self.report}')
 

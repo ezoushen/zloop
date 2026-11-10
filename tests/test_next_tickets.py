@@ -1724,7 +1724,8 @@ class BoardCLI(unittest.TestCase):
 
     def test_delivery_names_each_field_that_fails(self):
         # Rule 2 (the Pi run): a repair committed after review leaves review_head stale against the workstream head, and
-        # E2E never ran; the gate names each failing field, not only the workstream.
+        # E2E never ran; the gate names each failing field, not only the workstream, and what clears a stale head: a
+        # whole-range review there, and a passing E2E run there that reruns only what the newer commits can affect.
         self.write_ticket('fx/01', 'done')
         start = self.commit('start')
         self.git('switch', '-q', '-c', 'feat/fx')
@@ -1737,9 +1738,11 @@ class BoardCLI(unittest.TestCase):
                           .replace('e2e_by: e2e/fx/1', 'e2e_by: none'))
         refused = self.cli('fx', '--delivery', code=1).stderr
         assert sorted(refused.splitlines()) == sorted([
-            f'fx: review_head: {reviewed} is stale against feat/fx head {repaired}',
+            f'fx: review_head: {reviewed} is stale against feat/fx head {repaired}, so review the whole range at that '
+            'head and name its reviewer attempts in review_by',
             'fx: e2e_status: not-run (needs passed)',
-            f'fx: e2e_head: none is stale against feat/fx head {repaired}',
+            f'fx: e2e_head: none is stale against feat/fx head {repaired}, so name in e2e_by a passing E2E run at that '
+            'head, rerunning only the checks the commits since the last run can affect',
             'fx: e2e_by: none names no worker run']), refused
 
     def test_delivery_takes_each_status_from_the_worker_that_returned_it(self):

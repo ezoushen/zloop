@@ -345,8 +345,12 @@ def delivery_problems(slug):
     if ref == 'refs/heads/main' and re.fullmatch('[0-9a-f]{40}', reviewed) and subprocess.run(
             ['git', '-C', str(ROOT), 'merge-base', '--is-ancestor', reviewed, sha]).returncode == 0:
         sha = reviewed
-    problems += [f'{key}: {fm.get(key) or "missing"} is stale against {branch} head {sha}'
-                 for key in ('review_head', 'e2e_head') if fm.get(key) != sha]
+    problems += [f'{key}: {fm.get(key) or "missing"} is stale against {branch} head {sha}, so {step}'
+                 for key, step in (('review_head', 'review the whole range at that head and name its reviewer attempts '
+                                                   'in review_by'),
+                                   ('e2e_head', 'name in e2e_by a passing E2E run at that head, rerunning only the '
+                                                'checks the commits since the last run can affect'))
+                 if fm.get(key) != sha]
     if sha == base:
         problems.append(f'review_head: {sha} is review_base, so nothing was reviewed')
     merge_base = subprocess.run(['git', '-C', str(ROOT), 'merge-base', '--all', base, sha],
