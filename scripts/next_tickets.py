@@ -1150,7 +1150,9 @@ def landed(sha, ref):
 
     try:
         ours, theirs = changes(sha), set(changes(ref).values())
-    except subprocess.CalledProcessError:  # Git could not show the changes (an older git without --attr-source).
+    except subprocess.CalledProcessError as error:  # Git could not show the changes: refuse, never pass.
+        print(f"comparing rebased commits needs git 2.40 or newer (--attr-source); git said: "
+              f"{error.stderr.decode(errors='replace').strip()}", file=sys.stderr)
         return False
     commits = subprocess.run([*git, "rev-list", "--no-merges", f"{fork}..{sha}"],
                              capture_output=True, text=True, check=True).stdout.split()

@@ -916,6 +916,22 @@ class BoardCLI(unittest.TestCase):
         self.addCleanup(shutil.rmtree, old)
         with patch.dict(os.environ, {'PATH': f'{old}{os.pathsep}{os.environ["PATH"]}'}):
             self.cli('inline', '--set', 'inline/01', 'status=done')
+            # A rebased one there is refused, and the refusal says the git is too old.
+            self.write_stacked_ticket('02', 'third', touches='docs')
+            self.git('switch', '-q', '-c', 'inline/third')
+            self.write_files({'b.txt': 'b\n'})
+            third = self.commit('third ticket')
+            self.write_report(self.git('rev-parse', 'feat/inline'), commits=[third], number='02')
+            self.cli('inline', '--accept', 'inline/02')
+            self.git('switch', '-q', 'feat/inline')
+            self.write_files({'moved.txt': 'moved\n'})
+            self.commit('the workstream moves on')
+            self.git('switch', '-q', 'inline/third')
+            self.git('rebase', '-q', 'feat/inline')
+            self.git('switch', '-q', 'feat/inline')
+            self.git('merge', '-q', '--ff-only', 'inline/third')
+            refused = self.cli('inline', '--set', 'inline/02', 'status=done', code=1)
+            self.assertIn('needs git 2.40 or newer', refused.stderr)
 
     def test_a_rebased_submodule_pointer_ignored_by_gitmodules_lands(self):
         # A pointer change still has a patch id when .gitmodules says `ignore = all`, so a rebase can land it.
