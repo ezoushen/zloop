@@ -264,17 +264,8 @@ sys.exit(3)
         self.ready()
         request = self.root / 'submit-bad.json'
         request.write_text(json.dumps({'argv': ['t3', 'thread', 'list'], 'timeout': 5}))
-        error = self.cli('submit', '--attempt', 'ticket-1/1', '--input', str(request), code=2,
-                         env_override=None) if False else None
-        # submit runs through the lifecycle CLI; use record-level expectations instead:
-        # the submit guard fires inside `submit`; call it via the CLI with a bad argv and expect exit 2.
-        import subprocess
-        process = subprocess.run([sys.executable, '-B',
-                                  '/Users/ezou/Workspace/zloop/.worktrees/t3code-support/scripts/worker_lifecycle.py',
-                                  'submit', '--state', str(self.state), '--attempt', 'ticket-1/1',
-                                  '--input', str(request)], capture_output=True, text=True)
-        self.assertEqual(process.returncode, 2)
-        self.assertIn('t3 thread send', process.stderr + process.stdout)
+        error = self.cli('submit', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+        self.assertIn('t3 thread send', error)
 
 if __name__ == '__main__':
     unittest.main()
