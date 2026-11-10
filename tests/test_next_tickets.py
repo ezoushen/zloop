@@ -804,6 +804,7 @@ class BoardCLI(unittest.TestCase):
         # A delegated ticket's accepted head must also be merged into the workstream branch.
         self.write_stacked_ticket('02', 'second', touches='docs')
         self.git('switch', '-q', '-c', 'inline/second')
+        self.write_files({'second.txt': 'delegated\n'})
         delegated = self.commit('delegated ticket work')
         self.write_report(work, commits=[delegated], number='02')
         self.cli('inline', '--accept', 'inline/02')
@@ -846,6 +847,17 @@ class BoardCLI(unittest.TestCase):
         self.accepted_ticket_branch(('shared.txt', '\n'.join(lines[:20] + ['the ticket'] + lines[21:]) + '\n'))
         self.write_files({'shared.txt': '\n'.join(lines[:22] + ['the workstream'] + lines[23:]) + '\n'})
         self.commit('the workstream edits two lines away')
+        self.git('switch', '-q', 'inline/second')
+        self.git('rebase', '-q', 'feat/inline')
+        self.git('switch', '-q', 'feat/inline')
+        self.git('merge', '-q', '--ff-only', 'inline/second')
+        self.cli('inline', '--set', 'inline/01', 'status=done')
+
+    def test_a_rebased_ticket_with_a_commit_that_changes_nothing_is_done(self):
+        # Only commits with a change carry anything to land; a rebase gives a commit with none a new id.
+        self.accepted_ticket_branch(('a.txt', 'a\n'), ('a.txt', 'a\n'))
+        self.write_files({'moved.txt': 'the workstream moved after the fork\n'})
+        self.commit('the workstream moves on')
         self.git('switch', '-q', 'inline/second')
         self.git('rebase', '-q', 'feat/inline')
         self.git('switch', '-q', 'feat/inline')
