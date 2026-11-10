@@ -956,6 +956,23 @@ class BoardCLI(unittest.TestCase):
         self.git('merge', '-q', '--ff-only', 'inline/second')
         self.cli('inline', '--set', 'inline/01', 'status=done')
 
+    def test_a_clean_rebase_lands_whatever_the_users_attributes_file_says(self):
+        # A -diff rule in the user's own attributes file (core.attributesFile) does not turn a clean rebase into a refusal.
+        attributes = self.root.parent / f'{self.root.name}-attributes'
+        attributes.write_text('*.lock -diff\n')
+        self.addCleanup(attributes.unlink)
+        self.git('config', 'core.attributesFile', str(attributes))
+        lines = [f'line {n}' for n in range(40)]
+        self.write_files({'pkg.lock': '\n'.join(lines) + '\n'})
+        self.accepted_ticket_branch(('pkg.lock', '\n'.join(lines[:10] + ['the ticket'] + lines[11:]) + '\n'))
+        self.write_files({'pkg.lock': '\n'.join(lines[:30] + ['the workstream'] + lines[31:]) + '\n'})
+        self.commit('the workstream edits further down')
+        self.git('switch', '-q', 'inline/second')
+        self.git('rebase', '-q', 'feat/inline')
+        self.git('switch', '-q', 'feat/inline')
+        self.git('merge', '-q', '--ff-only', 'inline/second')
+        self.cli('inline', '--set', 'inline/01', 'status=done')
+
     def test_a_rebased_ticket_with_a_commit_that_changes_nothing_is_done(self):
         # Only commits with a change carry anything to land; a rebase gives a commit with none a new id.
         self.accepted_ticket_branch(('a.txt', 'a\n'), ('a.txt', 'a\n'))

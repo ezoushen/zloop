@@ -1127,9 +1127,10 @@ def set_field(tickets, name, assignments):
 def landed(sha, ref):
     """Whether every change of `sha` not reachable from `ref` is in `ref` as a commit with the same change: a ticket
     branch rebased onto the workstream and fast-forwarded gets new commit ids, and a clean rebase can move the lines
-    around a change. Changes are compared without context (`-U0` patch ids) and without the repository's attributes,
-    converters or GIT_DIFF_OPTS, read as bytes, so only the changed content counts; a binary change keeps its blob ids.
-    A commit that changes nothing carries nothing to land. Whether a commit changes anything is read with plumbing, so
+    around a change. Changes are compared without context (`-U0` patch ids), without attributes from the tree, the
+    user's or the system's file (.git/info/attributes still applies), converters or GIT_DIFF_OPTS, and read as bytes,
+    so only the changed content counts; a binary change keeps its blob ids. A commit that changes nothing carries
+    nothing to land. Whether a commit changes anything is read with plumbing, so
     a change the log leaves out, or a git that cannot show it, refuses rather than passes."""
     git = ["git", "-C", str(ROOT)]
     if subprocess.run([*git, "merge-base", "--is-ancestor", sha, ref], capture_output=True).returncode == 0:
@@ -1139,11 +1140,12 @@ def landed(sha, ref):
         return False
     fork = base.stdout.strip()
     empty = subprocess.run([*git, "hash-object", "-t", "tree", "/dev/null"], capture_output=True, text=True).stdout
-    env = {k: v for k, v in os.environ.items() if k != "GIT_DIFF_OPTS"}
+    env = {**{k: v for k, v in os.environ.items() if k != "GIT_DIFF_OPTS"}, "GIT_ATTR_NOSYSTEM": "1"}
 
     def changes(tip):
         """{commit: patch id} for each commit between the fork and tip whose log shows a change."""
-        log = subprocess.run(["git", f"--attr-source={empty.strip()}", "-C", str(ROOT), "log", "-p", "-U0",
+        log = subprocess.run(["git", f"--attr-source={empty.strip()}", "-c", "core.attributesFile=/dev/null",
+                              "-C", str(ROOT), "log", "-p", "-U0",
                               "--no-textconv", "--no-color", "--no-ext-diff", "--submodule=short",
                               "--ignore-submodules=none", "--no-merges", "--format=commit %H", f"{fork}..{tip}"],
                              capture_output=True, check=True, env=env).stdout
