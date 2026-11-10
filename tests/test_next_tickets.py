@@ -248,6 +248,13 @@ class BoardCLI(unittest.TestCase):
         self.assertEqual(sorted(self.root.glob('.scratch/*/issues/*.md')), before)
         self.assertTrue(Path(self.cli('other', '--new', 'Fix the typo').stdout.strip()).is_file())
 
+    def test_a_ready_ticket_names_its_branch_and_worktree(self):
+        # The host takes these names from the board instead of deriving them: a live host named a ticket's branch after
+        # its heading, which the board's --accept then could not find.
+        self.cli('fx', '--new', 'Format money')
+        ticket = json.loads(self.cli('fx').stdout)[0]
+        self.assertEqual((ticket['branch'], ticket['worktree']), ('fx/format-money', '.worktrees/fx-format-money'))
+
     def test_new_keeps_an_apostrophe_inside_its_word_in_the_file_stem(self):
         # The stem is the ticket's branch name: "git's" is one word, not "git" and "s".
         made = Path(self.cli('fx', '--new', "Hold titles to git's summary-line convention").stdout.strip())

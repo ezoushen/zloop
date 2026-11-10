@@ -531,7 +531,8 @@ def ready(tickets, slug=None, max_live=MAX_LIVE):
             continue
         if busy_areas & set(fm.get("touches", [])):
             continue
-        out.append(fm)
+        branch = ticket_branch(spec_of(name), Path(fm["path"]))
+        out.append({**fm, "branch": branch, "worktree": f".worktrees/{branch.replace('/', '-', 1)}"})
         busy_areas |= set(fm.get("touches", []))
     return out
 
@@ -573,8 +574,12 @@ def report_branch(slug, nn, text):
     recorded = re.search(r"^branch:\s*`?([^\s`]+)`?\s*$", header, re.M)
     if recorded:
         return recorded.group(1), True
-    stem = next((ISSUES / slug / "issues").glob(f"{nn}-*.md"), Path(f"{nn}-ticket.md")).stem
-    return f"{slug}/{stem.split('-', 1)[1]}", False
+    return ticket_branch(slug, next((ISSUES / slug / "issues").glob(f"{nn}-*.md"), Path(f"{nn}-ticket.md"))), False
+
+
+def ticket_branch(slug, path):
+    """A delegated ticket's branch: <slug>/<its ticket file's stem without NN->; its worktree turns the / into -."""
+    return f"{slug}/{path.stem.partition('-')[2] or path.stem}"
 
 
 def accept(tickets, name):
