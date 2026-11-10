@@ -42,7 +42,9 @@ def header_problems(header):
 
 
 def main(argv):
-    header = Path(argv[1]).read_text().split('\n', 1)[0]
+    # The hook sees the message before git drops blank and comment lines, so the header is the first line left.
+    header = next((line for line in Path(argv[1]).read_text().splitlines()
+                   if line.strip() and not line.startswith('#')), '')
     problems = header_problems(header)
     for problem in problems:
         print(f'commit-msg: the header {problem} ({STANDARD})', file=sys.stderr)

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """pre-commit: fast checks on each commit."""
+import shlex
 import subprocess
 import unittest
 
@@ -123,6 +124,19 @@ class CommitMsg(HookRepo):
                 accepted = self.say(header)
                 self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
 
+
+    def test_an_editor_message_is_judged_by_its_first_line_that_is_not_blank_or_a_comment(self):
+        # The hook sees the message before git strips blank and comment lines, so it skips them itself.
+        editor = self.root / 'editor.sh'
+        editor.write_text('#!/bin/sh\nprintf \'\\n# a comment line\\nfeat: write the header after a comment\\n\' > "$1"\n')
+        editor.chmod(0o755)
+        accepted = self.say('ignored', editor=shlex.quote(str(editor)))
+        self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+        refusing = self.root / 'refusing.sh'
+        refusing.write_text('#!/bin/sh\nprintf \'\\n# a comment line\\nupdate things\\n\' > "$1"\n')
+        refusing.chmod(0o755)
+        refused = self.say('ignored', editor=shlex.quote(str(refusing)))
+        self.assertIn('commit-msg: the header has no type', refused.stderr)
 
 if __name__ == '__main__':
     unittest.main()
