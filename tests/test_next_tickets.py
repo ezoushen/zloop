@@ -904,6 +904,39 @@ class BoardCLI(unittest.TestCase):
         self.git('switch', '-q', 'feat/inline')
         self.cli('inline', '--set', 'inline/01', 'status=done', code=1)
 
+    def test_a_fast_forwarded_ticket_is_done_on_a_git_without_attr_source(self):
+        # A ticket the workstream already contains is landed on any git; only a rebased one needs patch ids.
+        self.accepted_ticket_branch(('a.txt', 'a\n'))
+        self.git('merge', '-q', '--ff-only', 'inline/second')
+        old = self.root.parent / f'{self.root.name}-oldgit'
+        old.mkdir()
+        real = shutil.which('git')
+        (old / 'git').write_text(f'#!/bin/sh\ncase "$1" in --attr-source=*) exit 129;; esac\nexec {real} "$@"\n')
+        (old / 'git').chmod(0o755)
+        self.addCleanup(shutil.rmtree, old)
+        with patch.dict(os.environ, {'PATH': f'{old}{os.pathsep}{os.environ["PATH"]}'}):
+            self.cli('inline', '--set', 'inline/01', 'status=done')
+
+    def test_a_rebased_submodule_pointer_ignored_by_gitmodules_lands(self):
+        # A pointer change still has a patch id when .gitmodules says `ignore = all`, so a rebase can land it.
+        self.write_stacked_ticket('01', 'second')
+        self.write_files({'.gitmodules': '[submodule "vendor"]\n\tpath = vendor\n\turl = ./vendor\n\tignore = all\n'})
+        base = self.commit('base')
+        self.git('switch', '-q', '-c', 'feat/inline')
+        self.git('switch', '-q', '-c', 'inline/second')
+        self.git('update-index', '--add', '--cacheinfo', f'160000,{base},vendor')
+        bump = self.commit('point vendor at the base')
+        self.write_report(base, commits=[bump])
+        self.cli('inline', '--accept', 'inline/01')
+        self.git('switch', '-q', 'feat/inline')
+        self.write_files({'moved.txt': 'the workstream moved after the fork\n'})
+        self.commit('the workstream moves on')
+        self.git('switch', '-q', 'inline/second')
+        self.git('rebase', '-q', 'feat/inline')
+        self.git('switch', '-q', 'feat/inline')
+        self.git('merge', '-q', '--ff-only', 'inline/second')
+        self.cli('inline', '--set', 'inline/01', 'status=done')
+
     def test_a_rebased_ticket_with_a_commit_that_changes_nothing_is_done(self):
         # Only commits with a change carry anything to land; a rebase gives a commit with none a new id.
         self.accepted_ticket_branch(('a.txt', 'a\n'), ('a.txt', 'a\n'))

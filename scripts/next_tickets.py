@@ -1129,6 +1129,8 @@ def landed(sha, ref):
     A commit that changes nothing carries nothing to land. Whether a commit changes anything is read with plumbing, so
     a change the log leaves out, or a git that cannot show it, refuses rather than passes."""
     git = ["git", "-C", str(ROOT)]
+    if subprocess.run([*git, "merge-base", "--is-ancestor", sha, ref], capture_output=True).returncode == 0:
+        return True  # Fast-forwarded as it was: no patch id needed, on any git.
     base = subprocess.run([*git, "merge-base", sha, ref], capture_output=True, text=True)
     if base.returncode != 0:
         return False
