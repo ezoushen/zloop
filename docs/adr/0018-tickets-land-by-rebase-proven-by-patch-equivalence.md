@@ -1,10 +1,10 @@
 # Tickets land by rebase and fast-forward, proven by patch equivalence
 
-While a ticket branch is local, an accepted ticket lands on its workstream branch by rebasing onto the workstream tip and fast-forwarding, so no merge commit comes from a ticket branch; once pushed it is never rewritten, and `main` still merges into a workstream. Because a rebase gives the commits new ids, the done check proves a ticket landed by comparing what each commit changes (`-U0` patch ids, read as bytes with the repository's diff attributes, converters and `GIT_DIFF_OPTS` set aside), not by ancestry; a commit whose change it cannot read refuses rather than passes.
+While a ticket branch is local, an accepted ticket lands on its workstream branch by rebasing onto the workstream tip and fast-forwarding, so no merge commit comes from a ticket branch; once pushed it is never rewritten, and `main` still merges into a workstream. Because a rebase gives the commits new ids, the done check proves a ticket landed by comparing what each commit changes (`-U0` patch ids, read as bytes with the repository's diff attributes, converters and `GIT_DIFF_OPTS` set aside) once ancestry fails, since only an unrebased commit is still an ancestor; a commit whose change it cannot read refuses rather than passes.
 
 ## Considered Options
 
-- Squash-merge one commit per ticket: rejected by the user in favour of keeping each ticket's commits.
+- Squash-merge one commit per ticket: offered as the recommendation; the user chose rebase and fast-forward instead.
 - `merge-tree` "merging the ticket changes nothing": refuses a clean rebase past an adjacent-line edit.
 - Patch ids with context: a clean rebase past a nearby edit changes them.
 

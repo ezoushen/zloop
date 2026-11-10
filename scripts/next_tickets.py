@@ -1038,7 +1038,7 @@ def new_ticket(slug, title, blocked_by, touches):
         tickets = load_whole()  # Read under the lock: a parallel call wrote its ticket before letting go of it.
         nn = f"{max((int(t.split('/')[1]) for t in tickets if spec_of(t) == slug), default=0) + 1:02}"
         plain = unicodedata.normalize("NFKD", re.sub("['\u2019]", "", title.lower())).encode("ascii", "ignore")
-        words = "-".join(re.findall(r"[a-z0-9]+", plain.decode()))  # é is e, not a gap in the branch name
+        words = "-".join(re.findall(r"[a-z0-9]+", plain.decode()))
         path = issues / f"{nn}-{words}.md"
         taken = next((p for p in issues.glob(f"*-{words}.md") if p != path and p.stem.split("-", 1)[1] == words), None)
         if taken:  # The title words name the ticket's branch and worktree: two tickets would share them.
