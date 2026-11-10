@@ -839,6 +839,19 @@ class BoardCLI(unittest.TestCase):
         self.git('merge', '-q', '--ff-only', 'inline/second')
         self.cli('inline', '--set', 'inline/01', 'status=done')
 
+    def test_a_ticket_rebased_cleanly_past_a_nearby_workstream_edit_is_done(self):
+        # A clean rebase can change a commit's context lines, not its change, so it still counts as landed.
+        lines = [f'line {n}' for n in range(40)]
+        self.write_files({'shared.txt': '\n'.join(lines) + '\n'})
+        self.accepted_ticket_branch(('shared.txt', '\n'.join(lines[:20] + ['the ticket'] + lines[21:]) + '\n'))
+        self.write_files({'shared.txt': '\n'.join(lines[:22] + ['the workstream'] + lines[23:]) + '\n'})
+        self.commit('the workstream edits two lines away')
+        self.git('switch', '-q', 'inline/second')
+        self.git('rebase', '-q', 'feat/inline')
+        self.git('switch', '-q', 'feat/inline')
+        self.git('merge', '-q', '--ff-only', 'inline/second')
+        self.cli('inline', '--set', 'inline/01', 'status=done')
+
     def test_a_ticket_with_commits_missing_from_the_workstream_is_refused_naming_rebase_and_fast_forward(self):
         # A partly landed ticket is not done, and the refusal names the step that lands the rest.
         first, second = self.accepted_ticket_branch(('a.txt', 'a\n'), ('b.txt', 'b\n'))

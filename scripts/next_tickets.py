@@ -1122,10 +1122,26 @@ def set_field(tickets, name, assignments):
 
 
 def landed(sha, ref):
-    """Whether every commit of `sha` not reachable from `ref` has a patch-equivalent commit in `ref`: a ticket branch
-    rebased onto the workstream and fast-forwarded gets new commit ids, so ancestry alone would refuse it."""
-    cherry = subprocess.run(["git", "-C", str(ROOT), "cherry", ref, sha], capture_output=True, text=True)
-    return cherry.returncode == 0 and not any(line.startswith("+") for line in cherry.stdout.splitlines())
+    """Whether every commit of `sha` not reachable from `ref` is in `ref` as a commit with the same change: a ticket
+    branch rebased onto the workstream and fast-forwarded gets new commit ids, and a clean rebase can move the lines
+    around a change. Changes are compared without context (`-U0` patch ids), so only the changed lines count; a commit
+    with no change has no patch id and counts only when `ref` contains it."""
+    base = subprocess.run(["git", "-C", str(ROOT), "merge-base", sha, ref], capture_output=True, text=True)
+    if base.returncode != 0:
+        return False
+
+    def changes(tip):
+        """{commit: patch id} for each commit with a change between the fork and tip."""
+        log = subprocess.run(["git", "-C", str(ROOT), "log", "-p", "-U0", "--no-merges", "--format=commit %H",
+                              f"{base.stdout.strip()}..{tip}"], capture_output=True, text=True, check=True).stdout
+        ids = subprocess.run(["git", "-C", str(ROOT), "patch-id", "--stable"], input=log, capture_output=True,
+                             text=True, check=True).stdout
+        return {commit: patch for patch, commit in (line.split() for line in ids.splitlines())}
+
+    ours, theirs = changes(sha), set(changes(ref).values())
+    commits = subprocess.run(["git", "-C", str(ROOT), "rev-list", "--no-merges", f"{base.stdout.strip()}..{sha}"],
+                             capture_output=True, text=True, check=True).stdout.split()
+    return all(ours[c] in theirs if c in ours else in_main(c, ref) for c in commits)
 
 
 def write_fields(fm, fields):
