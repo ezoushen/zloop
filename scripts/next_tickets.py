@@ -607,9 +607,11 @@ def verify(tickets, name):
     problems = report_problems(text)
     base = re.search(r"^base:\s*`?([0-9a-f]{40})", text, re.M)
     branch, recorded = report_branch(slug, nn, text)
-    ref = branch_ref(branch) if recorded else f"refs/heads/{branch}"
+    ref = branch_ref(branch)
     if base and ref is None:
-        problems.append(f"branch {branch} is not an existing branch")
+        problems.append(f"branch {branch} is not an existing branch" if recorded else
+                        f"branch {branch}, the board's name for this ticket, does not exist; name the ticket branch so, "
+                        "or record its branch as `branch: <name>` in the report's first lines")
     elif base:
         count = subprocess.run(["git", "-C", str(ROOT), "rev-list", "--count", f"{base.group(1)}..{ref}"],
                                capture_output=True, text=True)

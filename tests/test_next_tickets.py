@@ -249,9 +249,9 @@ class BoardCLI(unittest.TestCase):
         self.assertTrue(Path(self.cli('other', '--new', 'Fix the typo').stdout.strip()).is_file())
 
     def test_a_ready_ticket_names_its_branch_and_worktree(self):
-        # The host takes these names from the board instead of deriving them: a live host named a ticket's branch after
-        # its heading, which the board's --accept then could not find.
-        self.cli('fx', '--new', 'Format money')
+        # The names come from the ticket's file name, not its heading, so the host takes them from the board.
+        made = Path(self.cli('fx', '--new', 'Format money').stdout.strip())
+        made.write_text(made.read_text().replace('# 01: Format money', '# 01: money format'))
         ticket = json.loads(self.cli('fx').stdout)[0]
         self.assertEqual((ticket['branch'], ticket['worktree']), ('fx/format-money', '.worktrees/fx-format-money'))
 
@@ -722,7 +722,8 @@ class BoardCLI(unittest.TestCase):
         self.git('branch', 'feat/inline')
         self.write_report(base, returned=False)
         refused = self.cli('inline', '--accept', 'inline/01', code=1)
-        assert f'inline/01: branch inline/{stem} or base not found' in refused.stderr, refused.stderr
+        assert (f'inline/01: branch inline/{stem}, the board\'s name for this ticket, does not exist; name the ticket '
+                f'branch so, or record its branch as `branch: <name>` in the report\'s first lines') in refused.stderr, refused.stderr
         self.git('switch', '-q', '-c', f'inline/{stem}')
         work = self.commit('ticket work')
         self.write_report(base, commits=[work], returned=False)
