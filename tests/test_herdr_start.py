@@ -52,10 +52,10 @@ else:
         self.env['OPENCODE_SESSION_ID'] = 'opencode-host'
         self.env.pop('HERDR_SOCKET_PATH', None)
 
-    def start(self, worktree=None):
+    def start(self, worktree=None, name='builder-05'):
         return subprocess.run([sys.executable, str(support.HOOKS / 'herdr_launch.py'), 'start',
                                '--route', str(self.route), '--worktree', worktree or str(self.worktree),
-                               '--assignment', 'workstream/05', '--role', 'builder', '--name', 'builder-05'],
+                               '--assignment', 'workstream/05', '--role', 'builder', '--name', name],
                               cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=10)
 
     def test_saved_route_preserves_spaces_and_toml_through_tab_and_agent_start(self):
@@ -70,6 +70,16 @@ else:
         filesystem = tomllib.loads(calls[1][calls[1].index('--') + 4])['permissions']['zloop_worktree']['filesystem']
         self.assertEqual(filesystem, {':root': 'read', ':tmpdir': 'write', str(self.worktree): 'write'})
         self.assertEqual(json.loads(result.stdout)['result']['agent']['pane_id'], 'root-pane')
+
+    def test_a_name_herdr_would_refuse_is_refused_before_any_tab_opens(self):
+        # Herdr refuses such a name only at agent start, after the tab exists; start checks it first.
+        for name in ('bsrevB', '1worker', 'a' * 33, 'has space'):
+            with self.subTest(name=name):
+                result = self.start(name=name)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn('lowercase letter', result.stderr)
+                self.assertFalse(self.calls.exists(), 'no Herdr call before the name is valid')
+        self.assertEqual(self.start(name='bs-rev_11').returncode, 0)
 
     def test_a_relative_worktree_opens_the_tab_in_that_folder_of_the_caller_s_checkout(self):
         result = self.start(worktree='.worktrees/worker with spaces')

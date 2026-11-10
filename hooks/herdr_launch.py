@@ -156,6 +156,9 @@ def start(argv):
     parser.add_argument('--role', required=True)
     parser.add_argument('--name', required=True)
     args = parser.parse_args(argv)
+    if not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', args.name):  # Herdr refuses it only at agent start, after the tab.
+        parser.error(f"--name {args.name!r}: an agent name must start with a lowercase letter and hold only lowercase "
+                     "letters, digits, '-' or '_' (1-32 characters), as Herdr requires")
     workspace = os.environ.get('HERDR_WORKSPACE_ID')
     if not workspace:
         parser.error('run start in the orchestrator Herdr workspace (HERDR_WORKSPACE_ID)')
