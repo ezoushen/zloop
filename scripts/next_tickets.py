@@ -533,7 +533,7 @@ def ready(tickets, slug=None, max_live=MAX_LIVE):
         if busy_areas & set(fm.get("touches", [])):
             continue
         branch = ticket_branch(spec_of(name), Path(fm["path"]))
-        out.append({**fm, "branch": branch, "worktree": f".worktrees/{branch.replace('/', '-', 1)}"})
+        out.append({**fm, "branch": branch, "worktree": f".worktrees/{branch.replace('/', '--', 1)}"})
         busy_areas |= set(fm.get("touches", []))
     return out
 
@@ -579,7 +579,8 @@ def report_branch(slug, nn, text):
 
 
 def ticket_branch(slug, path):
-    """A delegated ticket's branch: <slug>/<its ticket file's stem without NN->; its worktree turns the / into -."""
+    """A delegated ticket's branch: <slug>/<its ticket file's stem without NN->; its worktree turns the / into --, which
+    title words never hold, so two workstreams never share one."""
     return f"{slug}/{path.stem.partition('-')[2] or path.stem}"
 
 

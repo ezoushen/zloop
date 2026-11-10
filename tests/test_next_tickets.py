@@ -253,7 +253,7 @@ class BoardCLI(unittest.TestCase):
         made = Path(self.cli('fx', '--new', 'Format money').stdout.strip())
         made.write_text(made.read_text().replace('# 01: Format money', '# 01: money format'))
         ticket = json.loads(self.cli('fx').stdout)[0]
-        self.assertEqual((ticket['branch'], ticket['worktree']), ('fx/format-money', '.worktrees/fx-format-money'))
+        self.assertEqual((ticket['branch'], ticket['worktree']), ('fx/format-money', '.worktrees/fx--format-money'))
 
     def test_new_keeps_an_apostrophe_inside_its_word_in_the_file_stem(self):
         # The stem is the ticket's branch name: "git's" is one word, not "git" and "s".
