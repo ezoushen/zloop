@@ -159,8 +159,9 @@ class RemoteLifecycle(RemoteEnvironment):
         self.assertNotIn('t3-argv.log', [p.name for p in self.root.iterdir()])
 
     def test_a_remote_collection_reads_through_the_environment_transport(self):
-        # Rule (ledger A1): the productive send for an environment-targeted attempt goes through the MCP server
-        # thread-scoped arguments, and the wait maps the thread's status like the CLI's exit codes.
+        # Rule (ledger A1, wire shape per A8): collection of an environment-targeted attempt reads the remote
+        # thread through the MCP server with thread-scoped arguments, and the wait maps the thread's status
+        # like the CLI's exit codes.
         self.registered_remote()
         self.ready('ticket-1/1')
         native = self.native('ticket-1/1')
