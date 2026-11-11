@@ -193,9 +193,10 @@
           "required": ["type", "config"],
           "additionalProperties": false
         },
+        { "$ref": "#/$defs/builtInExecutor" },
         {
           "type": "object",
-          "properties": { "type": { "$ref": "#/$defs/customExecutorName" } },
+          "properties": { "type": { "allOf": [{ "$ref": "#/$defs/customExecutorName" }, { "not": { "enum": ["herdr", "t3"] } }] } },
           "required": ["type"],
           "additionalProperties": false
         }
@@ -206,7 +207,14 @@
     },
     "builtInExecutor": {
       "type": "object",
-      "properties": { "type": { "enum": ["herdr", "t3"] } },
+      "properties": {
+        "type": { "enum": ["herdr", "t3"] },
+        "environment": {
+          "description": "A linked environment a t3 route targets: the label or environmentId `t3 environment list` answers with.",
+          "type": "string",
+          "pattern": "\\S"
+        }
+      },
       "required": ["type"],
       "additionalProperties": false
     },

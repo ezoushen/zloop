@@ -234,6 +234,10 @@ _Avoid_: none
 A reachable launch path from the caller's context to a worker runtime through an executor.
 _Avoid_: none
 
+**Linked environment**:
+Another T3 Code environment a t3 route can name as its target, linked with an access level that caps what a worker there may do.
+_Avoid_: none
+
 **Candidate**:
 A configured worker option considered for an assignment, with its model, runtime binding and resolved route.
 _Avoid_: none

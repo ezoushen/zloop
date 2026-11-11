@@ -865,13 +865,22 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
     launch = (launch_controls(runtime, agent, settings, repo.resolve(), worktree, reports)
               if not native and runtime in HOSTS else None)
     # Named delegates and skills can forward to another runtime; the host is not the destination.
+    environment = None
     if kind == 't3':
         # The explicit t3 gate includes the environment: the layered preflight runs at resolution, before any
-        # launch, and its layer's reason (home/server/project) refuses the route.
+        # launch, and its layer's reason (home/server/project/environment) refuses the route. A route naming a
+        # linked environment also needs that environment linked, answering and at or above the agent's writes
+        # need; its refusal names the environment layer and its problem (unlinked/unreachable/ceiling).
         import t3_preflight
         verdict = t3_preflight.verify(repo.resolve())
         if not verdict['ok']:
             raise NoRoute(f'T3 environment preflight failed at {verdict["reason"]}: {verdict.get("detail", "")}')
+        environment = executor.get('environment')
+        if environment is not None:
+            verdict = t3_preflight.verify_environment(environment, DEFINITIONS['agents'][agent]['writes'])
+            if not verdict['ok']:
+                raise NoRoute(f'T3 environment preflight failed at {verdict["reason"]}: '
+                              f'{verdict.get("detail", "")}')
         provider = metadata.get('t3_provider')
         if not provider and target_runtime:
             raise NoRoute(f'Model binding for {target_runtime!r} names no T3 provider: '
@@ -887,6 +896,7 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
             'executor': 'native' if native else kind, 'executor_type': kind,
             'executor_config': config, 'native_dispatch': native, 'model_mode': mode,
             'allow_thinking_override': allow_thinking_override,
+            **({'environment': verdict['environment']} if environment is not None else {}),
             'thinking_baseline': thinking['default'] if bounded else thinking,
             **({'thinking_allowed': thinking['allowed']} if bounded else {}),
             'route_source': source, **metadata, **({'launch': launch} if launch else {}),

@@ -40,6 +40,23 @@ class BuiltInType(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Unknown executor type'):
             models.expand_executor_type({'executor': {'type': 'no-such-type'}}, {})
 
+    def test_schema_accepts_an_environment_target_and_rejects_its_misuse(self):
+        # A t3 route may name a linked environment; the field is a nonempty string, so a number or a
+        # structured form is misuse.
+        from executor_config import validate_schema
+        validate_schema({'agents': {'reviewer': {'executor': {'type': 't3', 'environment': 'peer-host'}}}},
+                        'test', 'executors.schema.json')
+        with self.assertRaises(ValueError):
+            validate_schema({'agents': {'reviewer': {'executor': {'type': 't3', 'environment': 7}}}},
+                            'test', 'executors.schema.json')
+        with self.assertRaises(ValueError):
+            validate_schema({'agents': {'reviewer': {'executor':
+                                         {'type': 't3', 'environment': {'label': 'peer-host'}}}}},
+                            'test', 'executors.schema.json')
+        with self.assertRaises(ValueError):
+            validate_schema({'agents': {'reviewer': {'executor': {'type': 't3', 'environment': '   '}}}},
+                            'test', 'executors.schema.json')
+
     def test_schema_accepts_t3_where_it_accepts_herdr(self):
         from executor_config import validate_schema
         validate_schema({'agents': {'reviewer': {'executor': {'type': 't3'}}}}, 'test', 'executors.schema.json')
@@ -195,6 +212,111 @@ sys.exit({code})
         with self.stub_t3():
             with self.assertRaisesRegex(ValueError, 'home'):
                 self.resolve()
+
+
+class EnvironmentTarget(unittest.TestCase):
+    """A t3 route may name a linked environment: the resolver carries the resolved target and the layered
+    preflight verifies it is linked and answering, at or above the agent's writes need, before the route
+    returns. A route without the field behaves exactly as before and never asks the environment source."""
+
+    PEER = {'environmentId': 'env-peer-1', 'label': 'peer', 'urls': ['https://peer.example:3773'],
+            'access': 'approval-required', 'status': 'reachable'}
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix='zloop t3 environment ')
+        self.addCleanup(tmp.cleanup)
+        machine = tempfile.TemporaryDirectory(prefix='zloop machine ')
+        self.addCleanup(machine.cleanup)
+        env = patch.dict(os.environ, support.isolated_env(machine.name, ZLOOP_PROFILE='', HERDR_ENV=''))
+        env.start()
+        self.addCleanup(env.stop)
+        self.root = Path(tmp.name)
+        self.user = self.root / 'executors.json'
+        self.write_route(environment=None, agent='reviewer')
+
+    def write_route(self, environment, agent='reviewer'):
+        route = {'type': 't3'}
+        if environment is not None:
+            route['environment'] = environment
+        self.user.write_text(json.dumps({
+            'models': {'sol': {'description': 'Implementation and repair.',
+                               'runtimes': {'pi': {'id': 'pi-sol', 'provider': 'pi'}}}},
+            'runtimes': {'pi': {'executors': {'t3': route}}},
+            'agents': {agent: {'model': 'sol'}}}))
+
+    def stub_t3(self, links, *, environment_fails=False):
+        import stat
+        directory = self.root / 'bin'
+        directory.mkdir(exist_ok=True)
+        executable = directory / 't3'
+        executable.write_text('#!' + sys.executable + '\n' + f'''
+import json, sys
+args = sys.argv[1:]
+with open({str(self.root / 'argv.log')!r}, 'a') as log:
+    log.write(' '.join(args) + chr(10))
+if args[:2] == ['environment', 'list'] and '--json' in args:
+    if {environment_fails!r}:
+        sys.exit(3)
+    print(json.dumps({links!r} if {links!r} is not None else []))
+    sys.exit(0)
+print(json.dumps([{{'threadId': 'th-1'}}]))
+sys.exit(0)
+''')
+        executable.chmod(stat.S_IRWXU)
+        env = patch.dict(os.environ, {'PATH': str(directory) + os.pathsep + os.environ['PATH'],
+                                      'T3CODE_HOME': str(self.root / 't3home')})
+        env.start()
+        self.addCleanup(env.stop)
+        home = self.root / 't3home' / 'userdata'
+        home.mkdir(parents=True, exist_ok=True)
+        (home / 'server-runtime.json').write_text('{}')
+
+    def calls(self):
+        log = self.root / 'argv.log'
+        return log.read_text().splitlines() if log.exists() else []
+
+    def resolve(self, agent='reviewer'):
+        return models.resolve_execution(self.root, self.root / 'absent.json', self.user,
+                                        'codex', agent, {})
+
+    def test_a_route_naming_a_linked_environment_resolves_carrying_it(self):
+        # The resolved execution names the linked environment the route targeted, with what the link grants.
+        self.stub_t3([self.PEER])
+        self.write_route('peer')
+        result = self.resolve()
+        self.assertEqual((result['executor_type'], result['executor_context']), ('t3', 't3'))
+        self.assertEqual((result['environment']['id'], result['environment']['label'],
+                          result['environment']['access']), ('env-peer-1', 'peer', 'approval-required'))
+        self.assertIn('environment list --json', self.calls())
+
+    def test_a_route_naming_an_unlinked_environment_refuses_at_the_environment_layer(self):
+        # An empty answer and a populated one refuse alike; the refusal is not a local home/server/project one.
+        self.stub_t3([self.PEER])
+        self.write_route('nowhere')
+        with self.assertRaisesRegex(ValueError, "environment.*unlinked.*'nowhere'"):
+            self.resolve()
+
+    def test_a_route_naming_a_silent_environment_refuses_unreachable(self):
+        self.stub_t3([dict(self.PEER, status='unreachable')])
+        self.write_route('peer')
+        with self.assertRaisesRegex(ValueError, 'environment.*unreachable'):
+            self.resolve()
+
+    def test_a_route_narrower_than_the_link_refuses_at_the_ceiling(self):
+        # A builder writes its worktree there, so approval-required access is below the route's need.
+        self.stub_t3([self.PEER])
+        self.write_route('peer', agent='builder')
+        with self.assertRaisesRegex(ValueError, 'environment.*ceiling.*auto-accept-edits'):
+            self.resolve(agent='builder')
+
+    def test_without_an_environment_field_the_resolution_asks_the_environment_source_nothing(self):
+        # The no-environment control: the route resolves exactly as delivered and `t3 environment list` is
+        # never consulted, so the field's absence is provably what the gate read.
+        self.stub_t3([self.PEER])
+        result = self.resolve()
+        self.assertEqual((result['executor_type'], result['executor_context']), ('t3', 't3'))
+        self.assertNotIn('environment', result)
+        self.assertNotIn('environment list', ' '.join(self.calls()))
 
 
 if __name__ == '__main__':

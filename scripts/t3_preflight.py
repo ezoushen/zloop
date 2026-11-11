@@ -6,6 +6,8 @@ launch. Layered, each layer with its own reason:
   the server answers and the project is registered. Exit 1 means no server answers; exit 0 with a
   "No T3 Code project matches" message means the server is up but the project is not registered, so the
   body is parsed, never the exit code alone.
+- environment: `t3 environment list --json` answers with the linked environments and whether each answers now;
+  a route naming one of them needs it linked, answering, and granting access at or above the route's need.
 
 `t3 status` and bare `t3 doctor` are never liveness probes: both exit 0 while no service is installed (a
 desktop-app server can still be serving), and bare doctor repairs and restarts the service. Diagnostics use
@@ -17,6 +19,12 @@ import subprocess
 from pathlib import Path
 
 LOOKUP_SECONDS = 20
+
+# A link's access ladder (the v0.1.8 wire's `access` levels, narrowest first) and the floor each agent writes
+# scope needs: a read-only link grants only the orchestration-read scope, so it cannot launch a thread there;
+# a worktree-writing worker needs edits accepted, which approval-required does not cover.
+ACCESS_RANK = {'read-only': 0, 'approval-required': 1, 'auto-accept-edits': 2, 'auto': 3, 'full-access': 4}
+NEED_FLOOR = {'none': 'approval-required', 'worktree': 'auto-accept-edits'}
 
 
 def home_dir(home=None):
@@ -59,6 +67,48 @@ def verify(project, home=None):
                 'home': str(resolved), 'detail': body[:200]}
     return {'ok': True, 'reason': None, 'home': str(resolved),
             'thread_list': {'ok': True, 'threads': len(parsed)}}
+
+
+def verify_environment(target, writes, timeout=LOOKUP_SECONDS):
+    """{ok, reason, problem?, environment?} for the linked environment a t3 route names: `t3 environment list
+    --json` must answer with a link matching `target` by label or environmentId whose status is reachable and
+    whose access is at or above the `writes` scope's floor. The refusal is the environment layer's own, with a
+    distinct problem per rule: unlinked, unreachable or ceiling."""
+    floor = NEED_FLOOR.get(writes)
+    if floor is None:
+        raise ValueError(f'Unknown writes scope {writes!r}; the access floor is unknown')
+    try:
+        process = subprocess.run(['t3', 'environment', 'list', '--json'], capture_output=True, text=True,
+                                 timeout=timeout)
+    except (subprocess.TimeoutExpired, FileNotFoundError) as error:
+        return _environment_problem('unreachable', target, str(error))
+    try:
+        links = json.loads(process.stdout.strip())
+    except ValueError:
+        links = None
+    if process.returncode != 0 or not isinstance(links, list):
+        detail = (process.stdout.strip() or process.stderr.strip())[:200]
+        return _environment_problem('unreachable', target, detail or 't3 environment list did not answer')
+    for link in links:
+        if not isinstance(link, dict) or target not in (link.get('label'), link.get('environmentId')):
+            continue
+        label, environment_id = link.get('label', target), link.get('environmentId', target)
+        if link.get('status') != 'reachable':
+            return _environment_problem('unreachable', target,
+                                        f'{label} ({environment_id}) is {link.get("status")!r}')
+        access = link.get('access')
+        if ACCESS_RANK.get(access, -1) < ACCESS_RANK[floor]:
+            return _environment_problem('ceiling', target, f'{label} grants {access!r} access; '
+                                        f'a {writes!r} route needs {floor}')
+        return {'ok': True, 'reason': None,
+                'environment': {'id': environment_id, 'label': label, 'access': access}}
+    return _environment_problem('unlinked', target, 'no linked environment matches it')
+
+
+def _environment_problem(problem, target, detail):
+    """The environment layer's refusal: the layer reason, the distinct problem and the environment named."""
+    return {'ok': False, 'reason': 'environment', 'problem': problem,
+            'detail': f'{problem}: linked environment {target!r}: {detail}'}
 
 
 def diagnose(project, home=None):
