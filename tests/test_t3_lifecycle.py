@@ -69,11 +69,12 @@ sys.exit(3)
 
 class RemoteEnvironment(T3Threads):
     """A t3 route targeting a linked environment: the lifecycle reaches the thread through the T3 MCP server
-    (the local CLI answers only local threads — ledger A1), carrying environmentId on every call."""
+    (the local CLI answers only local threads — ledger A1); the endpoint is addressed by T3_MCP_URL, and the
+    call arguments carry only thread-scoped fields (no environmentId — ledger A8)."""
 
     def mcp_fixture(self, thread='mcp:peer-1', status='completed', reply='assignment done'):
         """A stub T3 MCP server: /mcp answers initialize + tools/call for thread read/send/organize with the
-        fixture's thread state, recording the environmentId it was given."""
+        fixture's thread state, recording the arguments it was given."""
         import threading
         from http.server import BaseHTTPRequestHandler, HTTPServer
         recorded = {}
@@ -146,12 +147,12 @@ class RemoteLifecycle(RemoteEnvironment):
         return self.cli('status')['attempts'][0]
 
     def test_a_remote_attempt_registers_through_the_environment_transport(self):
-        # Rule (ledger A1): a thread on a linked environment is confirmed through the T3 MCP server with
-        # environmentId; the local CLI is never asked about it.
+        # Rule (ledger A1): a thread on a linked environment is confirmed through the T3 MCP server; the
+        # local CLI is never asked about it, and the arguments carry only thread-scoped fields (A8).
         saved = self.registered_remote()
         calls = self.mcp_recorded['calls']
         self.assertTrue(calls, 'the lifecycle never reached the MCP transport')
-        self.assertTrue(all(args.get('environmentId') == 'peer' for c in calls for args in [c['args']]))
+        self.assertTrue(all('environmentId' not in c['args'] for c in calls))
         read_calls = [c for c in calls if c['tool'] == 't3_thread_read']
         self.assertTrue(read_calls and read_calls[0]['args']['threadId'] == 'mcp:peer-1')
         self.assertEqual(saved['t3']['thread'], 'mcp:peer-1')
@@ -159,7 +160,7 @@ class RemoteLifecycle(RemoteEnvironment):
 
     def test_a_remote_collection_reads_through_the_environment_transport(self):
         # Rule (ledger A1): the productive send for an environment-targeted attempt goes through the MCP server
-        # with environmentId, and the wait maps the thread's status like the CLI's exit codes.
+        # thread-scoped arguments, and the wait maps the thread's status like the CLI's exit codes.
         self.registered_remote()
         self.ready('ticket-1/1')
         native = self.native('ticket-1/1')
@@ -174,7 +175,7 @@ class RemoteLifecycle(RemoteEnvironment):
                     evidence=['mcp: the thread settled and answered'])
         read_calls = [c for c in self.mcp_recorded['calls'] if c['tool'] == 't3_thread_read']
         self.assertTrue(read_calls, 'collection never read the remote thread')
-        self.assertTrue(all(c['args'].get('environmentId') == 'peer' for c in read_calls))
+        self.assertTrue(all(c['args'].get('threadId') == 'mcp:peer-1' for c in read_calls))
 
     def test_a_remote_retire_archives_through_the_environment_transport(self):
         self.registered_remote()
@@ -195,7 +196,7 @@ class RemoteLifecycle(RemoteEnvironment):
         organize = [c for c in self.mcp_recorded['calls'] if c['tool'] == 't3_thread_organize']
         self.assertTrue(organize, 'retirement never archived the remote thread')
         self.assertEqual(organize[0]['args'].get('action'), 'archive')
-        self.assertEqual(organize[0]['args'].get('environmentId'), 'peer')
+        self.assertEqual(organize[0]['args'].get('threadId'), 'mcp:peer-1')
 
     def test_a_remote_attempt_without_a_credential_refuses_naming_the_fix(self):
         self.environment_route()
@@ -228,13 +229,14 @@ class ResolverSeam(RemoteEnvironment):
         code, response = worker_lifecycle_module.t3_show(data, 'mcp:peer-1')
         self.assertEqual(code, 0)
         calls = self.mcp_recorded['calls']
-        self.assertTrue(calls and all(c['args'].get('environmentId') == 'env-peer-1' for c in calls))
+        reads = [c for c in calls if c['tool'] == 't3_thread_read']
+        self.assertTrue(reads and all(c['args'].get('threadId') == 'mcp:peer-1' for c in reads))
 
 
 class RemoteTransport(RemoteEnvironment):
     def test_the_remote_send_transport_carries_the_environment_and_thread(self):
-        # Rule (ledger A1): the lifecycle's remote send is the MCP t3_thread_send with environmentId — the local
-        # CLI cannot reach another environment's thread.
+        # Rule (ledger A1): the lifecycle's remote send is the MCP t3_thread_send — the local CLI cannot reach
+        # another environment's thread; the arguments carry only thread-scoped fields (A8).
         import os
         import urllib.request
         self.environment_route()
@@ -248,8 +250,9 @@ class RemoteTransport(RemoteEnvironment):
                                                         {'threadId': 'mcp:peer-1', 'message': 'packet text'})
         self.assertEqual(code, 0)
         sent = [c for c in self.mcp_recorded['calls'] if c['tool'] == 't3_thread_send']
-        self.assertTrue(sent and sent[0]['args']['environmentId'] == 'peer'
-                        and sent[0]['args']['threadId'] == 'mcp:peer-1')
+        self.assertTrue(sent and sent[0]['args']['threadId'] == 'mcp:peer-1'
+                        and sent[0]['args']['message'] == 'packet text'
+                        and 'environmentId' not in sent[0]['args'])
 
 
 class Registration(T3Threads):

@@ -1776,6 +1776,11 @@ def t3_mcp(data, tool, arguments, timeout=LOOKUP_SECONDS):
         body, session = mcp_post({'jsonrpc': '2.0', 'id': 0, 'method': 'initialize',
                                   'params': {'protocolVersion': '2025-06-18', 'capabilities': {},
                                               'clientInfo': {'name': 'zloop', 'version': '1.0'}}})
+        # Spec-strict servers refuse calls before notifications/initialized; spec-tolerant ones ignore it.
+        try:
+            mcp_post({'jsonrpc': '2.0', 'method': 'notifications/initialized'}, session)
+        except (OSError, ValueError):
+            pass
         payload = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
                    'params': {'name': tool, 'arguments': dict(arguments)}}
         body, _ = mcp_post(payload, session)
