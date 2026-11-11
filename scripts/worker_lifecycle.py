@@ -889,7 +889,7 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
             # The T3 thread itself is the completion evidence: its turn must have settled and answered; the
             # status maps to the lifecycle's vocabulary at this one read.
             thread = target_for_t3['t3']['thread']
-            code, response = t3('thread', 'show', '--json', thread)
+            code, response = t3_show(target_for_t3, thread)
             placed = response.get('thread') if isinstance(response, dict) and isinstance(response.get('thread'), dict) else response
             require(code == 0 and isinstance(placed, dict) and placed.get('threadId') == thread,
                     f'T3 cannot confirm thread {thread} at collection: reconcile it and collect again')
@@ -969,7 +969,7 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
         elif 't3' in (route.get('executor_context'), route.get('executor_type')) or 't3' in data:
             # T3 Code is never ambient: only an explicit t3 route or registration field asks it. T3 has no pane to
             # place, so the lookup keeps the thread's state instead.
-            placed = t3_placement(data)
+            placed = t3_placement(data, execution)
     db.execute('BEGIN IMMEDIATE')
     with db:
         if kind == 'register':
@@ -1734,6 +1734,66 @@ def t3(*args, timeout=LOOKUP_SECONDS):
     return process.returncode, response
 
 
+
+
+def t3_environment(data):
+    """The linked environment a t3 attempt targets (ledger A1), or None for the local environment: the resolved
+    execution's top-level `environment` key (ledger A5) or the route's executor_config.environment."""
+    route = data.get('execution_snapshot') if isinstance(data.get('execution_snapshot'), dict) else None
+    execution = data.get('execution') if isinstance(data.get('execution'), dict) else None
+    for source in (data.get('environment'), (route or {}).get('environment'),
+                   (execution or {}).get('environment'),
+                   ((route or {}).get('executor_config') or {}).get('environment')):
+        if text(source):
+            return source
+    return None
+
+
+def t3_mcp(data, tool, arguments, timeout=LOOKUP_SECONDS):
+    """(0, the tool's structured result) through the T3 MCP server for an environment-targeted thread, or
+    (1, {'error': {...}}) on any failure; ValueError names the fix when the credential is missing or expired
+    (ledger A2)."""
+    import os
+    import urllib.error
+    import urllib.request
+    url, token = os.environ.get('T3_MCP_URL', ''), os.environ.get('T3_MCP_BEARER_TOKEN', '')
+    if not url or not token:
+        raise ValueError('a linked-environment thread needs T3_MCP_URL and T3_MCP_BEARER_TOKEN in the '
+                         'environment: run `t3 pair` on that environment and approve the zloop client '
+                         '(ledger A2)')
+    payload = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+               'params': {'name': tool, 'arguments': dict(arguments, environmentId=t3_environment(data))}}
+    request = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={
+        'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream',
+        'Authorization': f'Bearer {token}'})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as answer:
+            body = json.loads(answer.read())
+    except urllib.error.HTTPError as error:
+        if error.code in (401, 403):
+            raise ValueError('the T3 MCP credential was refused (expired or revoked): re-run `t3 pair` on '
+                             'that environment and approve the zloop client again') from None
+        return 1, {'error': {'code': 'http', 'message': f'T3 MCP answered {error.code}'}}
+    except (OSError, ValueError):
+        return 1, {'error': {'code': 'unreachable', 'message': 'the T3 MCP server did not answer'}}
+    result = (body.get('result') or {})
+    return 0, (result.get('structuredContent') if isinstance(result.get('structuredContent'), dict)
+               else json.loads((result.get('content') or [{}])[0].get('text', '{}')))
+
+
+def t3_show(data, thread):
+    """(exit code, the thread-state object) for a t3 attempt's thread: the local CLI on this machine's
+    environment, the MCP server for a linked one (ledger A1)."""
+    environment = t3_environment(data)
+    if not environment:
+        return t3('thread', 'show', '--json', thread)
+    code, response = t3_mcp(data, 't3_thread_read', {'threadId': thread})
+    if code == 0:
+        return 0, response
+    return 1, response
+
+
+
 def t3_thread(data):
     """The claimed thread id of a t3 registration, or None when the route is not T3 Code's."""
     route = data.get('execution_snapshot') if isinstance(data.get('execution_snapshot'), dict) else None
@@ -1747,11 +1807,11 @@ def t3_thread(data):
     return thread
 
 
-def t3_placement(data):
+def t3_placement(data, execution=None):
     """Where T3 Code itself placed a registration's worker: the state of the thread the route names."""
     thread = t3_thread(data)
     require(text(thread), 'Registration requires worker')
-    code, response = t3('thread', 'show', '--json', thread)
+    code, response = t3_show(dict(data, environment=t3_environment(dict(data, execution_snapshot=execution or {}))), thread)
     if code != 0:
         reason = response.get('error', {}).get('code') if isinstance(response, dict) else response
         raise ValueError(f'T3 cannot confirm thread {thread}: {reason or "no running server answered"}')
@@ -1875,7 +1935,7 @@ def retire_worker(db, state, attempt, request):
         evidence = request.get('evidence')
         require(isinstance(evidence, list) and evidence and all(text(x) for x in evidence),
                 'T3 retirement requires evidence naming how the thread was confirmed idle (t3 thread show --json)')
-        code, response = t3('thread', 'show', '--json', saved['t3']['thread'])
+        code, response = t3_show(saved, saved['t3']['thread'])
         placed = response.get('thread') if isinstance(response, dict) and isinstance(response.get('thread'), dict) else response
         require(code == 0 and isinstance(placed, dict) and placed.get('threadId') == saved['t3']['thread'],
                 f'T3 cannot confirm thread {saved["t3"]["thread"]} for retirement; reconcile it and retire again')
@@ -1884,7 +1944,15 @@ def retire_worker(db, state, attempt, request):
                 + ('; it waits for an answer in the T3 app, which is the user\'s decision — answer it or decline '
                    'the worker there, then retire again' if placed.get('status') == 'waiting'
                   else '; let its turn settle, then retire again'))
-        line = f't3 thread show --json {saved["t3"]["thread"]}: {placed.get("status")}, left idle (no CLI stop)'
+        if t3_environment(saved):
+            # Panel hygiene is archive, not delete (hosts/t3.md): a remote thread is archived through its
+            # environment's MCP server, reversibly and with history kept.
+            t3_mcp(saved, 't3_thread_organize',
+                   {'threadId': saved['t3']['thread'], 'action': 'archive'})
+            line = (f't3 thread show --json {saved["t3"]["thread"]}: {placed.get("status")}, left idle and '
+                    f'archived through environment {t3_environment(saved)} (no CLI stop)')
+        else:
+            line = f't3 thread show --json {saved["t3"]["thread"]}: {placed.get("status")}, left idle (no CLI stop)'
         record(db, dict(kind='closed', attempt=attempt, evidence=[line, *evidence],
                         **({'acceptance': acceptance} if 'acceptance' in request else {})))
         return {'attempt': attempt, 'closed': True, 'evidence': [line, *evidence]}

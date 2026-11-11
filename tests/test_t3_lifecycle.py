@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from lifecycle_case import WorkerLifecycleCase, SCRIPT
+import worker_lifecycle as worker_lifecycle_module
 
 
 class T3Threads(WorkerLifecycleCase):
@@ -92,6 +93,248 @@ class NativeRecord(T3Threads):
                           {'role': 'assistant', 'text': 'assignment done'}]}))
         verified = packet_reply(str(path), 't3', 'th-1', 'ticket-1/1')
         self.assertEqual(verified, (True, True))
+
+
+class RemoteEnvironment(T3Threads):
+    """A t3 route targeting a linked environment: the lifecycle reaches the thread through the T3 MCP server
+    (the local CLI answers only local threads — ledger A1), carrying environmentId on every call."""
+
+    def mcp_fixture(self, thread='mcp:peer-1', status='completed', reply='assignment done'):
+        """A stub T3 MCP server: /mcp answers initialize + tools/call for thread read/send/organize with the
+        fixture's thread state, recording the environmentId it was given."""
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        recorded = {}
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(length) or b'{}')
+                sid = self.headers.get('mcp-session-id')
+                if body.get('method') == 'initialize':
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('mcp-session-id', 'stub-session')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'jsonrpc': '2.0', 'id': body.get('id'), 'result': {
+                        'protocolVersion': '2025-06-18', 'capabilities': {'tools': {}},
+                        'serverInfo': {'name': 'T3 Code', 'version': 'stub'}}}).encode())
+                    return
+                params = body.get('params', {})
+                tool = params.get('name')
+                args = params.get('arguments', {})
+                recorded.setdefault('calls', []).append({'tool': tool, 'args': args})
+                result = {}
+                if tool == 't3_thread_read':
+                    result = {'thread': {'threadId': args.get('threadId'), 'status': status,
+                                         'providerInstanceId': 'claude', 'model': 'sonnet'},
+                              'messages': [{'role': 'assistant', 'text': reply}]}
+                elif tool == 't3_thread_send':
+                    result = {'threadId': args.get('threadId'), 'status': 'completed',
+                              'delivery': 'started'}
+                elif tool == 't3_thread_organize':
+                    result = {'sequence': 1}
+                payload = {'jsonrpc': '2.0', 'id': body.get('id'), 'result': {
+                    'content': [{'type': 'text', 'text': json.dumps(result)}],
+                    'structuredContent': result, 'isError': False}}
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(payload).encode())
+
+            def log_message(self, *a):
+                pass
+
+        server = HTTPServer(('127.0.0.1', 0), Handler)
+        port = server.server_address[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        self.mcp_url = f'http://127.0.0.1:{port}/mcp'
+        self.mcp_recorded = recorded
+        return recorded
+
+    def environment_route(self, environment='peer'):
+        execution = json.loads(self.execution.read_text())
+        execution.update(host='claude', target_runtime='claude', executor='t3', executor_context='t3',
+                         executor_type='t3', executor_config={'environment': environment},
+                         native_dispatch=False, environment=environment,
+                         launch={'writes': 'worktree', 'verify': {'permission_mode': 'dontAsk'}})
+        self.execution.write_text(json.dumps(execution))
+
+
+class RemoteEnvironment(T3Threads):
+    """A t3 route targeting a linked environment: the lifecycle reaches the thread through the T3 MCP server
+    (the local CLI answers only local threads — ledger A1), carrying environmentId on every call."""
+
+    def environment_route(self, environment='peer'):
+        execution = json.loads(self.execution.read_text())
+        execution.update(host='claude', target_runtime='claude', executor='t3', executor_context='t3',
+                         executor_type='t3', executor_config={'environment': environment},
+                         native_dispatch=False, environment=environment,
+                         launch={'writes': 'worktree', 'verify': {'permission_mode': 'dontAsk'}})
+        self.execution.write_text(json.dumps(execution))
+
+    def mcp_fixture(self, thread='mcp:peer-1', status='completed', reply='assignment done'):
+        """A stub T3 MCP server answering thread read/send/organize with the fixture's thread state and
+        recording the environmentId each call carried."""
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        recorded = {'calls': []}
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(length) or b'{}')
+                if body.get('method') == 'initialize':
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('mcp-session-id', 'stub-session')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'jsonrpc': '2.0', 'id': body.get('id'), 'result': {
+                        'protocolVersion': '2025-06-18', 'capabilities': {'tools': {}},
+                        'serverInfo': {'name': 'T3 Code', 'version': 'stub'}}}).encode())
+                    return
+                params = body.get('params', {})
+                tool, args = params.get('name'), params.get('arguments', {})
+                recorded['calls'].append({'tool': tool, 'args': args})
+                result = {}
+                if tool == 't3_thread_read':
+                    result = {'thread': {'threadId': args.get('threadId'), 'status': status,
+                                         'providerInstanceId': 'claude', 'model': 'sonnet'},
+                              'messages': [{'role': 'assistant', 'text': reply}]}
+                elif tool == 't3_thread_send':
+                    result = {'threadId': args.get('threadId'), 'status': 'completed',
+                              'delivery': 'started'}
+                elif tool == 't3_thread_organize':
+                    result = {'sequence': 1}
+                payload = {'jsonrpc': '2.0', 'id': body.get('id'), 'result': {
+                    'content': [{'type': 'text', 'text': json.dumps(result)}],
+                    'structuredContent': result, 'isError': False}}
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(payload).encode())
+
+            def log_message(self, *a):
+                pass
+
+        server = HTTPServer(('127.0.0.1', 0), Handler)
+        port = server.server_address[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        self.mcp_url = f'http://127.0.0.1:{port}/mcp'
+        self.mcp_recorded = recorded
+        return recorded
+
+
+class RemoteLifecycle(RemoteEnvironment):
+    def registered_remote(self, thread='mcp:peer-1'):
+        self.environment_route()
+        self.t3_fixture()  # the local CLI stub must NOT be consulted for a remote thread
+        self.mcp_fixture(thread=thread)
+        import os
+        self.native_env = dict(os.environ, T3_MCP_URL=self.mcp_url,
+                               T3_MCP_BEARER_TOKEN='stub-token')
+        self.register(worker=thread, t3={'thread': thread})
+        return self.cli('status')['attempts'][0]
+
+
+class RemoteLifecycle(RemoteEnvironment):
+    def registered_remote(self, thread='mcp:peer-1'):
+        self.environment_route()
+        self.t3_fixture()  # the local CLI stub must NOT be consulted for a remote thread
+        self.mcp_fixture(thread=thread)
+        import os
+        self.native_env = dict(os.environ, T3_MCP_URL=self.mcp_url,
+                               T3_MCP_BEARER_TOKEN='stub-token')
+        self.register(worker=thread, t3={'thread': thread})
+        return self.cli('status')['attempts'][0]
+
+    def test_a_remote_attempt_registers_through_the_environment_transport(self):
+        # Rule (ledger A1): a thread on a linked environment is confirmed through the T3 MCP server with
+        # environmentId; the local CLI is never asked about it.
+        saved = self.registered_remote()
+        calls = self.mcp_recorded['calls']
+        self.assertTrue(calls, 'the lifecycle never reached the MCP transport')
+        self.assertTrue(all(args.get('environmentId') == 'peer' for c in calls for args in [c['args']]))
+        read_calls = [c for c in calls if c['tool'] == 't3_thread_read']
+        self.assertTrue(read_calls and read_calls[0]['args']['threadId'] == 'mcp:peer-1')
+        self.assertEqual(saved['t3']['thread'], 'mcp:peer-1')
+        self.assertNotIn('t3-argv.log', [p.name for p in self.root.iterdir()])
+
+    def test_a_remote_collection_reads_through_the_environment_transport(self):
+        # Rule (ledger A1): the productive send for an environment-targeted attempt goes through the MCP server
+        # with environmentId, and the wait maps the thread's status like the CLI's exit codes.
+        self.registered_remote()
+        self.ready('ticket-1/1')
+        native = self.native('ticket-1/1')
+        from support import user_message, assistant_turn
+        user_message(native, 'claude', 'assignment: ticket-1  attempt: ticket-1/1')
+        assistant_turn(native, 'claude')
+        report = self.root / 'ticket-1-1.md'
+        report.write_text('## Implemented\n\ndone\n')
+        self.mcp_recorded['calls'].clear()
+        self.record('result', status='completed', head='head-1',
+                    report=str(report), native=str(native),
+                    evidence=['mcp: the thread settled and answered'])
+        read_calls = [c for c in self.mcp_recorded['calls'] if c['tool'] == 't3_thread_read']
+        self.assertTrue(read_calls, 'collection never read the remote thread')
+        self.assertTrue(all(c['args'].get('environmentId') == 'peer' for c in read_calls))
+
+    def test_a_remote_retire_archives_through_the_environment_transport(self):
+        self.registered_remote()
+        self.ready('ticket-1/1')
+        native = self.native('ticket-1/1')
+        from support import user_message, assistant_turn
+        user_message(native, 'claude', 'assignment: ticket-1  attempt: ticket-1/1')
+        assistant_turn(native, 'claude')
+        report = self.root / 'ticket-1-1.md'
+        report.write_text('## Implemented\n\ndone\n')
+        self.record('result', status='completed', head='head-1',
+                    report=str(report), native=str(native),
+                    evidence=['mcp: the thread settled and answered'])
+        self.mcp_recorded['calls'].clear()
+        for receipt in self.cli('status').get('pending', []):
+            self.cli('ack', '--event-id', str(receipt['id']))
+        result = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(self.t3_retire_request()))
+        organize = [c for c in self.mcp_recorded['calls'] if c['tool'] == 't3_thread_organize']
+        self.assertTrue(organize, 'retirement never archived the remote thread')
+        self.assertEqual(organize[0]['args'].get('action'), 'archive')
+        self.assertEqual(organize[0]['args'].get('environmentId'), 'peer')
+
+    def test_a_remote_attempt_without_a_credential_refuses_naming_the_fix(self):
+        self.environment_route()
+        import os
+        env = {k: v for k, v in os.environ.items() if k not in ('T3_MCP_URL', 'T3_MCP_BEARER_TOKEN')}
+        env.pop('T3_MCP_URL', None)
+        saved_env = dict(os.environ)
+        os.environ.clear(); os.environ.update(env)
+        try:
+            error = self.register(worker='mcp:peer-1', t3={'thread': 'mcp:peer-1'}, code=2)
+        finally:
+            os.environ.clear(); os.environ.update(saved_env)
+        self.assertIn('T3_MCP_URL', str(error))
+
+
+class RemoteTransport(RemoteEnvironment):
+    def test_the_remote_send_transport_carries_the_environment_and_thread(self):
+        # Rule (ledger A1): the lifecycle's remote send is the MCP t3_thread_send with environmentId — the local
+        # CLI cannot reach another environment's thread.
+        import os
+        import urllib.request
+        self.environment_route()
+        self.mcp_fixture(thread='mcp:peer-1')
+        os.environ['T3_MCP_URL'] = self.mcp_url
+        os.environ['T3_MCP_BEARER_TOKEN'] = 'stub-token'
+        self.addCleanup(os.environ.pop, 'T3_MCP_URL', None)
+        self.addCleanup(os.environ.pop, 'T3_MCP_BEARER_TOKEN', None)
+        data = {'environment': 'peer', 'execution': '/unused'}
+        code, response = worker_lifecycle_module.t3_mcp(data, 't3_thread_send',
+                                                        {'threadId': 'mcp:peer-1', 'message': 'packet text'})
+        self.assertEqual(code, 0)
+        sent = [c for c in self.mcp_recorded['calls'] if c['tool'] == 't3_thread_send']
+        self.assertTrue(sent and sent[0]['args']['environmentId'] == 'peer'
+                        and sent[0]['args']['threadId'] == 'mcp:peer-1')
 
 
 class Registration(T3Threads):
