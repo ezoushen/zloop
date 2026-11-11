@@ -1761,14 +1761,24 @@ def t3_mcp(data, tool, arguments, timeout=LOOKUP_SECONDS):
         raise ValueError('a linked-environment thread needs T3_MCP_URL and T3_MCP_BEARER_TOKEN in the '
                          'environment: run `t3 pair` on that environment and approve the zloop client '
                          '(ledger A2)')
-    payload = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
-               'params': {'name': tool, 'arguments': dict(arguments, environmentId=t3_environment(data))}}
-    request = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={
-        'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream',
-        'Authorization': f'Bearer {token}'})
-    try:
+    def mcp_post(payload, session=None):
+        headers = {'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream',
+                   'Authorization': f'Bearer {token}'}
+        if session:
+            headers['mcp-session-id'] = session
+        request = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers)
         with urllib.request.urlopen(request, timeout=timeout) as answer:
-            body = json.loads(answer.read())
+            session_id = answer.headers.get('mcp-session-id')
+            return json.loads(answer.read()), session_id
+
+    try:
+        # Some servers require the initialize handshake and bind the call to its session.
+        body, session = mcp_post({'jsonrpc': '2.0', 'id': 0, 'method': 'initialize',
+                                  'params': {'protocolVersion': '2025-06-18', 'capabilities': {},
+                                              'clientInfo': {'name': 'zloop', 'version': '1.0'}}})
+        payload = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                   'params': {'name': tool, 'arguments': dict(arguments)}}
+        body, _ = mcp_post(payload, session)
     except urllib.error.HTTPError as error:
         if error.code in (401, 403):
             raise ValueError('the T3 MCP credential was refused (expired or revoked): re-run `t3 pair` on '
@@ -1796,6 +1806,16 @@ def t3_show(data, thread):
         return t3('thread', 'show', '--json', thread)
     code, response = t3_mcp(data, 't3_thread_read', {'threadId': thread})
     if code == 0:
+        # The MCP read carries `items`; fold them into the CLI's thread-state shape (messages beside thread)
+        # so every consumer sees one shape (ledger A1).
+        if isinstance(response, dict) and 'messages' not in response and isinstance(response.get('items'), list):
+            messages = []
+            for item in response['items']:
+                role = {'user_message': 'user', 'assistant_message': 'assistant'}.get(item.get('type'))
+                body = item.get('text')
+                if role and text(body):
+                    messages.append({'role': role, 'text': body})
+            response = dict(response, messages=messages)
         return 0, response
     return 1, response
 
@@ -1947,7 +1967,7 @@ def retire_worker(db, state, attempt, request):
         require(code == 0 and isinstance(placed, dict) and placed.get('threadId') == saved['t3']['thread'],
                 f'T3 cannot confirm thread {saved["t3"]["thread"]} for retirement; reconcile it and retire again')
         require(placed.get('status') not in ('running', 'queued', 'starting', 'preparing', 'waiting'),
-                f'T3 thread {saved["t3"]["thread"]} is {response.get("status")}'
+                f'T3 thread {saved["t3"]["thread"]} is {placed.get("status")}'
                 + ('; it waits for an answer in the T3 app, which is the user\'s decision — answer it or decline '
                    'the worker there, then retire again' if placed.get('status') == 'waiting'
                   else '; let its turn settle, then retire again'))
