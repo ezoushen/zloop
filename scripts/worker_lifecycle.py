@@ -1777,8 +1777,15 @@ def t3_mcp(data, tool, arguments, timeout=LOOKUP_SECONDS):
     except (OSError, ValueError):
         return 1, {'error': {'code': 'unreachable', 'message': 'the T3 MCP server did not answer'}}
     result = (body.get('result') or {})
-    return 0, (result.get('structuredContent') if isinstance(result.get('structuredContent'), dict)
-               else json.loads((result.get('content') or [{}])[0].get('text', '{}')))
+    if result.get('isError'):
+        text = (result.get('content') or [{}])[0].get('text', '')
+        return 1, {'error': {'code': 'tool', 'message': text[:200]}}
+    if isinstance(result.get('structuredContent'), dict):
+        return 0, result['structuredContent']
+    try:
+        return 0, json.loads((result.get('content') or [{}])[0].get('text', '{}'))
+    except ValueError:
+        return 1, {'error': {'code': 'shape', 'message': 'the T3 MCP answer was not a JSON tool result'}}
 
 
 def t3_show(data, thread):
@@ -1946,9 +1953,15 @@ def retire_worker(db, state, attempt, request):
                   else '; let its turn settle, then retire again'))
         if t3_environment(saved):
             # Panel hygiene is archive, not delete (hosts/t3.md): a remote thread is archived through its
-            # environment's MCP server, reversibly and with history kept.
-            t3_mcp(saved, 't3_thread_organize',
-                   {'threadId': saved['t3']['thread'], 'action': 'archive'})
+            # environment's MCP server, reversibly and with history kept. A failed archive refuses retirement
+            # rather than recording closure evidence that would be false.
+            code, archived = t3_mcp(saved, 't3_thread_organize',
+                                    {'threadId': saved['t3']['thread'], 'action': 'archive'})
+            if code != 0:
+                detail = archived.get('error', {}).get('message') if isinstance(archived, dict) else archived
+                raise ValueError(f'T3 cannot archive thread {saved["t3"]["thread"]} on environment '
+                                 f'{t3_environment(saved)}: {detail or "the MCP server refused"}; '
+                                 'reconcile it and retire again')
             line = (f't3 thread show --json {saved["t3"]["thread"]}: {placed.get("status")}, left idle and '
                     f'archived through environment {t3_environment(saved)} (no CLI stop)')
         else:

@@ -285,8 +285,11 @@ sys.exit(0)
         self.write_route('peer')
         result = self.resolve()
         self.assertEqual((result['executor_type'], result['executor_context']), ('t3', 't3'))
-        self.assertEqual((result['environment']['id'], result['environment']['label'],
-                          result['environment']['access']), ('env-peer-1', 'peer', 'approval-required'))
+        # Ledger A5 as repaired (review F1): the top-level key is the environment id string; the access detail
+        # rides environment_access for provenance.
+        self.assertEqual(result['environment'], 'env-peer-1')
+        self.assertEqual((result['environment_access']['id'], result['environment_access']['label'],
+                          result['environment_access']['access']), ('env-peer-1', 'peer', 'approval-required'))
         self.assertIn('environment list --json', self.calls())
 
     def test_a_route_naming_an_unlinked_environment_refuses_at_the_environment_layer(self):

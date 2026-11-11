@@ -3,38 +3,82 @@
   "title": "zloop agent execution configuration",
   "type": "object",
   "properties": {
-    "$schema": { "type": "string" },
+    "$schema": {
+      "type": "string"
+    },
     "executor_types": {
       "type": "object",
-      "propertyNames": { "$ref": "#/$defs/customExecutorName" },
-      "additionalProperties": { "oneOf": [{ "$ref": "#/$defs/skillExecutor" }, { "$ref": "#/$defs/builtInExecutor" }] }
+      "propertyNames": {
+        "$ref": "#/$defs/customExecutorName"
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/skillExecutor"
+          },
+          {
+            "$ref": "#/$defs/builtInExecutor"
+          }
+        ]
+      }
     },
     "models": {
       "type": "object",
-      "propertyNames": { "$ref": "#/$defs/identifier" },
-      "additionalProperties": { "$ref": "#/$defs/modelDefinition" }
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/modelDefinition"
+      }
     },
     "runtimes": {
       "type": "object",
-      "propertyNames": { "$ref": "#/$defs/runtimeName" },
-      "additionalProperties": { "$ref": "#/$defs/runtime" }
+      "propertyNames": {
+        "$ref": "#/$defs/runtimeName"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/runtime"
+      }
     },
-    "agents": { "$ref": "#/$defs/agents" },
-    "jobs": { "$ref": "#/$defs/jobs" },
-    "router": { "$ref": "#/$defs/router" },
-    "decisions": { "$ref": "#/$defs/decisions" },
+    "agents": {
+      "$ref": "#/$defs/agents"
+    },
+    "jobs": {
+      "$ref": "#/$defs/jobs"
+    },
+    "router": {
+      "$ref": "#/$defs/router"
+    },
+    "decisions": {
+      "$ref": "#/$defs/decisions"
+    },
     "capacity": {
       "description": "Concurrent worker slots per local backend, shared by every workstream on this machine.",
       "type": "object",
-      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
       "additionalProperties": {
         "type": "object",
         "properties": {
-          "slots": { "type": "integer", "minimum": 1 },
-          "health": { "type": "string", "pattern": "^https?://[^\\s]+$" },
-          "min_free_memory_percent": { "type": "number", "minimum": 0, "maximum": 100 }
+          "slots": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "health": {
+            "type": "string",
+            "pattern": "^https?://[^\\s]+$"
+          },
+          "min_free_memory_percent": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          }
         },
-        "required": ["slots"], "additionalProperties": false
+        "required": [
+          "slots"
+        ],
+        "additionalProperties": false
       }
     },
     "allow_training": {
@@ -47,14 +91,26 @@
     },
     "profiles": {
       "type": "object",
-      "propertyNames": { "type": "string", "minLength": 1, "not": { "pattern": "[\\s\\u0000-\\u001f]" } },
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "not": {
+          "pattern": "[\\s\\u0000-\\u001f]"
+        }
+      },
       "additionalProperties": {
         "type": "object",
-        "propertyNames": { "$ref": "#/$defs/agentOrJob" },
+        "propertyNames": {
+          "$ref": "#/$defs/agentOrJob"
+        },
         "additionalProperties": {
           "type": "object",
-          "propertyNames": { "$ref": "#/$defs/runtimeName" },
-          "additionalProperties": { "$ref": "#/$defs/routingOverride" }
+          "propertyNames": {
+            "$ref": "#/$defs/runtimeName"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/routingOverride"
+          }
         }
       }
     }
@@ -64,97 +120,262 @@
     "decisionBackend": {
       "type": "object",
       "properties": {
-        "protocol": { "const": "systemone" },
-        "endpoint": { "type": "string", "pattern": "^https?://[^\\s]+$" },
-        "model": { "$ref": "#/$defs/identifier" },
-        "revision": { "type": "string", "pattern": "\\S" },
-        "timeout_seconds": { "type": "number", "exclusiveMinimum": 0, "maximum": 60 },
-        "instruction": { "type": "string", "pattern": "\\S" }
+        "protocol": {
+          "const": "systemone"
+        },
+        "endpoint": {
+          "type": "string",
+          "pattern": "^https?://[^\\s]+$"
+        },
+        "model": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 60
+        },
+        "instruction": {
+          "type": "string",
+          "pattern": "\\S"
+        }
       },
-      "required": ["protocol", "endpoint", "model"],
+      "required": [
+        "protocol",
+        "endpoint",
+        "model"
+      ],
       "additionalProperties": false
     },
     "decisions": {
       "type": "object",
       "properties": {
-        "backend": { "$ref": "#/$defs/decisionBackend" },
+        "backend": {
+          "$ref": "#/$defs/decisionBackend"
+        },
         "enabled": {
-          "type": "array", "uniqueItems": true,
-          "items": { "enum": ["mandate", "alignment", "refinement", "worker-selection", "review-triage", "recovery", "delivery", "skill-selection", "failure-cause", "wake-triage", "test-shape"] }
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "mandate",
+              "alignment",
+              "refinement",
+              "worker-selection",
+              "review-triage",
+              "recovery",
+              "delivery",
+              "skill-selection",
+              "failure-cause",
+              "wake-triage",
+              "test-shape"
+            ]
+          }
         },
         "shadow_auto_accept": {
           "type": "object",
-          "properties": { "min_confidence": { "type": "number", "minimum": 0, "maximum": 1 } },
-          "required": ["min_confidence"], "additionalProperties": false
+          "properties": {
+            "min_confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "required": [
+            "min_confidence"
+          ],
+          "additionalProperties": false
         },
         "calibration": {
           "type": "object",
           "properties": {
-            "suite": { "type": "string", "pattern": "^/" },
-            "baseline": { "type": "string", "pattern": "^/" },
-            "check_every": { "type": "integer", "minimum": 1, "default": 50 },
-            "max_accuracy_drop": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.1 }
+            "suite": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "baseline": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "check_every": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 50
+            },
+            "max_accuracy_drop": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.1
+            }
           },
-          "required": ["suite", "baseline"], "additionalProperties": false
+          "required": [
+            "suite",
+            "baseline"
+          ],
+          "additionalProperties": false
         }
       },
-      "required": ["backend", "enabled"], "additionalProperties": false
+      "required": [
+        "backend",
+        "enabled"
+      ],
+      "additionalProperties": false
     },
-    "agentName": { "enum": ["builder", "reviewer", "verifier"] },
-    "jobName": { "enum": ["acceptance-rerun", "audit", "diff-review", "e2e-gate", "merge-conflict", "prototype", "repair", "reproduce", "ticket"] },
-    "agentOrJob": { "anyOf": [{ "$ref": "#/$defs/agentName" }, { "$ref": "#/$defs/jobName" }] },
+    "agentName": {
+      "enum": [
+        "builder",
+        "reviewer",
+        "verifier"
+      ]
+    },
+    "jobName": {
+      "enum": [
+        "acceptance-rerun",
+        "audit",
+        "diff-review",
+        "e2e-gate",
+        "merge-conflict",
+        "prototype",
+        "repair",
+        "reproduce",
+        "ticket"
+      ]
+    },
+    "agentOrJob": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/agentName"
+        },
+        {
+          "$ref": "#/$defs/jobName"
+        }
+      ]
+    },
     "router": {
       "oneOf": [
         {
           "type": "object",
           "properties": {
-            "type": { "const": "decision-model" },
-            "fallback_profile": { "type": "string", "minLength": 1 },
-            "consult": { "enum": ["always", "after-failure"] }
+            "type": {
+              "const": "decision-model"
+            },
+            "fallback_profile": {
+              "type": "string",
+              "minLength": 1
+            },
+            "consult": {
+              "enum": [
+                "always",
+                "after-failure"
+              ]
+            }
           },
-          "required": ["type"], "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": { "const": "host" },
-            "instruction": { "type": "string", "pattern": "\\S" }
-          },
-          "required": ["type"],
+          "required": [
+            "type"
+          ],
           "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
-            "type": { "const": "skill" },
-            "skill": { "type": "string", "pattern": "\\S" },
-            "instruction": { "type": "string", "pattern": "\\S" }
+            "type": {
+              "const": "host"
+            },
+            "instruction": {
+              "type": "string",
+              "pattern": "\\S"
+            }
           },
-          "required": ["type", "skill"],
+          "required": [
+            "type"
+          ],
           "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
-            "type": { "const": "decision-model" },
-            "protocol": { "const": "systemone" },
-            "endpoint": { "type": "string", "pattern": "^https?://[^\\s]+$" },
-            "model": { "$ref": "#/$defs/identifier" },
-            "timeout_seconds": { "type": "number", "exclusiveMinimum": 0, "maximum": 60, "default": 20 },
-            "instruction": { "type": "string", "pattern": "\\S" },
-            "fallback_profile": { "type": "string", "minLength": 1 },
-            "consult": { "enum": ["always", "after-failure"] }
+            "type": {
+              "const": "skill"
+            },
+            "skill": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "instruction": {
+              "type": "string",
+              "pattern": "\\S"
+            }
           },
-          "required": ["type", "protocol", "endpoint", "model"],
+          "required": [
+            "type",
+            "skill"
+          ],
           "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
-            "type": { "const": "profile" },
-            "profile": { "$ref": "#/$defs/identifier" }
+            "type": {
+              "const": "decision-model"
+            },
+            "protocol": {
+              "const": "systemone"
+            },
+            "endpoint": {
+              "type": "string",
+              "pattern": "^https?://[^\\s]+$"
+            },
+            "model": {
+              "$ref": "#/$defs/identifier"
+            },
+            "timeout_seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 60,
+              "default": 20
+            },
+            "instruction": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "fallback_profile": {
+              "type": "string",
+              "minLength": 1
+            },
+            "consult": {
+              "enum": [
+                "always",
+                "after-failure"
+              ]
+            }
           },
-          "required": ["type", "profile"],
+          "required": [
+            "type",
+            "protocol",
+            "endpoint",
+            "model"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "profile"
+            },
+            "profile": {
+              "$ref": "#/$defs/identifier"
+            }
+          },
+          "required": [
+            "type",
+            "profile"
+          ],
           "additionalProperties": false
         }
       ]
@@ -162,85 +383,216 @@
     "routingOverride": {
       "type": "object",
       "properties": {
-        "candidate": { "$ref": "#/$defs/identifier" },
-        "thinking": { "$ref": "#/$defs/thinkingLabel" }
+        "candidate": {
+          "$ref": "#/$defs/identifier"
+        },
+        "thinking": {
+          "$ref": "#/$defs/thinkingLabel"
+        }
       },
       "additionalProperties": false
     },
     "agents": {
       "type": "object",
-      "propertyNames": { "$ref": "#/$defs/agentName" },
-      "additionalProperties": { "$ref": "#/$defs/agent" }
+      "propertyNames": {
+        "$ref": "#/$defs/agentName"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/agent"
+      }
     },
     "jobs": {
       "type": "object",
-      "propertyNames": { "$ref": "#/$defs/jobName" },
-      "additionalProperties": { "$ref": "#/$defs/agent" }
+      "propertyNames": {
+        "$ref": "#/$defs/jobName"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/agent"
+      }
     },
-    "agent": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/instance" }, { "$ref": "#/$defs/pool" }, { "$ref": "#/$defs/modelReference" }] },
+    "agent": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/instance"
+        },
+        {
+          "$ref": "#/$defs/pool"
+        },
+        {
+          "$ref": "#/$defs/modelReference"
+        }
+      ]
+    },
     "executor": {
       "oneOf": [
         {
           "type": "object",
-          "properties": { "type": { "const": "subagent" }, "config": { "$ref": "executors/subagent.schema.json" } },
-          "required": ["type"],
+          "properties": {
+            "type": {
+              "const": "subagent"
+            },
+            "config": {
+              "$ref": "executors/subagent.schema.json"
+            }
+          },
+          "required": [
+            "type"
+          ],
           "additionalProperties": false
         },
-        { "$ref": "#/$defs/skillExecutor" },
+        {
+          "$ref": "#/$defs/skillExecutor"
+        },
         {
           "type": "object",
-          "properties": { "type": { "const": "bash" }, "config": { "$ref": "executors/bash.schema.json" } },
-          "required": ["type", "config"],
+          "properties": {
+            "type": {
+              "const": "bash"
+            },
+            "config": {
+              "$ref": "executors/bash.schema.json"
+            }
+          },
+          "required": [
+            "type",
+            "config"
+          ],
           "additionalProperties": false
         },
-        { "$ref": "#/$defs/builtInExecutor" },
+        {
+          "$ref": "#/$defs/builtInExecutor"
+        },
         {
           "type": "object",
-          "properties": { "type": { "allOf": [{ "$ref": "#/$defs/customExecutorName" }, { "not": { "enum": ["herdr", "t3"] } }] } },
-          "required": ["type"],
+          "properties": {
+            "type": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/customExecutorName"
+                },
+                {
+                  "not": {
+                    "enum": [
+                      "herdr",
+                      "t3"
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "required": [
+            "type"
+          ],
           "additionalProperties": false
         }
       ]
     },
     "customExecutorName": {
-      "allOf": [{ "$ref": "#/$defs/identifier" }, { "not": { "enum": ["subagent", "skill", "bash"] } }]
+      "allOf": [
+        {
+          "$ref": "#/$defs/identifier"
+        },
+        {
+          "not": {
+            "enum": [
+              "subagent",
+              "skill",
+              "bash"
+            ]
+          }
+        }
+      ]
     },
     "builtInExecutor": {
-      "type": "object",
-      "properties": {
-        "type": { "enum": ["herdr", "t3"] },
-        "environment": {
-          "description": "A linked environment a t3 route targets: the label or environmentId `t3 environment list` answers with.",
-          "type": "string",
-          "pattern": "\\S"
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "enum": [
+                "herdr"
+              ]
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "enum": [
+                "t3"
+              ]
+            },
+            "environment": {
+              "description": "A linked environment a t3 route targets: the label or environmentId `t3 environment list` answers with.",
+              "type": "string",
+              "pattern": "\\S"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
         }
-      },
-      "required": ["type"],
-      "additionalProperties": false
+      ]
     },
     "skillExecutor": {
       "type": "object",
-      "properties": { "type": { "const": "skill" }, "config": { "$ref": "executors/skill.schema.json" } },
-      "required": ["type", "config"],
+      "properties": {
+        "type": {
+          "const": "skill"
+        },
+        "config": {
+          "$ref": "executors/skill.schema.json"
+        }
+      },
+      "required": [
+        "type",
+        "config"
+      ],
       "additionalProperties": false
     },
     "modelReference": {
       "type": "object",
-      "properties": { "model": { "$ref": "#/$defs/identifier" } },
-      "required": ["model"],
+      "properties": {
+        "model": {
+          "$ref": "#/$defs/identifier"
+        }
+      },
+      "required": [
+        "model"
+      ],
       "additionalProperties": false
     },
     "modelDefinition": {
       "type": "object",
       "properties": {
-        "description": { "type": "string", "pattern": "\\S" },
+        "description": {
+          "type": "string",
+          "pattern": "\\S"
+        },
         "cost": {
           "description": "What a worker spends: a subscription allowance, nothing (a free hosted endpoint), or local machine capacity.",
-          "enum": ["subscription", "free", "local"]
+          "enum": [
+            "subscription",
+            "free",
+            "local"
+          ]
         },
         "allowance": {
           "description": "The subscription allowance reading this model spends, when its worker runtime is not that provider (a Pi binding to a Claude or Codex plan).",
-          "enum": ["claude", "codex"]
+          "enum": [
+            "claude",
+            "codex"
+          ]
         },
         "backend": {
           "description": "The local model server this model runs on; its slots are shared through top-level capacity.",
@@ -248,19 +600,38 @@
         },
         "data": {
           "description": "Where prompts go: a local model, a provider that retains nothing, a provider under its usual terms, or one that trains on prompts. Training endpoints need allow_training.",
-          "enum": ["local", "no-retention", "provider", "trains"]
+          "enum": [
+            "local",
+            "no-retention",
+            "provider",
+            "trains"
+          ]
         },
         "runtimes": {
           "type": "object",
           "minProperties": 1,
-          "propertyNames": { "$ref": "#/$defs/runtimeName" },
-          "additionalProperties": { "$ref": "#/$defs/modelBinding" }
+          "propertyNames": {
+            "$ref": "#/$defs/runtimeName"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/modelBinding"
+          }
         }
       },
-      "required": ["description", "runtimes"],
+      "required": [
+        "description",
+        "runtimes"
+      ],
       "additionalProperties": false
     },
-    "runtimeName": { "enum": ["claude", "codex", "pi", "opencode"] },
+    "runtimeName": {
+      "enum": [
+        "claude",
+        "codex",
+        "pi",
+        "opencode"
+      ]
+    },
     "runtime": {
       "type": "object",
       "properties": {
@@ -268,100 +639,236 @@
           "type": "object",
           "description": "Launch routes keyed by the actual caller runtime. The herdr key is a shared fallback only in a managed Herdr environment; every selected route still requires caller-specific preflight. The t3 key selects the built-in T3 Code route explicitly.",
           "minProperties": 1,
-          "propertyNames": { "enum": ["claude", "codex", "pi", "opencode", "herdr", "t3"] },
-          "additionalProperties": { "$ref": "#/$defs/executor" }
+          "propertyNames": {
+            "enum": [
+              "claude",
+              "codex",
+              "pi",
+              "opencode",
+              "herdr",
+              "t3"
+            ]
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/executor"
+          }
         }
       },
-      "required": ["executors"],
+      "required": [
+        "executors"
+      ],
       "additionalProperties": false
     },
     "modelBinding": {
       "type": "object",
       "properties": {
-        "id": { "$ref": "#/$defs/identifier" },
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
         "provider": {
           "description": "The provider instance id a T3 Code route launches this binding under ('pi', 'codex', 'claudeAgent', 'opencode').",
           "$ref": "#/$defs/identifier"
         },
-        "thinking": { "oneOf": [{ "$ref": "#/$defs/identifier" }, { "$ref": "#/$defs/thinking" }] },
-        "allow_thinking_override": { "type": "boolean", "default": false }
+        "thinking": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "$ref": "#/$defs/thinking"
+            }
+          ]
+        },
+        "allow_thinking_override": {
+          "type": "boolean",
+          "default": false
+        }
       },
-      "required": ["id"],
+      "required": [
+        "id"
+      ],
       "additionalProperties": false,
-      "allOf": [{
-        "if": { "required": ["thinking"], "properties": { "thinking": { "type": "object" } } },
-        "then": { "not": { "required": ["allow_thinking_override"] } }
-      }]
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "thinking"
+            ],
+            "properties": {
+              "thinking": {
+                "type": "object"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "allow_thinking_override"
+              ]
+            }
+          }
+        }
+      ]
     },
     "instance": {
       "type": "object",
       "properties": {
-        "executor": { "$ref": "#/$defs/executor" },
+        "executor": {
+          "$ref": "#/$defs/executor"
+        },
         "models": {
           "oneOf": [
             {
               "type": "object",
-              "properties": { "mode": { "const": "inherit" } },
-              "required": ["mode"],
+              "properties": {
+                "mode": {
+                  "const": "inherit"
+                }
+              },
+              "required": [
+                "mode"
+              ],
               "additionalProperties": false
             },
             {
               "type": "object",
               "properties": {
-                "mode": { "const": "override" },
-                "allow_thinking_override": { "type": "boolean", "default": false },
-                "model": { "type": "string", "minLength": 1, "not": { "pattern": "[\\s\\u0000-\\u001f]" } },
-                "thinking": { "oneOf": [{ "$ref": "#/$defs/identifier" }, { "$ref": "#/$defs/thinking" }] }
+                "mode": {
+                  "const": "override"
+                },
+                "allow_thinking_override": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "model": {
+                  "type": "string",
+                  "minLength": 1,
+                  "not": {
+                    "pattern": "[\\s\\u0000-\\u001f]"
+                  }
+                },
+                "thinking": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/identifier"
+                    },
+                    {
+                      "$ref": "#/$defs/thinking"
+                    }
+                  ]
+                }
               },
-              "required": ["mode"],
+              "required": [
+                "mode"
+              ],
               "additionalProperties": false,
               "allOf": [
                 {
-                  "if": { "required": ["thinking"], "properties": { "thinking": { "type": "object" } } },
-                  "then": { "not": { "required": ["allow_thinking_override"] } }
+                  "if": {
+                    "required": [
+                      "thinking"
+                    ],
+                    "properties": {
+                      "thinking": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  "then": {
+                    "not": {
+                      "required": [
+                        "allow_thinking_override"
+                      ]
+                    }
+                  }
                 }
               ]
             }
           ]
         },
-        "description": { "type": "string", "pattern": "\\S" }
+        "description": {
+          "type": "string",
+          "pattern": "\\S"
+        }
       },
-      "required": ["executor"],
+      "required": [
+        "executor"
+      ],
       "additionalProperties": false
     },
-    "identifier": { "type": "string", "minLength": 1, "not": { "pattern": "[\\s\\u0000-\\u001f]" } },
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "pattern": "[\\s\\u0000-\\u001f]"
+      }
+    },
     "thinking": {
       "type": "object",
       "properties": {
-        "default": { "$ref": "#/$defs/thinkingLabel" },
-        "allowed": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/thinkingLabel" } }
+        "default": {
+          "$ref": "#/$defs/thinkingLabel"
+        },
+        "allowed": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/thinkingLabel"
+          }
+        }
       },
-      "required": ["default", "allowed"],
+      "required": [
+        "default",
+        "allowed"
+      ],
       "additionalProperties": false
     },
-    "thinkingLabel": { "allOf": [{ "$ref": "#/$defs/identifier" }, { "not": { "const": "native" } }] },
+    "thinkingLabel": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/identifier"
+        },
+        {
+          "not": {
+            "const": "native"
+          }
+        }
+      ]
+    },
     "pool": {
       "type": "object",
       "properties": {
-        "fallback": { "type": "boolean", "default": true },
+        "fallback": {
+          "type": "boolean",
+          "default": true
+        },
         "candidates": {
           "oneOf": [
             {
               "type": "array",
               "minItems": 1,
               "uniqueItems": true,
-              "items": { "$ref": "#/$defs/identifier" }
+              "items": {
+                "$ref": "#/$defs/identifier"
+              }
             },
             {
               "type": "object",
               "minProperties": 1,
-              "propertyNames": { "$ref": "#/$defs/identifier" },
-              "additionalProperties": { "$ref": "#/$defs/instance" }
+              "propertyNames": {
+                "$ref": "#/$defs/identifier"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/instance"
+              }
             }
           ]
         }
       },
-      "required": ["candidates"],
+      "required": [
+        "candidates"
+      ],
       "additionalProperties": false
     }
   }
