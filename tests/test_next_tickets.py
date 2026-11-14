@@ -1879,9 +1879,13 @@ class BoardCLI(unittest.TestCase):
             self.write_report(base, name, [work])
             self.cli('inline', '--accept', 'inline/01')
 
-    def deliver(self, slug, branch, start, head, workers=True):
+    def deliver(self, slug, branch, start, head, workers=True, crew=True, autofix=False, readiness=True):
         """The workstream's review report, clean and passed at head, as its reviewer and E2E worker returned it (two
-        collected attempts that review_by and e2e_by name) unless workers=False."""
+        collected attempts that review_by and e2e_by name) unless workers=False. The repository's crew profile names the
+        workstream unless crew=False; under autofix a collected readiness attempt is there unless readiness=False."""
+        if crew:
+            profile = self.root / '.scratch/crew.md'
+            profile.write_text((profile.read_text() if profile.is_file() else '# Crew\n') + f'- {slug}: builder\n')
         review = self.root / f'.scratch/{slug}/reports/spec-review.md'
         review.parent.mkdir(parents=True, exist_ok=True)
         self.rounds = getattr(self, 'rounds', {})
@@ -1889,8 +1893,11 @@ class BoardCLI(unittest.TestCase):
         evidence = (f'---\nworkstream_branch: {branch}\nreview_status: clean\ndocumentation_status: passed\n'
                     f'review_head: {head}\nreview_base: {start}\nreview_diff_base: {start}\n'
                     f'e2e_status: passed\ne2e_head: {head}\n'
-                    f'review_by: review/{slug}/{n}\ne2e_by: e2e/{slug}/{n}\n---\n')
+                    f'review_by: review/{slug}/{n}\ne2e_by: e2e/{slug}/{n}\n' + ('autofix: true\n' if autofix else '')
+                    + '---\n')
         review.write_text(evidence)
+        if autofix and readiness:
+            support.collected_attempt(self.root, slug, f'readiness/{slug}', review, job='readiness', head=start)
         if workers:
             support.collected_attempt(self.root, slug, f'review/{slug}/{n}', review, job='diff-review', head=head)
             support.collected_attempt(self.root, slug, f'e2e/{slug}/{n}', review, job='e2e-gate', head=head)
@@ -1913,6 +1920,45 @@ class BoardCLI(unittest.TestCase):
         self.assertIn(f'review_diff_base: {previous} is not the merge base', refused)
         self.assertIn(f'run a whole-range final review from review_base {start} at head {head}', refused)
         self.assertIn('collect its reviewer attempts and set review_by to them', refused)
+
+    def test_delivery_requires_the_crew_profile_to_name_the_workstream(self):
+        # Live checks (claude, codex): no host wrote .scratch/crew.md at delivery; the clause lived in prose only.
+        self.write_ticket('fx/01', 'done')
+        start = self.commit('start')
+        self.git('checkout', '-b', 'feat/fx')
+        head = self.commit('reviewed work')
+        self.deliver('fx', 'feat/fx', start, head, crew=False)
+        refused = self.cli('fx', '--delivery', code=1).stderr
+        self.assertIn('.scratch/crew.md', refused)
+        self.assertIn('handoff', refused)
+        self.assertIn('record and learn', refused)
+        profile = self.root / '.scratch/crew.md'
+        profile.write_text('# Crew\n- other: builder\n')
+        self.assertIn('.scratch/crew.md', self.cli('fx', '--delivery', code=1).stderr)
+        profile.write_text('# Crew\n- fx: builder\n')
+        self.cli('fx', '--delivery')
+
+    def test_delivery_under_autofix_requires_a_collected_readiness_attempt(self):
+        # Live checks (claude, codex): no host launched the readiness verifier its setup step names.
+        self.write_ticket('fx/01', 'done')
+        start = self.commit('start')
+        self.git('checkout', '-b', 'feat/fx')
+        head = self.commit('reviewed work')
+        self.deliver('fx', 'feat/fx', start, head, autofix=True, readiness=False)
+        refused = self.cli('fx', '--delivery', code=1).stderr
+        self.assertIn('readiness', refused)
+        self.assertIn('Setup', refused)
+        support.collected_attempt(self.root, 'fx', 'readiness/fx', self.root / '.scratch/fx/reports/spec-review.md',
+                                  job='readiness', head=start)
+        self.cli('fx', '--delivery')
+
+    def test_delivery_without_autofix_needs_no_readiness_attempt(self):
+        self.write_ticket('fx/01', 'done')
+        start = self.commit('start')
+        self.git('checkout', '-b', 'feat/fx')
+        head = self.commit('reviewed work')
+        self.deliver('fx', 'feat/fx', start, head, readiness=False)
+        self.cli('fx', '--delivery')
 
     def test_delivery_requires_the_named_review_attempt_to_be_a_diff_review(self):
         self.write_ticket('fx/01', 'done')

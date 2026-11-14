@@ -245,5 +245,13 @@ class DispatchLevels(unittest.TestCase):
         self.assertIn('at `xhigh` and above it also covers criteria that CI covers', e2e)
 
 
+class ReadinessLaunch(unittest.TestCase):
+    def test_setup_names_the_readiness_launch_and_points_to_the_iteration_for_its_inputs(self):
+        # Live checks (claude, codex): no host launched it; the rule lived only in the iteration, which none opened.
+        setup = ' '.join((DISPATCH / 'SKILL.md').read_text().split()).partition('## State and continuation')[0]
+        self.assertIn('launch the readiness verifier in the step that launches the first builders; its inputs are in '
+                      '[iteration](iteration.md) step 4', setup)
+
+
 if __name__ == '__main__':
     unittest.main()

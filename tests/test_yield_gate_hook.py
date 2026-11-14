@@ -1421,7 +1421,9 @@ class DeliveryHold(GateRepo):
         self.ticket('01', 'done')
         self.report = self.repo / '.scratch/fix/reports/spec-review.md'
         self.report.parent.mkdir(parents=True)
+        (self.repo / '.scratch/crew.md').write_text('# Crew\n- fix: builder\n')
         self.review()
+        support.collected_attempt(self.repo, 'fix', 'readiness/fix', self.report, job='readiness', head=self.start)
 
     def git(self, *args):
         return subprocess.run(['git', '-C', str(self.repo), '-c', 'user.name=t', '-c', 'user.email=t@t', *args],
@@ -1737,7 +1739,10 @@ class DeliveryHold(GateRepo):
         self.bind(slug='audit', autofix=True)
         self.assertEqual(self.check(pane='w1:p1'), [
             self.held('audit', 'e2e_status: missing (needs passed)', 'review_by: missing names no worker run',
-                      'e2e_by: missing names no worker run', 'workstream branch feat/audit is not an existing branch'),
+                      'e2e_by: missing names no worker run',
+                      f'{self.repo}/.scratch/crew.md does not name audit: write its entry in the handoff step that '
+                      'updates the crew profile (runtime/workers/skills.md, record and learn)',
+                      'workstream branch feat/audit is not an existing branch'),
             self.gap()])
 
     def test_orchestrating_every_workstream_binds_only_those_with_work_left_and_refuses_when_none_has(self):
@@ -2447,6 +2452,7 @@ class AutopilotCardHold(GateRepo):
         review.write_text(evidence)
         support.collected_attempt(self.repo, 'run', 'review/run/1', review, job='diff-review', head=head)
         support.collected_attempt(self.repo, 'run', 'e2e/run/1', review, job='e2e-gate', head=head)
+        (self.repo / '.scratch/crew.md').write_text('# Crew\n- run: builder\n')
         self.card(terminal='merged', evidence='PR 1 merged', phase='pr')
         self.assertEqual(self.check(session='host-1'), [])
         # Review (Sonnet): another workstream's problem is not this session's to fix, so it holds nothing here; this

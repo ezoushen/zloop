@@ -331,6 +331,14 @@ def delivery_problems(slug):
     met = [key for key in VERDICTS if key not in unnamed
            and all(fm.get(field) == required for field, required in VERDICTS[key].items() if required)]
     problems += [problem for key in met for problem in verdict_problems(slug, key, fm)]
+    profile = ISSUES / 'crew.md'
+    if not profile.is_file() or slug not in profile.read_text():
+        problems.append(f'{profile} does not name {slug}: write its entry in the handoff step that updates the crew '
+                        f'profile (runtime/workers/skills.md, record and learn)')
+    if fm.get('autofix') == 'true' and not any(saved.get('job') == 'readiness' and saved.get('result')
+                                               for saved in workstream_attempts(slug)):
+        problems.append('autofix: true but no collected readiness attempt; launch the readiness verifier named in '
+                        'dispatch Setup')
     branch = workstream_branch(slug)
     ref = branch_ref(branch)
     head = ref and subprocess.run(['git', '-C', str(ROOT), 'rev-parse', '--verify', f'{ref}^{{commit}}'],

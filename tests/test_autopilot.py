@@ -381,6 +381,8 @@ class TakeOverCommand(unittest.TestCase):
         start = SKILL.read_text().split('## Start', 1)[1].split('- **`autopilot --take-over`:**', 1)[0]
         for phrase in ('one or two tickets take the [direct path](run-card.md)', 'otherwise run [align]'):
             self.assertIn(phrase, ' '.join(start.split()))
+        # Live check (codex, B1): a host took the direct path as skipping the loop.
+        self.assertIn('[direct path](run-card.md), which skips only those two', ' '.join(start.split()))
         card = ' '.join(CARD.read_text().split())
         for phrase in ('`mode: direct` or `mode: full`', 'one or two tickets with no pause-list action and no material question',
                        'by rule', 'mode: full | direct', 'one independent review', 'A third ticket, a pause-list action or a material question switches to the full path', 'more than two tickets is refused its dispatch', 'set `mode: full`'):

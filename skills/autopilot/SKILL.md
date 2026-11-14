@@ -22,7 +22,7 @@ types the command; a message that mentions it is not one. Never widens native pe
 
 ## Start
 
-- **`autopilot <goal>`:** one or two tickets take the [direct path](run-card.md); otherwise run [align](../align/SKILL.md) with its interview, which settles everything later phases would ask: goal, principles, acceptance criteria with
+- **`autopilot <goal>`:** one or two tickets take the [direct path](run-card.md), which skips only those two; otherwise run [align](../align/SKILL.md) with its interview, settling what later phases would ask: goal, principles, acceptance criteria with
   Verify lines that tell success from failure, and what the user reserves.
 - **`autopilot --take-over`:** start from the session's current state. It reuses accepted decisions, tickets and reports,
   and asks only the align questions still unsettled; a phase already finished is not redone. With an existing card, continue from its State.
@@ -43,8 +43,8 @@ types the command; a message that mentions it is not one. Never widens native pe
   card's state and changes nothing. It keeps the card's levels unchanged.
 - **`--auto-merge`:** grants merging once the PR is open; see [Stop](#stop).
 
-Then autopilot writes the [run card](run-card.md) to `.scratch/<slug>/autopilot.md`, records both effort levels on
-it, and the full path asks the user to confirm it once.
+Then autopilot writes the [run card](run-card.md) to `.scratch/<slug>/autopilot.md`, records both effort levels,
+and the full path asks the user to confirm it once.
 The card, ledger and reports are workflow state: a principle about the project's files never keeps them out of `.scratch/`.
 No phase after align starts before that confirmation; silence or an unrelated reply is
 not one. Record the confirmation on the card by its `confirm` command. Waiting for it is not a terminal state: `terminal:` stays empty.
@@ -76,7 +76,7 @@ timer needs the user's approval keeps that prompt pending; one with no scheduler
 the report. If the allowance is still `critical` when the timer fires, set the next timer only when the new reset is
 later than the one just waited for; otherwise end with the resume command. A take-over or a pause, by the timer or by the
 user, cancels a timer left over.
-Update the card's State as each phase ends, with its commit and report.
+Update the card's State per phase, with its commit and report.
 Candidate ADRs the user has not approved are not written; the final report lists them among the user's actions; approved ones are written as dispatch says.
 
 ## Decide without asking

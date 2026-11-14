@@ -36,7 +36,8 @@ class DeliveryUpdatesTheProfile(unittest.TestCase):
     def test_the_handoff_records_each_areas_expert_and_skills_in_the_profile(self):
         handoff = prose('skills/dispatch/handoff.md')
         self.assertIn(f'update the crew profile (`{PROFILE}`) with each area\'s expert and the skills workers loaded on demand '
-                      'or left unused', handoff)
+                      'or left unused, the entry naming the workstream\'s slug', handoff)
+        self.assertIn('in an entry naming the workstream', prose('runtime/workers/skills.md'))
 
     def test_a_learning_moves_into_tracked_instructions_only_with_the_users_approval(self):
         skills = prose('runtime/workers/skills.md')
