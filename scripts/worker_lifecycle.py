@@ -1591,10 +1591,6 @@ def watch(db, state, attempt, request, *, productive=False):
                     break
                 time.sleep(min(1, max(0, deadline - time.monotonic())))
             reason = 'settled' if code == 0 else 'completion-error' if command is completion else 'wait-error'
-            if productive and saved.get('t3') and code in (1, 2):
-                # A t3 send's exit codes map to the lifecycle's vocabulary: 2 is the agent
-                # waiting for an answer in the T3 app, 1 is the run failing or stopping.
-                reason = 'waiting-on-answer' if code == 2 else 'send-failed'
     except subprocess.TimeoutExpired:
         if process is not None:
             stop(process)
@@ -1615,7 +1611,8 @@ def watch(db, state, attempt, request, *, productive=False):
         saved = get(db, attempt)
         saved['monitor']['state'] = 'finished'
         if productive and code == 0:
-            # The submit argv is activity-gated (e.g. Herdr `agent prompt --wait`), so success proves acceptance.
+            # The submit argv is activity-gated (Herdr `agent prompt --wait --until working`; a `t3 thread send`, which
+            # answers with the run it started), so success proves acceptance.
             saved['submitted'] = dict(argv=argv, evidence=[str(log)], source='submit')
             event(db, attempt, 'submitted', saved['submitted'])
         save(db, saved)
@@ -1640,13 +1637,14 @@ def herdr_prompt(argv):
 
 
 def t3_send(argv):
-    """(thread id, message text) of a `t3 thread send <thread> <message> --wait` argv, or None for any other."""
+    """(thread id, message text) of a `t3 thread send <thread> <message>` argv, or None for any other."""
     if (not isinstance(argv, list) or len(argv) < 5 or argv[0] != 't3'
             or argv[1:3] != ['thread', 'send']):
         return None
-    flags = [a for a in argv[3:] if a.startswith('-')]
-    require('--wait' in flags,
-            'A t3 submit waits for the reply: use `t3 thread send <thread> <assignment> --wait`')
+    # With --wait the send returns when the worker's turn settles, which would hold the orchestrator for the whole job.
+    require(not any(option.split('=')[0] == '--wait' for option in argv[5:]),
+            f'A T3 submit returns once the thread has the packet: use `t3 thread send {argv[3]} <assignment>` with no '
+            f'`--wait`; once its receipt is reconciled, arm `watch` with `native_wait.py t3 {argv[3]}` for its completion')
     return argv[3], argv[4]
 
 
@@ -1655,11 +1653,10 @@ def submit(db, state, attempt, request):
     t3_target = t3_send(request.get('argv'))
     saved_for_route = get(db, attempt)
     if t3_target is None and saved_for_route and saved_for_route.get('t3'):
-        require(False, 'A t3 worker submits through `t3 thread send <thread> <assignment> --wait`; this argv is '
-                       'not a t3 thread send')
+        require(False, 'A t3 worker submits through `t3 thread send <thread> <assignment>`; this argv is not a t3 '
+                       'thread send')
     if t3_target is not None:
-        # The acceptance a t3 submit records is the packet's, sent to the registered thread . The
-        # send runs through watch(productive=True): its exit codes map 0 done, 2 waiting-on-answer, 1 failed.
+        # The acceptance a t3 submit records is the packet's, sent to the registered thread.
         thread, text = t3_target
         saved = get(db, attempt)
         placed = saved.get('t3') or {}

@@ -128,7 +128,7 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    references. It affects only model identity; effort must still match. The helper
    does not authenticate the semantic truth of these host assertions.
    The submit `argv` returns once the worker shows activity, as Herdr's
-   `--wait --until working` does. Exit 0 records `submitted` with the wait log as evidence;
+   `--wait --until working` and a `t3 thread send` with no `--wait` do. Exit 0 records `submitted` with the wait log as evidence;
    reconcile it, then wait for completion with `watch`. Any other exit leaves
    the attempt unsubmitted: inspect the worker and record `submitted` only with
    evidence of activity. Reconciliation never authorizes resubmitting the

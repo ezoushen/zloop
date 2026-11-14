@@ -402,11 +402,15 @@ if args[:2] == ['thread', 'list']:
     print(json.dumps([body['thread']]))
 elif args[:2] == ['thread', 'show']:
     print(json.dumps(body))
+    if body['thread']['status'] == 'running':  # The turn ends after T3 has reported it running once.
+        body['thread']['status'] = 'completed'
+        body['messages'] += [{{'role': 'assistant', 'text': 'assignment done'}}]
+        path.write_text(json.dumps(body))
 elif args[:2] == ['thread', 'send']:
-    body['messages'] += [{{'role': 'user', 'text': args[3]}},
-                         {{'role': 'assistant', 'text': 'assignment done'}}]
+    body['thread']['status'] = 'running'
+    body['messages'] += [{{'role': 'user', 'text': args[3]}}]
     path.write_text(json.dumps(body))
-    print('assignment done')
+    print(json.dumps({{'threadId': args[2], 'status': 'running'}}))
 else:
     sys.exit(3)
 ''')
@@ -464,10 +468,23 @@ else:
                     self.assertEqual(saved['observed']['provider'], self.PROVIDERS[runtime])
                     request = self.root / 'submit.json'
                     request.write_text(json.dumps({'native': str(native), 'timeout': 5,
-                        'argv': ['t3', 'thread', 'send', thread, self.packet(attempt).read_text(), '--wait']}))
+                        'argv': ['t3', 'thread', 'send', thread, self.packet(attempt).read_text()]}))
                     submitted = self.cli('submit', '--attempt', attempt, '--input', str(request))
                     self.assertEqual((submitted['reason'], submitted['exit_code']), ('settled', 0))
-                    self.record('reconciled', attempt=attempt, evidence=['send completed; thread inspected'])
+                    self.assertEqual(json.loads(Path(submitted['log']).read_text())['status'], 'running')
+                    self.acknowledge()
+                    self.record('reconciled', attempt=attempt, evidence=['send accepted; thread running'])
+                    # Rule: the packet is handed over, then its completion is waited for on T3's own answer: with the
+                    # send's receipt acknowledged, the unarmed wait is all that holds the orchestrator's stop.
+                    self.assertEqual(self.cli('gate', '--stage', 'yield', code=1)['missing'],
+                                     [f'{attempt}: no armed wait'])
+                    request.write_text(json.dumps({'timeout': 30, 'argv': [
+                        sys.executable, '-B', str(Path(SCRIPT).with_name('native_wait.py')), 't3', thread,
+                        '--interval', '0.05']}))
+                    waited = self.cli('watch', '--attempt', attempt, '--input', str(request))
+                    self.assertEqual((waited['reason'], waited['exit_code']), ('settled', 0))
+                    self.assertIn(f'{thread}: completed', Path(waited['log']).read_text())
+                    self.record('reconciled', attempt=attempt, evidence=['turn completed; thread inspected'])
                     self.snapshot(thread)
                     report = self.root / f'{thread}-report.md'
                     report.write_text('## E2E\n\nassignment done\n')
@@ -793,8 +810,8 @@ class WaitingThreadRetirement(T3Threads):
 
 
 class T3Submit(T3Threads):
-    """A t3 submit goes through `t3 thread send --wait`; the lifecycle checks the packet text, maps the
-    exit codes (0 done, 2 waiting-on-answer, 1 failed) and collects the final reply from `thread show --json`."""
+    """A t3 submit hands the registered packet to the registered thread with `t3 thread send` and returns; the
+    thread's completion is a separate wait."""
 
     def t3_send_fixture(self, *, exit_code=0, reply='assignment done', send_error=None):
         import stat
@@ -821,13 +838,13 @@ sys.exit(3)
         import os
         self.send_env = dict(self.native_env, PATH=str(directory) + os.pathsep + self.native_env['PATH'])
 
-    def submit_send(self, thread='th-1', text='PACKET', **fixture):
+    def submit_send(self, thread='th-1', text='PACKET', flags=(), **fixture):
         if fixture:
             self.t3_send_fixture(**fixture)
         if not hasattr(self, 'send_env'):
             self.send_env = self.native_env
         request = self.root / 'submit-send.json'
-        request.write_text(json.dumps({'argv': ['t3', 'thread', 'send', thread, text, '--wait'], 'timeout': 5,
+        request.write_text(json.dumps({'argv': ['t3', 'thread', 'send', thread, text, *flags], 'timeout': 5,
                                        'native': str(self.native('ticket-1/1'))}))
         import subprocess
         return subprocess.run([sys.executable, '-B', str(SCRIPT),
@@ -850,34 +867,50 @@ sys.exit(3)
         self.assertEqual(process.returncode, 2)
         self.assertIn('registered thread', process.stderr + process.stdout)
 
-    def test_submit_runs_the_registered_send_and_arms_the_wait(self):
-        # Rule: a t3 submit records the startup, sends the registered packet text to the registered thread through
-        # `t3 thread send --wait`, and arms the wait on that send.
-        import subprocess
+    def test_a_submit_hands_the_packet_over_and_records_it_submitted(self):
+        # Rule: a t3 submit sends the registered packet to the registered thread once, and T3's acceptance of the send
+        # is the submission: once its receipt is reconciled the completion wait can be armed.
         self.registered()
-        # Startup was already recorded by registered()? registered() only registers. Record startup with the native record.
         self.record('startup', native=str(self.native('ticket-1/1')))
-        self.t3_send_fixture(exit_code=0, reply='packet received')
-        packet = Path(self.packet('ticket-1/1'))
-        process = self.submit_send(text=packet.read_text(errors='replace').strip())
+        self.t3_send_fixture(exit_code=0, reply='{"runId": "run-2", "status": "running"}')
+        packet = Path(self.packet('ticket-1/1')).read_text(errors='replace').strip()
+        process = self.submit_send(text=packet)
         self.assertEqual(process.returncode, 0, process.stderr + process.stdout)
-        sends = (self.root / 't3-send-argv.log').read_text()
-        self.assertIn('thread send th-1', sends)
-        saved = json.loads(process.stdout)
-        # The stub settles instantly: the wait ran to its settled receipt.
-        self.assertEqual((saved['reason'], saved['exit_code']), ('settled', 0))
+        self.assertEqual((self.root / 't3-send-argv.log').read_text().count('thread send th-1'), 1)
+        receipt = json.loads(process.stdout)
+        self.assertEqual((receipt['reason'], receipt['exit_code']), ('settled', 0))
+        self.assertIn('run-2', Path(receipt['log']).read_text())
+        self.record('reconciled', evidence=['send accepted; thread running'])
+        self.assertEqual(self.watch()['reason'], 'settled')
 
-    def test_submit_exit_two_maps_to_waiting_on_answer(self):
-        # Rule: a send exit 2 means the agent waits for an answer; the wait result carries the mapped reason.
+    def test_a_send_t3_does_not_accept_leaves_the_attempt_unsubmitted(self):
+        # Rule: `submitted` is T3's acceptance of the send. A send that fails is a wait error like any transport's; a
+        # plain send's exit code says nothing of an agent waiting for an answer.
         self.registered()
         self.record('startup', native=str(self.native('ticket-1/1')))
-        self.t3_send_fixture(exit_code=2, send_error='agent waiting for an answer')
-        packet = Path(self.packet('ticket-1/1'))
-        process = self.submit_send(text=packet.read_text(errors='replace').strip())
-        # The CLI mirrors the semantics: exit 2 IS the waiting-on-answer state.
+        self.t3_send_fixture(send_error='No running T3 Code server')
+        packet = Path(self.packet('ticket-1/1')).read_text(errors='replace').strip()
+        process = self.submit_send(text=packet)
         self.assertEqual(process.returncode, 2)
-        saved = json.loads(process.stdout)
-        self.assertEqual((saved['reason'], saved['exit_code']), ('waiting-on-answer', 2))
+        receipt = json.loads(process.stdout)
+        self.assertEqual((receipt['reason'], receipt['exit_code']), ('wait-error', 2))
+        self.record('reconciled', evidence=['send refused; thread inspected'])
+        self.assertIn('Its submission was not confirmed', self.watch(code=2))
+
+    def test_a_submit_that_waits_for_the_reply_is_refused(self):
+        # Rule: a T3 submit returns once the thread has the packet, as a Herdr submit does once its worker is working;
+        # `--wait` would hold the orchestrator for the whole job, so it is refused before anything is sent.
+        self.registered()
+        self.record('startup', native=str(self.native('ticket-1/1')))
+        self.t3_send_fixture()
+        packet = Path(self.packet('ticket-1/1')).read_text(errors='replace').strip()
+        for flags in (['--wait', '--json'], ['--json', '--wait=true']):  # The CLI takes either spelling.
+            with self.subTest(flags=flags):
+                process = self.submit_send(text=packet, flags=flags)
+                self.assertEqual(process.returncode, 2, process.stdout)
+                self.assertIn('with no `--wait`', process.stderr)
+                self.assertIn('native_wait.py t3 th-1', process.stderr)
+                self.assertFalse((self.root / 't3-send-argv.log').exists(), 'the refused send still ran')
 
     def test_submit_rejects_an_argv_that_is_not_a_t3_thread_send(self):
         # Rule: the registered packet is what a t3 submit sends; any other command is refused before it runs.
@@ -886,7 +919,7 @@ sys.exit(3)
         request = self.root / 'submit-bad.json'
         request.write_text(json.dumps({'argv': ['t3', 'thread', 'list'], 'timeout': 5}))
         error = self.cli('submit', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
-        self.assertIn('t3 thread send', error)
+        self.assertIn('t3 thread send <thread> <assignment>`;', error)
 
 if __name__ == '__main__':
     unittest.main()
