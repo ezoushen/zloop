@@ -13,7 +13,7 @@ Record the user's confirmation from the shell of the session running the autopil
 `python3 "<plugin_root>/scripts/autopilot_card.py" confirm <card> --words "<the user's words>"`, and set `phase:` with
 `autopilot_card.py phase <card> <align|refine|dispatch|pr>`; each refuses what it cannot record and says what to add.
 Size the work first (`mode: direct` or `mode: full`). The direct path takes one or two tickets with no pause-list action and no material question: no interview, no
-confirmation round; `confirm --words "<the goal as typed>"` records it `by rule`, and the run keeps the required checks
+confirmation round. A direct run still writes `alignment.md` (the brief with its Crew rows) and runs refine; it skips only the interview and the confirmation round. `confirm --words "<the goal as typed>"` records the card `by rule`, and the run keeps the required checks
 and one independent review. A third ticket, a pause-list action or a material question switches to the full
 path. A `direct` card whose local board holds more than two tickets is refused its dispatch: set `mode: full` and confirm it
 with the user.

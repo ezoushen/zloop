@@ -103,11 +103,11 @@ A continuing user instruction recorded in the ledger that governs later decision
 _Avoid_: none
 
 **Autopilot**:
-The command that runs a workstream's whole loop hands-off: one align interview and a confirmed run card, then refine, dispatch with autofix, review and the PR.
+Runs a workstream hands-off, without further questions: an interview (skipped for a small change), a confirmed run card, then refine, dispatch with autofix, review, PR.
 _Avoid_: none
 
 **Run card**:
-The user-confirmed agreement for an autopilot run, including its scope, stop condition and reserved actions.
+An autopilot run's agreement, user-confirmed or by rule (direct path): scope, stop, reserved actions.
 _Avoid_: none
 
 **Run**:

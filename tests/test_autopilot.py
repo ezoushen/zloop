@@ -54,7 +54,7 @@ class RunCard(unittest.TestCase):
         self.assertIn('After confirmation, ask the user nothing', text)
         self.assertIn('Record the confirmation on the card', text)
         # Seen live on Codex: an unconfirmed card was marked `waiting-on-user`, which hides it from the bootstrap trigger.
-        self.assertIn('Waiting for this confirmation is not a terminal state: `terminal:` stays empty', text)
+        self.assertIn('Waiting for it is not a terminal state: `terminal:` stays empty', text)
 
     def test_the_card_is_re_read_after_compaction(self):
         bootstrap = prose(ROOT / 'bootstrap.md')
@@ -138,7 +138,7 @@ class Flags(unittest.TestCase):
         self.assertIn('`autopilot --take-over`', text)
         self.assertIn('reuses accepted decisions, tickets and reports', text)
         self.assertIn('asks only the align questions still unsettled', text)
-        self.assertIn('A confirmed card whose goal, criteria and grants are unchanged is not confirmed again', text)
+        self.assertIn('A confirmed card whose goal, criteria and grants are unchanged is not reconfirmed', text)
         self.assertIn('a card that ended `waiting-on-user` or `paused-allowance` resumes once its cause is gone', text)
         self.assertIn('it moves the terminal state to `history:`, clears `terminal:`', text)
         self.assertIn('history:', CARD.read_text().split('## State', 1)[1])
@@ -149,14 +149,14 @@ class Flags(unittest.TestCase):
         self.assertIn('split tickets also fail twice', text)
         self.assertIn('prefer the reversible direction', text)
         self.assertIn('record its basis and reversibility in the ledger', text)
-        self.assertIn('The final report leads with the open assumptions', text)
+        self.assertIn('The final report, in the conversation, leads with the open assumptions', text)
 
 
 class AllowanceResume(unittest.TestCase):
     def test_an_allowance_pause_schedules_its_own_resume_and_asks_only_when_the_host_needs_approval(self):
         run = ' '.join(SKILL.read_text().split('## Run', 1)[1].split('\n## ', 1)[0].split())
-        self.assertIn('Ending `paused-allowance`, schedule the resume instead of leaving it to the user', run)
-        self.assertIn("set one timer through the host's native scheduler, named in its session part's Resume timer section, for just after the reset of the window that drove the level", run)
+        self.assertIn('Ending `paused-allowance`, schedule the resume, not the user', run)
+        self.assertIn("set one timer through the host's native scheduler, named in its session part's Resume timer section, for after the reset of the window that drove the level", run)
         self.assertIn('the latest `resets_at` of the windows at 80% used or projected, or five minutes from now when none is', run)
         self.assertIn('that runs `autopilot --take-over --timed`', run)
         self.assertIn("record the time and the timer's handle on the card", run)
@@ -164,14 +164,14 @@ class AllowanceResume(unittest.TestCase):
         self.assertIn('The confirmed run card is the authorization', run)
         self.assertIn('resume itself on `paused-allowance` with one timer', CARD.read_text().split('## Granted actions', 1)[1].split('\n## ', 1)[0])
         self.assertIn("A host whose timer needs the user's approval keeps that prompt pending", run)
-        self.assertIn('a host with no scheduler gets the resume command in the report', run)
+        self.assertIn('one with no scheduler gets the resume command in the report', run)
 
     def test_a_critical_provider_that_still_leaves_a_candidate_does_not_pause_the_run(self):
         # Rule: routing already omits a critical provider unless a layer includes it, so a run with an eligible
         # candidate for every needed job does not pause.
         run = prose(SKILL).split('## Run', 1)[1].split('## Decide without asking', 1)[0]
-        self.assertIn('Routing already leaves out the candidates of a `critical` provider', run)
-        self.assertIn('still leaves every needed job an eligible candidate does not pause the run', run)
+        self.assertIn('Routing leaves out the candidates of a `critical` provider', run)
+        self.assertIn('leaves every needed job an eligible candidate does not pause the run', run)
 
     def test_a_timer_that_fires_while_still_limited_sets_the_next_only_for_a_later_reset(self):
         run = ' '.join(SKILL.read_text().split('## Run', 1)[1].split('\n## ', 1)[0].split())
@@ -264,7 +264,7 @@ class JumpIn(unittest.TestCase):
         start = ' '.join(SKILL.read_text().split('## Start', 1)[1].split('\n## ', 1)[0].split())
         self.assertIn('A card that ended `paused-by-user` resumes at once, with no cause to wait for', start)
         self.assertIn('first record each decision the user made while in control in the ledger as theirs, with their words', start)
-        self.assertIn('and re-read the branch and the board, so the work the user did is the current state', start)
+        self.assertIn("and re-read the branch and the board: the user's work is the current state", start)
 
     def test_an_ordinary_message_mid_run_is_an_instruction_not_a_pause(self):
         run = ' '.join(SKILL.read_text().split('## Run', 1)[1].split('\n## ', 1)[0].split())
@@ -369,7 +369,7 @@ class TakeOverCommand(unittest.TestCase):
 
     def test_the_command_starts_only_when_the_user_types_it(self):
         # Rule: a message that merely mentions autopilot is not an invocation.
-        self.assertIn('Starts only when the user types the command; a message that mentions it is not an invocation.',
+        self.assertIn('Starts only when the user types the command; a message that mentions it is not one.',
                       ' '.join(SKILL.read_text().split()))
 
     def test_autopilot_never_widens_native_permissions(self):
@@ -385,6 +385,28 @@ class TakeOverCommand(unittest.TestCase):
         for phrase in ('`mode: direct` or `mode: full`', 'one or two tickets with no pause-list action and no material question',
                        'by rule', 'mode: full | direct', 'one independent review', 'A third ticket, a pause-list action or a material question switches to the full path', 'more than two tickets is refused its dispatch', 'set `mode: full`'):
             self.assertIn(phrase, card)
+
+    def test_the_interview_and_the_users_confirmation_are_the_full_paths_and_the_direct_path_keeps_align_and_refine(self):
+        # Review FC-1: the description, goal, confirmation, glossary and README said every run interviews and is
+        # confirmed by the user; the direct path does neither, yet still writes the brief and refines it (ledger A16).
+        text = SKILL.read_text()
+        description = re.search(r'^description: (.+)$', text.split('---', 2)[1], re.M).group(1)
+        self.assertIn('a small change skips both', description)
+        skill = prose(SKILL)
+        self.assertIn('the direct path has neither', skill)
+        self.assertIn('the full path asks the user to confirm it once', skill)
+        card = ' '.join(CARD.read_text().split())
+        self.assertIn('A direct run still writes `alignment.md` (the brief with its Crew rows) and runs refine; '
+                      'it skips only the interview and the confirmation round', card)
+        self.assertEqual(skill.count('runs refine'), 0)
+        glossary = (ROOT / 'GLOSSARY.md').read_text()
+        autopilot = glossary.split('**Autopilot**:\n', 1)[1].split('\n_Avoid_', 1)[0]
+        run_card = glossary.split('**Run card**:\n', 1)[1].split('\n_Avoid_', 1)[0]
+        self.assertIn('without further questions', autopilot)
+        self.assertIn('an interview (skipped for a small change)', autopilot)
+        self.assertIn('user-confirmed or by rule (direct path)', run_card)
+        readme = next(l for l in (ROOT / 'README.md').read_text().splitlines() if l.startswith('| `autopilot` |'))
+        self.assertIn('a small change skips both', readme)
 
 
 if __name__ == '__main__':
