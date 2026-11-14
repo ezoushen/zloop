@@ -999,7 +999,8 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                         f'Codex native attempts need a fresh child; spawn with task_name: {task} '
                         f'and register /root/{task} as native_session')
             settings = execution.get('settings')
-            require(isinstance(settings, dict) and not set(settings) - {'model', 'effort'}
+            controls = {'model', 'effort', 'provider'} if kind_route_is_t3 else {'model', 'effort'}
+            require(isinstance(settings, dict) and not set(settings) - controls
                     and all(text(value) for value in settings.values()), 'Invalid resolved settings')
             require(text(execution.get('agent')) and execution.get('job') in DEFINITIONS['jobs'],
                     'Resolved execution requires its agent and a known job (resolve with --job)')
@@ -1028,7 +1029,8 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
             ticket = (agent_defs.input_value(job, packet.read_text(errors='replace'), 'ticket')
                       if 'ticket' in job['inputs'] else None)
             runtime = execution.get('target_runtime') or (execution.get('host') if execution.get('native_dispatch') else None)
-            require(runtime is None or runtime == data['runtime'], 'Runtime conflicts with resolved execution')
+            require(runtime is None or runtime == data['runtime'] or kind_route_is_t3 and data['runtime'] == 't3',
+                    'Runtime conflicts with resolved execution')
             closed = closed_sessions(db)
             require((data['runtime'], data['native_session']) not in closed,
                     'Retired conversation requires a fresh native session')
@@ -1843,6 +1845,8 @@ def t3_placement(data, execution=None):
     """Where T3 Code itself placed a registration's worker: the state of the thread the route names."""
     thread = t3_thread(data)
     require(text(thread), 'Registration requires worker')
+    require(data.get('runtime') != 't3' or data.get('native_session') == thread,
+            f'T3 native_session must name its registered thread {thread}')
     code, response = t3_show(dict(data, environment=t3_environment(dict(data, execution_snapshot=execution or {}))), thread)
     if code != 0:
         reason = response.get('error', {}).get('code') if isinstance(response, dict) else response

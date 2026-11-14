@@ -863,7 +863,7 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
         metadata.update(target_runtime='claude', executor_context='herdr', executor_source='built-in')
     # A native child takes no flags; a worker started as its own runtime process gets them explicitly.
     launch = (launch_controls(runtime, agent, settings, repo.resolve(), worktree, reports)
-              if not native and runtime in HOSTS else None)
+              if not native and kind != 't3' and runtime in HOSTS else None)
     # Named delegates and skills can forward to another runtime; the host is not the destination.
     environment = None
     if kind == 't3':
