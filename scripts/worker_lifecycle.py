@@ -1847,7 +1847,8 @@ def t3_placement(data, execution=None):
     require(text(thread), 'Registration requires worker')
     require(data.get('runtime') != 't3' or data.get('native_session') == thread,
             f'T3 native_session must name its registered thread {thread}')
-    code, response = t3_show(dict(data, environment=t3_environment(dict(data, execution_snapshot=execution or {}))), thread)
+    environment = t3_environment(dict(data, execution_snapshot=execution or {}))
+    code, response = t3_show(dict(data, environment=environment), thread)
     if code != 0:
         reason = response.get('error', {}).get('code') if isinstance(response, dict) else response
         raise ValueError(f'T3 cannot confirm thread {thread}: {reason or "no running server answered"}')
@@ -1855,6 +1856,15 @@ def t3_placement(data, execution=None):
     placed = response.get('thread') if isinstance(response.get('thread'), dict) else response
     require(isinstance(placed, dict) and placed.get('threadId') == thread,
             f'T3 thread show named {placed.get("threadId")!r}, not the registered thread {thread!r}')
+    if not environment and os.environ.get('T3CODE_CLI_PATH'):
+        # T3 Code hosts this orchestrator (it puts its CLI's path in every session it starts), so the worker is a
+        # child thread: only delegate_task makes one, `t3 thread start` makes a top-level thread. Claude and Codex
+        # sessions also carry their own thread id, which then must be the parent.
+        parent, own = placed.get('parentThreadId'), os.environ.get('T3CODE_THREAD_ID')
+        require(parent, f'T3 thread {thread} is not a child thread: an orchestrator T3 Code hosts starts its '
+                        'worker with delegate_task, then registers the child thread it returns')
+        require(not own or parent == own, f"T3 thread {thread} is a child of {parent}, not of this orchestrator's "
+                                          f'thread {own}: start the worker with delegate_task from this thread')
     return dict(thread=thread, status=placed.get('status'),
                 runtime=placed.get('providerInstanceId'), model=placed.get('model'))
 
@@ -1993,6 +2003,12 @@ def retire_worker(db, state, attempt, request):
                                  'reconcile it and retire again')
             line = (f't3 thread show --json {saved["t3"]["thread"]}: {placed.get("status")}, left idle and '
                     f'archived through environment {t3_environment(saved)} (no CLI stop)')
+        elif os.environ.get('T3CODE_CLI_PATH'):
+            # The t3 CLI cannot archive, so an orchestrator T3 Code hosts archives its worker thread with T3's own
+            # tool; T3's answer is the evidence.
+            require(placed.get('archived'), f'T3 thread {saved["t3"]["thread"]} is not archived: archive it with '
+                                            't3_thread_organize (action "archive"), then retire again')
+            line = f't3 thread show --json {saved["t3"]["thread"]}: {placed.get("status")}, archived (no CLI stop)'
         else:
             line = f't3 thread show --json {saved["t3"]["thread"]}: {placed.get("status")}, left idle (no CLI stop)'
         record(db, dict(kind='closed', attempt=attempt, evidence=[line, *evidence],
@@ -2251,7 +2267,8 @@ def collect(db, state, attempt, request):
     require(isinstance(disposition, dict), 'Collection disposition must be an object')
     require(disposition.get('kind') in ('retire', 'retain'), 'Collection requires retirement or explicit retention')
     saved = get(db, attempt)
-    paneless = (disposition['kind'] == 'retire' and saved['owned'] and not saved.get('herdr')
+    # A T3 worker has no pane either, but T3 reports its thread, so it retires through `retire`.
+    paneless = (disposition['kind'] == 'retire' and saved['owned'] and not saved.get('herdr') and not saved.get('t3')
                 and not any(disposition.get(key) for key in ('session', 'pane')))
     if disposition['kind'] == 'retire':
         require(not paneless or isinstance(disposition.get('evidence'), list) and disposition['evidence']
