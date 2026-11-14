@@ -76,8 +76,8 @@ pane, whatever placement the installed skill defaults to:
    and starts the agent in its root pane.
    `ZLOOP_WORKER` is how zloop's stop check tells a worker from its orchestrator.
    It uses the caller's Herdr socket and prints its response. OpenCode's
-   `launch.api` runs a pane-owned server/TUI wrapper, adding `opencode.server`, `opencode.session`
-   and `opencode.password_file`. Register that session as `native_session`; export as its adapter specifies.
+   `launch.api` starts a detached private-server keeper, then attaches the TUI, adding `opencode.server`,
+   `opencode.session` and `opencode.password_file`. Register/export as its adapter specifies.
    Missing integration refuses before tab creation: `herdr integration install opencode`.
    Keep `launch.argv` in JSON, never shell text. The resolver supplies write scope, model and effort; recipes: [Claude](claude/workers.md#top-level-workers),
    [Codex](codex/workers.md#top-level-workers), [Pi](pi/workers.md#top-level-workers) and

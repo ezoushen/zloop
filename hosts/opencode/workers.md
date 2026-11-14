@@ -38,20 +38,25 @@ configuration stay callable under a session's deny rules.
 
 Launch through `python3 <plugin_root>/hooks/herdr_launch.py start` with the saved route,
 worktree, assignment, role and name, as the [Herdr guide](../herdr.md#start-each-worker-in-a-tab-of-its-own)
-specifies. It refuses before opening a tab if either installed Herdr integration file is missing,
-naming `herdr integration install opencode`. Run that installer only for the user's configuration;
-the launcher copies its server plugin and TUI reporter into the worker's private configuration,
-writes `tui.jsonc` to load the reporter, and copies no other user configuration.
+specifies. It refuses before opening a tab if any of the three installed Herdr files is missing,
+naming `herdr integration install opencode`. The launcher copies `plugins/herdr-agent-state.js`,
+`herdr-tui-session.js` and `herdr-opencode/tui.js` into private configuration; `tui.jsonc` loads the
+v1 reporter and `cli.json` loads `./herdr-opencode` for v2. It copies no other user configuration.
+Generated `opencode.json` allows edit, bash, webfetch and external_directory, leaving the session's
+deny rules to set write scope without permission prompts, including reports outside the worktree.
 
-The tab's agent is the launcher's `opencode` wrapper. It owns a loopback server with private
-`XDG_CONFIG_HOME` and `XDG_STATE_HOME`, clearing inherited configuration overrides. It preserves
-`XDG_DATA_HOME` (or its native default), so the user's existing logins serve the worker without
-copying credentials. The server inherits `HERDR_PANE_ID` from the worker's pane; its integration
-therefore reports that worker. The wrapper creates the route's session with the worktree as
-`location.directory` and attaches the foreground TUI to it. The session body denies edit and
-subagent for `writes: none` and subagent for `worktree`; a denied agent still writes through the
-`general` subagent unless subagent is denied. TUI exit, SIGHUP and SIGTERM stop the private server
-and remove its configuration, state and password file. The wrapper reports the failing startup step.
+The tab's environment carries `ZLOOP_WORKER`, private `XDG_CONFIG_HOME` and `XDG_STATE_HOME`, and
+`OPENCODE_PASSWORD`. Herdr starts the OpenCode TUI itself with only `--server <url> --session <id>`.
+A detached launcher keeper owns the loopback server outside the pane, with its streams and the
+server's streams sent to `/dev/null`: `opencode serve` logs its password. The server receives the
+worker's `HERDR_PANE_ID` and `HERDR_TAB_ID`, so its integration reports that worker. Configuration
+overrides are cleared; `XDG_DATA_HOME` (or its default) stays, sharing logins without copying credentials.
+The keeper creates the route's session with `location.directory` set to the worktree. The session denies
+edit and subagent for `writes: none` and subagent for `worktree`; denying subagent also prevents writes
+through `general`. Every few seconds the keeper checks the pane through Herdr; `pane_not_found`,
+SIGHUP or SIGTERM stops its server and removes configuration, state and password. Close the pane after
+final collection; TUI exit alone does not remove a pane. Startup failures name their step and stop the
+keeper/server while leaving the tab's launch logged for recovery.
 
 The launcher's response preserves Herdr's agent-start result and adds `opencode.server`,
 `opencode.session` and `opencode.password_file`. The last names a file readable only by its owner;
@@ -66,7 +71,7 @@ OPENCODE_PASSWORD="$(cat <password-file>)" opencode session export <session-id> 
 Use the absolute export path as `native` for `worker_lifecycle.py record` (`kind: startup`) and
 `submit`; export again before `collect`. Parse the complete retained export. The export records no
 server, so the lifecycle cannot distinguish a private-server export from one of the user's service:
-keep `--server <url>` and never substitute another server. The password file remains until the TUI exits.
+keep `--server <url>` and never substitute another server. The password file remains until the keeper stops.
 
 Run `opencode run` against the server with stdin from `/dev/null` (`< /dev/null`); it blocks when stdin is
 not a terminal. A `writes: none` worker keeps the shell for checks and its report but no editing tool;

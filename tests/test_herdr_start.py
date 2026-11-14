@@ -3,6 +3,7 @@
 import json
 import os
 import signal
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -127,33 +128,44 @@ class OpenCodeStart(unittest.TestCase):
         (self.integration / 'plugins').mkdir(parents=True)
         (self.integration / 'plugins/herdr-agent-state.js').write_text('server reporter')
         (self.integration / 'herdr-tui-session.js').write_text('tui reporter')
+        (self.integration / 'herdr-opencode').mkdir()
+        (self.integration / 'herdr-opencode/tui.js').write_text('v2 entrypoint')
         (self.integration / 'opencode.json').write_text('private user configuration')
         self.events = self.root / 'opencode.jsonl'
+        self.owned_events = {}
         self.release = self.root / 'release-tui'
-        self.wrapper_pid = self.root / 'wrapper-pid'
         self.env.update(XDG_CONFIG_HOME=str(self.config), XDG_DATA_HOME=str(self.root / 'user data'),
-                        EVENTS=str(self.events), RELEASE=str(self.release), WRAPPER_PID=str(self.wrapper_pid))
+                        EVENTS=str(self.events), RELEASE=str(self.release))
+        self.tab_env = self.root / 'tab-env.json'
+        self.env['TAB_ENV'] = str(self.tab_env)
         stub = self.bin / 'herdr'
-        stub.write_text(stub.read_text().replace('import json, os, sys', 'import json, os, sys, subprocess').replace(
-            "elif args[:2] == ['agent', 'start']:",
-            "elif args[:2] == ['agent', 'start']:\n"
-            "    child = subprocess.Popen(args[args.index('--') + 1:], stdin=subprocess.DEVNULL,\n"
-            "        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,\n"
-            "        env=dict(os.environ, HERDR_PANE_ID='root-pane', HERDR_TAB_ID='worker-tab'))\n"
-            "    Path(os.environ['WRAPPER_PID']).write_text(str(child.pid))"))
-        stub.write_text(stub.read_text().replace('import json, os, sys, subprocess',
-            'import json, os, sys, subprocess, time').replace(
-            "    Path(os.environ['WRAPPER_PID']).write_text(str(child.pid))",
-            "    Path(os.environ['WRAPPER_PID']).write_text(str(child.pid))\n"
-            "    if os.environ.get('HERDR_FAIL'):\n"
-            "        deadline = time.monotonic() + 5\n"
-            "        events = Path(os.environ['EVENTS'])\n"
-            "        while time.monotonic() < deadline:\n"
-            "            if events.exists() and len(events.read_text().splitlines()) >= 3: break\n"
-            "            time.sleep(.02)\n"
-            "        print('invalid Herdr response' if os.environ.get('HERDR_FAIL_JSON') else\n"
-            "              json.dumps({'error': {'code': 'agent_not_ready'}}))\n"
-            "        sys.exit(7)"))
+        stub.write_text(f'#!{sys.executable}\n' + '''import json, os, sys, subprocess
+from pathlib import Path
+args = sys.argv[1:]
+with Path(os.environ['CALLS']).open('a') as stream:
+    stream.write(json.dumps(args) + '\\n')
+if args[:2] == ['tab', 'create']:
+    env = dict(item.split('=', 1) for at, item in enumerate(args) if at and args[at-1] == '--env')
+    Path(os.environ['TAB_ENV']).write_text(json.dumps(env))
+    print(json.dumps({'result': {'root_pane': {'pane_id': 'root-pane'}, 'tab_id': 'worker-tab'}}))
+elif args[:2] == ['agent', 'start']:
+    if os.environ.get('HERDR_FAIL'):
+        print('invalid Herdr response' if os.environ.get('HERDR_FAIL_JSON') else
+              json.dumps({'error': {'code': 'agent_not_ready'}}))
+        sys.exit(7)
+    if args[args.index('--') + 1:][::2] != ['--server', '--session']:
+        print('invalid attachment arguments'); sys.exit(7)
+    subprocess.Popen(['opencode', *args[args.index('--') + 1:]], stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+        env=dict(os.environ, **json.loads(Path(os.environ['TAB_ENV']).read_text())))
+    print(json.dumps({'result': {'agent': {'name': args[2], 'pane_id': 'root-pane'}}}))
+elif args[:2] == ['pane', 'get']:
+    if Path(os.environ['RELEASE']).exists():
+        print(json.dumps({'error': {'code': 'pane_not_found'}})); sys.exit(1)
+    print(json.dumps({'result': {'pane': {'pane_id': 'root-pane'}}}))
+else:
+    sys.exit(9)
+''')
         stub = self.bin / 'opencode'
         stub.write_text(f'#!{sys.executable}\n' + '''import json, os, sys, time
 from pathlib import Path
@@ -162,8 +174,10 @@ import signal
 args = sys.argv[1:]
 config = Path(os.environ['XDG_CONFIG_HOME'])
 record = {'args': args, 'pid': os.getpid(), 'config': str(config),
-          'state': os.environ['XDG_STATE_HOME'], 'data': os.environ.get('XDG_DATA_HOME'),
-          'password': bool(os.environ.get('OPENCODE_PASSWORD')), 'pane': os.environ.get('HERDR_PANE_ID'),
+          'state': os.environ.get('XDG_STATE_HOME'), 'data': os.environ.get('XDG_DATA_HOME'),
+          'password': bool(os.environ.get('OPENCODE_PASSWORD')), 'pane': os.environ.get('HERDR_PANE_ID'), 'tab': os.environ.get('HERDR_TAB_ID'),
+          'parent': os.getppid(), 'sid': os.getsid(0),
+          'quiet': all(os.fstat(fd).st_rdev == os.stat(os.devnull).st_rdev for fd in (0, 1, 2)),
           'overrides': {key: os.environ[key] for key in ('OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT',
                         'OPENCODE_CONFIG_DIR', 'OPENCODE_TUI_CONFIG') if key in os.environ},
           'files': {str(p.relative_to(config)): p.read_text() for p in config.rglob('*') if p.is_file()}}
@@ -181,31 +195,44 @@ if args[0] == 'serve':
     HTTPServer(('127.0.0.1', int(args[args.index('--port') + 1])), Handler).serve_forever()
 elif args[0] == 'api':
     if os.environ.get('FAIL_STEP') == 'session POST': sys.exit(9)
-    print(json.dumps({'id': 'private-session'}))
+    print(json.dumps({'data': {'id': 'private-session'}}))
 else:
-    if os.environ.get('FAIL_STEP') == 'TUI': sys.exit(9)
-    while not Path(os.environ['RELEASE']).exists(): time.sleep(.02)
+    while config.exists() and not Path(os.environ['RELEASE']).exists(): time.sleep(.02)
 ''')
         stub.chmod(0o755)
-        self.addCleanup(self.stop_wrapper)
+        self.addCleanup(self.stop_keeper)
 
-    def stop_wrapper(self):
+    def stop_keeper(self):
         self.release.touch()
-        if self.wrapper_pid.exists():
-            try:
-                os.kill(int(self.wrapper_pid.read_text()), signal.SIGTERM)
-            except ProcessLookupError:
-                pass
         if self.events.exists():
-            config = Path(json.loads(self.events.read_text().splitlines()[0])['config'])
-            deadline = time.monotonic() + 5
-            while config.exists() and time.monotonic() < deadline:
-                time.sleep(.02)
+            self.owned_events.update({event['pid']: event for event in
+                (json.loads(line) for line in self.events.read_text().splitlines())})
+        private_folders = {Path(event['config']).parent for event in self.owned_events.values()}
+        for private in private_folders:
+            if (private / 'pid').exists():
+                try:
+                    os.kill(int((private / 'pid').read_text()), signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+        for event in self.owned_events.values():
+            command = subprocess.run(['ps', '-p', str(event['pid']), '-o', 'command='],
+                                     capture_output=True, text=True).stdout
+            if str(self.bin / 'opencode') in command:
+                try:
+                    os.kill(event['pid'], signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+        deadline = time.monotonic() + 5
+        while any(private.exists() for private in private_folders) and time.monotonic() < deadline:
+            time.sleep(.02)
+        for private in private_folders:
+            shutil.rmtree(private, ignore_errors=True)
 
     def wait_events(self, count):
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
             events = [json.loads(line) for line in self.events.read_text().splitlines()] if self.events.exists() else []
+            self.owned_events.update({event['pid']: event for event in events})
             if len(events) >= count:
                 return events
             time.sleep(.02)
@@ -213,6 +240,10 @@ else:
 
     def test_api_route_runs_private_server_session_and_tui_in_worker_pane(self):
         result = self.start()
+        calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
+        agent = next(call for call in calls if call[:2] == ['agent', 'start'])
+        self.assertEqual(agent[agent.index('--') + 1:][::2], ['--server', '--session'],
+                         'Herdr starts opencode itself; only attachment flags may follow --')
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         response = json.loads(result.stdout)
         self.assertEqual(response['result']['agent']['pane_id'], 'root-pane')
@@ -230,11 +261,27 @@ else:
         self.assertNotEqual(serve['state'], self.env.get('XDG_STATE_HOME'))
         self.assertTrue(serve['password'])
         self.assertEqual(serve['pane'], 'root-pane')
+        self.assertEqual(serve['tab'], 'worker-tab')
+        self.assertEqual(serve['sid'], serve['parent'], 'server belongs to its detached keeper session')
+        self.assertTrue(serve['quiet'], 'server streams must all use /dev/null')
         self.assertEqual(set(serve['files']), {'opencode/plugins/herdr-agent-state.js',
-                                             'opencode/herdr-tui-session.js', 'opencode/tui.jsonc'})
+                                             'opencode/herdr-tui-session.js', 'opencode/tui.jsonc',
+                                             'opencode/herdr-opencode/tui.js', 'opencode/cli.json',
+                                             'opencode/opencode.json'})
         self.assertEqual(serve['files']['opencode/plugins/herdr-agent-state.js'], 'server reporter')
         self.assertEqual(serve['files']['opencode/herdr-tui-session.js'], 'tui reporter')
         self.assertIn('herdr-tui-session.js', serve['files']['opencode/tui.jsonc'])
+        self.assertEqual(serve['files']['opencode/herdr-opencode/tui.js'], 'v2 entrypoint')
+        self.assertEqual(json.loads(serve['files']['opencode/cli.json']), {'plugins': ['./herdr-opencode']})
+        self.assertEqual(json.loads(serve['files']['opencode/opencode.json']), {'permission': {
+            'edit': 'allow', 'bash': 'allow', 'webfetch': 'allow', 'external_directory': 'allow'}})
+        tab_env = json.loads(self.tab_env.read_text())
+        self.assertEqual(set(tab_env), {'ZLOOP_WORKER', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'OPENCODE_PASSWORD'})
+        self.assertEqual(tab_env['ZLOOP_WORKER'], 'workstream/05')
+        self.assertEqual(tab_env['XDG_CONFIG_HOME'], serve['config'])
+        self.assertEqual(tab_env['XDG_STATE_HOME'], serve['state'])
+        self.assertTrue(tab_env['OPENCODE_PASSWORD'] == password.read_text())
+        self.assertEqual(password.parent.stat().st_mode & 0o777, 0o700)
         self.assertEqual(api['args'][:3], ['api', 'POST', '/api/session'])
         self.assertEqual(json.loads(api['args'][api['args'].index('-d') + 1]),
                          dict(self.body, location={'directory': str(self.worktree)}))
@@ -249,37 +296,29 @@ else:
         for event in self.wait_events(3):
             self.assertEqual(event['overrides'], {}, 'private server and TUI must ignore inherited config overrides')
 
-    def test_tui_exit_and_pane_signals_stop_server_and_remove_private_folder(self):
-        for ending in ('exit', signal.SIGHUP, signal.SIGTERM):
+    def test_pane_disappearance_and_keeper_signals_stop_server_and_remove_private_folder(self):
+        for ending in ('pane gone', signal.SIGHUP, signal.SIGTERM):
             with self.subTest(ending=ending):
                 self.release.unlink(missing_ok=True)
                 self.events.unlink(missing_ok=True)
-                control = self.root / 'control'
-                control.mkdir(exist_ok=True)
-                wrapper = subprocess.Popen([sys.executable, str(support.HOOKS / 'herdr_launch.py'), 'opencode',
-                    '--route', str(self.route), '--worktree', str(self.worktree),
-                    '--connection', str(control / 'connection.json')], env=self.env,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-                try:
-                    serve, _, tui = self.wait_events(3)
-                    private = Path(serve['config']).parent
-                    if ending == 'exit':
-                        self.release.touch()
-                    else:
-                        wrapper.send_signal(ending)
-                    _, error = wrapper.communicate(timeout=8)
-                    self.assertEqual(wrapper.returncode, 0 if ending == 'exit' else 128 + ending, error)
-                    self.assertFalse(private.exists(), 'private configuration and password must be removed')
-                    for pid in (serve['pid'], tui['pid']):
-                        with self.assertRaises(ProcessLookupError, msg='owned child must be stopped and reaped'):
-                            os.kill(pid, 0)
-                finally:
-                    if wrapper.poll() is None:
-                        wrapper.terminate()
-                        wrapper.communicate(timeout=8)
+                result = self.start()
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                private = Path(json.loads(result.stdout)['opencode']['password_file']).parent
+                serve, _, _ = self.wait_events(3)
+                if ending == 'pane gone':
+                    self.release.touch()
+                else:
+                    os.kill(int((private / 'pid').read_text()), ending)
+                deadline = time.monotonic() + 6
+                while private.exists() and time.monotonic() < deadline:
+                    time.sleep(.02)
+                self.assertFalse(private.exists(), 'pane closure and keeper signals must remove private files')
+                with self.assertRaises(ProcessLookupError, msg='keeper must stop and reap its server'):
+                    os.kill(serve['pid'], 0)
+                self.release.touch()
 
-    def test_missing_either_integration_file_refuses_before_creating_tab(self):
-        for name in ('plugins/herdr-agent-state.js', 'herdr-tui-session.js'):
+    def test_missing_any_integration_file_refuses_before_creating_tab(self):
+        for name in ('plugins/herdr-agent-state.js', 'herdr-tui-session.js', 'herdr-opencode/tui.js'):
             with self.subTest(name=name):
                 path = self.integration / name
                 contents = path.read_text()
@@ -290,39 +329,53 @@ else:
                 self.assertIn('herdr integration install opencode', result.stderr)
                 self.assertFalse(self.calls.exists(), 'integration must be checked before any Herdr call')
 
-    def test_failed_serve_session_or_tui_names_step_and_cleans_up(self):
-        for step, operation_count in (('serve', 1), ('session POST', 2), ('TUI', 3)):
+    def test_failed_server_or_session_names_step_and_cleans_up(self):
+        for step, operation_count in (('serve', 1), ('session POST', 2)):
             with self.subTest(step=step):
                 self.events.unlink(missing_ok=True)
-                control = self.root / 'failure-control'
-                control.mkdir(exist_ok=True)
-                result = subprocess.run([sys.executable, str(support.HOOKS / 'herdr_launch.py'), 'opencode',
-                    '--route', str(self.route), '--worktree', str(self.worktree),
-                    '--connection', str(control / 'connection.json')], env=dict(self.env, FAIL_STEP=step),
-                    capture_output=True, text=True, timeout=8)
+                self.env['FAIL_STEP'] = step
+                result = self.start()
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                self.assertIn('OpenCode ' + step + ' failed:', result.stderr)
+                self.assertIn('OpenCode ' + step + ' failed:', result.stdout)
                 events = self.wait_events(operation_count)
                 self.assertFalse(Path(events[0]['config']).parent.exists())
                 with self.assertRaises(ProcessLookupError, msg='failed setup must reap the server'):
                     os.kill(events[0]['pid'], 0)
 
-    def test_failed_herdr_start_waits_for_wrapper_cleanup_before_returning(self):
+    def test_failed_pane_lookup_stops_server_and_removes_private_folder(self):
+        result = self.start()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        serve, _, _ = self.wait_events(3)
+        stub = self.bin / 'herdr'
+        stub.write_text(stub.read_text().replace("if args[:2] == ['tab', 'create']:",
+            "if args[:2] == ['pane', 'get']:\n"
+            "    print(json.dumps({'error': {'code': 'connection_lost'}})); sys.exit(1)\n"
+            "if args[:2] == ['tab', 'create']:"))
+        private = Path(serve['config']).parent
+        deadline = time.monotonic() + 6
+        while private.exists() and time.monotonic() < deadline:
+            time.sleep(.02)
+        self.assertFalse(private.exists(), 'failed keeper lookup must not retain configuration or password')
+        with self.assertRaises(ProcessLookupError):
+            os.kill(serve['pid'], 0)
+
+    def test_failed_herdr_start_waits_for_keeper_cleanup_before_returning(self):
         self.env['HERDR_FAIL'] = '1'
         result = self.start()
         self.assertEqual(result.returncode, 7, result.stdout + result.stderr)
-        self.assertEqual(json.loads(result.stdout), {'error': {'code': 'agent_not_ready'}})
-        serve, _, _ = self.wait_events(3)
+        self.assertEqual(json.loads(result.stdout), {'error': {'code': 'agent_not_ready'},
+            'opencode_error': 'OpenCode Herdr agent start failed'})
+        serve, _ = self.wait_events(2)
         self.assertFalse(Path(serve['config']).parent.exists(), 'failed start must finish server cleanup')
         with self.assertRaises(ProcessLookupError):
             os.kill(serve['pid'], 0)
 
-    def test_unparseable_herdr_response_names_step_and_still_stops_wrapper(self):
+    def test_unparseable_herdr_response_names_step_and_still_stops_keeper(self):
         self.env.update(HERDR_FAIL='1', HERDR_FAIL_JSON='1')
         result = self.start()
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn('OpenCode Herdr agent start failed', result.stdout)
-        serve, _, _ = self.wait_events(3)
+        serve, _ = self.wait_events(2)
         self.assertFalse(Path(serve['config']).parent.exists(), 'Herdr response errors must still clean up')
 
 
