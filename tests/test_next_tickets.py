@@ -1933,7 +1933,7 @@ class BoardCLI(unittest.TestCase):
         self.assertIn('handoff', refused)
         self.assertIn('record and learn', refused)
         profile = self.root / '.scratch/crew.md'
-        profile.write_text('# Crew\n- other: builder\n')
+        profile.write_text('# Crew\n- fxtra: builder\n')
         self.assertIn('.scratch/crew.md', self.cli('fx', '--delivery', code=1).stderr)
         profile.write_text('# Crew\n- fx: builder\n')
         self.cli('fx', '--delivery')

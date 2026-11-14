@@ -332,7 +332,7 @@ def delivery_problems(slug):
            and all(fm.get(field) == required for field, required in VERDICTS[key].items() if required)]
     problems += [problem for key in met for problem in verdict_problems(slug, key, fm)]
     profile = ISSUES / 'crew.md'
-    if not profile.is_file() or slug not in profile.read_text():
+    if not profile.is_file() or not re.search(rf'(?<![\w-]){re.escape(slug)}(?![\w-])', profile.read_text()):
         problems.append(f'{profile} does not name {slug}: write its entry in the handoff step that updates the crew '
                         f'profile (runtime/workers/skills.md, record and learn)')
     if fm.get('autofix') == 'true' and not any(saved.get('job') == 'readiness' and saved.get('result')
