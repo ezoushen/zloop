@@ -175,6 +175,14 @@ class DispatchLevels(unittest.TestCase):
         launch = body.split('4. **Launch.**', 1)[1].split('5. **Accept.**', 1)[0]
         self.assertIn('readiness', launch)
 
+    def test_the_e2e_stage_reuses_each_passing_readiness_precondition_and_reprobes_only_what_changed(self):
+        # Rule: a workstream's `## Readiness` report enters the E2E reuse plan; each passing precondition is reused
+        # under the existing reuse rules and only those whose inputs changed since are probed again.
+        stage = prose(ROOT / 'skills/review/e2e.md')
+        self.assertIn("When the workstream has a `## Readiness` report from dispatch's `readiness` "
+                      'job, reuse each passing precondition under these rules and probe again only those whose inputs '
+                      'changed since.', stage)
+
     def test_a_verifier_re_runs_each_tickets_acceptance_under_its_own_job_at_high(self):
         # Rule: at high and higher one verifier attempt per ticket re-runs that ticket's `Verify (code)` commands
         # on the integrated head, under a job whose report is neither the review report nor an `e2e_by` entry.

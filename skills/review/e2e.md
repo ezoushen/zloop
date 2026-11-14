@@ -43,7 +43,10 @@ Prepare the per-check reuse/execute plan using
 [plan and accept checks](../../runtime/checks/accept.md), including
 implementation, review and repair evidence. Pass that plan to the e2e-gate job;
 preserve justified reuse in its assignment rather than replacing it with a demand
-for fresh execution of every gate. Missing run preconditions require fresh evidence
+for fresh execution of every gate.
+When the workstream has a `## Readiness` report from dispatch's `readiness`
+job, reuse each passing precondition under these rules and probe again only those whose inputs
+changed since. Missing run preconditions require fresh evidence
 from the affected checks; recomputing old results cannot establish them. Schedule
 authorized verification under the project's resource rules, including when no code defect
 remains. A runtime estimate alone is not a permission boundary; honor explicit
