@@ -39,8 +39,9 @@ worker's `HERDR_PANE_ID` and `HERDR_TAB_ID`, so its integration reports that wor
 overrides are cleared; `XDG_DATA_HOME` (or its default) stays, sharing logins without copying credentials.
 The keeper creates the route's session with `location.directory` set to the worktree. The session denies
 edit and subagent for `writes: none` and subagent for `worktree`; denying subagent also prevents writes
-through `general`. Every few seconds the keeper checks the pane through Herdr; `pane_not_found`,
-SIGHUP or SIGTERM stops its server and removes configuration, state and password. Close the pane after
+through `general`. Every few seconds the keeper checks the pane through Herdr; `pane_not_found`, a minute
+of failed lookups, the server's exit, SIGHUP or SIGTERM stops its server and removes configuration, state
+and password. A single failed lookup does not. Close the pane after
 final collection; TUI exit alone does not remove a pane. Startup failures name their step and stop the
 keeper/server while leaving the tab's launch logged for recovery.
 

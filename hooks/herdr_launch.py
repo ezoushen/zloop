@@ -43,6 +43,8 @@ import yield_gate
 SHELLS = {'sh', 'bash', 'zsh', 'dash'}
 # All Herdr lookups of one hook run, well inside the hosts' 10-second hook timeout.
 LOOKUP_SECONDS = 4
+# Seconds of failed pane lookups after which an OpenCode keeper takes Herdr itself for gone and stops its server.
+PANE_GRACE = 60
 # Options of `env` and `timeout` that take a separate value: env -u/--unset NAME, -C/--chdir DIR, -P PATH, -S STRING;
 # timeout -s SIGNAL, -k DURATION.
 VALUED = {'-u', '--unset', '-C', '--chdir', '-P', '-S', '-s', '-k'}
@@ -267,8 +269,20 @@ def start(argv):
     return code
 
 
+def pane_verdict(code, response, failing_since, now):
+    """('gone' once Herdr reports the pane missing, 'lost' once every lookup has failed for PANE_GRACE seconds, else
+    None; when the current run of failed lookups began, or None after an answer)."""
+    if not code:
+        return None, None
+    if (response.get('error') or {}).get('code') == 'pane_not_found':
+        return 'gone', failing_since
+    failing_since = now if failing_since is None else failing_since
+    return ('lost' if now - failing_since >= PANE_GRACE else None), failing_since
+
+
 def opencode(argv):
-    """Keep a private server until its pane disappears or this detached owner receives SIGHUP/SIGTERM."""
+    """Keep a private server until Herdr reports its pane gone, answers no pane lookup for PANE_GRACE seconds, the server
+    exits, or this detached owner receives SIGHUP/SIGTERM."""
     parser = argparse.ArgumentParser(prog='herdr_launch.py opencode')
     parser.add_argument('--route', required=True)
     parser.add_argument('--worktree', required=True)
@@ -322,12 +336,14 @@ def opencode(argv):
         ready.write_text(json.dumps({'server': url, 'session': session, 'password_file': str(private / 'password')}))
         ready.replace(private / 'ready.json')
         step = 'pane lookup'
+        failing_since = None
         while server.poll() is None:
             code, response = yield_gate.lifecycle().herdr(None, 'pane', 'get', args.pane, timeout=4)
-            if code and (response.get('error') or {}).get('code') == 'pane_not_found':
+            ended, failing_since = pane_verdict(code, response, failing_since, time.monotonic())
+            if ended == 'gone':
                 return 0
-            if code:
-                raise ValueError('cannot confirm worker pane')
+            if ended == 'lost':
+                raise ValueError(f'Herdr answered no pane lookup for {PANE_GRACE} seconds')
             time.sleep(2)
         raise ValueError(f'server exited {server.returncode}')
     except Exception as caught:

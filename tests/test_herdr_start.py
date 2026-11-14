@@ -342,22 +342,46 @@ else:
                 with self.assertRaises(ProcessLookupError, msg='failed setup must reap the server'):
                     os.kill(events[0]['pid'], 0)
 
-    def test_failed_pane_lookup_stops_server_and_removes_private_folder(self):
+    def test_a_transient_pane_lookup_failure_keeps_the_server_until_the_pane_is_gone(self):
+        # Rule: only a pane Herdr reports gone, a signal or the server's own exit ends a worker's server.
         result = self.start()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         serve, _, _ = self.wait_events(3)
         stub = self.bin / 'herdr'
+        failed = self.root / 'pane lookup failed once'
         stub.write_text(stub.read_text().replace("if args[:2] == ['tab', 'create']:",
-            "if args[:2] == ['pane', 'get']:\n"
-            "    print(json.dumps({'error': {'code': 'connection_lost'}})); sys.exit(1)\n"
+            "if args[:2] == ['pane', 'get'] and not Path(" + repr(str(failed)) + ").exists():\n"
+            "    Path(" + repr(str(failed)) + ").touch()\n"
+            "    print(json.dumps({'error': {'code': 'server_busy'}})); sys.exit(1)\n"
             "if args[:2] == ['tab', 'create']:"))
         private = Path(serve['config']).parent
+        deadline = time.monotonic() + 8
+        while not failed.exists() and time.monotonic() < deadline:
+            time.sleep(.05)
+        self.assertTrue(failed.exists(), 'the keeper must have met the failing lookup')
+        time.sleep(4.5)
+        self.assertTrue(private.exists(), 'one failed lookup must not remove the configuration or password')
+        os.kill(serve['pid'], 0)
+        self.release.touch()
         deadline = time.monotonic() + 6
         while private.exists() and time.monotonic() < deadline:
             time.sleep(.02)
-        self.assertFalse(private.exists(), 'failed keeper lookup must not retain configuration or password')
+        self.assertFalse(private.exists(), 'a pane Herdr reports gone still ends the server')
         with self.assertRaises(ProcessLookupError):
             os.kill(serve['pid'], 0)
+
+    def test_pane_verdict_gives_up_only_after_the_grace_period_of_failed_lookups(self):
+        sys.path.insert(0, str(support.ROOT / 'hooks'))
+        self.addCleanup(sys.path.remove, str(support.ROOT / 'hooks'))
+        import herdr_launch
+        verdict = herdr_launch.pane_verdict
+        busy = {'error': {'code': 'server_busy'}}
+        self.assertEqual(verdict(0, {}, None, 10), (None, None))
+        self.assertEqual(verdict(1, {'error': {'code': 'pane_not_found'}}, None, 10), ('gone', None))
+        self.assertEqual(verdict(1, busy, None, 10), (None, 10))
+        self.assertEqual(verdict(1, busy, 10, 10 + herdr_launch.PANE_GRACE - 1), (None, 10))
+        self.assertEqual(verdict(1, busy, 10, 10 + herdr_launch.PANE_GRACE), ('lost', 10))
+        self.assertEqual(verdict(0, {}, 10, 20), (None, None))
 
     def test_failed_herdr_start_waits_for_keeper_cleanup_before_returning(self):
         self.env['HERDR_FAIL'] = '1'
