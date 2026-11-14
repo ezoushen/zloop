@@ -621,8 +621,11 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
                     definitions[name].update(backend=backend, capacity=backends[backend])
         if not expanded and not list_candidates:
             allowance_refusal(unavailable)
+            if candidate is not None:
+                raise ValueError(f'candidate {candidate!r} is not eligible; '
+                                 + unavailable.get(candidate, 'explicit choice prevents fallback'))
             raise ValueError('No eligible candidates remain; ' +
-                          '; '.join(f'{name}: {reason}' for name, reason in unavailable.items()))
+                             '; '.join(f'{name}: {reason}' for name, reason in unavailable.items()))
         metadata['unavailable_candidates'] = unavailable
         metadata['candidate_routes'] = definitions
         instance = dict(instance, candidates=expanded)
