@@ -109,8 +109,9 @@ def ticket_files(issues):
 
 
 def board_problem(card, state):
-    """Why the run of `card` cannot work its board yet, or None: a tracker's URL holds its own tickets; a `local` board
-    needs ticket files that pass the board's check."""
+    """Why the run of `card` cannot work its board yet, or None: a full card confirmed by rule is not yet the user's; a
+    tracker's URL holds its own tickets; a `local` board needs ticket files that pass the board's check, at most
+    DIRECT_TICKETS of them on a direct card."""
     if state_fields(state).get('mode') == 'full' and re.match(r'\S+ by rule "', field(state, 'confirmed')):
         return (f"the full card of {card.parent.name} was confirmed by rule, not by the user: have the user confirm it, "
                 "then record it with `confirm --words` and the user's words")
@@ -135,7 +136,8 @@ def board_problem(card, state):
 
 
 def phase(card, text, value):
-    """The card's text with `phase:` set to `value`; exits when dispatch or pr has no board to work."""
+    """The card's text with `phase:` set to `value`; exits naming the problem when dispatch or pr cannot work its board
+    (`board_problem`)."""
     state = state_section(text)
     problem = value in ('dispatch', 'pr') and board_problem(card, state[0])
     if problem:
