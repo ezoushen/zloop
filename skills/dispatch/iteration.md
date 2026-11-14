@@ -68,7 +68,7 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    ```
 
    With `--autofix` and E2E planned, launch one [readiness](jobs/readiness.md) verifier in the same step as the first
-   builders, with the workstream `worktree`, a `report` of its own and the planned E2E `checks`; a failed precondition only the user can clear
+   builders, with a `worktree` of its own detached at the workstream tip, a `report` of its own and the planned E2E `checks`; a failed precondition only the user can clear
    goes to the user at once, in one request, [with context](../../runtime/ask/ask.md).
    Register every worker, probe, checker or E2E run in the dispatch report, with its assignment, reservation and
    result, including ad-hoc ones the user asks for; status answers read that record. Record the agent ID

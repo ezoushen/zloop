@@ -170,10 +170,16 @@ class DispatchLevels(unittest.TestCase):
         # the first builders, and a failed precondition only the user can clear goes to the user at once, in one request.
         body = prose(DISPATCH / 'iteration.md')
         self.assertIn('With `--autofix` and E2E planned, launch one [readiness](jobs/readiness.md) verifier in the '
-                      'same step as the first builders, with the workstream `worktree`, a `report` of its own and the planned E2E `checks`; '
+                      'same step as the first builders, with a `worktree` of its own detached at the workstream tip, a `report` of '
+                      'its own and the planned E2E `checks`; '
                       'a failed precondition only the user can clear goes to the user at once, in one request', body)
         launch = body.split('4. **Launch.**', 1)[1].split('5. **Accept.**', 1)[0]
         self.assertIn('readiness', launch)
+        # Review FC-5: a read-only verifier's worktree must not change under it, and the workstream worktree does as
+        # inline tickets commit and accepted tickets land, so the job's worktree is a detached one of its own.
+        job = prose(DISPATCH / 'jobs/readiness.md')
+        self.assertIn('a detached worktree of its own at the workstream tip', job)
+        self.assertNotIn('the workstream worktree, which you confirm', job)
 
     def test_the_e2e_stage_reuses_each_passing_readiness_precondition_and_reprobes_only_what_changed(self):
         # Rule: a workstream's `## Readiness` report enters the E2E reuse plan; each passing precondition is reused
