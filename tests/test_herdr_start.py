@@ -41,7 +41,7 @@ args = sys.argv[1:]
 with Path(os.environ['CALLS']).open('a') as stream:
     stream.write(json.dumps(args) + '\\n')
 if args[:2] == ['tab', 'create']:
-    print(json.dumps({'result': {'root_pane': {'pane_id': 'root-pane'}, 'tab_id': 'worker-tab'}}))
+    print(json.dumps({'result': {'tab': {'tab_id': 'worker-tab'}, 'root_pane': {'pane_id': 'root-pane'}}}))
 elif args[:2] == ['agent', 'start']:
     print(json.dumps({'result': {'agent': {'name': args[2], 'pane_id': 'root-pane'}}}))
 else:
@@ -147,7 +147,7 @@ with Path(os.environ['CALLS']).open('a') as stream:
 if args[:2] == ['tab', 'create']:
     env = dict(item.split('=', 1) for at, item in enumerate(args) if at and args[at-1] == '--env')
     Path(os.environ['TAB_ENV']).write_text(json.dumps(env))
-    print(json.dumps({'result': {'root_pane': {'pane_id': 'root-pane'}, 'tab_id': 'worker-tab'}}))
+    print(json.dumps({'result': {'tab': {'tab_id': 'worker-tab'}, 'root_pane': {'pane_id': 'root-pane'}}}))
 elif args[:2] == ['agent', 'start']:
     if os.environ.get('HERDR_FAIL'):
         print('invalid Herdr response' if os.environ.get('HERDR_FAIL_JSON') else

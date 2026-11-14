@@ -229,7 +229,7 @@ def start(argv):
                 error_file = Path(error_control.name) / 'error'
                 keeper = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), 'opencode',
                     '--route', str(Path(args.route).resolve()), '--worktree', args.worktree,
-                    '--private', str(private), '--pane', pane, '--tab', response['result']['tab_id'],
+                    '--private', str(private), '--pane', pane, '--tab', response['result']['tab']['tab_id'],
                     '--error-file', str(error_file)],
                     env=env, start_new_session=True, stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
