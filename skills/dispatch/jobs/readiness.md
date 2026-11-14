@@ -17,7 +17,7 @@ assigns it once per workstream, in the step that launches the first builders, wh
 
 The assignment names the `worktree`, a detached worktree of its own at the workstream tip, which
 nothing else writes while you run (the workstream worktree changes as tickets commit and land) and which you
-confirm and leave as you found it; the orchestrator removes it at handoff. The `report` is a file of
+confirm and leave as you found it; the orchestrator removes it once it collects your report. The `report` is a file of
 its own that the orchestrator creates before the launch. The planned E2E `checks` name each check's
 command, the worker routes the E2E stage will launch, the models or local backends those routes
 use, the hooks that need trust and the devices. No diff is involved; run the probes in the `worktree`, never in the main checkout.
