@@ -370,6 +370,34 @@ else:
         with self.assertRaises(ProcessLookupError):
             os.kill(serve['pid'], 0)
 
+    def test_a_pane_lookup_that_does_not_answer_counts_as_one_failed_lookup(self):
+        # Rule: a lookup Herdr leaves unanswered, or answers with no JSON object, is a failed lookup like any other.
+        result = self.start()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        serve, _, _ = self.wait_events(3)
+        stub = self.bin / 'herdr'
+        slow = self.root / 'pane lookup stalled once'
+        stub.write_text(stub.read_text().replace("if args[:2] == ['tab', 'create']:",
+            "if args[:2] == ['pane', 'get'] and not Path(" + repr(str(slow)) + ").exists():\n"
+            "    Path(" + repr(str(slow)) + ").touch()\n"
+            "    time.sleep(6); print('not json'); sys.exit(1)\n"
+            "if args[:2] == ['tab', 'create']:"))
+        if 'import time' not in stub.read_text().split('\n', 2)[1]:
+            stub.write_text(stub.read_text().replace('\nimport ', '\nimport time\nimport ', 1))
+        private = Path(serve['config']).parent
+        deadline = time.monotonic() + 8
+        while not slow.exists() and time.monotonic() < deadline:
+            time.sleep(.05)
+        self.assertTrue(slow.exists(), 'the keeper must have met the stalled lookup')
+        time.sleep(7)
+        self.assertTrue(private.exists(), 'one unanswered lookup must not remove the configuration or password')
+        os.kill(serve['pid'], 0)
+        self.release.touch()
+        deadline = time.monotonic() + 6
+        while private.exists() and time.monotonic() < deadline:
+            time.sleep(.02)
+        self.assertFalse(private.exists(), 'a pane Herdr reports gone still ends the server')
+
     def test_pane_verdict_gives_up_only_after_the_grace_period_of_failed_lookups(self):
         sys.path.insert(0, str(support.ROOT / 'hooks'))
         self.addCleanup(sys.path.remove, str(support.ROOT / 'hooks'))

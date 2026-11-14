@@ -338,7 +338,10 @@ def opencode(argv):
         step = 'pane lookup'
         failing_since = None
         while server.poll() is None:
-            code, response = yield_gate.lifecycle().herdr(None, 'pane', 'get', args.pane, timeout=4)
+            try:
+                code, response = yield_gate.lifecycle().herdr(None, 'pane', 'get', args.pane, timeout=4)
+            except (OSError, ValueError):  # No answer within the timeout, or none Herdr could have meant.
+                code, response = 1, {}
             ended, failing_since = pane_verdict(code, response, failing_since, time.monotonic())
             if ended == 'gone':
                 return 0
