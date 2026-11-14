@@ -22,7 +22,7 @@ types the command; a message that mentions it is not one. Never widens native pe
 
 ## Start
 
-- **`autopilot <goal>`:** one or two tickets take the [direct path](run-card.md), which skips only those two; otherwise run [align](../align/SKILL.md) with its interview, settling what later phases would ask: goal, principles, acceptance criteria with
+- **`autopilot <goal>`:** one or two tickets take the [direct path](run-card.md), which skips only the interview and confirmation; otherwise run [align](../align/SKILL.md) with its interview, settling what later phases would ask: goal, principles, acceptance criteria with
   Verify lines that tell success from failure, and what the user reserves.
 - **`autopilot --take-over`:** start from the session's current state. It reuses accepted decisions, tickets and reports,
   and asks only the align questions still unsettled; a phase already finished is not redone. With an existing card, continue from its State.
@@ -105,8 +105,8 @@ Record exactly one terminal state, with its evidence, in the card's State:
 
 - `delivered`: PR open, required checks pass, review and E2E evidence current for its head.
   Never record `delivered` while any acceptance criterion lacks passing evidence.
-- `delivered-local`: the same without a PR host, or for a workstream the user
-  ran directly on `main`, where a PR is not applicable: branch and delivery report ready.
+- `delivered-local`: the same without a PR (no PR host, or a workstream the user ran directly on `main`): branch
+  and delivery report ready.
 - `merged`: only with `--auto-merge`. It merges only through the repository's normal path, once required checks
   and the [approval path](../../runtime/board/approval-path.md) are satisfied, never by admin override or self-approval.
 - `waiting-on-user`: a pause-list action is needed.
