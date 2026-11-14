@@ -515,6 +515,15 @@ def state_path(db):
     return str(Path(db.execute('PRAGMA database_list').fetchone()[2]).resolve())
 
 
+def autofix_bound(db):
+    """Whether the workstream's orchestrator binding, written at dispatch start beside this state, authorizes repairs."""
+    binding = Path(state_path(db)).with_name('orchestrator.json')
+    try:
+        return json.loads(binding.read_text()).get('autofix') is True
+    except (OSError, ValueError):
+        return False
+
+
 def ledger(db, saved, waiting=30):
     """Write a collected attempt's outcome to the machine-wide ledger, waiting up to `waiting` seconds for it; a failed
     write is reported, never fatal."""
@@ -1047,6 +1056,10 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                       if 'ticket' in job['inputs'] else None)
             problem = 'skills' in job['inputs'] and skills_problems(packet.read_text(errors='replace'), ticket)
             require(not problem, f'The {execution["job"]} assignment {problem}')
+            require(execution['job'] != 'ticket' or not autofix_bound(db)
+                    or any(previous['job'] == 'readiness' for previous in attempts(db)),
+                    'Under --autofix the readiness verifier starts with the first builders: launch and register its '
+                    'readiness attempt before this builder (dispatch Setup)')
             runtime = execution.get('target_runtime') or (execution.get('host') if execution.get('native_dispatch') else None)
             require(runtime is None or runtime == data['runtime'] or kind_route_is_t3 and data['runtime'] == 't3',
                     'Runtime conflicts with resolved execution')
