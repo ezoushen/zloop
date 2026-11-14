@@ -43,6 +43,8 @@ only accepted ADRs bind, and a change that conflicts with one is raised, not wor
   the commit is no longer an ancestor ([ADR 0018](adr/0018-tickets-land-by-rebase-proven-by-patch-equivalence.md)).
 - Ticket, commit and PR titles follow git's summary-line convention in standards/titles.md
   ([ADR 0019](adr/0019-titles-follow-gits-summary-line-convention.md)).
+- Autopilot finishes one or two tickets with no pause-list action or material question without an interview or a
+  confirmation, keeping the required checks and one review ([ADR 0020](adr/0020-small-work-finishes-without-an-interview.md)).
 
 ## Suite and hooks
 
