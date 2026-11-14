@@ -111,7 +111,8 @@ def ticket_files(issues):
 def board_problem(card, state):
     """Why the run of `card` cannot work its board yet, or None: a tracker's URL holds its own tickets; a `local` board
     needs ticket files that pass the board's check."""
-    if state_fields(state).get('mode') == 'full' and ' by rule ' in f" {field(state, 'confirmed')} ":
+    # `confirm` writes `<date> by rule "<goal>"` on a direct card; the user's words, recorded verbatim, may say "by rule".
+    if state_fields(state).get('mode') == 'full' and re.match(r'\S+ by rule "', field(state, 'confirmed')):
         return (f"the full card of {card.parent.name} was confirmed by rule, not by the user: have the user confirm it, "
                 "then record it with `confirm --words` and the user's words")
     board = field(state, 'board')

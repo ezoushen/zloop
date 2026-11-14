@@ -380,6 +380,19 @@ class Phase(unittest.TestCase):
                        check=True, capture_output=True, text=True, timeout=30)
         self.assertEqual(run('phase', 'pr').returncode, 0)
 
+    def test_a_full_card_the_user_confirmed_in_words_that_say_by_rule_is_not_taken_for_a_confirmation_by_rule(self):
+        # Review FC-6: only the form `confirm` writes for a direct card is a confirmation by rule; the user's own words
+        # are recorded verbatim and may contain the phrase.
+        self.card.parent.mkdir(exist_ok=True)
+        self.ticket('01')
+        self.card.write_text(DRAFT.replace(UNNAMED, 'session: host-1'))
+        env = {**os.environ, 'PI_SESSION_ID': 'pi-1'}
+        subprocess.run([sys.executable, '-B', str(COMMAND), 'confirm', str(self.card), '--words',
+                        'yes, go by rule of thumb'], env=env, check=True, capture_output=True, text=True, timeout=30)
+        result = subprocess.run([sys.executable, '-B', str(COMMAND), 'phase', str(self.card), 'dispatch'],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
 
 if __name__ == '__main__':
     unittest.main()
