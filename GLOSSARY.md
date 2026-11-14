@@ -103,7 +103,7 @@ A continuing user instruction recorded in the ledger that governs later decision
 _Avoid_: none
 
 **Autopilot**:
-Runs a workstream hands-off, without further questions: an interview (skipped for a small change), a confirmed run card, then refine, dispatch with autofix, review, PR.
+The hands-off workstream command, without further questions: an interview (skipped for a small change), a confirmed run card, refine, dispatch with autofix, review, PR.
 _Avoid_: none
 
 **Run card**:
