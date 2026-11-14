@@ -22,12 +22,37 @@ class T3Threads(WorkerLifecycleCase):
             os.environ.pop(marker, None)
 
     def t3_route(self):
-        """Resolve the worker through the built-in t3 type, as the resolver does for a configured t3 route."""
+        """Resolve the worker through the built-in t3 type, as the resolver does for a configured t3 route: the
+        provider beside the model, and no launch controls, since T3 starts the worker."""
         execution = json.loads(self.execution.read_text())
         execution.update(host='claude', target_runtime='claude', executor='t3', executor_context='t3',
                          executor_type='t3', executor_config={}, native_dispatch=False,
-                         launch={'writes': 'worktree', 'verify': {'permission_mode': 'dontAsk'}})
+                         settings={'model': 'sonnet', 'provider': 'claude'})
         self.execution.write_text(json.dumps(execution))
+
+    def registration(self, *args, **fields):
+        """A T3 worker registers as runtime t3, with its thread as the native session."""
+        if 't3' in fields:
+            fields = dict({'runtime': 't3', 'session': fields['t3']['thread']}, **fields)
+        return super().registration(*args, **fields)
+
+    def native(self, attempt='ticket-1/1'):
+        """A T3 worker's native record: the thread state `t3 thread show --json` writes for its thread."""
+        saved = self.cli('status', '--attempt', attempt)['attempts'][0]
+        path = self.root / (attempt.replace('/', '-') + '.json')
+        path.write_text(json.dumps({'thread': {'threadId': saved['native_session'], 'status': 'completed',
+                                               'providerInstanceId': 'claude', 'model': 'sonnet'}, 'messages': []}))
+        return path
+
+    def completion_evidence(self, attempt='ticket-1/1'):
+        """The thread answers its packet; the native record, rewritten before collection, holds both."""
+        saved = self.cli('status', '--attempt', attempt)['attempts'][0]
+        path = self.native_paths[attempt]
+        record = json.loads(path.read_text())
+        record['messages'] += [{'role': 'user', 'text': f'assignment: {saved["assignment"]}  attempt: {attempt}'},
+                               {'role': 'assistant', 'text': 'assignment done'}]
+        path.write_text(json.dumps(record))
+        return {'native': str(path)}
 
     def t3_fixture(self, thread='th-1', status='completed', show_error=None, runtime='claude',
                    model='sonnet', title='zloop/slug/a-1 builder', parent=None, archived=False, host=None):
@@ -142,7 +167,7 @@ class RemoteEnvironment(T3Threads):
         execution.update(host='claude', target_runtime='claude', executor='t3', executor_context='t3',
                          executor_type='t3', executor_config={'environment': environment},
                          native_dispatch=False, environment=environment,
-                         launch={'writes': 'worktree', 'verify': {'permission_mode': 'dontAsk'}})
+                         settings={'model': 'sonnet', 'provider': 'claude'})
         self.execution.write_text(json.dumps(execution))
 
 
@@ -181,15 +206,12 @@ class RemoteLifecycle(RemoteEnvironment):
         # like the CLI's exit codes.
         self.registered_remote()
         self.ready('ticket-1/1')
-        native = self.native('ticket-1/1')
-        from support import user_message, assistant_turn
-        user_message(native, 'claude', 'assignment: ticket-1  attempt: ticket-1/1')
-        assistant_turn(native, 'claude')
+        native = self.completion_evidence()['native']
         report = self.root / 'ticket-1-1.md'
         report.write_text('## Implemented\n\ndone\n')
         self.mcp_recorded['calls'].clear()
         self.record('result', status='completed', head='head-1',
-                    report=str(report), native=str(native),
+                    report=str(report), native=native,
                     evidence=['mcp: the thread settled and answered'])
         read_calls = [c for c in self.mcp_recorded['calls'] if c['tool'] == 't3_thread_read']
         self.assertTrue(read_calls, 'collection never read the remote thread')
@@ -198,14 +220,11 @@ class RemoteLifecycle(RemoteEnvironment):
     def test_a_remote_retire_archives_through_the_environment_transport(self):
         self.registered_remote()
         self.ready('ticket-1/1')
-        native = self.native('ticket-1/1')
-        from support import user_message, assistant_turn
-        user_message(native, 'claude', 'assignment: ticket-1  attempt: ticket-1/1')
-        assistant_turn(native, 'claude')
+        native = self.completion_evidence()['native']
         report = self.root / 'ticket-1-1.md'
         report.write_text('## Implemented\n\ndone\n')
         self.record('result', status='completed', head='head-1',
-                    report=str(report), native=str(native),
+                    report=str(report), native=native,
                     evidence=['mcp: the thread settled and answered'])
         self.mcp_recorded['calls'].clear()
         for receipt in self.cli('status').get('pending', []):
@@ -281,6 +300,15 @@ class Registration(T3Threads):
                                        'model': 'sonnet'})
         self.assertNotIn('herdr', saved)  # No Herdr placement: the two transports stay apart.
 
+    def test_a_t3_worker_registers_as_runtime_t3(self):
+        # Rule: a T3 worker's identity is its thread. Registered as its provider's runtime it would be verified
+        # from a session record of that provider, which need not be the thread, so only runtime t3 registers.
+        self.t3_route()
+        self.t3_fixture()
+        error = self.register(worker='th-1', runtime='claude', session='th-1', t3={'thread': 'th-1'}, code=2)
+        self.assertIn('A T3 worker registers as runtime "t3"', str(error))
+        self.assertFalse(self.cli('status')['attempts'])
+
     def test_a_herdr_registration_does_not_ask_t3(self):
         # Rule: the transports are distinct; a herdr route never triggers a t3 lookup — while a t3 registration on
         # the same fixture does consult the CLI, so the log's absence for herdr is meaningful, not vacuous.
@@ -289,8 +317,7 @@ class Registration(T3Threads):
         self.register(worker='builder-1', herdr={'session': 'fixture-session'})
         self.assertFalse((self.root / 't3-argv.log').exists())
         self.t3_route()
-        self.register(worker='th-1', assignment='ticket-2', attempt='ticket-2/1', session='th-thread',
-                      t3={'thread': 'th-1'})
+        self.register(worker='th-1', assignment='ticket-2', attempt='ticket-2/1', t3={'thread': 'th-1'})
         self.assertTrue((self.root / 't3-argv.log').exists())
 
 
@@ -492,13 +519,15 @@ else:
 
 class RegistrationRefusals(T3Threads):
     def test_registration_refuses_a_thread_another_live_attempt_holds(self):
-        # Rule: a T3 thread runs one worker; a second attempt on the same live thread is refused with the
-        # holder named, even from a fresh worker handle and session.
+        # Rule: a T3 thread runs one attempt. A retained worker elsewhere takes its assignment's next attempt; a
+        # retained T3 thread does not, and the refusal names the attempt that holds it.
         self.registered()
-        self.record('startup', attempt='ticket-1/1', native=str(self.native('ticket-1/1')))
-        error = self.register('ticket-2/1', assignment='ticket-2', session='native-2', worker='th-2',
-                              t3={'thread': 'th-1'}, code=2)
-        self.assertIn('already holds attempt ticket-1/1', str(error))
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        self.record('retain', reason='the repair round', next_use='fix round', evidence=['report'])
+        error = self.register('ticket-1/2', worker='th-1', t3={'thread': 'th-1'}, code=2)
+        self.assertIn('T3 thread th-1 already holds attempt ticket-1/1', str(error))
 
     def test_registration_refuses_an_unknown_thread_with_its_reason(self):
         # Rule: the not-found reason is the refusal, not a generic failure.

@@ -1105,8 +1105,8 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                 if placed.get('thread'):
                     for previous in attempts(db):
                         held = (previous.get('t3') or {}).get('thread')
-                        if held == placed['thread'] and previous['attempt'] != attempt \
-                                and (previous['runtime'], previous['native_session']) not in closed_sessions(db):
+                        # The thread is the session, so a closed holder was refused above as a retired conversation.
+                        if held == placed['thread'] and previous['attempt'] != attempt:
                             require(False, f'T3 thread {placed["thread"]} already holds attempt '
                                            f'{previous["attempt"]}: a thread runs one worker; register a fresh thread')
                     saved['t3'] = placed
@@ -1882,8 +1882,11 @@ def t3_placement(data, execution=None):
     """Where T3 Code itself placed a registration's worker: the state of the thread the route names."""
     thread = t3_thread(data)
     require(text(thread), 'Registration requires worker')
-    require(data.get('runtime') != 't3' or data.get('native_session') == thread,
-            f'T3 native_session must name its registered thread {thread}')
+    # The thread is a T3 worker's identity: under a provider's runtime, startup and the packet reply would be read
+    # from a session record of that provider, which need not be the thread.
+    require(data.get('runtime') == 't3', f'A T3 worker registers as runtime "t3", not {data.get("runtime")}: its '
+                                         f'identity is the thread {thread}, which is also its native_session')
+    require(data.get('native_session') == thread, f'T3 native_session must name its registered thread {thread}')
     environment = t3_environment(dict(data, execution_snapshot=execution or {}))
     code, response = t3_show(dict(data, environment=environment), thread)
     if code != 0:
