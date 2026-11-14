@@ -84,6 +84,16 @@ class ProfileGeneration(Machine):
         profile = sandbox.profile('worktree', worktree=str(self.worktree), reports=str(self.reports))
         self.assertIn(f'(subpath "{os.path.realpath(self.worktree)}")', profile)
 
+    def test_extra_writable_paths_are_added_resolved_and_only_when_named(self):
+        # Rule: a launcher that owns more of the worker's runtime (the OpenCode server's private folder and its data
+        # folder) names those paths; nothing else becomes writable.
+        extra = self.root / 'private folder'
+        extra.mkdir()
+        profile = sandbox.profile('none', worktree=str(self.worktree), reports=str(self.reports), extra=[str(extra)])
+        self.assertIn(f'(subpath "{os.path.realpath(extra)}")', profile)
+        self.assertNotIn(os.path.realpath(extra), sandbox.profile('none', worktree=str(self.worktree),
+                                                                  reports=str(self.reports)))
+
     def test_read_bounding_denies_credential_reads(self):
         # Rule: the user's credential directories are unreadable under any scope, while
         # the runtime stays loadable.

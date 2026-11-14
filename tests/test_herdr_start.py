@@ -123,7 +123,7 @@ class OpenCodeStart(unittest.TestCase):
         self.body = {'agent': 'build', 'model': {'providerID': 'openai', 'id': 'fixture', 'variant': 'high'},
                      'permissions': [{'action': 'subagent', 'resource': '*', 'effect': 'deny'}]}
         self.route.write_text(json.dumps({'target_runtime': 'opencode', 'launch': {
-            'writable': [':tmpdir', str(self.root / 'reports'), str(self.worktree)],
+            'writes': 'worktree', 'reports': str(self.root / 'reports'),
             'api': {'method': 'POST', 'path': '/api/session', 'body': self.body}}}))
         self.config = self.root / 'user config'
         self.integration = self.config / 'opencode'
@@ -212,9 +212,15 @@ else:
         sandbox = self.bin / 'sandbox-exec'
         sandbox.write_text(f'#!{sys.executable}\n' + """import json, os, sys
 from pathlib import Path
+# seatbelt's probe: an inside write succeeds and an outside one fails, unless SANDBOX_UNENFORCING is set.
+command = sys.argv[3:]
+if command[:1] == ['/usr/bin/touch'] and 'zloop-sandbox-probe-' in command[1]:
+    if '-in-' not in command[1] and not os.environ.get('SANDBOX_UNENFORCING'):
+        sys.exit(1)
+    os.execvp(command[0], command)
 Path(os.environ['SANDBOX_CALL']).write_text(json.dumps({
-    'args': sys.argv[1:], 'cache': os.environ.get('XDG_CACHE_HOME')}))
-os.execvp(sys.argv[3], sys.argv[3:])
+    'args': sys.argv[1:], 'profile': Path(sys.argv[2]).read_text(), 'cache': os.environ.get('XDG_CACHE_HOME')}))
+os.execvp(command[0], command)
 """)
         sandbox.chmod(0o755)
         self.sandbox_call = self.root / 'sandbox.json'
@@ -332,12 +338,12 @@ os.execvp(sys.argv[3], sys.argv[3:])
         private = Path(json.loads(result.stdout)['opencode']['password_file']).parent
         self.assertTrue(self.sandbox_call.exists(), 'the server must run through sandbox-exec')
         call = json.loads(self.sandbox_call.read_text())
-        paths = [Path(self.env.get('TMPDIR', tempfile.gettempdir())).resolve(),
-                 self.root / 'reports', self.worktree, private.resolve(),
-                 self.root / 'user data/opencode', Path('/private/tmp'), Path('/dev')]
-        expected = ('(version 1)\n(allow default)\n(deny file-write*)\n(allow file-write* ' +
-                    ' '.join('(subpath ' + json.dumps(str(path)) + ')' for path in paths) + ')')
-        self.assertEqual(call['args'][:3], ['-p', expected, 'opencode'])
+        # Rule: the server runs under seatbelt's profile for the route's scope, with only its private folder and the
+        # user's OpenCode data folder added.
+        self.assertEqual(call['args'][:3], ['-f', str(private / 'sandbox.sb'), 'opencode'])
+        self.assertIn('(deny default)', call['profile'])
+        for path in (self.root / 'reports', self.worktree, private, self.root / 'user data/opencode'):
+            self.assertIn(f'(subpath "{os.path.realpath(path)}")', call['profile'])
         serve, _, _ = self.wait_events(3)
         self.assertEqual(call['args'][3:], serve['args'])
         self.assertEqual(call['cache'], str(private / 'cache'))
@@ -379,6 +385,14 @@ os.execvp(sys.argv[3], sys.argv[3:])
         result = self.start()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('sandbox-exec is required to contain OpenCode worker writes', result.stderr)
+        self.assertFalse(self.calls.exists(), 'sandbox support must be checked before any Herdr call')
+
+    def test_an_unenforcing_sandbox_refuses_before_creating_tab(self):
+        self.env['SANDBOX_UNENFORCING'] = '1'
+        result = self.start()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('sandbox-exec is required to contain OpenCode worker writes', result.stderr)
+        self.assertIn('did not enforce', result.stderr)
         self.assertFalse(self.calls.exists(), 'sandbox support must be checked before any Herdr call')
 
     def test_missing_any_integration_file_refuses_before_creating_tab(self):

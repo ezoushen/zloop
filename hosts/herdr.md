@@ -75,8 +75,8 @@ pane, whatever placement the installed skill defaults to:
    `launch.api` starts a detached private-server keeper and attaches its TUI, returning `opencode.server`,
    `opencode.session` and `opencode.password_file`. Register/export per its adapter.
    Missing integration refuses before any tab: `herdr integration install opencode`.
-   Without `sandbox-exec`, refuse: it confines shell writes to `launch.writable`, private storage
-   (cache included), OpenCode data, resolved TMPDIR, `/private/tmp` and `/dev`. After tab creation,
+   Without an enforcing `sandbox-exec` (`scripts/seatbelt.py`), refuse: the server runs under its profile
+   for the route's scope plus private storage (cache too) and OpenCode data. After tab creation,
    `pane run` exports `OPENCODE_PASSWORD` from its owner-only file before `agent start`:
    a leading space avoids shell history; arguments hold only its path, never the password.
    Keep `launch.argv` in JSON, never shell text. The resolver supplies write scope, model and effort; recipes: [Claude](claude/workers.md#top-level-workers),

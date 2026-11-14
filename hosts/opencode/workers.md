@@ -30,13 +30,13 @@ naming `herdr integration install opencode`. The launcher copies `plugins/herdr-
 v1 reporter and `cli.json` loads `./herdr-opencode` for v2. It copies no other user configuration.
 Generated `opencode.json` allows edit, bash, webfetch and external_directory without permission prompts.
 The keeper runs `opencode serve` under `sandbox-exec`: a shell can write regardless of OpenCode's edit
-deny rules, so the OS sandbox contains its writes. Platforms without `sandbox-exec` are refused before
-tab creation. Resolve with `--reports <absolute reports directory>`; a `writes: worktree` route also needs
-`--worktree <absolute checkout>`. Its `launch.writable` uses the Codex path computation: temporary files
-and reports, plus the worktree, common git directory and worktree git directory for `worktree`.
-The profile permits writes only there, in the keeper's private folder, the user's OpenCode data folder
-(`${XDG_DATA_HOME:-~/.local/share}/opencode`), resolved TMPDIR, `/private/tmp` and `/dev`.
-All profile paths are resolved and quoted; private `XDG_CACHE_HOME` keeps cache writes inside the sandbox.
+deny rules, so the OS sandbox contains its writes. The profile is `scripts/seatbelt.py`'s for the route's
+write scope (temporary files and the reports, plus the worktree and the git commit machinery for
+`worktree`; credential reads denied), with the keeper's private folder and the user's OpenCode data folder
+(`${XDG_DATA_HOME:-~/.local/share}/opencode`) added; a private `XDG_CACHE_HOME` keeps cache writes inside.
+A platform whose `sandbox-exec` is missing or does not enforce is refused before tab creation. Resolve with
+`--reports <absolute reports directory>` (the route carries it as `launch.reports`); a `writes: worktree`
+route also needs `--worktree <absolute checkout>`.
 
 The tab's environment carries `ZLOOP_WORKER` and private `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and
 `XDG_CACHE_HOME`. After tab creation, `herdr pane run` exports `OPENCODE_PASSWORD` by reading the

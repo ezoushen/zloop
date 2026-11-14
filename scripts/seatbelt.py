@@ -19,10 +19,11 @@ from pathlib import Path
 PROBE_SECONDS = 15
 
 
-def profile(scope, worktree, reports):
-    """The Seatbelt profile text for a write scope: writes only inside the scope's paths; reads are bounded by
-    denying the user's credential directories (ssh, aws, gnupg, gcloud, netrc) — enough that a worker cannot read
-    credentials, while the runtime stays loadable (macOS exec needs metadata/ioctl reads of its interpreter)."""
+def profile(scope, worktree, reports, extra=()):
+    """The Seatbelt profile text for a write scope: writes only inside the scope's paths and the `extra` paths a
+    launcher that owns more of the worker's runtime names; reads are bounded by denying the user's credential
+    directories (ssh, aws, gnupg, gcloud, netrc) — enough that a worker cannot read credentials, while the runtime
+    stays loadable (macOS exec needs metadata/ioctl reads of its interpreter)."""
     if scope not in ('none', 'worktree'):
         raise ValueError(f'unknown write scope {scope!r}: profile none or worktree')
     # Seatbelt matches canonical paths: /var/folders is a symlink to /private/var/folders, so an allowed subpath
@@ -44,6 +45,7 @@ def profile(scope, worktree, reports):
                 git_real = os.path.realpath(git.stdout.strip())
                 for part in ('objects', 'refs', 'logs', f'worktrees/{Path(worktree_real).name}'):
                     writes.append(f'       (subpath "{git_real}/{part}")')
+    writes += [f'       (subpath "{os.path.realpath(path)}")' for path in extra]
     home = os.path.realpath(Path.home())
     lines = [
         '(version 1)',

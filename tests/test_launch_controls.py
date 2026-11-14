@@ -166,8 +166,7 @@ class LaunchControls(unittest.TestCase):
             with self.subTest(job=job):
                 self.assertEqual(self.route('flash', job, 'claude', *options)['launch'], {
                     'writes': writes,
-                    'writable': [':tmpdir', reports] + (
-                        [worktree, git, git + '/worktrees/wt'] if writes == 'worktree' else []),
+                    'reports': reports,
                     'api': {'method': 'POST', 'path': '/api/session', 'body': {
                         'agent': 'build',
                         'model': {'providerID': 'opencode', 'id': 'deepseek-v4.1-flash-free', 'variant': 'high'},

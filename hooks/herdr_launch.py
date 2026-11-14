@@ -184,8 +184,9 @@ def start(argv):
     connection = None
     extra_env = []
     if route['target_runtime'] == 'opencode':
-        if shutil.which('sandbox-exec') is None:
-            parser.error('sandbox-exec is required to contain OpenCode worker writes; this platform is unsupported')
+        sandbox = yield_gate.script('seatbelt').available(args.worktree, route['launch']['reports'])
+        if not sandbox['available']:
+            parser.error(f"sandbox-exec is required to contain OpenCode worker writes: {sandbox['fallback_reason']}")
         integration = Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config'))) / 'opencode'
         if not all((integration / name).is_file() for name in (
                 'plugins/herdr-agent-state.js', 'herdr-tui-session.js', 'herdr-opencode/tui.js')):
@@ -295,16 +296,6 @@ def pane_verdict(code, response, failing_since, now):
     return ('lost' if now - failing_since >= PANE_GRACE else None), failing_since
 
 
-def sandbox_profile(writable, private, data, tmpdir):
-    """Seatbelt profile denying writes outside route paths and OpenCode's runtime storage.
-    All paths are resolved and quoted as profile strings; :tmpdir names the resolved temporary folder."""
-    paths = [tmpdir if path == ':tmpdir' else path for path in writable]
-    paths += [private, data, tmpdir, '/private/tmp', '/dev']
-    quoted = dict.fromkeys(json.dumps(str(Path(path).resolve()), ensure_ascii=False) for path in paths)
-    return ('(version 1)\n(allow default)\n(deny file-write*)\n(allow file-write* ' +
-            ' '.join(f'(subpath {path})' for path in quoted) + ')')
-
-
 def opencode(argv):
     """Keep a private server until Herdr reports its pane gone, answers no pane lookup for PANE_GRACE seconds, the server
     exits, or this detached owner receives SIGHUP/SIGTERM."""
@@ -330,8 +321,10 @@ def opencode(argv):
         url = f'http://127.0.0.1:{port}'
         launch = json.loads(Path(args.route).read_text())['launch']
         data = Path(env.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'opencode'
-        profile = sandbox_profile(launch['writable'], private, data, env.get('TMPDIR', tempfile.gettempdir()))
-        server = subprocess.Popen(['sandbox-exec', '-p', profile,
+        profile = private / 'sandbox.sb'
+        profile.write_text(yield_gate.script('seatbelt').profile(
+            launch['writes'], args.worktree, launch['reports'], extra=[private, data]))
+        server = subprocess.Popen(['sandbox-exec', '-f', str(profile),
                                    'opencode', 'serve', '--hostname', '127.0.0.1', '--port', str(port)],
                                   env=env, cwd=args.worktree, stdin=subprocess.DEVNULL,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
