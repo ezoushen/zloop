@@ -38,6 +38,7 @@ REAP_SECONDS = 5  # All a stop's reap may spend, inside the hosts' 20 s hook tim
 # The terminal states a run card may record: ENDED after which nothing of the run is used again,
 # PAUSED leaving a resume step on the card's `resume:` line.
 ENDED = ('delivered', 'delivered-local', 'merged')
+T3_UNSETTLED = ('running', 'queued', 'starting', 'preparing', 'waiting')  # A T3 thread whose turn has not ended.
 PAUSED = ('waiting-on-user', 'paused-allowance', 'paused-by-user', 'blocked')
 TERMINAL_STATES = ENDED + PAUSED
 # Native write-scope controls: a launch requests them (its `verify`) and startup observes them.
@@ -1102,16 +1103,8 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                 saved['ticket'] = ticket
             if placed:
                 # A Herdr placement names the tab the worker occupies; a T3 placement names the thread and its state.
-                if placed.get('thread'):
-                    for previous in attempts(db):
-                        held = (previous.get('t3') or {}).get('thread')
-                        # The thread is the session, so a closed holder was refused above as a retired conversation.
-                        if held == placed['thread'] and previous['attempt'] != attempt:
-                            require(False, f'T3 thread {placed["thread"]} already holds attempt '
-                                           f'{previous["attempt"]}: a thread runs one worker; register a fresh thread')
-                    saved['t3'] = placed
-                else:
-                    saved['herdr'] = placed
+                # The thread is the worker's session, so the session rules above decide who may register on it.
+                saved['t3' if placed.get('thread') else 'herdr'] = placed
             if DEFINITIONS['agents'][execution['agent']]['writes'] == 'none':
                 saved['worktree_baseline'] = worktree_state(data['worktree'])  # Not in the event: it can be large.
             decision = linked_decision(execution)
@@ -1842,13 +1835,15 @@ def t3_mcp(data, tool, arguments, timeout=LOOKUP_SECONDS):
         return 1, {'error': {'code': 'shape', 'message': 'the T3 MCP answer was not a JSON tool result'}}
 
 
-def t3_show(data, thread):
+def t3_show(data, thread, budget=None):
     """(exit code, the thread-state object) for a t3 attempt's thread: the local CLI on this machine's
-    environment, the MCP server for a linked one (ledger A1)."""
+    environment, the MCP server for a linked one (ledger A1). `budget` is all the seconds a caller can spend on the
+    answer, which the MCP server gives in three requests."""
     environment = t3_environment(data)
     if not environment:
-        return t3('thread', 'show', '--json', thread)
-    code, response = t3_mcp(data, 't3_thread_read', {'threadId': thread})
+        return t3('thread', 'show', '--json', thread, timeout=budget or LOOKUP_SECONDS)
+    code, response = t3_mcp(data, 't3_thread_read', {'threadId': thread},
+                            timeout=budget / 3 if budget else LOOKUP_SECONDS)
     if code == 0:
         # The MCP read carries `items`; fold them into the CLI's thread-state shape (messages beside thread)
         # so every consumer sees one shape (ledger A1).
@@ -1865,23 +1860,10 @@ def t3_show(data, thread):
 
 
 
-def t3_thread(data):
-    """The claimed thread id of a t3 registration, or None when the route is not T3 Code's."""
-    route = data.get('execution_snapshot') if isinstance(data.get('execution_snapshot'), dict) else None
-    claimed = data.get('t3') if isinstance(data.get('t3'), dict) else {}
-    is_t3 = ('t3' in (route.get('executor_context'), route.get('executor_type'))
-             or route.get('executor_type') == 't3' or claimed) if route else bool(claimed)
-    if not is_t3:
-        return None
-    thread = claimed.get('thread') or data.get('worker')
-    require(text(thread), 'A T3 worker registers with t3.thread or a worker handle naming its thread')
-    return thread
-
-
 def t3_placement(data, execution=None):
-    """Where T3 Code itself placed a registration's worker: the state of the thread the route names."""
-    thread = t3_thread(data)
-    require(text(thread), 'Registration requires worker')
+    """Where T3 Code itself placed a registration's worker: the state of the thread the registration names."""
+    thread = data['t3'].get('thread') if isinstance(data.get('t3'), dict) else None
+    require(text(thread), 'A T3 worker registers with t3.thread, the thread it runs in')
     # The thread is a T3 worker's identity: under a provider's runtime, startup and the packet reply would be read
     # from a session record of that provider, which need not be the thread.
     require(data.get('runtime') == 't3', f'A T3 worker registers as runtime "t3", not {data.get("runtime")}: its '
@@ -1896,6 +1878,11 @@ def t3_placement(data, execution=None):
     placed = response.get('thread') if isinstance(response.get('thread'), dict) else response
     require(isinstance(placed, dict) and placed.get('threadId') == thread,
             f'T3 thread show named {placed.get("threadId")!r}, not the registered thread {thread!r}')
+    require(not placed.get('archived'), f'T3 thread {thread} is archived, so its worker has left: start a fresh thread')
+    # A turn still running would answer the packet with its own reply. A linked environment's thread starts with its
+    # packet, so only a thread on this machine must have settled.
+    require(environment or placed.get('status') not in T3_UNSETTLED,
+            f'T3 thread {thread} is {placed.get("status")}: register it once its turn has settled')
     if not environment and os.environ.get('T3CODE_CLI_PATH'):
         # T3 Code hosts this orchestrator (it puts its CLI's path in every session it starts), so the worker is a
         # child thread: only delegate_task makes one, `t3 thread start` makes a top-level thread. Claude and Codex
@@ -1907,6 +1894,32 @@ def t3_placement(data, execution=None):
                                           f'thread {own}: start the worker with delegate_task from this thread')
     return dict(thread=thread, status=placed.get('status'),
                 runtime=placed.get('providerInstanceId'), model=placed.get('model'))
+
+
+def t3_state(saved, budget=None):
+    """(T3's answer as one line, what it shows of the attempt's worker, the thread as T3 reports it); every closure of
+    a T3 worker judges it here, as `herdr_state` does a Herdr worker's. The state: `gone` (the thread is settled and
+    archived, T3 having no stop, or its user deleted it), `idle` (settled, still listed), `busy` (a turn runs or is
+    queued), `waiting` (it waits for an answer in the T3 app) or `silent` (T3 did not confirm the thread)."""
+    thread = saved['t3']['thread']
+    command = f't3 thread show --json {thread}'
+    try:
+        code, response = t3_show(saved, thread, budget)
+    except (OSError, ValueError) as error:
+        # The CLI answers for a deleted thread in these words, with no JSON; no running server reads otherwise.
+        if f'Thread {thread} is no longer available' in str(error):
+            return f'{command}: no longer available', 'gone', {}
+        return f'{command}: no answer ({error})', 'silent', {}
+    # The real CLI nests the thread under `thread` beside `messages`.
+    placed = response.get('thread') if isinstance(response, dict) else None
+    placed = placed if isinstance(placed, dict) else response
+    if code != 0 or not isinstance(placed, dict) or placed.get('threadId') != thread:
+        return f'{command}: not confirmed', 'silent', {}
+    status = placed.get('status')
+    if status in T3_UNSETTLED:
+        return f'{command}: {status}', 'waiting' if status == 'waiting' else 'busy', placed
+    return (f'{command}: {status}, archived', 'gone', placed) if placed.get('archived') else (
+        f'{command}: {status}', 'idle', placed)
 
 
 def herdr_placement(data):
@@ -1996,7 +2009,7 @@ def caller_pane(session, purpose, timeout=15):
     return None
 
 
-RELEASED = 'released: not owned by this orchestrator, its pane is left open'
+RELEASED = 'released: not owned by this orchestrator, its {} is left open'  # Its pane, or its T3 thread.
 
 
 def retire(db, state, attempt, request):
@@ -2015,22 +2028,30 @@ def retire_worker(db, state, attempt, request):
                 'evidence': closure['closed']['evidence']}
     acceptance = request.get('acceptance')
     placed = saved.get('herdr') or {}
+    if not saved['owned']:
+        require_closable(db, saved, acceptance)
+        released = RELEASED.format('thread' if saved.get('t3') else 'pane')
+        record(db, dict(kind='closed', attempt=attempt, evidence=[released],
+                        **({'acceptance': acceptance} if 'acceptance' in request else {})))
+        return {'attempt': attempt, 'closed': True, 'evidence': [released]}
     if saved.get('t3'):
         # T3 Code has no CLI stop: the thread stays, so retirement records its idle state as the closure evidence.
         require_closable(db, saved, acceptance)
         evidence = request.get('evidence')
         require(isinstance(evidence, list) and evidence and all(text(x) for x in evidence),
                 'T3 retirement requires evidence naming how the thread was confirmed idle (t3 thread show --json)')
-        code, response = t3_show(saved, saved['t3']['thread'])
-        placed = response.get('thread') if isinstance(response, dict) and isinstance(response.get('thread'), dict) else response
-        require(code == 0 and isinstance(placed, dict) and placed.get('threadId') == saved['t3']['thread'],
-                f'T3 cannot confirm thread {saved["t3"]["thread"]} for retirement; reconcile it and retire again')
-        require(placed.get('status') not in ('running', 'queued', 'starting', 'preparing', 'waiting'),
+        line, found, placed = t3_state(saved)
+        require(found != 'silent', f'T3 cannot confirm thread {saved["t3"]["thread"]} for retirement ({line}); '
+                                   'reconcile it and retire again')
+        require(found not in ('busy', 'waiting'),
                 f'T3 thread {saved["t3"]["thread"]} is {placed.get("status")}'
                 + ('; it waits for an answer in the T3 app, which is the user\'s decision — answer it or decline '
-                   'the worker there, then retire again' if placed.get('status') == 'waiting'
+                   'the worker there, then retire again' if found == 'waiting'
                   else '; let its turn settle, then retire again'))
-        if t3_environment(saved):
+        if found == 'gone':
+            # Archived, which is T3's only release, or deleted by its user: nothing is left to release.
+            line = f'{line} (no CLI stop)'
+        elif t3_environment(saved):
             # Panel hygiene is archive, not delete (hosts/t3.md): a remote thread is archived through its
             # environment's MCP server, reversibly and with history kept. A failed archive refuses retirement
             # rather than recording closure evidence that would be false.
@@ -2043,22 +2064,16 @@ def retire_worker(db, state, attempt, request):
                                  'reconcile it and retire again')
             line = (f't3 thread show --json {saved["t3"]["thread"]}: {placed.get("status")}, left idle and '
                     f'archived through environment {t3_environment(saved)} (no CLI stop)')
-        elif os.environ.get('T3CODE_CLI_PATH'):
-            # The t3 CLI cannot archive, so an orchestrator T3 Code hosts archives its worker thread with T3's own
-            # tool; T3's answer is the evidence.
-            require(placed.get('archived'), f'T3 thread {saved["t3"]["thread"]} is not archived: archive it with '
-                                            't3_thread_organize (action "archive"), then retire again')
-            line = f't3 thread show --json {saved["t3"]["thread"]}: {placed.get("status")}, archived (no CLI stop)'
         else:
+            # The t3 CLI cannot archive, so an orchestrator T3 Code hosts archives its worker thread with T3's own
+            # tool first; outside T3 nothing here can, and the thread is left idle.
+            require(not os.environ.get('T3CODE_CLI_PATH'),
+                    f'T3 thread {saved["t3"]["thread"]} is not archived: archive it with t3_thread_organize '
+                    '(action "archive"), then retire again')
             line = f't3 thread show --json {saved["t3"]["thread"]}: {placed.get("status")}, left idle (no CLI stop)'
         record(db, dict(kind='closed', attempt=attempt, evidence=[line, *evidence],
                         **({'acceptance': acceptance} if 'acceptance' in request else {})))
         return {'attempt': attempt, 'closed': True, 'evidence': [line, *evidence]}
-    if not saved['owned']:
-        require_closable(db, saved, acceptance)
-        record(db, dict(kind='closed', attempt=attempt, evidence=[RELEASED],
-                        **({'acceptance': acceptance} if 'acceptance' in request else {})))
-        return {'attempt': attempt, 'closed': True, 'evidence': [RELEASED]}
     session, pane = request.get('session'), request.get('pane')
     require(text(session) and text(pane), 'Retirement requires explicit Herdr session and pane')
     require(pane != os.environ.get('HERDR_PANE_ID'), 'Caller pane is not a cleanup target')
@@ -2176,18 +2191,24 @@ def require_closable(db, saved, acceptance):
 
 
 def require_ended(db, attempt, acceptance):
-    """Refuse a hand-recorded closure while Herdr shows the worker present or cannot confirm its absence, and any for
-    a T3 worker, whose thread only retire reads. Retire closes an owned pane or records release of an unowned worker."""
+    """Refuse a hand-recorded closure while the worker's transport (Herdr, T3) shows it present or cannot confirm its
+    absence. Retire closes an owned pane, takes an archived thread, or records release of an unowned worker."""
     saved = get(db, attempt)
     placed = saved.get('herdr')
     script, state = shlex.quote(str(Path(__file__).resolve())), shlex.quote(state_path(db))
     retire = f'`python3 {script} retire --state {state} --attempt {attempt} --input <request>`'
-    require(not saved.get('t3'), "T3 reports this worker's thread, so its closure is not recorded by hand: retire it "
-                                 f'with {retire}')
-    if not placed:
+    if not placed and not saved.get('t3'):
         return
     require((saved['runtime'], saved['native_session']) not in closed_sessions(db), 'Native conversation already closed')
     require_closable(db, saved, acceptance)
+    if saved.get('t3'):
+        thread = saved['t3']['thread']
+        line, found, _ = t3_state(saved)
+        require(found != 'silent', f'T3 cannot confirm whether thread {thread} is archived ({line}); record the '
+                                   f'closure once it does, or retire the worker with {retire}')
+        require(found == 'gone', f'T3 still lists thread {thread} ({line}), so its worker has not ended: retire it '
+                                 f'with {retire}')
+        return
     pane = placed['pane_id']
     line, found, held = herdr_state(saved, placed['session'], pane, placed.get('tab_id'))
     identity = held.get('agent_session') if isinstance(held.get('agent_session'), dict) else {}
@@ -2248,10 +2269,11 @@ def recorded_sessions(data):
 
 def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
     """Close, through `record`, each included attempt whose status is already decided: a collected worker whose Herdr
-    pane and recorded tab its server confirms gone, or whose pane it shows holding another conversation, and a retained native subagent
-    (no Herdr placement, no T3 thread) of a run whose card ended delivered. Returns what it closed, what it left open for want of
-    Herdr's confirmation, and what the lifecycle refused to close, with its refusal. It spends `budget` seconds in all,
-    on Herdr's answers; a locked state or an attempt it did not reach is left for the next stop."""
+    pane and recorded tab its server confirms gone, or whose pane it shows holding another conversation, one whose T3
+    thread T3 reports settled and archived, and a retained native subagent (no Herdr placement, no T3 thread) of a run
+    whose card ended delivered. Returns what it closed, what it left open for want of its transport's confirmation, and
+    what the lifecycle refused to close, with its refusal. It spends `budget` seconds in all, on the transports'
+    answers; a locked state or an attempt it did not reach is left for the next stop."""
     deadline = time.monotonic() + budget
     card = state.parent.parent / 'autopilot.md'
     terminal = card_state(card).get('terminal')
@@ -2279,7 +2301,10 @@ def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
             why = 'its Herdr tab is gone' if found == 'gone' else 'its Herdr pane holds another conversation'
             if found == 'silent':
                 silent.add(server)
-        elif saved.get('retained') and not saved.get('t3') and terminal in ENDED:
+        elif saved.get('t3'):
+            evidence, found, _ = t3_state(saved, min(LOOKUP_SECONDS, deadline - time.monotonic()))
+            gone, why = found == 'gone', 'its T3 thread is gone'
+        elif saved.get('retained') and terminal in ENDED:
             evidence, gone, why = f'{card}: terminal: {terminal}', True, f'its run card ended {terminal}'
         else:
             continue

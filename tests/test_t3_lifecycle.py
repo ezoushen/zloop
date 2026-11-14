@@ -55,10 +55,11 @@ class T3Threads(WorkerLifecycleCase):
         return {'native': str(path)}
 
     def t3_fixture(self, thread='th-1', status='completed', show_error=None, runtime='claude',
-                   model='sonnet', title='zloop/slug/a-1 builder', parent=None, archived=False, host=None):
+                   model='sonnet', title='zloop/slug/a-1 builder', parent=None, archived=False, host=None,
+                   says=None):
         """A `t3` stub whose `thread show --json <thread>` answers with the fixture's state. `parent` makes the
         thread that thread's child, as `delegate_task` does; `host` is what T3 puts in the environment of an
-        orchestrator it hosts."""
+        orchestrator it hosts; `says` is a sentence the CLI answers instead, on stderr with exit 1 and no JSON."""
         directory = self.root / 'bin'
         directory.mkdir(exist_ok=True)
         executable = directory / 't3'
@@ -76,7 +77,9 @@ import json, sys
 args = sys.argv[1:]
 with open({str(self.root / 't3-argv.log')!r}, 'a') as log:
     log.write(' '.join(args) + chr(10))
-if args[:2] == ['thread', 'show'] and args[2] == '--json':
+if args[:2] == ['thread', 'show'] and args[2] == '--json' and {says!r}:
+    sys.exit({says!r})
+elif args[:2] == ['thread', 'show'] and args[2] == '--json':
     print({body!r} if args[3] == {thread!r} else json.dumps({{'error': {{'code': 'not_found'}}}}))
     sys.exit({exit_code} if args[3] == {thread!r} else 1)
 elif args[:2] == ['thread', 'list'] and args[2] == '--json':
@@ -235,6 +238,30 @@ class RemoteLifecycle(RemoteEnvironment):
         self.assertEqual(organize[0]['args'].get('action'), 'archive')
         self.assertEqual(organize[0]['args'].get('threadId'), 'mcp:peer-1')
 
+    def test_a_linked_environments_thread_registers_while_its_packet_runs(self):
+        # Rule: on a linked environment the packet is the thread's start message, so that thread is registered
+        # while its turn runs; only a thread on this machine must have settled.
+        self.environment_route()
+        self.mcp_fixture(status='running')
+        self.native_env = dict(os.environ, T3_MCP_URL=self.mcp_url, T3_MCP_BEARER_TOKEN='stub-token')
+        self.register(worker='mcp:peer-1', t3={'thread': 'mcp:peer-1'})
+        self.assertEqual(self.cli('status')['attempts'][0]['t3']['status'], 'running')
+
+    def test_a_linked_environments_thread_the_orchestrator_does_not_own_is_released(self):
+        # Rule: a worker the orchestrator does not own is released; on a linked environment, where the lifecycle
+        # archives an owned thread itself, it archives nothing.
+        self.environment_route()
+        self.mcp_fixture()
+        self.native_env = dict(os.environ, T3_MCP_URL=self.mcp_url, T3_MCP_BEARER_TOKEN='stub-token')
+        self.register(worker='mcp:peer-1', owned=False, t3={'thread': 'mcp:peer-1'})
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        self.mcp_recorded['calls'].clear()
+        result = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(self.t3_retire_request()))
+        self.assertEqual(result['evidence'], ['released: not owned by this orchestrator, its thread is left open'])
+        self.assertEqual([call['tool'] for call in self.mcp_recorded['calls']], [])
+
     def test_a_remote_attempt_without_a_credential_refuses_naming_the_fix(self):
         self.environment_route()
         import os
@@ -307,6 +334,27 @@ class Registration(T3Threads):
         self.t3_fixture()
         error = self.register(worker='th-1', runtime='claude', session='th-1', t3={'thread': 'th-1'}, code=2)
         self.assertIn('A T3 worker registers as runtime "t3"', str(error))
+        self.assertFalse(self.cli('status')['attempts'])
+
+    def test_registration_takes_a_listed_thread_whose_turn_has_settled(self):
+        # Rule: a worker registers where its transport shows it present and idle, a thread as a pane: an archived
+        # thread has left, and one whose turn still runs would answer a packet with that turn's reply.
+        self.t3_route()
+        self.t3_fixture(archived=True)
+        error = self.register(worker='th-1', t3={'thread': 'th-1'}, code=2)
+        self.assertIn('T3 thread th-1 is archived', str(error))
+        self.t3_fixture(status='running')
+        error = self.register(worker='th-1', t3={'thread': 'th-1'}, code=2)
+        self.assertIn('T3 thread th-1 is running: register it once its turn has settled', str(error))
+        self.assertFalse(self.cli('status')['attempts'])
+
+    def test_a_t3_route_registers_with_its_thread_field(self):
+        # Rule: a transport's registration names where the worker runs in that transport's own field, and a refusal
+        # says which field is missing (Herdr: herdr.session; T3: t3.thread).
+        self.t3_route()
+        self.t3_fixture()
+        error = self.register(worker='th-1', runtime='t3', session='th-1', code=2)
+        self.assertIn('A T3 worker registers with t3.thread, the thread it runs in', str(error))
         self.assertFalse(self.cli('status')['attempts'])
 
     def test_a_herdr_registration_does_not_ask_t3(self):
@@ -517,18 +565,47 @@ else:
                 self.assertIn('configuration does not belong', error)
 
 
-class RegistrationRefusals(T3Threads):
-    def test_registration_refuses_a_thread_another_live_attempt_holds(self):
-        # Rule: a T3 thread runs one attempt. A retained worker elsewhere takes its assignment's next attempt; a
-        # retained T3 thread does not, and the refusal names the attempt that holds it.
+class ThreadReuse(T3Threads):
+    """A T3 thread is its worker's session, so the reuse rules of any worker decide what registers on it."""
+
+    def test_a_retained_thread_takes_its_assignments_next_attempt(self):
+        # Rule: a worker takes the next attempt of its assignment once the last one is collected and retained, in
+        # a T3 thread as in a Herdr pane. That attempt completes on its own packet and reply: the thread still
+        # holds the earlier attempt's, which do not stand for it.
+        self.registered()
+        self.ready()
+        error = self.register('ticket-1/2', worker='th-1', t3={'thread': 'th-1'}, code=2)
+        self.assertIn('Same-assignment reuse requires collected result, explicit retention', str(error))
+        self.collect()
+        self.acknowledge()
+        self.record('retain', reason='the repair round', next_use='fix round', evidence=['report'])
+        self.register('ticket-1/2', worker='th-1', t3={'thread': 'th-1'})
+        self.assertEqual([row['t3']['thread'] for row in self.cli('status')['attempts']], ['th-1', 'th-1'])
+        earlier = json.loads(self.native_paths['ticket-1/1'].read_text())['messages']
+        self.ready('ticket-1/2')
+        native = self.native_paths['ticket-1/2']
+        native.write_text(json.dumps(dict(json.loads(native.read_text()), messages=earlier)))
+        report = self.root / 'ticket-1-2.md'
+        report.write_text('## Implemented\n\nVerified assignment report at head-1\n')
+        result = dict(status='completed', head='head-1', report=str(report), evidence=['checks.log@head-1'])
+        error = self.record('result', 'ticket-1/2', native=str(native), code=2, **result)
+        self.assertIn('Completion requires the assignment packet', str(error))
+        self.record('result', 'ticket-1/2', **self.completion_evidence('ticket-1/2'), **result)
+        self.assertEqual(self.cli('status', '--attempt', 'ticket-1/2')['attempts'][0]['result']['status'], 'completed')
+
+    def test_a_thread_is_never_shared_across_assignments(self):
+        # Rule: a native session is never reused across tickets, so another assignment is refused on a thread even
+        # when the attempt that holds it is collected and retained.
         self.registered()
         self.ready()
         self.collect()
         self.acknowledge()
         self.record('retain', reason='the repair round', next_use='fix round', evidence=['report'])
-        error = self.register('ticket-1/2', worker='th-1', t3={'thread': 'th-1'}, code=2)
-        self.assertIn('T3 thread th-1 already holds attempt ticket-1/1', str(error))
+        error = self.register('ticket-2/1', assignment='ticket-2', worker='th-1', t3={'thread': 'th-1'}, code=2)
+        self.assertIn('A new assignment or agent requires a fresh worker and native session', str(error))
 
+
+class RegistrationRefusals(T3Threads):
     def test_registration_refuses_an_unknown_thread_with_its_reason(self):
         # Rule: the not-found reason is the refusal, not a generic failure.
         self.t3_route()
@@ -616,22 +693,59 @@ class Retirement(T3Threads):
         self.assertTrue(attempt['closed'])
         self.assertIn('left idle (no CLI stop)', result['evidence'][0])
 
-    def test_a_t3_closure_is_never_recorded_by_hand(self):
-        # Rule: T3 reports the state of a worker's thread, so only `retire` closes a T3 worker; a closure recorded
-        # by hand would rest on the evidence it states.
+    def test_a_t3_worker_the_orchestrator_does_not_own_is_released_and_its_thread_left_alone(self):
+        # Rule: a worker the orchestrator does not own is released at retirement and its place left to its owner, a
+        # T3 thread as a Herdr pane: no archive is asked of an orchestrator T3 hosts, and none is made.
+        self.t3_route()
+        self.t3_fixture(host=HostedOrchestrator.HOST, parent='orch-1')
+        self.register(worker='th-1', owned=False, t3={'thread': 'th-1'})
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        result = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(self.t3_retire_request()))
+        self.assertEqual(result['evidence'], ['released: not owned by this orchestrator, its thread is left open'])
+        self.assertTrue(self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0]['closed'])
+
+    def test_a_thread_its_user_deleted_is_gone(self):
+        # Rule: a worker whose place its transport says no longer exists has ended, a deleted thread as a closed
+        # pane: retirement records it on T3's words and asks no archive of a thread that is not there.
+        self.t3_route()
+        self.t3_fixture(host=HostedOrchestrator.HOST, parent='orch-1')
+        self.register(worker='th-1', t3={'thread': 'th-1'})
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        self.t3_fixture(host=HostedOrchestrator.HOST, says='Thread th-1 is no longer available.')
+        result = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(self.t3_retire_request()))
+        self.assertEqual(result['evidence'][0], 't3 thread show --json th-1: no longer available (no CLI stop)')
+        self.assertTrue(self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0]['closed'])
+
+    def test_a_hand_recorded_closure_rests_on_t3s_answer(self):
+        # Rule: a closure recorded by hand takes the transport's answer, as it does Herdr's, not the evidence it
+        # states: refused while T3 lists the thread or gives no answer, with the command that retires the worker, and
+        # recorded once T3 reports the thread settled and archived.
         self.registered()
         self.ready()
         self.collect()
         self.acknowledge()
-        error = self.record('closed', evidence=['said so'],
-                            acceptance={'decision': 'deferred', 'reason': 'review pending'}, code=2)
-        self.assertIn('its closure is not recorded by hand', str(error))
+        closure = dict(evidence=['said so'], acceptance={'decision': 'deferred', 'reason': 'review pending'})
+        error = self.record('closed', code=2, **closure)
+        self.assertIn('T3 still lists thread th-1 (t3 thread show --json th-1: completed)', str(error))
         self.assertIn('retire --state', str(error))
+        self.t3_fixture(show_error='not_found')
+        error = self.record('closed', code=2, **closure)
+        self.assertIn('T3 cannot confirm whether thread th-1 is archived', str(error))
         self.assertFalse(self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0].get('closed'))
+        self.t3_fixture(status='running', archived=True)  # Archiving hides a thread; it does not stop its turn.
+        error = self.record('closed', code=2, **closure)
+        self.assertIn('T3 still lists thread th-1 (t3 thread show --json th-1: running)', str(error))
+        self.t3_fixture(archived=True)
+        self.record('closed', **closure)
+        self.assertTrue(self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0]['closed'])
 
-    def test_reap_leaves_a_retained_t3_worker_of_an_ended_run_to_retire(self):
-        # Rule: likewise at a stop. An ended run closes a retained native subagent on its card, but a retained T3
-        # worker still has a thread T3 reports, so reap leaves it open for `retire`.
+    def test_reap_closes_a_collected_t3_worker_on_t3s_answer_alone(self):
+        # Rule: at a stop the reap closes a collected worker its transport confirms gone, and no other. For T3 that
+        # is a settled, archived thread; a listed one stays open with T3's answer, even after its run card ended.
         import support
         self.state = self.root / 'ws' / 'reports' / 'workers.sqlite'
         support.run_card(self.root / 'ws' / 'autopilot.md', confirmed='yes', terminal='delivered')
@@ -640,10 +754,27 @@ class Retirement(T3Threads):
         self.collect()
         self.acknowledge()
         self.record('retain', reason='the repair round', next_use='fix round', evidence=['report'])
-        self.assertEqual({'closed': [], 'open': [], 'refused': []}, self.cli('reap'))
+        self.assertEqual(self.cli('reap'), {'closed': [], 'refused': [], 'open': [
+            {'attempt': 'ticket-1/1', 'reason': 't3 thread show --json th-1: completed'}]})
+        # No answer closes nothing: a thread T3 does not confirm, no T3 server running (its threads are still
+        # there), and a CLI that cannot run at all.
+        self.t3_fixture(show_error='not_found')
+        self.assertEqual(self.cli('reap')['open'], [
+            {'attempt': 'ticket-1/1', 'reason': 't3 thread show --json th-1: not confirmed'}])
+        self.t3_fixture(says='No running T3 Code server uses /t3/home. Start T3 Code, then retry.')
+        stopped = self.cli('reap')
+        self.assertEqual((stopped['closed'], stopped['refused']), ([], []))
+        self.assertIn('no answer', stopped['open'][0]['reason'])
+        (self.root / 'bin' / 't3').chmod(0o600)
+        self.native_env = dict(self.native_env, PATH=str(self.root / 'bin'))  # No other t3 to fall back on.
+        unanswered = self.cli('reap')
+        self.assertEqual((unanswered['closed'], unanswered['refused']), ([], []))
+        self.assertIn('t3 thread show --json th-1: no answer', unanswered['open'][0]['reason'])
         self.assertFalse(self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0].get('closed'))
-
-
+        self.t3_fixture(archived=True)
+        self.assertEqual(self.cli('reap'), {'open': [], 'refused': [], 'closed': [
+            {'attempt': 'ticket-1/1', 'evidence': ['t3 thread show --json th-1: completed, archived']}]})
+        self.assertTrue(self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0]['closed'])
 
 
 class WaitingThreadRetirement(T3Threads):
