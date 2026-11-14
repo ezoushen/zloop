@@ -149,9 +149,23 @@ def phase(card, text, value):
     return text[:state.start()] + set_field(lines, 'phase', value) + text[state.end():]
 
 
-def confirm(text, words, sessions, today):
+def crew_problem(card):
+    """Why the brief beside `card` does not start from the project's crew profile, or None: once `.scratch/crew.md`
+    exists, the brief's `## Crew` section names it."""
+    profile, brief = card.parent.parent / 'crew.md', card.parent / 'alignment.md'
+    if not profile.is_file():
+        return None
+    text = brief.read_text() if brief.is_file() else ''
+    section = text.split('\n## Crew', 1)[1].split('\n## ', 1)[0] if '\n## Crew' in text else ''
+    if 'crew.md' in section:
+        return None
+    return (f"{brief}'s `## Crew` section does not name {profile}: take the rows of the areas it covers from it and "
+            "write its `From` line (align's Crew template), then confirm")
+
+
+def confirm(card, text, words, sessions, today):
     """The card's text once the user confirmed it; only `confirmed:` and `session:` of its State change. Exits on a
-    State missing a line of the format, on no words and on no host session."""
+    State missing a line of the format, on no words, on no host session and on a brief that skips the crew profile."""
     state = state_section(text)
     missing = [key for key in STATE_LINES if not re.search(rf'^{re.escape(key)}:', state[0], re.M)]
     if missing:
@@ -163,6 +177,9 @@ def confirm(text, words, sessions, today):
     words = ' '.join((words or '').split())  # On one line, so no word can become a State line.
     if not words:
         sys.exit("confirm takes --words: the user's words that confirmed this card")
+    problem = crew_problem(card)
+    if problem:
+        sys.exit(problem)
     by_rule = ' by rule' if mode == 'direct' else ''
     lines = set_field(set_field(state[0], 'confirmed', f'{today}{by_rule} "{words}"'), 'session', session_line(sessions, 'confirm'))
     return text[:state.start()] + lines + text[state.end():]
@@ -206,7 +223,7 @@ def main():
         state_files.write_atomic(args.card, phase(args.card, args.card.read_text(), args.phase))
         return
     if args.command == 'confirm':
-        state_files.write_atomic(args.card, confirm(args.card.read_text(), args.words, host_sessions(), today))
+        state_files.write_atomic(args.card, confirm(args.card, args.card.read_text(), args.words, host_sessions(), today))
         return
     levels = (args.dispatch_effort or args.effort, args.review_effort or args.effort)
     state_files.write_atomic(args.card, take_over(args.card.read_text(), args.auto_merge, *levels, today,

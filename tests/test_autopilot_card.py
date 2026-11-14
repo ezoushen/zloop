@@ -182,13 +182,17 @@ UNNAMED = 'session: <each host session ID this shell exports, comma-separated; `
 
 
 class Confirm(unittest.TestCase):
-    def confirm(self, *args, card=DRAFT, sessions=None, code=0):
-        """Run `confirm` on a copy of `card` from a shell exporting only `sessions` (a SESSIONS name to its value);
-        the card's text after it, and what it printed to stderr."""
+    def confirm(self, *args, card=DRAFT, sessions=None, code=0, scratch=None):
+        """Run `confirm` on a copy of `card` at `.scratch/run/autopilot.md`, beside the files `scratch` maps from their
+        path under `.scratch` to their text, from a shell exporting only `sessions` (a SESSIONS name to its value); the
+        card's text after it, and what it printed to stderr."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        path = Path(tmp.name) / 'autopilot.md'
+        path = Path(tmp.name) / '.scratch/run/autopilot.md'
+        path.parent.mkdir(parents=True)
         path.write_text(card)
+        for name, text in (scratch or {}).items():
+            (Path(tmp.name) / '.scratch' / name).write_text(text)
         env = support.without_host_sessions()
         result = subprocess.run([sys.executable, '-B', str(COMMAND), 'confirm', str(path), *args], capture_output=True,
                                 text=True, timeout=20, env=dict(env, **(sessions or {})))
@@ -252,6 +256,25 @@ class Confirm(unittest.TestCase):
                            'OPENCODE_SESSION_ID): confirm from the shell of the host session that runs this autopilot')):
             with self.subTest(refusal=refusal):
                 self.assertEqual(self.confirm('--words', words, sessions=sessions, code=1), (DRAFT, refusal + '\n'))
+
+    def test_confirming_refuses_a_brief_that_does_not_name_the_crew_profile(self):
+        # Live check (claude, 1896dae): the project's second align wrote its crew without reading .scratch/crew.md.
+        profile = {'crew.md': '# Crew profile\n\n## first\n| calc | builder |\n'}
+        session = {'PI_SESSION_ID': 'pi-1'}
+        brief = '# run\n\n## HOW\nx\n\n## Crew\n| builder | none | calc | no |\n'
+        text, error = self.confirm('--words', 'go', sessions=session, code=1,
+                                   scratch=dict(profile, **{'run/alignment.md': brief}))
+        self.assertEqual(text, DRAFT)
+        self.assertIn("`## Crew` section does not name", error)
+        self.assertIn('crew.md', error)
+        # Naming the profile elsewhere in the brief is not starting the crew from it.
+        elsewhere = brief.replace('## HOW\nx', '## HOW\nsee .scratch/crew.md')
+        self.confirm('--words', 'go', sessions=session, code=1, scratch=dict(profile, **{'run/alignment.md': elsewhere}))
+        cited = brief + 'From `.scratch/crew.md`: calc.\n'
+        self.assertIn('confirmed: ', self.confirm('--words', 'go', sessions=session,
+                                                  scratch=dict(profile, **{'run/alignment.md': cited}))[0])
+        # A project with no profile yet has nothing to start from.
+        self.confirm('--words', 'go', sessions=session, scratch={'run/alignment.md': brief})
 
 
 class Phase(unittest.TestCase):

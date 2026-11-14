@@ -25,11 +25,12 @@ class AlignNamesTheCrew(unittest.TestCase):
             with self.subTest(column=column):
                 self.assertIn(column, flat)
 
-    def test_establishing_the_design_takes_crew_rows_from_the_profile_and_cites_it(self):
-        # Rule: where `.scratch/crew.md` covers an area, align takes that area's rows from it and cites it.
-        text = prose('skills/align/SKILL.md')
-        establish = text.partition('## Establish the design')[2].partition('## Save the current alignment')[0]
-        self.assertIn(f"Where the crew profile (`{PROFILE}`) covers an area, take that area's crew rows from it and cite it", establish)
+    def test_the_crew_section_takes_its_rows_from_the_profile_and_cites_it(self):
+        # Rule: where `.scratch/crew.md` covers an area, align takes that area's rows from it and cites it. Live check
+        # (claude, 1896dae): a host skipped the rule while it stood in prose apart from the template, so the template
+        # carries it and the card's confirm refuses a Crew section that does not name the profile.
+        section = alignment_template().partition('## Crew')[2].partition('\n## ')[0]
+        self.assertIn(f'From `{PROFILE}`: the areas whose rows are taken from it, or none', ' '.join(section.split()))
 
 
 class DeliveryUpdatesTheProfile(unittest.TestCase):

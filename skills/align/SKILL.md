@@ -59,7 +59,6 @@ responsibilities, behavior for flows, state and ordering; include only the views
 resolve a live risk. They are lenses on one brief, not three approval turns.
 Reuse existing mechanisms; compare an alternative only when it is viable and material.
 Use the project's [glossary](../../runtime/domain/glossary.md) and keep it current as terms settle.
-Where the crew profile (`.scratch/crew.md`) covers an area, take that area's crew rows from it and cite it.
 Use [prototype](jobs/prototype.md) only for a question that evidence on paper cannot settle.
 Leave ordinary types, helpers and plumbing to implementation; put an interface or
 snippet in the plan only to settle a contract.
@@ -115,6 +114,7 @@ Approach, responsibilities, seams and only the diagrams/flows needed to explain 
 Consequential ledger IDs; open decisions and the work each blocks, if any.
 
 ## Crew
+From `.scratch/crew.md`: the areas whose rows are taken from it, or none; omit while it is absent.
 One row per expert: agent; skills, each with the fact that selects it; area; whether it
 starts before a diff exists.
 ```
