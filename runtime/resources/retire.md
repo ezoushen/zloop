@@ -24,7 +24,8 @@ for gone). A pane holding another conversation is replaced: retire refuses it an
 `record closed` and the reap end the attempt without closing that pane. At a stop, or on demand with `worker_lifecycle.py reap --state ... [--session ...]`,
 the gate records `closed` itself for an owned attempt whose result is collected, and for a retained native subagent of
 a run whose card records `delivered`, `delivered-local` or `merged`; a closure the lifecycle refuses is a stop gap carrying its reason. Closing by hand
-is `record closed` with the evidence: Herdr's answer, or native evidence for an attempt with no Herdr pane.
+is `record closed` with the evidence: Herdr's answer, or native evidence for an attempt with no Herdr pane. A T3
+worker's closure takes T3's answer for its thread in the same three places (hosts/t3.md, Retire a worker).
 Native pane IDs are not reused. Retirement closes the shared native
 conversation for all its historical attempts; `status` includes `native_closed_by`
 on each historical attempt to identify that final attempt. Earlier retained

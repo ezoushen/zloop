@@ -75,8 +75,7 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    waits for Herdr's session identity, which fills `native_session`: Herdr's ID, or the session its record path
    names once the probe has written it.
    A worker started through T3 Code adds `"t3": {"thread": "<thread id>"}`, naming the
-   thread T3 reports; registration confirms the thread with the t3 CLI and refuses one another attempt
-   holds.
+   thread T3 reports; registration confirms the thread with the t3 CLI.
 
    When the snapshot applied a decision-model recommendation, the helper records
    that decision for you: its action at registration, its execution at verified
