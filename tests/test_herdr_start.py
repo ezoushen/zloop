@@ -156,7 +156,7 @@ elif args[:2] == ['pane', 'run']:
         '; printf "%s" "$OPENCODE_PASSWORD"'], env=dict(os.environ, **env), text=True)
     env['OPENCODE_PASSWORD'] = password
     Path(os.environ['TAB_ENV']).write_text(json.dumps(env))
-    print(json.dumps({'result': {}}))
+    # Herdr's pane run prints nothing on success.
 elif args[:2] == ['agent', 'start']:
     if os.environ.get('HERDR_FAIL'):
         print('invalid Herdr response' if os.environ.get('HERDR_FAIL_JSON') else

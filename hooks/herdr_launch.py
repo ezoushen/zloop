@@ -232,10 +232,15 @@ def start(argv):
             if private:
                 tab = response['result']['tab']['tab_id']
                 step = 'password export'
-                code, response = lifecycle.herdr(None, 'pane', 'run', pane,
-                    ' export OPENCODE_PASSWORD="$(cat ' + shlex.quote(str(password)) + ')"')
-                if code:
-                    raise ValueError(f'command exited {code}')
+                # Herdr's pane run prints nothing on success and a JSON error otherwise.
+                try:
+                    ran = subprocess.run(['herdr', 'pane', 'run', pane,
+                                          ' export OPENCODE_PASSWORD="$(cat ' + shlex.quote(str(password)) + ')"'],
+                                         capture_output=True, text=True, timeout=15)
+                except subprocess.TimeoutExpired:
+                    raise ValueError('Herdr did not answer within 15 seconds') from None
+                if ran.returncode:
+                    raise ValueError(f'command exited {ran.returncode}: {(ran.stdout or ran.stderr).strip()[:200]}')
                 step = 'keeper start'
                 error_control = tempfile.TemporaryDirectory(prefix='zloop-opencode-launch-')
                 error_file = Path(error_control.name) / 'error'
