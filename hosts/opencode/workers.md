@@ -3,30 +3,16 @@
 Resolve [executors](../../runtime/workers/launch.md) first. A configured external executor, such as
 the Herdr skill, owns invocation and collection through its own adapter. Apply
 [pool recovery](../../runtime/workers/recovery.md) for availability failures.
-The native settings procedure below does not implement that external lifecycle.
+Herdr's [top-level workers](#top-level-workers) route is the only supported OpenCode
+worker route. Native OpenCode dispatch is not supported; the resolver refuses an
+OpenCode-runtime model on a subagent executor.
 
 For model management, use only the settings returned by executor resolution.
 Do not select models from workload labels or re-resolve legacy preferences.
-Omitted settings retain native defaults. For a default native worker override, render
-with `--profile` and prepare the returned `.opencode/agents/` snapshot. It uses
-`mode: subagent`, optional `model: provider/model` and optional `variant: <effort>`.
-OpenCode applies both a profile's model and its variant only to a Task subagent; for
-a top-level worker, see [top-level workers](#top-level-workers). Check the model's variants with
-`opencode api GET /api/model -H x-opencode-directory:<dir>`; a model without the
-same-named variant cannot fulfill the effort request. For effort-only settings,
-establish the otherwise inherited model first. Do not translate arbitrary effort
-labels into provider-specific token budgets.
-
-Confirm the loaded profile with `opencode api GET /api/agent -H
-x-opencode-directory:<dir>` (its `model.providerID`, `model.id` and `model.variant`);
-retry while the list lacks the built-in `build` agent, which a directory's first
-request can omit. Then use its registered name when the native Task tool supports it.
-Preserve project/native permissions; inspect any existing customized worker profile
-and retain its restrictions or report a conflict before using a generated profile.
-Pass absolute `plugin_root`, `adapter`, `agent_file`, `job_file`, canonical `repo` and
-assigned worktree/branch plus the job's inputs. Workers read the agent and job files;
-model settings do not authorize additional work or change agent permissions. Native profile inspection
-proves configuration loading, not successful provider execution.
+Omitted settings retain native defaults. Pass absolute `plugin_root`, `adapter`,
+`agent_file`, `job_file`, canonical `repo` and assigned worktree/branch plus the job's
+inputs. Workers read the agent and job files; model settings do not authorize
+additional work or change agent permissions.
 
 ## Top-level workers
 
@@ -74,10 +60,7 @@ variable set for `opencode serve` ([config](https://opencode.ai/v2/docs/config),
 session creation (submit checks it), and whether `opencode auth` with the isolated
 `XDG_DATA_HOME` gives the server credentials.
 
-This adapter covers model configuration and profile selection. Full zloop
-native dispatch lifecycle/worktree integration in OpenCode is not implemented or verified;
-do not claim native end-to-end support or invent a substitute CLI. Configured
-external execution still needs its own capability checks and acceptance evidence.
+Configured external execution needs its own capability checks and acceptance evidence.
 Configuration management does not install a provider, change the main agent,
 or enable another host.
 

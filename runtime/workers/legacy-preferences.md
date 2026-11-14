@@ -78,7 +78,7 @@ unverified; never call resolver output the actual model. Resume retains its laun
 settings unless the native runtime explicitly supports updating them. Changed
 preferences apply to new workers, not silently to an existing child.
 
-For native Claude/OpenCode profile-only controls, add `--profile` to the routed
+For native Claude profile-only controls, add `--profile` to the routed
 resolution command. External executors own their standalone launch controls and
 must not reuse child-agent profiles. This renders a thin native
 snapshot with a content-derived name, without writing it. Write that exact content

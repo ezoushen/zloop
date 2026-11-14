@@ -68,8 +68,8 @@ Encapsulate reusable skill usage under `executor_types.<name>`, then select
 Inside Herdr, [caller-specific routes](../runtime/config/catalog.md#caller-specific-skill-routes)
 let Claude/Codex use native workers for same-runtime work and Herdr for other
 destinations; the [Herdr guidance](../hosts/herdr.md) covers waits and cleanup.
-OpenCode's native dispatch workflow is not implemented; a configured external
-executor owns its lifecycle and needs runtime verification.
+The resolver refuses native OpenCode dispatch; OpenCode workers use the
+[Herdr top-level route](../hosts/opencode/workers.md#top-level-workers), which needs runtime verification.
 
 ## Routers and decisions
 

@@ -96,7 +96,7 @@ class Executors(unittest.TestCase):
                                                 adaptive_thinking=adaptive_thinking,
                                                 worktree=root / 'worktree', reports=root / 'reports')
 
-            for host in models.HOSTS:
+            for host in ('claude', 'codex', 'pi'):
                 for agent in models.AGENTS:
                     result = resolve(host, agent)
                     assert result['executor'] == 'native' and result['native_dispatch']
@@ -106,7 +106,7 @@ class Executors(unittest.TestCase):
             project.parent.mkdir()
             preferences.write_text(json.dumps({'claude': {'reviewer': {'model': 'legacy-model'}}}))
             native = instance()
-            for host in models.HOSTS:
+            for host in ('claude', 'codex', 'pi'):
                 omitted = resolve(host, choice={'executor': {'type': 'subagent'}})
                 assert omitted == resolve(host, choice=native)
             skill = instance('skill', {'skill': 'herdr', 'instruction': 'Run the assigned review with Codex.'})
@@ -118,7 +118,7 @@ class Executors(unittest.TestCase):
                 assert Path(result['executor_guide']).is_file()
                 assert result['native_dispatch'] == (value == native)
                 assert result['host'] == 'claude' and support.RETIRED_HOST_WORD not in result and f'host_{support.RETIRED_HOST_WORD}' not in result
-            for host in models.HOSTS:
+            for host in ('claude', 'codex', 'pi'):
                 for agent in models.AGENTS:
                     for policy, expected in (
                         ({'mode': 'inherit'}, {}),
@@ -128,14 +128,14 @@ class Executors(unittest.TestCase):
                         user.write_text(json.dumps({'agents': {agent: instance(policy=policy)}}))
                         result = resolve(host, agent)
                         assert result['settings'] == expected
-                        if host not in ('claude', 'opencode'):
+                        if host != 'claude':
                             continue
                         profile = models.native_profile(result)
                         if not expected:
                             assert profile is None
                         else:
                             content = profile['content']
-                            thinking_field = 'effort' if host == 'claude' else 'variant'
+                            thinking_field = 'effort'
                             assert ('\nmodel:' in content) == ('model' in expected)
                             assert (f'\n{thinking_field}:' in content) == ('effort' in expected)
             # Arbitrary installed names are data, not a provider allowlist.
@@ -163,6 +163,8 @@ class Executors(unittest.TestCase):
             for executor in (native, named, skill, program):
                 adaptive = dict(executor, models=dict(override['models'], allow_thinking_override=True))
                 for host in models.HOSTS:
+                    if host == 'opencode' and executor == native:
+                        continue
                     result = resolve(host, choice=adaptive, adaptive_thinking='xhigh')
                     assert result['settings'] == {'model': 'chosen-model', 'effort': 'xhigh'}
                     assert result['thinking_baseline'] == 'high'

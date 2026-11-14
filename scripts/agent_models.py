@@ -26,6 +26,8 @@ from decisions import systemone_request
 
 ROOT = Path(__file__).resolve().parents[1]
 HOSTS = ('claude', 'codex', 'pi', 'opencode')
+OPENCODE_NATIVE_REFUSAL = ('native OpenCode dispatch is not supported; use the Herdr route '
+                           'in hosts/opencode/workers.md (top-level workers)')
 # Herdr is zloop's built-in worker provider: in a Herdr session every runtime is reachable through it, and a host whose
 # own delegation would come from a third-party extension (Pi) prefers it. Its procedure is hosts/herdr.md. T3 Code is
 # the other built-in provider, but it has no ambient marker: a configuration layer selects it (a `t3` context key or a
@@ -419,6 +421,8 @@ def expand_model(name, catalog, runtimes, host, target_runtime=None):
         instance = {'executor': executors.get(context) or BUILT_IN_ROUTES[context],
                     'description': definition['description'],
                     'models': dict(policy, mode='override', model=binding['id'])}
+        if runtime == 'opencode' and instance['executor']['type'] == 'subagent':
+            return None, OPENCODE_NATIVE_REFUSAL
         return instance, {'executor_context': context, 'target_runtime': runtime,
                           'model_definition_source': source,
                           'model_binding_source': source + '.runtimes.' + runtime,
@@ -617,6 +621,8 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
                     definitions[name].update(backend=backend, capacity=backends[backend])
         if not expanded and not list_candidates:
             allowance_refusal(unavailable)
+            raise ValueError('No eligible candidates remain; ' +
+                          '; '.join(f'{name}: {reason}' for name, reason in unavailable.items()))
         metadata['unavailable_candidates'] = unavailable
         metadata['candidate_routes'] = definitions
         instance = dict(instance, candidates=expanded)
@@ -800,6 +806,8 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
                                  and not instance['executor'].get('config', {}).get('agent'))):
         raise ValueError(f'Native route: {CRITICAL.format(provider=host)}')  # A catalog model's own cost decides.
     if instance is None:
+        if host == 'opencode':
+            raise NoRoute(OPENCODE_NATIVE_REFUSAL)
         if adaptive_thinking is not None:
             raise ValueError('adaptive thinking requires an agent with allow_thinking_override: true')
         result = resolve(repo, user_config, host, agent, task)
@@ -811,6 +819,8 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
     executor = instance['executor']
     kind, config = executor['type'], executor.get('config', {})
     native = kind == 'subagent' and not config.get('agent')
+    if native and metadata.get('target_runtime', host) == 'opencode':
+        raise NoRoute(OPENCODE_NATIVE_REFUSAL)
     policy = instance.get('models', {'mode': 'inherit'})
     mode = policy['mode']
     validate_settings(task, 'task', runtime_labels=True)
@@ -1022,31 +1032,20 @@ def resolve(repo, user_config, host, agent, task):
 
 def native_profile(result):
     host, agent, settings = result['host'], result['agent'], result['settings']
-    if host not in ('claude', 'opencode'):
-        raise ValueError('--profile is only for Claude and OpenCode')
+    if host != 'claude':
+        raise ValueError('--profile is only for Claude')
     if not settings:
         return None
-    if host == 'claude':
-        fields, body = front_matter.split((ROOT / 'agents' / f'{agent}.md').read_text())
-        body = '\n' + body
-        for key in ('name', 'writes', 'core_skills'):
-            fields.pop(key)  # Claude reads its own keys; these are zloop's.
-        if 'maxTurns' in fields:
-            fields['maxTurns'] = int(fields['maxTurns'])
-        fields.update(settings)
-        if 'effort' in settings and settings['effort'] not in ('low', 'medium', 'high', 'xhigh', 'max'):
-            raise ValueError('Claude does not support this effort level')
-        folder = '.claude/agents'
-    else:
-        fields = {'description': f'zloop {agent}; use only for an assigned zloop job.',
-                  'mode': 'subagent'}
-        if 'model' in settings:
-            fields['model'] = settings['model']
-        if 'effort' in settings:
-            fields['variant'] = settings['effort']
-        body = ('\n\nRead the absolute `adapter`, `agent_file` and `job_file` in your assignment.\n'
-                'Verify the supplied worktree and follow the agent and its job.\n')
-        folder = '.opencode/agents'
+    fields, body = front_matter.split((ROOT / 'agents' / f'{agent}.md').read_text())
+    body = '\n' + body
+    for key in ('name', 'writes', 'core_skills'):
+        fields.pop(key)  # Claude reads its own keys; these are zloop's.
+    if 'maxTurns' in fields:
+        fields['maxTurns'] = int(fields['maxTurns'])
+    fields.update(settings)
+    if 'effort' in settings and settings['effort'] not in ('low', 'medium', 'high', 'xhigh', 'max'):
+        raise ValueError('Claude does not support this effort level')
+    folder = '.claude/agents'
     # JSON strings are YAML scalars, including model IDs with punctuation.
     header = '\n'.join(f'{key}: {json.dumps(value)}' for key, value in fields.items())
     digest = hashlib.sha256((header + body).encode()).hexdigest()[:12]
@@ -1120,6 +1119,8 @@ def main():
     actions.add_argument('--save-session', type=Path, help='replace session overrides from a validated config JSON file')
     actions.add_argument('--reset-session', action='store_true', help='remove only this session override record')
     args = parser.parse_args()
+    if args.profile and args.host != 'claude':
+        parser.error('--profile is only for Claude')
     try:
         repo = args.repo.resolve()
         if not repo.is_dir():

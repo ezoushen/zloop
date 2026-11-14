@@ -3,12 +3,10 @@
 
 import json
 import os
-import socket
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from unittest.mock import patch
 
@@ -51,10 +49,11 @@ class Preferences(unittest.TestCase):
             for agent in models.AGENTS:
                 result = self.resolve(host, agent)
                 assert result['settings'] == result['sources'] == {}
-                if host in ('claude', 'opencode'):
+                if host == 'claude':
                     assert models.native_profile(result) is None
-            assert models.resolve_execution(self.root, self.user, self.root / 'executors.json', host,
-                                            'reviewer', {})['executor'] == 'native'
+            if host != 'opencode':
+                assert models.resolve_execution(self.root, self.user, self.root / 'executors.json', host,
+                                                'reviewer', {})['executor'] == 'native'
         assert list(self.root.iterdir()) == []  # Reads do not opt the user in.
 
     def test_task_project_and_user_layers_take_precedence(self):
@@ -126,10 +125,66 @@ class Preferences(unittest.TestCase):
         assert 'model: "opus"' in text and '\ntools: "Read, Edit, Write' in text, text
         assert '\ncore_skills:' not in text and '  - ' not in text.split('\n---\n')[0], text
 
-    def test_opencode_profile_maps_effort_to_variant(self):
-        profile = models.native_profile(self.resolve('opencode', model='openai/gpt-5', effort='high'))
-        assert 'mode: "subagent"' in profile['content'] and 'variant: "high"' in profile['content']
-        assert 'model:' not in models.native_profile(self.resolve('opencode', effort='high'))['content']
+    def test_opencode_subagent_candidate_is_refused_on_every_host(self):
+        config = self.root / 'executors.json'
+        config.write_text(json.dumps({
+            'models': {'worker': {'description': 'OpenCode worker', 'runtimes': {
+                'opencode': {'id': 'openai/gpt-5'}}}},
+            'runtimes': {'opencode': {'executors': {
+                host: {'type': 'subagent', **({'config': {'agent': 'opencode-worker'}}
+                                          if host != 'opencode' else {})} for host in models.HOSTS}}},
+            'jobs': {'diff-review': {'candidates': ['worker']}}}))
+        for host in models.HOSTS:
+            with self.subTest(host=host):
+                result = subprocess.run([
+                    sys.executable, '-B', str(SCRIPT), '--repo', str(self.root),
+                    '--user-config', str(self.user), '--user-executors', str(config),
+                    '--host', host, '--job', 'diff-review', '--route'], capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn('native OpenCode dispatch is not supported', result.stderr)
+                self.assertIn('Herdr', result.stderr)
+                self.assertIn('hosts/opencode/workers.md', result.stderr)
+
+    def test_opencode_herdr_candidate_keeps_its_api_launch(self):
+        config = self.root / 'executors.json'
+        config.write_text(json.dumps({
+            'models': {'worker': {'description': 'OpenCode worker', 'runtimes': {
+                'opencode': {'id': 'openai/gpt-5'}}}},
+            'runtimes': {'opencode': {'executors': {'opencode': {'type': 'herdr'}}}},
+            'jobs': {'diff-review': {'candidates': ['worker']}}}))
+        result = subprocess.run([
+            sys.executable, '-B', str(SCRIPT), '--repo', str(self.root),
+            '--user-config', str(self.user), '--user-executors', str(config),
+            '--host', 'opencode', '--job', 'diff-review', '--route'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        route = json.loads(result.stdout)
+        self.assertEqual(route['executor'], 'herdr')
+        self.assertEqual(route['target_runtime'], 'opencode')
+        self.assertEqual(route['launch']['api'], {
+            'method': 'POST', 'path': '/api/session', 'body': {
+                'agent': 'build', 'model': {'providerID': 'openai', 'id': 'gpt-5'},
+                'permissions': [{'action': action, 'resource': '*', 'effect': 'deny'}
+                                for action in ('edit', 'subagent')]}})
+
+    def test_opencode_default_and_explicit_subagent_routes_are_refused(self):
+        args = [sys.executable, '-B', str(SCRIPT), '--repo', str(self.root),
+                '--user-config', str(self.user), '--user-executors', str(self.root / 'absent.json'),
+                '--host', 'opencode', '--job', 'diff-review', '--route']
+        for override in ([], ['--route-choice', '{"executor":{"type":"subagent"}}']):
+            with self.subTest(override=override):
+                result = subprocess.run(args + override, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn('native OpenCode dispatch is not supported', result.stderr)
+                self.assertIn('Herdr', result.stderr)
+
+    def test_opencode_host_cannot_render_a_native_profile(self):
+        result = subprocess.run([
+            sys.executable, '-B', str(SCRIPT), '--repo', str(self.root),
+            '--user-config', str(self.user), '--user-executors', str(self.root / 'absent.json'),
+            '--host', 'opencode', '--job', 'diff-review', '--route', '--profile'],
+            capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn('--profile is only for Claude', result.stderr)
 
     def test_cli_rejects_profile_without_route_and_malformed_arguments(self):
         self.write_layers()
@@ -171,56 +226,23 @@ class Preferences(unittest.TestCase):
             models.resolve_execution(self.root, self.user, self.root / 'missing.json', 'codex', 'reviewer', {},
                                      job='ticket')
 
-def check_opencode_profile(root, env, name):
-    """Read the loaded profile from an isolated OpenCode 2 service (no model calls)."""
-    def opencode(*args):
-        return subprocess.run(['opencode', *args], cwd=root, env=env, capture_output=True, text=True, timeout=60)
-    # The CLI talks to a background service on a fixed port the user's own service already holds.
-    with socket.socket() as probe:
-        probe.bind(('127.0.0.1', 0))
-        port = probe.getsockname()[1]
-    assert opencode('service', 'set', 'port', str(port)).returncode == 0
-    try:
-        # A directory's first request can answer before its agents load; built-in `build` marks loaded.
-        for _ in range(20):
-            result = opencode('api', 'GET', '/api/agent', '-H', f'x-opencode-directory:{root}')
-            assert result.returncode == 0, result.stdout + result.stderr
-            agents = {agent['id']: agent for agent in json.loads(result.stdout)['data']}
-            if 'build' in agents:
-                break
-            time.sleep(0.5)
-        assert name in agents, (name, sorted(agents))
-        loaded = agents[name]
-        assert loaded['model'] == {'providerID': 'openai', 'id': 'gpt-5', 'variant': 'high'}, loaded
-        assert loaded['mode'] == 'subagent' and 'job_file' in loaded['system']
-    finally:
-        opencode('service', 'stop')
-
-
 @unittest.skipUnless(os.environ.get('ZLOOP_NATIVE') == '1', 'set ZLOOP_NATIVE=1 to check installed CLIs')
 class NativeProfiles(unittest.TestCase):
-    def test_claude_validates_and_opencode_loads_generated_profiles(self):
+    def test_claude_validates_generated_profiles(self):
         with tempfile.TemporaryDirectory(prefix='zloop native models ') as tmp:
             root = Path(tmp)
             env = dict(os.environ)
-            for key, directory in [('CLAUDE_CONFIG_DIR', 'claude-config'), ('XDG_CONFIG_HOME', 'config'),
-                                   ('XDG_CACHE_HOME', 'cache'), ('XDG_DATA_HOME', 'data'),
-                                   ('XDG_STATE_HOME', 'state')]:
-                env[key] = str(root / directory)
-                Path(env[key]).mkdir()
-            for host in ('claude', 'opencode'):
-                for agent in models.AGENTS:
-                    settings = {'model': 'opus' if host == 'claude' else 'openai/gpt-5', 'effort': 'high'}
-                    profile = models.native_profile({'host': host, 'agent': agent, 'settings': settings})
-                    path = root / profile['path']
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    path.write_text(profile['content'])
-                    if host == 'claude':
-                        for partial in ({'model': 'opus'}, {'effort': 'high'}):
-                            profile = models.native_profile({'host': host, 'agent': agent, 'settings': partial})
-                            (root / profile['path']).write_text(profile['content'])
-                    if host == 'opencode':
-                        check_opencode_profile(root, env, profile['name'])
+            env['CLAUDE_CONFIG_DIR'] = str(root / 'claude-config')
+            Path(env['CLAUDE_CONFIG_DIR']).mkdir()
+            for agent in models.AGENTS:
+                settings = {'model': 'opus', 'effort': 'high'}
+                profile = models.native_profile({'host': 'claude', 'agent': agent, 'settings': settings})
+                path = root / profile['path']
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(profile['content'])
+                for partial in ({'model': 'opus'}, {'effort': 'high'}):
+                    profile = models.native_profile({'host': 'claude', 'agent': agent, 'settings': partial})
+                    (root / profile['path']).write_text(profile['content'])
             result = subprocess.run(['claude', 'plugin', 'validate', '--strict', str(root / '.claude/agents')],
                                     cwd=root, env=env, capture_output=True, text=True, timeout=30)
             assert result.returncode == 0, result.stdout + result.stderr
