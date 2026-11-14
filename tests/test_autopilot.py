@@ -279,7 +279,10 @@ class EffortLevels(unittest.TestCase):
         # them with the card. A card without them has no reader.
         state = CARD.read_text().split('## State', 1)[1]
         self.assertRegex(state, r'(?m)^dispatch-effort: medium$')
-        self.assertRegex(state, r'(?m)^review-effort: high$')
+        self.assertRegex(state, r'(?m)^review-effort: high\b')
+        # Review FC-3: the direct path's level is on the card the review reads, stated once.
+        self.assertIn('`low` on a direct card unless a level flag sets another', ' '.join(state.split()))
+        self.assertEqual(' '.join(CARD.read_text().split()).count('records `review-effort: low`'), 1)
         self.assertIn('both effort levels on their own lines', prose(CARD))
 
     def test_the_start_and_a_take_over_take_the_three_flags(self):
@@ -380,7 +383,7 @@ class TakeOverCommand(unittest.TestCase):
             self.assertIn(phrase, ' '.join(start.split()))
         card = ' '.join(CARD.read_text().split())
         for phrase in ('`mode: direct` or `mode: full`', 'one or two tickets with no pause-list action and no material question',
-                       'review at `low`', 'by rule', 'mode: full | direct', 'one independent review at `low`', 'A third ticket, a pause-list action or a material question switches to the full path', 'more than two tickets is refused its dispatch', 'set `mode: full`'):
+                       'by rule', 'mode: full | direct', 'one independent review', 'A third ticket, a pause-list action or a material question switches to the full path', 'more than two tickets is refused its dispatch', 'set `mode: full`'):
             self.assertIn(phrase, card)
 
 
