@@ -6,8 +6,10 @@ words>"`, `autopilot_card.py phase <card> <align|refine|dispatch|pr>`, or `autop
 A phase of dispatch or pr needs the tickets of the board the card names on `board:`: a tracker's URL holds its own; a
 `local` board needs ticket files that pass `next_tickets.py --check`.
 
-A confirmation records the date and the user's words on `confirmed:`, and on `session:` each host session ID this
-shell exports, as the stop hook counts them, so the panel and the stop hold find the run.
+A confirmation records the date and the user's words on `confirmed:` (on a `mode: direct` card, as `by rule` with
+the goal the user typed, since a direct run asks nothing), and on `session:` each host session ID this shell exports,
+as the stop hook counts them, so the panel and the stop hold find the run. A direct card whose local board holds more
+than two tickets is refused its dispatch: it takes the full path.
 
 Rewrites the lines of the card's `## State` section in place and nothing else, so a Goal quoting `auto-merge:` is
 left alone. `auto-merge:` becomes `yes` only with `--auto-merge`, so a grant from the run that
@@ -36,11 +38,13 @@ from worker_lifecycle import SESSION_VARIABLES, host_sessions, state_fields  # n
 
 LEVELS = ('low', 'medium', 'high', 'xhigh', 'max')
 # The lines of the run card format's State, every one written before the user confirms the card.
-STATE_LINES = ('confirmed', 'session', 'auto-merge', 'board', 'dispatch-effort', 'review-effort', 'phase', 'terminal',
+STATE_LINES = ('confirmed', 'session', 'auto-merge', 'mode', 'board', 'dispatch-effort', 'review-effort', 'phase', 'terminal',
                'history', 'evidence', 'timer', 'resume')
 RUN_CARD = Path(__file__).resolve().parents[1] / 'skills' / 'autopilot' / 'run-card.md'
 PHASES = ('align', 'refine', 'dispatch', 'pr')
 TICKETS = Path(__file__).resolve().parent / 'next_tickets.py'
+MODES = ('full', 'direct')
+DIRECT_TICKETS = 2  # A direct run finishes at most this many tickets; more is the full path.
 
 
 def field(text, key):
@@ -112,7 +116,11 @@ def board_problem(card, state):
     if board != 'local':
         return f"the card's `board:` is neither `local` nor a tracker's URL: {board!r}"
     slug, repo = card.parent.name, card.resolve().parents[2]
-    if not ticket_files(card.parent / 'issues'):
+    tickets = ticket_files(card.parent / 'issues')
+    if state_fields(state).get('mode') == 'direct' and len(tickets) > DIRECT_TICKETS:
+        return (f'the direct card of {slug} has {len(tickets)} tickets, above {DIRECT_TICKETS}: take the full path, '
+                'set `mode: full` and have the user confirm the card')
+    if not tickets:
         new = shlex.join(['python3', str(TICKETS), '--repo', str(repo), slug, '--new', '<title>'])
         return f'the local board of {slug} has no tickets: write each with `{new}`, then set the phase'
     check = subprocess.run([sys.executable, str(TICKETS), '--repo', str(repo), slug, '--check'],
@@ -143,10 +151,14 @@ def confirm(text, words, sessions, today):
     if missing:
         sys.exit(f"the card's State lacks {', '.join(missing)}: write each line of the run card's State ({RUN_CARD}), "
                  'then confirm')
+    mode = field(state[0], 'mode')
+    if mode not in MODES:
+        sys.exit(f'the card\'s `mode:` line is not one of {", ".join(MODES)}: {mode!r}')
     words = ' '.join((words or '').split())  # On one line, so no word can become a State line.
     if not words:
         sys.exit("confirm takes --words: the user's words that confirmed this card")
-    lines = set_field(set_field(state[0], 'confirmed', f'{today} "{words}"'), 'session', session_line(sessions, 'confirm'))
+    by_rule = ' by rule' if mode == 'direct' else ''
+    lines = set_field(set_field(state[0], 'confirmed', f'{today}{by_rule} "{words}"'), 'session', session_line(sessions, 'confirm'))
     return text[:state.start()] + lines + text[state.end():]
 
 

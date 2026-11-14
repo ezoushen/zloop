@@ -14,6 +14,7 @@ import support
 
 COMMAND = support.script('autopilot_card.py')
 card = support.load_script('autopilot_card.py', 'autopilot_card')
+life = support.load_script('worker_lifecycle.py', 'worker_lifecycle')
 CARD = """# run — autopilot run card
 
 ## Goal
@@ -165,6 +166,7 @@ session: theirs, quoted, not this card's
 confirmed: no
 session: <each host session ID this shell exports, comma-separated; `confirm` and `take-over` rewrite it>
 auto-merge: no
+mode: full
 board: local
 dispatch-effort: medium
 review-effort: high
@@ -208,6 +210,22 @@ class Confirm(unittest.TestCase):
         self.assertEqual(text, DRAFT.replace('confirmed: no', f'confirmed: {today} "go ahead, session: mine inline"')
                          .replace(UNNAMED, 'session: pi-1'))
 
+    def test_a_direct_card_is_confirmed_by_rule_from_the_goal_and_a_card_without_a_mode_line_is_refused(self):
+        # Rule (outcome B): a direct run asks nothing, so its confirmation is the rule applied to the goal the user typed.
+        today = datetime.date.today().isoformat()
+        direct = DRAFT.replace('mode: full', 'mode: direct')
+        text, _ = self.confirm('--words', 'fix the typo', card=direct, sessions={'PI_SESSION_ID': 'pi-1'})
+        self.assertEqual(text, direct.replace('confirmed: no', f'confirmed: {today} by rule "fix the typo"')
+                         .replace(UNNAMED, 'session: pi-1'))
+        # The stop hook and the panel read a confirmation by rule as confirmed.
+        self.assertTrue(life.confirmed(life.state_fields(text)))
+        # A full card keeps the user's own words.
+        self.assertIn(f'confirmed: {today} "ok"', self.confirm('--words', 'ok', sessions={'PI_SESSION_ID': 'pi-1'})[0])
+        lacking = DRAFT.replace('mode: full\n', '')
+        text, error = self.confirm('--words', 'go', card=lacking, sessions={'PI_SESSION_ID': 'pi-1'}, code=1)
+        self.assertEqual((text, error.split(':', 1)[0]), (lacking, "the card's State lacks mode"))
+        odd = DRAFT.replace('mode: full', 'mode: both')
+        self.assertIn('`mode:`', self.confirm('--words', 'go', card=odd, sessions={'PI_SESSION_ID': 'pi-1'}, code=1)[1])
 
     def test_confirming_refuses_a_card_missing_a_state_line_empty_words_or_no_host_session(self):
         # Live (jose, Pi): its State held only phase, terminal and history. The lines expected are the run-card format's.
@@ -215,13 +233,13 @@ class Confirm(unittest.TestCase):
         hand_written = '# maven-warp-closeout\n\n## Goal\nx\n\n## State\nphase: refine\nterminal:\nhistory:\n- 10:04 HOLD\n'
         text, error = self.confirm('--words', 'go', card=hand_written, sessions={'PI_SESSION_ID': 'pi-1'}, code=1)
         self.assertEqual((text, error.strip()), (hand_written, "the card's State lacks confirmed, session, auto-merge, "
-                         'board, dispatch-effort, review-effort, evidence, timer, resume: write each line of the run '
+                         'mode, board, dispatch-effort, review-effort, evidence, timer, resume: write each line of the run '
                          "card's "
                          f'State ({run_card}), then confirm'))
         # Every line of the format's State, as run-card.md writes it.
         template = run_card.read_text().split('\n## State\n', 1)[1].split('```', 1)[0]
         keys = [line.split(':', 1)[0] for line in template.splitlines() if ':' in line]
-        self.assertEqual(len(keys), 12)
+        self.assertEqual(len(keys), 13)
         for key in keys:
             with self.subTest(missing=key):
                 head, state = DRAFT.split('## State\n')  # The Goal's quoted `session:` line stays.
@@ -314,6 +332,28 @@ class Phase(unittest.TestCase):
                 text, error = self.phase('dispatch', board=board, code=1)
                 self.assertEqual(error.strip(), refusal)
                 self.assertIn('\nphase: refine\n', text)
+
+    def test_a_direct_card_moves_to_dispatch_with_two_local_tickets_and_is_refused_with_three(self):
+        # Rule (outcome B): above two tickets the work is the full path, with the user's confirmation.
+        self.card.parent.mkdir(exist_ok=True)
+
+        def direct(phase):
+            text = DRAFT.replace('mode: full', 'mode: direct').replace('confirmed: no', 'confirmed: 2026-11-06 by rule "go"')
+            self.card.write_text(text.replace(UNNAMED, 'session: host-1'))
+            return subprocess.run([sys.executable, '-B', str(COMMAND), 'phase', str(self.card), phase],
+                                  capture_output=True, text=True, timeout=30)
+        for number in ('01', '02'):
+            self.ticket(number)
+        self.assertEqual(direct('dispatch').returncode, 0)
+        self.ticket('03')
+        result = direct('dispatch')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('full path', result.stderr)
+        self.assertIn('\nphase: refine\n', self.card.read_text())
+        # A full card takes three tickets.
+        self.card.write_text(DRAFT.replace('confirmed: no', 'confirmed: 2026-11-06 "go"'))
+        self.assertEqual(subprocess.run([sys.executable, '-B', str(COMMAND), 'phase', str(self.card), 'dispatch'],
+                                        capture_output=True, text=True, timeout=30).returncode, 0)
 
 
 if __name__ == '__main__':

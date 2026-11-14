@@ -35,7 +35,7 @@ class RunCard(unittest.TestCase):
 
     def test_the_goal_form_runs_aligns_interview_before_the_card(self):
         start = ' '.join(SKILL.read_text().split('## Start', 1)[1].split('\n## ', 1)[0].split())
-        self.assertIn('**`autopilot <goal>`:** run [align](../align/SKILL.md) on the goal, with its interview', start)
+        self.assertIn('run [align](../align/SKILL.md) with its interview', start)
 
     def test_the_start_settles_verify_lines_that_tell_success_from_failure_before_the_card(self):
         # Rule: align's interview settles acceptance criteria whose Verify lines tell success from failure.
@@ -363,6 +363,17 @@ class TakeOverCommand(unittest.TestCase):
         self.assertIn('`phase:` stays as recorded: a run that ends keeps the phase it stopped in', start)
         phase = next(line for line in CARD.read_text().splitlines() if line.startswith('phase:'))
         self.assertNotIn('ended', phase)
+
+
+    def test_autopilot_sizes_the_work_first_and_takes_the_direct_path_only_for_one_or_two_tickets(self):
+        # Rule (f1-crew outcome B): a small change costs no interview; anything larger takes the full path.
+        start = SKILL.read_text().split('## Start', 1)[1].split('- **`autopilot --take-over`:**', 1)[0]
+        for phrase in ('size the work first', 'One or two tickets with no pause-list action and no material question',
+                       '`mode: direct`', 'confirmation by rule', 'review at `low`', 'Otherwise `mode: full`'):
+            self.assertIn(phrase, ' '.join(start.split()))
+        card = ' '.join(CARD.read_text().split())
+        for phrase in ('mode: full | direct', 'one independent review at `low`', 'A third ticket, a pause-list action or a material question switches to the full path', 'more than two tickets is refused its dispatch', 'set `mode: full`'):
+            self.assertIn(phrase, card)
 
 
 if __name__ == '__main__':
