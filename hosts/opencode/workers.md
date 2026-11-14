@@ -40,7 +40,7 @@ route also needs `--worktree <absolute checkout>`.
 
 The tab's environment carries `ZLOOP_WORKER` and private `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and
 `XDG_CACHE_HOME`. After tab creation, `herdr pane run` exports `OPENCODE_PASSWORD` by reading the
-owner-only password file; its command starts with a space to keep it out of shell history. Only the file
+owner-only password file. Only the file
 path appears in arguments, never the password. Herdr then starts the OpenCode TUI itself with only
 `--server <url> --session <id>`.
 A detached launcher keeper owns the loopback server outside the pane, with its streams and the

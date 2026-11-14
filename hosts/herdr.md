@@ -78,7 +78,7 @@ pane, whatever placement the installed skill defaults to:
    Without an enforcing `sandbox-exec` (`scripts/seatbelt.py`), refuse: the server runs under its profile
    for the route's scope plus private storage (cache too) and OpenCode data. After tab creation,
    `pane run` exports `OPENCODE_PASSWORD` from its owner-only file before `agent start`:
-   a leading space avoids shell history; arguments hold only its path, never the password.
+   arguments hold only its path, never the password.
    Keep `launch.argv` in JSON, never shell text. The resolver supplies write scope, model and effort; recipes: [Claude](claude/workers.md#top-level-workers),
    [Codex](codex/workers.md#top-level-workers), [Pi](pi/workers.md#top-level-workers) and
    [OpenCode](opencode/workers.md#top-level-workers). A native route without `launch` uses its host's
