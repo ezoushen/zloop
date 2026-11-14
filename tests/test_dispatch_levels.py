@@ -165,6 +165,16 @@ class DispatchLevels(unittest.TestCase):
                        'required full gate once on the integrated head'):
             self.assertIn(phrase, body)
 
+    def test_the_first_builder_launch_also_starts_the_readiness_verifier_when_e2e_is_planned(self):
+        # Rule: a dispatch that plans E2E (with --autofix) launches the readiness verifier in the step that launches
+        # the first builders, and a failed precondition only the user can clear goes to the user at once, in one request.
+        body = prose(DISPATCH / 'iteration.md')
+        self.assertIn('With `--autofix` and E2E planned, launch one [readiness](jobs/readiness.md) verifier in the '
+                      'same step as the first builders, with a `report` of its own and the planned E2E `checks`; '
+                      'a failed precondition only the user can clear goes to the user at once, in one request', body)
+        launch = body.split('4. **Launch.**', 1)[1].split('5. **Accept.**', 1)[0]
+        self.assertIn('readiness', launch)
+
     def test_a_verifier_re_runs_each_tickets_acceptance_under_its_own_job_at_high(self):
         # Rule: at high and higher one verifier attempt per ticket re-runs that ticket's `Verify (code)` commands
         # on the integrated head, under a job whose report is neither the review report nor an `e2e_by` entry.
