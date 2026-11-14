@@ -36,43 +36,44 @@ variant and write scope come from the session it opens, created on a private ser
 The user's running service does not fail closed: MCP and plugin tools from the user's
 configuration stay callable under a session's deny rules.
 
-1. Start `opencode serve --hostname 127.0.0.1 --port <free port>` with `XDG_CONFIG_HOME`,
-   `XDG_DATA_HOME` and `XDG_STATE_HOME` in a fresh directory and a known `OPENCODE_PASSWORD`,
-   and with `HERDR_PANE_ID` and `HERDR_TAB_ID` unset (`env -u HERDR_PANE_ID -u HERDR_TAB_ID`): the
-   server's Herdr plugin reports state for the pane in that environment, which from the orchestrator's
-   shell is the orchestrator's pane.
-2. Create the session from the route's `launch.api`: `opencode api POST /api/session
-   --server <url> -d '<body>'`, with `"location":{"directory":"<worktree>"}` added to
-   `launch.api.body`; without it the session gets another directory. The body denies edit
-   and subagent for `writes: none` and subagent for `worktree`; a denied agent still
-   writes through the `general` subagent unless subagent is denied.
-3. In the worker's tab, export `OPENCODE_PASSWORD` and the same isolated `XDG_CONFIG_HOME`,
-   `XDG_DATA_HOME` and `XDG_STATE_HOME`; without them the TUI loads the user's own `tui.json`, not the
-   Herdr reporter. Then start the TUI with `--server <url> --session <native-session>`.
-4. Use [prepare](../../runtime/workers/prepare.md) for registration and collection.
-   Export: `opencode session export <native-session> --server <url>` (v1: `opencode export`).
-   Use `native` for `submit` or `worker_lifecycle.py record` (`kind: startup`); refresh for `collect`.
-   The export records no server, so `submit` cannot tell an export of the private server's
-   session from one of the user's service: export with `--server <url>` and never substitute.
+Launch through `python3 <plugin_root>/hooks/herdr_launch.py start` with the saved route,
+worktree, assignment, role and name, as the [Herdr guide](../herdr.md#start-each-worker-in-a-tab-of-its-own)
+specifies. It refuses before opening a tab if either installed Herdr integration file is missing,
+naming `herdr integration install opencode`. Run that installer only for the user's configuration;
+the launcher copies its server plugin and TUI reporter into the worker's private configuration,
+writes `tui.jsonc` to load the reporter, and copies no other user configuration.
+
+The tab's agent is the launcher's `opencode` wrapper. It owns a loopback server with private
+`XDG_CONFIG_HOME` and `XDG_STATE_HOME`, clearing inherited configuration overrides. It preserves
+`XDG_DATA_HOME` (or its native default), so the user's existing logins serve the worker without
+copying credentials. The server inherits `HERDR_PANE_ID` from the worker's pane; its integration
+therefore reports that worker. The wrapper creates the route's session with the worktree as
+`location.directory` and attaches the foreground TUI to it. The session body denies edit and
+subagent for `writes: none` and subagent for `worktree`; a denied agent still writes through the
+`general` subagent unless subagent is denied. TUI exit, SIGHUP and SIGTERM stop the private server
+and remove its configuration, state and password file. The wrapper reports the failing startup step.
+
+The launcher's response preserves Herdr's agent-start result and adds `opencode.server`,
+`opencode.session` and `opencode.password_file`. The last names a file readable only by its owner;
+never print its contents. Register the printed session ID as `native_session` and use
+[prepare](../../runtime/workers/prepare.md) for registration and collection. Export the native record
+from that server, with `OPENCODE_PASSWORD` read from the printed password file:
+
+```sh
+OPENCODE_PASSWORD="$(cat <password-file>)" opencode session export <session-id> --server <url> > <native.json>
+```
+
+Use the absolute export path as `native` for `worker_lifecycle.py record` (`kind: startup`) and
+`submit`; export again before `collect`. Parse the complete retained export. The export records no
+server, so the lifecycle cannot distinguish a private-server export from one of the user's service:
+keep `--server <url>` and never substitute another server. The password file remains until the TUI exits.
 
 Run `opencode run` against the server with stdin from `/dev/null` (`< /dev/null`); it blocks when stdin is
-not a terminal.
-
-A `writes: none` worker keeps the shell for checks and its report but no editing tool; the
-read-only worktree check at collection covers what its shell writes.
-`opencode mini --model <provider/model>#<variant>` applies settings at launch, but Herdr
-cannot observe `mini`'s activity, so it does not suit lifecycle workers.
-
-**Models on the private server.** The isolated server has none of the user's providers or
-credentials. The built-in `opencode` provider's free models ran there without credentials.
-For another provider, add it under `providers` in the server's configuration
-(`$XDG_CONFIG_HOME/opencode/opencode.json`, or `OPENCODE_CONFIG_CONTENT` in the server's
-environment, which a server started this way reads), with its key as `{env:<NAME>}` and that
-variable set for `opencode serve` ([config](https://opencode.ai/v2/docs/config),
-[providers](https://opencode.ai/v2/docs/providers)). List what the server offers with
-`opencode models --server <url>`. Not verified: such a provider end to end, a variant set at
-session creation (submit checks it), and whether `opencode auth` with the isolated
-`XDG_DATA_HOME` gives the server credentials.
+not a terminal. A `writes: none` worker keeps the shell for checks and its report but no editing tool;
+the read-only worktree check at collection covers what its shell writes.
+`opencode mini --model <provider/model>#<variant>` applies settings at launch, but Herdr cannot observe
+`mini`'s activity, so it does not suit lifecycle workers. The private server has no providers from the
+user's configuration; the available providers and models must be checked on that server before work.
 
 This adapter covers model configuration and profile selection. Full zloop
 native dispatch lifecycle/worktree integration in OpenCode is not implemented or verified;

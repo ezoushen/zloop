@@ -11,7 +11,9 @@ pane; server (`--session`, caller's HERDR_SOCKET_PATH, else `default`; omitted w
 Claude and Codex run it before Bash; Pi's extension passes its bash and bg_run calls. It never blocks the command.
 
 `herdr_launch.py start --route <saved route.json> --worktree <path> --assignment <slug>/<assignment>
---role <role> --name <name>` creates a worker tab and starts the saved argv without a shell.
+--role <role> --name <name>` creates a worker tab and starts the saved recipe without a shell.
+OpenCode API routes use a pane-owned private server and foreground TUI; the response adds the server URL,
+session ID and password-file path under `opencode`. The password file lasts until the TUI exits.
 It logs the launch before starting the agent, and returns Herdr's exit code and JSON response.
 
 `herdr_launch.py dismiss --pane <pane> | --name <agent> [--session <host session>] --reason <text> | --keep <text>`,
@@ -24,8 +26,16 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
+import shutil
+import signal
+import socket
+import subprocess
 import sys
+import tempfile
 import time
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 
 import pr_body
 import yield_gate
@@ -147,7 +157,7 @@ def main():
 
 
 def start(argv):
-    """Start a saved route in its own Herdr tab; return Herdr's agent-start response on stdout."""
+    """Start a saved route in its own tab; print Herdr's response and OpenCode connection metadata when needed."""
     parser = argparse.ArgumentParser(prog='herdr_launch.py start')
     parser.add_argument('--route', required=True)
     parser.add_argument('--worktree', required=True, type=lambda path: str(Path(path).resolve()),
@@ -163,23 +173,162 @@ def start(argv):
     if not workspace:
         parser.error('run start in the orchestrator Herdr workspace (HERDR_WORKSPACE_ID)')
     route = json.loads(Path(args.route).read_text())
-    launch = route['launch']['argv']
     lifecycle = yield_gate.lifecycle()
     root = yield_gate.main_checkout(os.getcwd())
     if root is None:
         parser.error('run start inside the checkout whose launches the stop check tracks')
-    code, response = lifecycle.herdr(None, 'tab', 'create', '--workspace', workspace, '--cwd', args.worktree,
-                                     '--label', f'{args.assignment} {args.role}',
-                                     '--env', f'ZLOOP_WORKER={args.assignment}', '--no-focus')
-    if code == 0:
-        pane = response['result']['root_pane']['pane_id']
-        log_launch(root, lifecycle.own_server(), args.name, pane,
-                   {'pane': os.environ.get('HERDR_PANE_ID'), 'session': (lifecycle.host_sessions() or [None])[0]},
-                   args.worktree)
-        code, response = lifecycle.herdr(None, 'agent', 'start', args.name, '--kind', route['target_runtime'],
-                                         '--pane', pane, '--', *launch, timeout=120)
+    control = None
+    if route['target_runtime'] == 'opencode':
+        integration = Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config'))) / 'opencode'
+        if not all((integration / name).is_file() for name in ('plugins/herdr-agent-state.js', 'herdr-tui-session.js')):
+            parser.error('OpenCode integration missing: run herdr integration install opencode')
+        control = Path(tempfile.mkdtemp(prefix='zloop-opencode-launch-'))
+        launch = [sys.executable, str(Path(__file__).resolve()), 'opencode',
+                  '--route', str(Path(args.route).resolve()), '--worktree', args.worktree,
+                  '--connection', str(control / 'connection.json')]
+    else:
+        launch = route['launch']['argv']
+    step = 'tab create'
+    try:
+        code, response = lifecycle.herdr(None, 'tab', 'create', '--workspace', workspace, '--cwd', args.worktree,
+                                         '--label', f'{args.assignment} {args.role}',
+                                         '--env', f'ZLOOP_WORKER={args.assignment}', '--no-focus')
+        if code == 0:
+            step = 'agent start'
+            pane = response['result']['root_pane']['pane_id']
+            log_launch(root, lifecycle.own_server(), args.name, pane,
+                       {'pane': os.environ.get('HERDR_PANE_ID'), 'session': (lifecycle.host_sessions() or [None])[0]},
+                       args.worktree)
+            code, response = lifecycle.herdr(None, 'agent', 'start', args.name, '--kind', route['target_runtime'],
+                                             '--pane', pane, '--', *launch, timeout=120)
+    except (OSError, ValueError) as error:
+        if control is None:
+            raise
+        code, response = 1, {'error': f'OpenCode Herdr {step} failed: {type(error).__name__}'}
+    if control:
+        try:
+            if code == 0:
+                deadline = time.monotonic() + 30
+                while not (control / 'connection.json').exists() and time.monotonic() < deadline:
+                    time.sleep(.05)
+                if not (control / 'connection.json').exists():
+                    raise ValueError('OpenCode wrapper startup timed out')
+                connection = json.loads((control / 'connection.json').read_text())
+                if 'error' in connection:
+                    raise ValueError(connection['error'])
+                response['opencode'] = connection
+        except ValueError as error:
+            code, response = 1, {'error': str(error)}
+        finally:
+            if code and (control / 'pid').exists() and not (control / 'stopped').exists():
+                try:
+                    os.kill(int((control / 'pid').read_text()), signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                deadline = time.monotonic() + 7
+                while not (control / 'stopped').exists() and time.monotonic() < deadline:
+                    time.sleep(.05)
+                if not (control / 'stopped').exists():
+                    response = {'error': 'OpenCode wrapper cleanup did not finish within 7 seconds'}
+            shutil.rmtree(control)
     print(json.dumps(response))
     return code
+
+
+def opencode(argv):
+    """Own a pane's private server and configuration until its foreground TUI exits."""
+    parser = argparse.ArgumentParser(prog='herdr_launch.py opencode')
+    parser.add_argument('--route', required=True)
+    parser.add_argument('--worktree', required=True)
+    parser.add_argument('--connection', required=True, type=Path)
+    args = parser.parse_args(argv)
+    control = args.connection.parent
+    if not control.is_dir():
+        parser.error('OpenCode wrapper launch was cancelled')
+    for number in (signal.SIGHUP, signal.SIGTERM):
+        signal.signal(number, lambda number, frame: sys.exit(128 + number))
+    (control / 'pid').write_text(str(os.getpid()))
+    server = tui = None
+    private = Path(tempfile.mkdtemp(prefix='zloop-opencode-'))
+    step = 'configuration'
+    error = None
+    try:
+        config = private / 'config/opencode'
+        (config / 'plugins').mkdir(parents=True)
+        source = Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config'))) / 'opencode'
+        for name in ('plugins/herdr-agent-state.js', 'herdr-tui-session.js'):
+            shutil.copyfile(source / name, config / name)
+        (config / 'tui.jsonc').write_text(json.dumps({'plugin': ['./herdr-tui-session.js']}))
+        password = private / 'password'
+        with os.fdopen(os.open(password, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as stream:
+            stream.write(secrets.token_urlsafe(32))
+        env = dict(os.environ, XDG_CONFIG_HOME=str(private / 'config'), XDG_STATE_HOME=str(private / 'state'),
+                   OPENCODE_PASSWORD=password.read_text())
+        for key in ('OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT', 'OPENCODE_CONFIG_DIR', 'OPENCODE_TUI_CONFIG'):
+            env.pop(key, None)
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1', 0))
+            port = listener.getsockname()[1]
+        url = f'http://127.0.0.1:{port}'
+        step = 'serve'
+        server = subprocess.Popen(['opencode', 'serve', '--hostname', '127.0.0.1', '--port', str(port)],
+                                  env=env, cwd=args.worktree, stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        step = 'server readiness'
+        deadline = time.monotonic() + 20
+        while True:
+            if server.poll() is not None:
+                step = 'serve'
+                raise ValueError(f'server exited {server.returncode}')
+            try:
+                with urlopen(url, timeout=.5):
+                    break
+            except HTTPError:
+                break
+            except (URLError, TimeoutError):
+                if time.monotonic() >= deadline:
+                    raise ValueError('server did not answer within 20 seconds')
+                time.sleep(.05)
+        step = 'session POST'
+        api = json.loads(Path(args.route).read_text())['launch']['api']
+        body = dict(api['body'], location={'directory': args.worktree})
+        created = subprocess.run(['opencode', 'api', api['method'], api['path'], '--server', url,
+                                  '-d', json.dumps(body)], env=env, cwd=args.worktree,
+                                 capture_output=True, text=True, timeout=5)
+        if created.returncode:
+            raise ValueError(f'command exited {created.returncode}')
+        session = json.loads(created.stdout)['id']
+        if not isinstance(session, str) or not session:
+            raise ValueError('response has no session ID')
+        step = 'TUI'
+        tui = subprocess.Popen(['opencode', '--server', url, '--session', session], env=env, cwd=args.worktree)
+        ready = control / 'ready.json'
+        ready.write_text(json.dumps({'server': url, 'session': session, 'password_file': str(password)}))
+        ready.replace(args.connection)
+        code = tui.wait()
+        if code:
+            raise ValueError(f'TUI exited {code}')
+        return code
+    except Exception as caught:
+        error = f'OpenCode {step} failed: {type(caught).__name__}'
+        print(error, file=sys.stderr)
+        return 1
+    finally:
+        for child in (tui, server):
+            if child is not None and child.poll() is None:
+                child.terminate()
+                try:
+                    child.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait()
+        shutil.rmtree(private)
+        if error and control.is_dir():
+            ready = control / 'ready.json'
+            ready.write_text(json.dumps({'error': error}))
+            ready.replace(args.connection)
+        if control.is_dir():
+            (control / 'stopped').touch()
 
 
 def dismiss(argv):
@@ -215,5 +364,7 @@ if __name__ == '__main__':
         sys.exit(start(sys.argv[2:]))
     elif sys.argv[1:2] == ['dismiss']:
         dismiss(sys.argv[2:])
+    elif sys.argv[1:2] == ['opencode']:
+        sys.exit(opencode(sys.argv[2:]))
     else:
         main()
