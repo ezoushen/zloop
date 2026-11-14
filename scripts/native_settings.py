@@ -105,7 +105,20 @@ def observe(path, runtime, session, worktree):
         # status and settings come from the thread itself.
         record = json.loads(path.read_bytes())
         thread = record.get('thread') if isinstance(record.get('thread'), dict) else record
-        observed = {'runtime': 't3', 'model': thread.get('model'), 'status': thread.get('status')}
+        if thread.get('threadId') != session:
+            raise ValueError('Native record does not belong to the registered T3 thread')
+        observed = {'runtime': 't3', 'model': thread.get('model'), 'status': thread.get('status'),
+                    'provider': thread.get('providerInstanceId')}
+        configuration = record.get('configuration')
+        if isinstance(configuration, dict):
+            selection = configuration.get('modelSelection') or {}
+            if (configuration.get('threadId') != session
+                    or selection.get('instanceId') != observed['provider']
+                    or selection.get('model') != observed['model']):
+                raise ValueError('T3 configuration does not belong to the registered thread and model')
+            for option in selection.get('options') or []:
+                if option.get('id') in ('reasoningEffort', 'effort', 'thinking', 'variant'):
+                    observed['effort'] = option.get('value')
         return {'observed': observed, 'cwd': None, 'source': str(path)}
     if runtime == 'opencode':
         exported = json.loads(path.read_bytes())

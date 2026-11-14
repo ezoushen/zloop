@@ -3,6 +3,8 @@
 retirement leaves the thread idle. The `t3` CLI is stubbed like the Herdr fixture stubs `herdr`."""
 
 import json
+import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -13,6 +15,12 @@ import worker_lifecycle as worker_lifecycle_module
 
 
 class T3Threads(WorkerLifecycleCase):
+    def setUp(self):
+        super().setUp()
+        # Each test says whether T3 hosts the orchestrator; the shell running the suite may itself be a T3 session.
+        for marker in ('T3CODE_CLI_PATH', 'T3CODE_THREAD_ID'):
+            os.environ.pop(marker, None)
+
     def t3_route(self):
         """Resolve the worker through the built-in t3 type, as the resolver does for a configured t3 route."""
         execution = json.loads(self.execution.read_text())
@@ -22,14 +30,17 @@ class T3Threads(WorkerLifecycleCase):
         self.execution.write_text(json.dumps(execution))
 
     def t3_fixture(self, thread='th-1', status='completed', show_error=None, runtime='claude',
-                   model='sonnet', title='zloop/slug/a-1 builder'):
-        """A `t3` stub whose `thread show --json <thread>` answers with the fixture's state."""
+                   model='sonnet', title='zloop/slug/a-1 builder', parent=None, archived=False, host=None):
+        """A `t3` stub whose `thread show --json <thread>` answers with the fixture's state. `parent` makes the
+        thread that thread's child, as `delegate_task` does; `host` is what T3 puts in the environment of an
+        orchestrator it hosts."""
         directory = self.root / 'bin'
         directory.mkdir(exist_ok=True)
         executable = directory / 't3'
         # The real CLI nests the thread under `thread` beside `messages`.
         payload = {'thread': {'threadId': thread, 'title': title, 'status': status,
-                              'providerInstanceId': runtime, 'model': model},
+                              'providerInstanceId': runtime, 'model': model, 'parentThreadId': parent,
+                              'relationshipToParent': 'subagent' if parent else None, 'archived': archived},
                    'messages': [{'role': 'assistant', 'text': 'assignment done'}]}
         body = (json.dumps(payload) if show_error is None
                 else json.dumps({'error': {'code': show_error}}))
@@ -50,7 +61,7 @@ sys.exit(3)
 ''')
         executable.chmod(0o700)
         import os
-        self.native_env = dict(os.environ, PATH=str(directory) + os.pathsep + os.environ['PATH'])
+        self.native_env = dict(os.environ, PATH=str(directory) + os.pathsep + os.environ['PATH'], **(host or {}))
 
     def registered(self, worker='th-1'):
         self.t3_route()
@@ -136,15 +147,21 @@ class RemoteEnvironment(T3Threads):
 
 
 class RemoteLifecycle(RemoteEnvironment):
-    def registered_remote(self, thread='mcp:peer-1'):
+    def registered_remote(self, thread='mcp:peer-1', host=None):
         self.environment_route()
         self.t3_fixture()  # the local CLI stub must NOT be consulted for a remote thread
         self.mcp_fixture(thread=thread)
         import os
         self.native_env = dict(os.environ, T3_MCP_URL=self.mcp_url,
-                               T3_MCP_BEARER_TOKEN='stub-token')
+                               T3_MCP_BEARER_TOKEN='stub-token', **(host or {}))
         self.register(worker=thread, t3={'thread': thread})
         return self.cli('status')['attempts'][0]
+
+    def test_a_hosted_orchestrator_registers_a_linked_environments_thread_unparented(self):
+        # Rule: the child-thread rule is the local environment's. A linked environment's worker thread is launched
+        # on that machine, where this orchestrator's thread is not its parent.
+        saved = self.registered_remote(host={'T3CODE_CLI_PATH': '/t3/bin/t3', 'T3CODE_THREAD_ID': 'orch-1'})
+        self.assertEqual(saved['t3']['thread'], 'mcp:peer-1')
 
     def test_a_remote_attempt_registers_through_the_environment_transport(self):
         # Rule (ledger A1): a thread on a linked environment is confirmed through the T3 MCP server; the
@@ -277,6 +294,202 @@ class Registration(T3Threads):
         self.assertTrue((self.root / 't3-argv.log').exists())
 
 
+class ResolvedRegistration(T3Threads):
+    PROVIDERS = {'claude': 'claudeAgent', 'codex': 'codex', 'pi': 'pi', 'opencode': 'opencode'}
+
+    def setUp(self):
+        super().setUp()
+        self.git(self.root, 'init', '-b', 'main')
+        (self.root / '.gitignore').write_text('*\n')
+        self.git(self.root, 'add', '-f', '.gitignore')
+        self.git(self.root, 'commit', '-m', 'base')
+        self.head = self.git(self.root, 'rev-parse', 'HEAD')
+
+    def registration(self, *args, **fields):
+        data = super().registration(*args, **fields)
+        data['head'] = self.head
+        return data
+
+    def t3_fixture(self, thread, runtime, model):
+        state = self.root / 't3-state.json'
+        state.write_text(json.dumps({'thread': {'threadId': thread, 'status': 'completed',
+            'providerInstanceId': runtime, 'model': model}, 'messages': []}))
+        directory = self.root / 'bin'
+        directory.mkdir(exist_ok=True)
+        executable = directory / 't3'
+        executable.write_text('#!' + sys.executable + '\n' + f'''
+import json, sys
+from pathlib import Path
+path = Path({str(state)!r})
+body = json.loads(path.read_text())
+args = sys.argv[1:]
+if args[:2] == ['thread', 'list']:
+    print(json.dumps([body['thread']]))
+elif args[:2] == ['thread', 'show']:
+    print(json.dumps(body))
+elif args[:2] == ['thread', 'send']:
+    body['messages'] += [{{'role': 'user', 'text': args[3]}},
+                         {{'role': 'assistant', 'text': 'assignment done'}}]
+    path.write_text(json.dumps(body))
+    print('assignment done')
+else:
+    sys.exit(3)
+''')
+        executable.chmod(0o700)
+        self.native_env = dict(os.environ, PATH=str(directory) + os.pathsep + os.environ['PATH'])
+
+    def snapshot(self, thread):
+        process = subprocess.run(['t3', 'thread', 'show', '--json', thread],
+            capture_output=True, text=True, env=self.native_env)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        native = self.root / f'{thread}.json'
+        native.write_text(process.stdout)
+        return native
+
+    def resolved_route(self, caller, runtime, effort=None):
+        thread = f'{caller}-{runtime}'
+        model = f'{runtime}-model'
+        self.t3_fixture(thread=thread, runtime=self.PROVIDERS[runtime], model=model)
+        home = self.root / 't3home' / 'userdata'
+        home.mkdir(parents=True, exist_ok=True)
+        (home / 'server-runtime.json').write_text('{}')
+        self.native_env['T3CODE_HOME'] = str(home.parent)
+        config = self.root / 'executors.json'
+        binding = {'id': model, 'provider': self.PROVIDERS[runtime]}
+        if effort:
+            binding['thinking'] = effort
+        config.write_text(json.dumps({
+            'models': {'smoke': {'description': 'Read-only lifecycle check.', 'runtimes': {
+                runtime: binding}}},
+            'runtimes': {runtime: {'executors': {'t3': {'type': 't3'}}}},
+            'agents': {'verifier': {'model': 'smoke'}}}))
+        process = subprocess.run([sys.executable, '-B', str(Path(SCRIPT).with_name('agent_models.py')),
+            '--repo', str(self.root), '--host', caller, '--job', 'e2e-gate', '--route',
+            '--user-executors', str(config), '--target-runtime', runtime,
+            '--worktree', str(self.root), '--reports', str(self.root)],
+            capture_output=True, text=True, env=self.native_env)
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        self.execution.write_text(process.stdout)
+        return thread
+
+    def test_resolved_workers_submit_collect_and_retire_for_all_hosts(self):
+        for caller in self.PROVIDERS:
+            for runtime in self.PROVIDERS:
+                with self.subTest(caller=caller, runtime=runtime):
+                    thread = self.resolved_route(caller, runtime)
+                    attempt = f'{thread}/1'
+                    self.register(attempt, assignment=thread, session=thread, worker=thread,
+                                  runtime='t3', t3={'thread': thread})
+                    native = self.snapshot(thread)
+                    self.record('startup', attempt=attempt, native=str(native))
+                    saved = self.cli('status', '--attempt', attempt)['attempts'][0]
+                    self.assertTrue(saved['verified'], saved)
+                    self.assertEqual(saved['t3']['runtime'], self.PROVIDERS[runtime])
+                    self.assertEqual(saved['requested']['runtime'], 't3')
+                    self.assertEqual(saved['observed']['provider'], self.PROVIDERS[runtime])
+                    request = self.root / 'submit.json'
+                    request.write_text(json.dumps({'native': str(native), 'timeout': 5,
+                        'argv': ['t3', 'thread', 'send', thread, self.packet(attempt).read_text(), '--wait']}))
+                    submitted = self.cli('submit', '--attempt', attempt, '--input', str(request))
+                    self.assertEqual((submitted['reason'], submitted['exit_code']), ('settled', 0))
+                    self.record('reconciled', attempt=attempt, evidence=['send completed; thread inspected'])
+                    self.snapshot(thread)
+                    report = self.root / f'{thread}-report.md'
+                    report.write_text('## E2E\n\nassignment done\n')
+                    request.write_text(json.dumps({'status': 'completed', 'head': self.head,
+                        'report': str(report), 'native': str(native), 'evidence': ['assignment done'],
+                        'disposition': {'kind': 'retire', 'evidence': ['T3 thread completed']}}))
+                    self.cli('collect', '--attempt', attempt, '--input', str(request))
+                    saved = self.cli('status', '--attempt', attempt)['attempts'][0]
+                    self.assertEqual(saved['result']['status'], 'completed')
+                    self.assertTrue(saved['closed'])
+        self.assertFalse(self.cli('status')['pending'])
+        self.assertTrue(self.cli('gate', '--stage', 'yield')['complete'])
+
+    def test_startup_refuses_a_matching_model_from_another_thread(self):
+        thread = self.resolved_route('pi', 'pi')
+        self.register('pi-pi/1', assignment=thread, session=thread, worker=thread,
+                      runtime='t3', t3={'thread': thread})
+        native = self.snapshot(thread)
+        record = json.loads(native.read_text())
+        record['thread']['threadId'] = 'another-thread'
+        native.write_text(json.dumps(record))
+        error = self.record('startup', attempt='pi-pi/1', native=str(native), code=2)
+        self.assertIn('registered T3 thread', error)
+
+    def test_registration_binds_native_identity_to_its_t3_thread(self):
+        thread = self.resolved_route('pi', 'pi')
+        error = self.register('pi-pi/1', assignment=thread, session='another-thread', worker=thread,
+                              runtime='t3', t3={'thread': thread}, code=2)
+        self.assertIn('native_session', error)
+
+    def test_a_different_provider_cannot_pass_the_work_gate(self):
+        thread = self.resolved_route('pi', 'pi')
+        self.register('pi-pi/1', assignment=thread, session=thread, worker=thread,
+                      runtime='t3', t3={'thread': thread})
+        native = self.snapshot(thread)
+        record = json.loads(native.read_text())
+        record['thread']['providerInstanceId'] = 'codex'
+        native.write_text(json.dumps(record))
+        self.record('startup', attempt='pi-pi/1', native=str(native))
+        self.assertFalse(self.cli('status', '--attempt', 'pi-pi/1')['attempts'][0]['verified'])
+        self.assertFalse(self.cli('gate', '--stage', 'work', '--attempt', 'pi-pi/1', code=1)['complete'])
+
+    def test_t3_configuration_proves_requested_thinking_for_each_provider(self):
+        options = {'claude': 'effort', 'codex': 'reasoningEffort', 'pi': 'thinking', 'opencode': 'variant'}
+        for runtime, option in options.items():
+            with self.subTest(runtime=runtime):
+                thread = self.resolved_route('pi', runtime, effort='high')
+                attempt = f'{thread}/1'
+                self.register(attempt, assignment=thread, session=thread, worker=thread,
+                              runtime='t3', t3={'thread': thread})
+                native = self.snapshot(thread)
+                record = json.loads(native.read_text())
+                record['configuration'] = {'threadId': thread, 'modelSelection': {
+                    'instanceId': self.PROVIDERS[runtime], 'model': f'{runtime}-model',
+                    'options': [{'id': option, 'value': 'high'}]}}
+                native.write_text(json.dumps(record))
+                self.record('startup', attempt=attempt, native=str(native))
+                saved = self.cli('status', '--attempt', attempt)['attempts'][0]
+                self.assertTrue(saved['verified'], saved)
+                self.assertEqual(saved['observed']['effort'], 'high')
+
+    def test_thinking_without_configuration_evidence_cannot_pass_the_work_gate(self):
+        thread = self.resolved_route('pi', 'pi', effort='high')
+        self.register('pi-pi/1', assignment=thread, session=thread, worker=thread,
+                      runtime='t3', t3={'thread': thread})
+        self.record('startup', attempt='pi-pi/1', native=str(self.snapshot(thread)))
+        self.assertFalse(self.cli('gate', '--stage', 'work', '--attempt', 'pi-pi/1', code=1)['complete'])
+
+    def test_configuration_from_another_thread_cannot_prove_thinking(self):
+        thread = self.resolved_route('pi', 'pi', effort='high')
+        self.register('pi-pi/1', assignment=thread, session=thread, worker=thread,
+                      runtime='t3', t3={'thread': thread})
+        native = self.snapshot(thread)
+        record = json.loads(native.read_text())
+        record['configuration'] = {'threadId': 'another-thread', 'modelSelection': {
+            'instanceId': 'pi', 'model': 'pi-model', 'options': [{'id': 'thinking', 'value': 'high'}]}}
+        native.write_text(json.dumps(record))
+        error = self.record('startup', attempt='pi-pi/1', native=str(native), code=2)
+        self.assertIn('configuration does not belong', error)
+
+    def test_configuration_for_another_provider_or_model_cannot_prove_thinking(self):
+        # Rule: a thinking level is evidence only for the provider and the model the registered thread runs.
+        for caller, field, other in (('claude', 'instanceId', 'codex'), ('codex', 'model', 'another-model')):
+            with self.subTest(field=field):
+                thread = self.resolved_route(caller, 'pi', effort='high')
+                attempt = f'{thread}/1'
+                self.register(attempt, assignment=thread, session=thread, worker=thread,
+                              runtime='t3', t3={'thread': thread})
+                native = self.snapshot(thread)
+                record = json.loads(native.read_text())
+                selection = {'instanceId': 'pi', 'model': 'pi-model', 'options': [{'id': 'thinking', 'value': 'high'}]}
+                record['configuration'] = {'threadId': thread, 'modelSelection': dict(selection, **{field: other})}
+                native.write_text(json.dumps(record))
+                error = self.record('startup', attempt=attempt, native=str(native), code=2)
+                self.assertIn('configuration does not belong', error)
+
+
 class RegistrationRefusals(T3Threads):
     def test_registration_refuses_a_thread_another_live_attempt_holds(self):
         # Rule: a T3 thread runs one worker; a second attempt on the same live thread is refused with the
@@ -295,6 +508,72 @@ class RegistrationRefusals(T3Threads):
         self.assertIn('not_found', str(error))
 
 
+class HostedOrchestrator(T3Threads):
+    """T3 hosts the orchestrator. Its session then carries T3CODE_CLI_PATH on every provider, and its own thread id
+    in T3CODE_THREAD_ID on Claude and Codex (probed on T3 Code v0.1.9)."""
+    HOST = {'T3CODE_CLI_PATH': '/t3/bin/t3'}
+
+    def test_a_hosted_orchestrator_registers_only_a_child_thread(self):
+        # Rule: a worker of an orchestrator T3 hosts is a child thread. `t3 thread start` makes a top-level one, so
+        # that thread is refused with the tool that makes a child.
+        self.t3_route()
+        self.t3_fixture(host=self.HOST)
+        error = self.register(worker='th-1', t3={'thread': 'th-1'}, code=2)
+        self.assertIn('T3 thread th-1 is not a child thread', str(error))
+        self.assertIn('delegate_task', str(error))
+        self.t3_fixture(host=self.HOST, parent='orch-9')
+        self.register(worker='th-1', t3={'thread': 'th-1'})
+        self.assertEqual(self.cli('status')['attempts'][0]['t3']['thread'], 'th-1')
+
+    def test_the_child_belongs_to_the_orchestrators_own_thread_where_t3_names_it(self):
+        # Rule: where T3 names the orchestrator's thread, the worker is that thread's child, not another's.
+        host = dict(self.HOST, T3CODE_THREAD_ID='orch-1')
+        self.t3_route()
+        self.t3_fixture(host=host, parent='orch-2')
+        error = self.register(worker='th-1', t3={'thread': 'th-1'}, code=2)
+        self.assertIn("T3 thread th-1 is a child of orch-2, not of this orchestrator's thread orch-1", str(error))
+        self.t3_fixture(host=host, parent='orch-1')
+        self.register(worker='th-1', t3={'thread': 'th-1'})
+        self.assertEqual(self.cli('status')['attempts'][0]['t3']['thread'], 'th-1')
+
+    def test_a_hosted_orchestrator_archives_its_worker_thread_before_retiring_it(self):
+        # Rule: the t3 CLI cannot archive, so an orchestrator T3 hosts archives its finished worker thread with
+        # T3's own tool, and retirement refuses until T3 reports the thread archived.
+        self.t3_route()
+        self.t3_fixture(host=self.HOST, parent='orch-1')
+        self.register(worker='th-1', t3={'thread': 'th-1'})
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(self.t3_retire_request()), code=2)
+        self.assertIn('T3 thread th-1 is not archived', str(error))
+        self.assertIn('t3_thread_organize', str(error))
+        self.assertFalse(self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0].get('closed'))
+        self.t3_fixture(host=self.HOST, parent='orch-1', archived=True)
+        result = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(self.t3_retire_request()))
+        self.assertTrue(result['closed'])
+        self.assertIn('th-1: completed, archived (no CLI stop)', result['evidence'][0])
+
+    def test_collection_retires_a_t3_worker_through_t3_not_on_stated_evidence(self):
+        # Rule: T3 reports the state of a T3 worker's thread, so collecting it with a retire disposition applies
+        # the retirement checks and never closes on the evidence the disposition states.
+        self.t3_route()
+        self.t3_fixture(host=self.HOST, parent='orch-1')
+        self.register(worker='th-1', t3={'thread': 'th-1'})
+        self.ready()
+        report = self.root / 'ticket-1-1.md'
+        report.write_text('## Implemented\n\nVerified assignment report at head-1\n')
+        request = self.collect_request('head-1', report, 'ticket-1/1', evidence=['checks.log@head-1'], disposition={
+            'kind': 'retire', 'evidence': ['thread left idle'],
+            'acceptance': {'decision': 'deferred', 'reason': 'review pending'}})
+        error = self.cli('collect', '--attempt', 'ticket-1/1', '--input', request, code=2)
+        self.assertIn('T3 thread th-1 is not archived', str(error))
+        self.assertFalse(self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0].get('closed'))
+        self.t3_fixture(host=self.HOST, parent='orch-1', archived=True)
+        final = self.cli('collect', '--attempt', 'ticket-1/1', '--input', request)['disposition']
+        self.assertIn('th-1: completed, archived (no CLI stop)', final['evidence'][0])
+
+
 class Retirement(T3Threads):
     def test_retirement_leaves_the_thread_idle_and_needs_no_pane(self):
         # Rule: T3 has no CLI stop, so retirement records the thread idle-retained with its state evidence.
@@ -307,6 +586,33 @@ class Retirement(T3Threads):
         attempt = self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0]
         self.assertTrue(attempt['closed'])
         self.assertIn('left idle (no CLI stop)', result['evidence'][0])
+
+    def test_a_t3_closure_is_never_recorded_by_hand(self):
+        # Rule: T3 reports the state of a worker's thread, so only `retire` closes a T3 worker; a closure recorded
+        # by hand would rest on the evidence it states.
+        self.registered()
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        error = self.record('closed', evidence=['said so'],
+                            acceptance={'decision': 'deferred', 'reason': 'review pending'}, code=2)
+        self.assertIn('its closure is not recorded by hand', str(error))
+        self.assertIn('retire --state', str(error))
+        self.assertFalse(self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0].get('closed'))
+
+    def test_reap_leaves_a_retained_t3_worker_of_an_ended_run_to_retire(self):
+        # Rule: likewise at a stop. An ended run closes a retained native subagent on its card, but a retained T3
+        # worker still has a thread T3 reports, so reap leaves it open for `retire`.
+        import support
+        self.state = self.root / 'ws' / 'reports' / 'workers.sqlite'
+        support.run_card(self.root / 'ws' / 'autopilot.md', confirmed='yes', terminal='delivered')
+        self.registered()
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        self.record('retain', reason='the repair round', next_use='fix round', evidence=['report'])
+        self.assertEqual({'closed': [], 'open': [], 'refused': []}, self.cli('reap'))
+        self.assertFalse(self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0].get('closed'))
 
 
 
