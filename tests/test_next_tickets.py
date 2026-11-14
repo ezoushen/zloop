@@ -540,16 +540,15 @@ class BoardCLI(unittest.TestCase):
         refused = self.cli('--check', code=1).stderr
         assert refused == f"fx/01: needs must be a bracketed list of {allowed}\n", refused
 
-    def test_check_refuses_a_ticket_whose_skills_are_missing_or_not_a_list_naming_the_ticket(self):
-        # Rule: `skills` is written like `blocked_by`, `[]` when none, so the builder's skills never hang on an omission.
+    def test_check_refuses_a_ticket_whose_skills_is_not_a_list_and_passes_one_without_the_key(self):
+        # Rule: a `skills` that is not a list is refused; a ticket without the key (written before it) passes, as with `needs`.
         self.write_ticket('fx/01', extra='skills: [a, b]\n')
         self.cli('--check')
         self.write_ticket('fx/01', extra='skills: a\n')
         refused = self.cli('--check', code=1).stderr
         assert refused == "fx/01: skills must be a bracketed list (write skills: [] when it names none)\n", refused
         self.write_ticket('fx/01', skills=None)
-        refused = self.cli('--check', code=1).stderr
-        assert refused == "fx/01: no skills key (write skills: [] when it names none)\n", refused
+        self.cli('--check')
 
     def test_a_ticket_with_block_lists_is_scheduled_like_one_with_bracketed_lists(self):
         # Rule: `touches:`, `devices:` and `blocked_by:` written as `- item` lines hold the same areas, devices and
