@@ -71,13 +71,15 @@ Start every worker in a tab of its own in your workspace, never as a split of yo
 pane, whatever placement the installed skill defaults to:
 
 1. From the checkout, run `python3 <plugin_root>/hooks/herdr_launch.py start --route <saved route.json> --worktree <worktree> --assignment <slug>/<assignment> --role <role> --name <name>`,
-   quoting each path as one argument. The command reads the saved route's `target_runtime` and
-   `launch.argv` directly, creates a tab in `HERDR_WORKSPACE_ID` with `ZLOOP_WORKER` set,
-   logs the launch for the stop check, and starts the agent in the returned root pane.
+   quoting paths as single arguments. It reads the route's `target_runtime` and launch recipe, creates a tab in
+   `HERDR_WORKSPACE_ID` with `ZLOOP_WORKER` set, logs the launch for the stop check,
+   and starts the agent in its root pane.
    `ZLOOP_WORKER` is how zloop's stop check tells a worker from its orchestrator.
-   The command uses the caller's Herdr socket and prints Herdr's agent-start response. Keep `launch.argv` as
-   saved JSON; do not turn it into shell text. Its write scope, model and effort come from
-   the resolver; each runtime's recipe is in its adapter: [Claude](claude/workers.md#top-level-workers),
+   It uses the caller's Herdr socket and prints its response. OpenCode's
+   `launch.api` starts a detached private-server keeper, then attaches the TUI, adding `opencode.server`,
+   `opencode.session` and `opencode.password_file`. Register/export as its adapter specifies.
+   Missing integration refuses before tab creation: `herdr integration install opencode`.
+   Keep `launch.argv` in JSON, never shell text. The resolver supplies write scope, model and effort; recipes: [Claude](claude/workers.md#top-level-workers),
    [Codex](codex/workers.md#top-level-workers), [Pi](pi/workers.md#top-level-workers) and
    [OpenCode](opencode/workers.md#top-level-workers). A native route without `launch` uses its host's
    native recipe instead; a Claude orchestrator's configured Claude route with an explicit effort has a `launch`.

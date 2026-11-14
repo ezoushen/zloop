@@ -396,6 +396,36 @@ class NativeProof(WorkerLifecycleCase):
         fresh.write_text(json.dumps(data))
         self.cli('collect', '--attempt', 'ticket-1/1', '--input', request)
 
+    def test_herdr_opencode_export_verifies_startup_packet_and_collection(self):
+        rules = [{'action': 'subagent', 'resource': '*', 'effect': 'deny'}]
+        self.execution.write_text(json.dumps({'target_runtime': 'opencode', 'agent': 'builder', 'job': 'ticket',
+            'settings': {'model': 'opencode/deepseek-v4.1-flash-free', 'effort': 'high'},
+            'launch': {'writes': 'worktree', 'verify': {'permissions': rules}}}))
+        self.herdr_fixture(agent_kind='opencode', native_session='private-session')
+        self.register(runtime='opencode', session='private-session', herdr={'session': 'fixture-session'})
+        native = self.opencode_v2_export([{'type': 'text', 'text': 'READY'}],
+                                         session='private-session', permissions=rules)
+        self.record('startup', native=str(native))
+        attempt = self.cli('status')['attempts'][0]
+        self.assertTrue(attempt['verified'])
+        self.assertEqual(attempt['native_session'], 'private-session')
+        self.assertEqual(attempt['observed'], {'runtime': 'opencode',
+            'model': 'opencode/deepseek-v4.1-flash-free', 'effort': 'high', 'permissions': rules})
+        self.record('submitted', evidence=['productive prompt accepted'])
+        fresh = self.root / 'private-server-export.json'
+        fresh.write_bytes(native.read_bytes())
+        request = self.result_request('ticket-1/1', fresh)
+        self.assertIn('send the worker its packet',
+                      self.cli('collect', '--attempt', 'ticket-1/1', '--input', request, code=2))
+        user_message(fresh, 'opencode', 'assignment: ticket-1  attempt: ticket-1/1')
+        self.assertIn('let the worker answer it',
+                      self.cli('collect', '--attempt', 'ticket-1/1', '--input', request, code=2))
+        data = json.loads(fresh.read_text())
+        data['messages'].append(dict(data['messages'][1], id='reply'))
+        fresh.write_text(json.dumps(data))
+        self.cli('collect', '--attempt', 'ticket-1/1', '--input', request)
+        self.assertEqual(self.cli('status')['attempts'][0]['result']['status'], 'completed')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -11,7 +11,9 @@ pane; server (`--session`, caller's HERDR_SOCKET_PATH, else `default`; omitted w
 Claude and Codex run it before Bash; Pi's extension passes its bash and bg_run calls. It never blocks the command.
 
 `herdr_launch.py start --route <saved route.json> --worktree <path> --assignment <slug>/<assignment>
---role <role> --name <name>` creates a worker tab and starts the saved argv without a shell.
+--role <role> --name <name>` creates a worker tab and starts the saved recipe without a shell.
+OpenCode API routes attach the TUI to a detached, pane-bound private server; the response adds its URL,
+session ID and password-file path under `opencode`. Pane disappearance or keeper signals remove its private files.
 It logs the launch before starting the agent, and returns Herdr's exit code and JSON response.
 
 `herdr_launch.py dismiss --pane <pane> | --name <agent> [--session <host session>] --reason <text> | --keep <text>`,
@@ -24,8 +26,16 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
+import shutil
+import signal
+import socket
+import subprocess
 import sys
+import tempfile
 import time
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 
 import pr_body
 import yield_gate
@@ -147,7 +157,7 @@ def main():
 
 
 def start(argv):
-    """Start a saved route in its own Herdr tab; return Herdr's agent-start response on stdout."""
+    """Start a saved route in its own tab; print Herdr's response and OpenCode connection metadata when needed."""
     parser = argparse.ArgumentParser(prog='herdr_launch.py start')
     parser.add_argument('--route', required=True)
     parser.add_argument('--worktree', required=True, type=lambda path: str(Path(path).resolve()),
@@ -163,23 +173,176 @@ def start(argv):
     if not workspace:
         parser.error('run start in the orchestrator Herdr workspace (HERDR_WORKSPACE_ID)')
     route = json.loads(Path(args.route).read_text())
-    launch = route['launch']['argv']
     lifecycle = yield_gate.lifecycle()
     root = yield_gate.main_checkout(os.getcwd())
     if root is None:
         parser.error('run start inside the checkout whose launches the stop check tracks')
-    code, response = lifecycle.herdr(None, 'tab', 'create', '--workspace', workspace, '--cwd', args.worktree,
-                                     '--label', f'{args.assignment} {args.role}',
-                                     '--env', f'ZLOOP_WORKER={args.assignment}', '--no-focus')
-    if code == 0:
-        pane = response['result']['root_pane']['pane_id']
-        log_launch(root, lifecycle.own_server(), args.name, pane,
-                   {'pane': os.environ.get('HERDR_PANE_ID'), 'session': (lifecycle.host_sessions() or [None])[0]},
-                   args.worktree)
-        code, response = lifecycle.herdr(None, 'agent', 'start', args.name, '--kind', route['target_runtime'],
-                                         '--pane', pane, '--', *launch, timeout=120)
+    private = keeper = error_control = None
+    connection = None
+    extra_env = []
+    if route['target_runtime'] == 'opencode':
+        integration = Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config'))) / 'opencode'
+        if not all((integration / name).is_file() for name in (
+                'plugins/herdr-agent-state.js', 'herdr-tui-session.js', 'herdr-opencode/tui.js')):
+            parser.error('OpenCode integration missing: run herdr integration install opencode')
+        private = Path(tempfile.mkdtemp(prefix='zloop-opencode-'))
+        try:
+            config = private / 'config/opencode'
+            (config / 'plugins').mkdir(parents=True)
+            (config / 'herdr-opencode').mkdir()
+            for name in ('plugins/herdr-agent-state.js', 'herdr-tui-session.js', 'herdr-opencode/tui.js'):
+                shutil.copyfile(integration / name, config / name)
+            (config / 'tui.jsonc').write_text(json.dumps({'plugin': ['./herdr-tui-session.js']}))
+            (config / 'cli.json').write_text(json.dumps({'plugins': ['./herdr-opencode']}))
+            (config / 'opencode.json').write_text(json.dumps({'permission': {
+                'edit': 'allow', 'bash': 'allow', 'webfetch': 'allow', 'external_directory': 'allow'}}))
+            password = private / 'password'
+            with os.fdopen(os.open(password, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as stream:
+                stream.write(secrets.token_urlsafe(32))
+            env = dict(os.environ, XDG_CONFIG_HOME=str(private / 'config'), XDG_STATE_HOME=str(private / 'state'),
+                       OPENCODE_PASSWORD=password.read_text())
+            for key in ('OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT', 'OPENCODE_CONFIG_DIR', 'OPENCODE_TUI_CONFIG'):
+                env.pop(key, None)
+                os.environ.pop(key, None)
+            for key in ('XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'OPENCODE_PASSWORD'):
+                extra_env.extend(['--env', f'{key}={env[key]}'])
+        except OSError as error:
+            shutil.rmtree(private)
+            print(json.dumps({'error': f'OpenCode configuration failed: {type(error).__name__}'}))
+            return 1
+    else:
+        launch = route['launch']['argv']
+    step = 'tab create'
+    code = 1
+    try:
+        code, response = lifecycle.herdr(None, 'tab', 'create', '--workspace', workspace, '--cwd', args.worktree,
+                                         '--label', f'{args.assignment} {args.role}',
+                                         '--env', f'ZLOOP_WORKER={args.assignment}', *extra_env, '--no-focus')
+        if code == 0:
+            pane = response['result']['root_pane']['pane_id']
+            log_launch(root, lifecycle.own_server(), args.name, pane,
+                       {'pane': os.environ.get('HERDR_PANE_ID'), 'session': (lifecycle.host_sessions() or [None])[0]},
+                       args.worktree)
+            if private:
+                step = 'keeper start'
+                error_control = tempfile.TemporaryDirectory(prefix='zloop-opencode-launch-')
+                error_file = Path(error_control.name) / 'error'
+                keeper = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), 'opencode',
+                    '--route', str(Path(args.route).resolve()), '--worktree', args.worktree,
+                    '--private', str(private), '--pane', pane, '--tab', response['result']['tab']['tab_id'],
+                    '--error-file', str(error_file)],
+                    env=env, start_new_session=True, stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                step = 'server/session readiness'
+                deadline = time.monotonic() + 30
+                while not (private / 'ready.json').exists():
+                    if keeper.poll() is not None:
+                        reason = error_file.read_text() if error_file.exists() else 'keeper exited'
+                        raise ValueError(reason)
+                    if time.monotonic() >= deadline:
+                        raise ValueError('keeper did not answer within 30 seconds')
+                    time.sleep(.05)
+                connection = json.loads((private / 'ready.json').read_text())
+                launch = ['--server', connection['server'], '--session', connection['session']]
+            step = 'agent start'
+            code, response = lifecycle.herdr(None, 'agent', 'start', args.name, '--kind', route['target_runtime'],
+                                             '--pane', pane, '--', *launch, timeout=120)
+            if code == 0 and connection:
+                response['opencode'] = connection
+        if code and private:
+            response['opencode_error'] = f'OpenCode Herdr {step} failed'
+    except (OSError, ValueError, KeyError) as error:
+        if private is None:
+            raise
+        code, response = 1, {'error': f'OpenCode Herdr {step} failed: {error}'}
+    finally:
+        if private and (code or keeper is None):
+            if keeper is not None:
+                keeper.terminate()
+                keeper.wait(timeout=7)
+            shutil.rmtree(private, ignore_errors=True)
+        if error_control is not None:
+            error_control.cleanup()
     print(json.dumps(response))
     return code
+
+
+def opencode(argv):
+    """Keep a private server until its pane disappears or this detached owner receives SIGHUP/SIGTERM."""
+    parser = argparse.ArgumentParser(prog='herdr_launch.py opencode')
+    parser.add_argument('--route', required=True)
+    parser.add_argument('--worktree', required=True)
+    parser.add_argument('--private', required=True, type=Path)
+    parser.add_argument('--pane', required=True)
+    parser.add_argument('--tab', required=True)
+    parser.add_argument('--error-file', required=True, type=Path)
+    args = parser.parse_args(argv)
+    private = args.private
+    for number in (signal.SIGHUP, signal.SIGTERM):
+        signal.signal(number, lambda number, frame: sys.exit(128 + number))
+    server = None
+    step = 'serve'
+    try:
+        (private / 'pid').write_text(str(os.getpid()))
+        env = dict(os.environ, HERDR_PANE_ID=args.pane, HERDR_TAB_ID=args.tab)
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1', 0))
+            port = listener.getsockname()[1]
+        url = f'http://127.0.0.1:{port}'
+        server = subprocess.Popen(['opencode', 'serve', '--hostname', '127.0.0.1', '--port', str(port)],
+                                  env=env, cwd=args.worktree, stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        step = 'server readiness'
+        deadline = time.monotonic() + 20
+        while True:
+            if server.poll() is not None:
+                step = 'serve'
+                raise ValueError(f'server exited {server.returncode}')
+            try:
+                with urlopen(url, timeout=.5):
+                    break
+            except HTTPError:
+                break
+            except (URLError, TimeoutError):
+                if time.monotonic() >= deadline:
+                    raise ValueError('server did not answer within 20 seconds')
+                time.sleep(.05)
+        step = 'session POST'
+        api = json.loads(Path(args.route).read_text())['launch']['api']
+        body = dict(api['body'], location={'directory': args.worktree})
+        created = subprocess.run(['opencode', 'api', api['method'], api['path'], '--server', url,
+                                  '-d', json.dumps(body)], env=env, cwd=args.worktree,
+                                 capture_output=True, text=True, timeout=5)
+        if created.returncode:
+            raise ValueError(f'command exited {created.returncode}')
+        session = json.loads(created.stdout)['data']['id']
+        if not isinstance(session, str) or not session:
+            raise ValueError('response has no session ID')
+        ready = private / 'connection.tmp'
+        ready.write_text(json.dumps({'server': url, 'session': session, 'password_file': str(private / 'password')}))
+        ready.replace(private / 'ready.json')
+        step = 'pane lookup'
+        while server.poll() is None:
+            code, response = yield_gate.lifecycle().herdr(None, 'pane', 'get', args.pane, timeout=4)
+            if code and (response.get('error') or {}).get('code') == 'pane_not_found':
+                return 0
+            if code:
+                raise ValueError('cannot confirm worker pane')
+            time.sleep(2)
+        raise ValueError(f'server exited {server.returncode}')
+    except Exception as caught:
+        if args.error_file.parent.exists():
+            args.error_file.write_text(f'OpenCode {step} failed: {type(caught).__name__}: {caught}')
+        return 1
+    finally:
+        if server is not None and server.poll() is None:
+            server.terminate()
+            try:
+                server.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                server.kill()
+                server.wait()
+        shutil.rmtree(private)
 
 
 def dismiss(argv):
@@ -215,5 +378,7 @@ if __name__ == '__main__':
         sys.exit(start(sys.argv[2:]))
     elif sys.argv[1:2] == ['dismiss']:
         dismiss(sys.argv[2:])
+    elif sys.argv[1:2] == ['opencode']:
+        sys.exit(opencode(sys.argv[2:]))
     else:
         main()
