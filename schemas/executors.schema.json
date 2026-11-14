@@ -241,6 +241,7 @@
         "e2e-gate",
         "merge-conflict",
         "prototype",
+        "readiness",
         "repair",
         "reproduce",
         "ticket"

@@ -249,6 +249,17 @@ class Definitions(unittest.TestCase):
                       'which `--accept` reads; a host instruction to return reports only as a message does not '
                       'replace it: write the file, then return the status the job asks for.', text)
 
+    def test_readiness_loads_as_a_verifier_job_returning_its_readiness_section(self):
+        # Rule: the readiness job is a verifier job that needs a worktree-free probe list and returns `## Readiness`.
+        job = agent_defs.load(support.ROOT)['jobs'].get('readiness')
+        self.assertIsNotNone(job, 'no readiness job')
+        self.assertEqual(job['agent'], 'verifier')
+        self.assertEqual(job['returns'], ['## Readiness'])
+        self.assertEqual(job['inputs'], ['report', 'checks'])
+        self.assertEqual(job['independent_of'], [])
+        self.assertFalse(job['acceptance'])
+        self.assertEqual(agent_defs.problems(support.ROOT), [])
+
     def test_the_plugin_definitions_are_valid(self):
         loaded = agent_defs.load(support.ROOT)
         self.assertEqual(set(loaded['agents']), {'builder', 'reviewer', 'verifier'})
