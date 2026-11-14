@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Registering a ticket attempt requires its packet's skills line to match the skills a local ticket declares, and,
-under an autofix binding, a registered readiness verifier."""
+"""Registering a ticket attempt requires its packet's skills line to match the skills a local ticket declares; under
+autofix, a builder's completed result waits for a registered readiness verifier."""
 
 import json
 import unittest
@@ -48,28 +48,55 @@ class RegistrationSkills(WorkerLifecycleCase):
         self.assertIn('skills must be one line of its own, before ticket context, holding a bracketed list', refused)
 
 
-class ReadinessFirst(WorkerLifecycleCase):
-    # Live check (claude, 1896dae): the host skipped the readiness launch its dispatch setup names; the delivery gate
-    # then forced it after review, when it could no longer check anything the builders depended on.
-    def bind(self, autofix):
+class ReadinessWithTheFirstBuilders(WorkerLifecycleCase):
+    # Rule: under autofix the readiness verifier starts with the first builders: it may register before or after a
+    # builder, and a builder's completed result waits for it. The review report's own `autofix` overrides the
+    # orchestrator binding's.
+    def bind(self, autofix, report=None):
         (self.root / 'orchestrator.json').write_text(json.dumps({'pane': 'p', 'sessions': [], 'autofix': autofix}))
+        if report is not None:
+            (self.root / 'spec-review.md').write_text(f'---\nautofix: {report}\n---\n')
 
-    def test_under_autofix_a_builder_registers_only_after_the_readiness_verifier(self):
-        self.bind(True)
-        refused = self.register(code=2)
-        self.assertIn('readiness', refused)
-        self.assertIn('dispatch Setup', refused)
+    def readiness(self):
+        builder = self.execution.read_text()
         self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'verifier',
                                               'job': 'readiness', 'settings': {'model': 'sonnet', 'effort': 'high'}}))
         self.register('readiness/1', assignment='readiness', session='native-r', worker='pane-r')
-        self.execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': 'builder', 'job': 'ticket',
-                                              'settings': {'model': 'sonnet', 'effort': 'high'}}))
-        self.register()
+        self.execution.write_text(builder)
 
-    def test_without_autofix_a_builder_needs_no_readiness_verifier(self):
+    def finish(self, code=0):
+        report = self.root / 'ticket-1-1.md'
+        report.write_text('## Implemented\n\nVerified assignment report at head-1\n')
+        return self.completed(status='completed', head='head-1', report=str(report), evidence=['checks.log@head-1'],
+                              code=code)
+
+    def test_under_autofix_a_builder_result_waits_for_the_readiness_verifier_in_either_launch_order(self):
+        self.bind(True)
+        self.register()
+        self.ready()
+        refused = self.finish(code=2)
+        self.assertIn('readiness', refused)
+        self.assertIn('dispatch Setup', refused)
+        self.readiness()
+        self.finish()
+
+    def test_without_autofix_a_builder_completes_with_no_readiness_verifier(self):
         self.bind(False)
         self.register()
-        self.assertEqual(len(self.cli('status')['attempts']), 1)
+        self.ready()
+        self.finish()
+
+    def test_the_review_reports_autofix_false_overrides_a_binding_that_authorized_it(self):
+        self.bind(True, report='false')
+        self.register()
+        self.ready()
+        self.finish()
+
+    def test_the_review_reports_autofix_true_overrides_a_binding_that_did_not(self):
+        self.bind(False, report='true')
+        self.register()
+        self.ready()
+        self.assertIn('readiness', self.finish(code=2))
 
 
 if __name__ == '__main__':

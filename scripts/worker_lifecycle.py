@@ -515,11 +515,16 @@ def state_path(db):
     return str(Path(db.execute('PRAGMA database_list').fetchone()[2]).resolve())
 
 
-def autofix_bound(db):
-    """Whether the workstream's orchestrator binding, written at dispatch start beside this state, authorizes repairs."""
-    binding = Path(state_path(db)).with_name('orchestrator.json')
+def autofix_on(db):
+    """Whether repairs are authorized for the workstream whose state this is: the review report's own `autofix` once it
+    records one, else the orchestrator binding's, written at dispatch start; both sit beside the state."""
+    state = Path(state_path(db))
+    report = state.with_name('spec-review.md')
+    recorded = (front_matter.parse(report.read_text()) or {}).get('autofix') if report.is_file() else None
+    if recorded in ('true', 'false'):
+        return recorded == 'true'
     try:
-        return json.loads(binding.read_text()).get('autofix') is True
+        return json.loads(state.with_name('orchestrator.json').read_text()).get('autofix') is True
     except (OSError, ValueError):
         return False
 
@@ -1056,10 +1061,6 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                       if 'ticket' in job['inputs'] else None)
             problem = 'skills' in job['inputs'] and skills_problems(packet.read_text(errors='replace'), ticket)
             require(not problem, f'The {execution["job"]} assignment {problem}')
-            require(execution['job'] != 'ticket' or not autofix_bound(db)
-                    or any(previous['job'] == 'readiness' for previous in attempts(db)),
-                    'Under --autofix the readiness verifier starts with the first builders: launch and register its '
-                    'readiness attempt before this builder (dispatch Setup)')
             runtime = execution.get('target_runtime') or (execution.get('host') if execution.get('native_dispatch') else None)
             require(runtime is None or runtime == data['runtime'] or kind_route_is_t3 and data['runtime'] == 't3',
                     'Runtime conflicts with resolved execution')
@@ -1200,6 +1201,10 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                             or saved['execution_snapshot'].get('native_dispatch')),
                             'Completion requires verified settings, accepted prompt and resolved design hold')
                     require(not unmet_needs(saved, data.get('evidence')), unmet_needs(saved, data.get('evidence')))
+                    require(saved['job'] != 'ticket' or not autofix_on(db)
+                            or any(previous['job'] == 'readiness' for previous in attempts(db)),
+                            'Under --autofix the readiness verifier starts with the first builders: launch and register '
+                            'its readiness attempt, then record this result again (dispatch Setup)')
                 require(not saved.get('result'), 'Result already collected; use a new attempt for further work')
                 if saved.get('findings'):
                     require_settled(saved['findings'], data.get('findings'), saved.get('startup_evidence'))
