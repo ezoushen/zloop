@@ -258,7 +258,7 @@ class Confirm(unittest.TestCase):
                 self.assertEqual(self.confirm('--words', words, sessions=sessions, code=1), (DRAFT, refusal + '\n'))
 
     def test_confirming_refuses_a_brief_that_does_not_name_the_crew_profile(self):
-        # Live check (claude, 1896dae): the project's second align wrote its crew without reading .scratch/crew.md.
+        # Rule: once the project has `.scratch/crew.md`, a card is confirmed only when its brief's Crew section names it.
         profile = {'crew.md': '# Crew profile\n\n## first\n| calc | builder |\n'}
         session = {'PI_SESSION_ID': 'pi-1'}
         brief = '# run\n\n## HOW\nx\n\n## Crew\n| builder | none | calc | no |\n'

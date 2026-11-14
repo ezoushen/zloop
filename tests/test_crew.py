@@ -26,9 +26,8 @@ class AlignNamesTheCrew(unittest.TestCase):
                 self.assertIn(column, flat)
 
     def test_the_crew_section_takes_its_rows_from_the_profile_and_cites_it(self):
-        # Rule: where `.scratch/crew.md` covers an area, align takes that area's rows from it and cites it. Live check
-        # (claude, 1896dae): a host skipped the rule while it stood in prose apart from the template, so the template
-        # carries it and the card's confirm refuses a Crew section that does not name the profile.
+        # Rule: where `.scratch/crew.md` covers an area, align takes that area's rows from it and cites it, in the Crew
+        # section's From line.
         section = alignment_template().partition('## Crew')[2].partition('\n## ')[0]
         self.assertIn(f'From `{PROFILE}`: the areas whose rows are taken from it, or none', ' '.join(section.split()))
 
