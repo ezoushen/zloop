@@ -364,15 +364,23 @@ class TakeOverCommand(unittest.TestCase):
         phase = next(line for line in CARD.read_text().splitlines() if line.startswith('phase:'))
         self.assertNotIn('ended', phase)
 
+    def test_the_command_starts_only_when_the_user_types_it(self):
+        # Rule: a message that merely mentions autopilot is not an invocation.
+        self.assertIn('Starts only when the user types the command; a message that mentions it is not an invocation.',
+                      ' '.join(SKILL.read_text().split()))
+
+    def test_autopilot_never_widens_native_permissions(self):
+        # Rule: the run never grants itself more than the host's native permissions allow.
+        self.assertIn('Never widens native permissions.', ' '.join(SKILL.read_text().split()))
 
     def test_autopilot_sizes_the_work_first_and_takes_the_direct_path_only_for_one_or_two_tickets(self):
         # Rule (f1-crew outcome B): a small change costs no interview; anything larger takes the full path.
         start = SKILL.read_text().split('## Start', 1)[1].split('- **`autopilot --take-over`:**', 1)[0]
-        for phrase in ('size the work first', 'One or two tickets with no pause-list action and no material question',
-                       '`mode: direct`', 'confirmation by rule', 'review at `low`', 'Otherwise `mode: full`'):
+        for phrase in ('one or two tickets take the [direct path](run-card.md)', 'otherwise run [align]'):
             self.assertIn(phrase, ' '.join(start.split()))
         card = ' '.join(CARD.read_text().split())
-        for phrase in ('mode: full | direct', 'one independent review at `low`', 'A third ticket, a pause-list action or a material question switches to the full path', 'more than two tickets is refused its dispatch', 'set `mode: full`'):
+        for phrase in ('`mode: direct` or `mode: full`', 'one or two tickets with no pause-list action and no material question',
+                       'review at `low`', 'by rule', 'mode: full | direct', 'one independent review at `low`', 'A third ticket, a pause-list action or a material question switches to the full path', 'more than two tickets is refused its dispatch', 'set `mode: full`'):
             self.assertIn(phrase, card)
 
 

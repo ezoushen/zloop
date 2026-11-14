@@ -16,13 +16,13 @@ Contents:
 
 First read: the runtime bootstrap (`../../bootstrap.md`), the host session part, [engineering judgment](../../standards/engineering.md).
 
-Goal: questions only in align's one interview and one confirmed run card, then none, ending in exactly one terminal state, with its evidence.
+Goal: questions only in align's one interview, one confirmed run card, then the rest of the loop with no
+questions, ending in exactly one terminal state, with its evidence. Starts only when the user
+types the command; a message that mentions it is not an invocation. Never widens native permissions.
 
 ## Start
 
-- **`autopilot <goal>`:** size the work first. One or two tickets with no pause-list action and no material question
-  take the direct path (`mode: direct`, [run card](run-card.md)): no interview, confirmation by rule, review at `low`.
-  Otherwise `mode: full`: run [align](../align/SKILL.md) with its interview.
+- **`autopilot <goal>`:** one or two tickets take the [direct path](run-card.md); otherwise run [align](../align/SKILL.md) with its interview.
   Settle everything later phases would ask: goal, principles, acceptance criteria with
   Verify lines that tell success from failure, and what the user reserves.
 - **`autopilot --take-over`:** start from the session's current state. It reuses accepted decisions, tickets and reports,
@@ -44,8 +44,8 @@ Goal: questions only in align's one interview and one confirmed run card, then n
   card's state and changes nothing. It keeps the card's levels unchanged.
 - **`--auto-merge`:** also grants merging once the PR is open; see [Stop](#stop).
 
-Then autopilot writes the [run card](run-card.md) to `.scratch/<slug>/autopilot.md`, records both effort levels and
-the mode on it, and on the full path asks the user to confirm it once.
+Then autopilot writes the [run card](run-card.md) to `.scratch/<slug>/autopilot.md`, records both effort levels on
+it, and asks the user to confirm it once.
 The card, ledger and reports are workflow state: a principle about the project's files never keeps them out of `.scratch/`.
 No phase after align starts before that confirmation; silence or an unrelated reply is
 not one. Record the confirmation on the card by its `confirm` command. Waiting for this confirmation is not a terminal state: `terminal:` stays empty.
@@ -60,7 +60,7 @@ the card with the user's words.
 
 1. [refine](../refine/SKILL.md) the brief into tickets;
 2. [dispatch](../dispatch/SKILL.md) them with `--autofix` and the card's current levels, `--dispatch-effort <level>`
-   and `--review-effort <level>`;
+   and `--review-effort <level>` (review, repairs, applicable E2E);
 3. [pr](../pr/SKILL.md): write the description, push the workstream branch and open the PR, then watch the required checks.
    In a repository with no PR host, publish nothing: pass the PR procedure's delivery gate, write the delivery report and end `delivered-local`.
 
@@ -77,6 +77,7 @@ timer needs the user's approval keeps that prompt pending, and a host with no sc
 the report. If the allowance is still `critical` when the timer fires, set the next timer only when the new reset is
 later than the one just waited for; otherwise end with the resume command. A take-over or a pause, by the timer or by the
 user, cancels a timer left over.
+Update the card's State as each phase ends, with the commit and report it reached.
 Candidate ADRs the user has not approved are not written; the final report lists them among the user's actions; approved ones are written as dispatch says.
 
 ## Decide without asking
@@ -84,8 +85,7 @@ Candidate ADRs the user has not approved are not written; the final report lists
 After confirmation, decide every question instead of asking: look up facts, apply the ledger's principles and
 [engineering judgment](../../standards/engineering.md), prefer the reversible direction,
 and record its basis and reversibility in the ledger. The run ends `blocked` when no
-option fits the principles and criteria, or when its split tickets also fail twice
-(dispatch splits a ticket after two failed attempts).
+option fits the principles and criteria, or when its split tickets also fail twice.
 
 The pause list is never decided: a login or permission prompt, credentials, spending
 money, deleting data, a production change, merging without `--auto-merge`, a missing
