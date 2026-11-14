@@ -73,7 +73,8 @@ launch with no open candidate need no checkpoint, skip or check.
 
 Record the situational skills in the [launch decision record](../routing/report.md)
 with each one's selecting fact and source: rule, user, `decision_id` or host. At
-collection, record the skills the worker loaded on demand. A skill that workers
-keep loading for the same fact is a missing trigger, and a listed skill workers
-report unused is a trigger to narrow. Propose either change to the project's
-instructions as a follow-up; edit them only with the user's authorization.
+collection, record the skills the worker loaded on demand. At delivery, record them
+in the crew profile (`.scratch/crew.md`) with the listed skills workers left unused: a skill
+that workers keep loading for the same fact is a missing trigger, and a listed skill workers
+report unused is a trigger to narrow; moving one into the project's tracked instructions
+needs the user's approval.

@@ -42,6 +42,17 @@ class ZloopGlossary(unittest.TestCase):
                 avoided = entries[term].partition('_Avoid_:')[2].strip().split(', ')
                 self.assertIn(word, avoided)
 
+    def test_expert_crew_and_crew_profile_are_defined_once_each(self):
+        # Rule: an expert is an agent with the skills one kind of work needs; a crew is the experts one workstream
+        # needs; the crew profile is the project's record of which expert and skills each area used.
+        text = (ROOT / 'GLOSSARY.md').read_text()
+        entries = dict(re.findall(r'^\*\*([^*\n]+)\*\*:\n(.*?)(?=^\*\*|^#|\Z)', text, re.M | re.S))
+        for term, meaning in (('Expert', 'agent with the skills'), ('Crew', 'experts'),
+                              ('Crew profile', '.scratch/crew.md')):
+            with self.subTest(term=term):
+                self.assertIn(meaning, entries[term].partition('_Avoid_:')[0])
+                self.assertIn('_Avoid_:', entries[term])
+
     def test_each_domain_concept_has_one_definition_and_avoid_list(self):
         text = (ROOT / 'GLOSSARY.md').read_text()
         entries = re.findall(r'^\*\*([^*\n]+)\*\*:\n(.*?)(?=^\*\*|^#|\Z)', text, re.M | re.S)

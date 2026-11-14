@@ -103,7 +103,7 @@ A continuing user instruction recorded in the ledger that governs later decision
 _Avoid_: none
 
 **Autopilot**:
-The command that runs a workstream's whole loop hands-off: one align interview, a confirmed run card, then refine, dispatch with autofix, review and the PR without further questions.
+The command that runs a workstream's whole loop hands-off: one align interview and a confirmed run card, then refine, dispatch with autofix, review and the PR.
 _Avoid_: none
 
 **Run card**:
@@ -127,7 +127,7 @@ A decision boundary where current evidence is assessed before a phase, worker or
 _Avoid_: none
 
 **Decision family**:
-A named class of judgment with a shared input and result contract, used by decision checkpoints.
+A named class of judgment with a shared input and result contract, used by checkpoints.
 _Avoid_: none
 
 **Journal**:
@@ -153,15 +153,15 @@ A role definition supplying permissions and principles shared by its jobs; build
 _Avoid_: none
 
 **Builder**:
-The agent responsible for scoped implementation, tests and documentation under an assigned job.
+The agent that implements, tests and documents within an assigned job.
 _Avoid_: none
 
 **Reviewer**:
-The agent responsible for assessing a change against its requirements, standards and evidence.
+The agent that assesses a change against its requirements, standards and evidence.
 _Avoid_: none
 
 **Verifier**:
-The agent responsible for independently exercising assigned checks and reporting observed results.
+The agent that independently exercises assigned checks and reports observed results.
 _Avoid_: none
 
 **Job**:
@@ -169,11 +169,23 @@ A contract under an agent defining the inputs, finish line and return for one ki
 _Avoid_: none
 
 **Worker**:
-An executing agent instance responsible for one bounded assignment and its attempts, checks and report.
+An executing agent instance for one bounded assignment and its attempts, checks and report.
+_Avoid_: none
+
+**Expert**:
+An agent with the skills one kind of work needs.
+_Avoid_: specialist, persona
+
+**Crew**:
+The experts one workstream needs, named in its alignment.
+_Avoid_: none
+
+**Crew profile**:
+The project's `.scratch/crew.md`: each area's expert and skills, updated at delivery.
 _Avoid_: none
 
 **Orchestrator**:
-The coordinating session responsible for scheduling workers, worktrees, integration and board updates.
+The coordinating session that schedules workers, worktrees, integration and board updates.
 _Avoid_: coordinator
 
 **Host**:
@@ -201,7 +213,7 @@ A host event handler that supplies context or enforces a workflow rule at a sess
 _Avoid_: none
 
 **Worktree**:
-An isolated checkout assigned to a worker or workstream so its changes can be checked and integrated separately.
+An isolated checkout for a worker or workstream, so its changes are checked and integrated separately.
 _Avoid_: none
 
 **Branch**:
@@ -235,7 +247,7 @@ A reachable launch path from the caller's context to a worker runtime through an
 _Avoid_: none
 
 **Linked environment**:
-Another T3 Code environment a t3 route can name as its target, linked with an access level that caps what a worker there may do.
+Another T3 Code environment a t3 route can target, linked with an access level that caps what a worker there may do.
 _Avoid_: none
 
 **Candidate**:
@@ -264,11 +276,11 @@ It controls reasoning intensity for an assignment within the selected runtime bi
 _Avoid_: none
 
 **Provider**:
-The service or organization supplying model access and, where applicable, subscription allowance.
+The service or organization supplying model access and any subscription allowance.
 _Avoid_: none
 
 **Backend**:
-The service supplying a decision judgment or local inference, with availability or capacity tracked separately from routing policy.
+The service supplying a decision judgment or local inference, its availability tracked separately from routing policy.
 _Avoid_: none
 
 **Capacity**:
@@ -276,7 +288,7 @@ The available execution slots and resources that constrain which eligible worker
 _Avoid_: none
 
 **Allowance**:
-A provider's remaining subscription budget or usage headroom, used to constrain routing and autopilot continuation.
+A provider's remaining subscription budget or usage headroom, constraining routing and autopilot continuation.
 _Avoid_: none
 
 **Configuration scope**:
@@ -290,7 +302,7 @@ An assignment's durable return recording its result, decisions, checked inputs a
 _Avoid_: none
 
 **Evidence**:
-Retained observations and artifacts tied to the inputs actually checked, supporting a report's claims.
+Retained observations and artifacts tied to the inputs checked, supporting a report's claims.
 _Avoid_: none
 
 **Check tier**:
@@ -298,11 +310,11 @@ The focused, affected or full-gate scope of a check, with an assigned owner and 
 _Avoid_: none
 
 **Full gate**:
-The project's complete required verification on the final integrated candidate, owned by the assigned integrator or verifier; at `high` and above it also runs after each ticket is integrated.
+The project's complete required verification on the final integrated candidate, owned by its integrator or verifier; at `high` and above it also runs after each ticket is integrated.
 _Avoid_: none
 
 **E2E**:
-End-to-end verification of observable behavior through applicable real entry points beyond what the full gate covers; at `xhigh` and above it also covers criteria that CI covers.
+End-to-end verification of observable behavior through applicable real entry points beyond the full gate; at `xhigh` and above it also covers criteria that CI covers.
 _Avoid_: none
 
 **Review**:
@@ -315,15 +327,15 @@ Not Effort, the model's reasoning effort.
 _Avoid_: none
 
 **Review layer**:
-One of the ordered levels a review assesses: direction (why, what, how), then scope, then implementation; an unresolved decision in a layer pauses only the review that depends on it.
+One of the ordered levels a review assesses: direction (why, what, how), scope, then implementation; an unresolved decision pauses only the review that depends on it.
 _Avoid_: none
 
 **Walkthrough**:
-A read-only explanation of a change that precedes a review, giving the user understanding and review criteria rather than an exhaustive assessment.
+A read-only explanation of a change before a review, giving the user understanding and review criteria, not an exhaustive assessment.
 _Avoid_: none
 
 **Autofix**:
-The review setting that permits scoped local repairs of confirmed findings and applicable E2E verification, and never authorizes publication.
+The review setting that permits scoped local repairs of confirmed findings and applicable E2E, never publication.
 _Avoid_: none
 
 **Review target**:
@@ -351,7 +363,7 @@ A bounded correction of confirmed findings, checked against their original failu
 _Avoid_: none
 
 **Kind**:
-A named category of defect with a standard for recognizing, proving and repairing it during review or remediation.
+A named category of defect with a standard for recognizing, proving and repairing it in review or remediation.
 _Avoid_: none
 
 **Standard**:

@@ -12,7 +12,8 @@ For each selected workstream with integrated changes, finish or reconcile its wr
 then apply [housekeeping](../housekeeping/SKILL.md) to the workstream worktree, list its
 [candidate ADRs](../../runtime/domain/adr.md#deliver-a-workstreams-decisions), each
 [with its context](../../runtime/ask/ask.md), and commit the approved ones,
-merge the verified `main` tip and run the ADR number check. Commit
+update the crew profile (`.scratch/crew.md`) with each area's expert and the skills workers loaded on demand or left unused
+([record and learn](../../runtime/workers/skills.md#record-and-learn)), merge the verified `main` tip and run the ADR number check. Commit
 intended tracked cleanup/documentation changes there before pinning the review
 head; preserve unrelated local edits. Run the
 [shared review procedure](../review/SKILL.md), read as a file (its typed-only setting governs

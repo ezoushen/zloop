@@ -16,14 +16,13 @@ First read: the runtime bootstrap (`../../bootstrap.md`), the host session part,
 
 Goal: a settled mandate, then a plan from it sufficient to split and verify. Reuse
 the conversation and existing alignment; a mandate the user already stated need
-not be settled again. Interview through grilling, including a request to grill the design,
-and record consequential decisions in the mandate's ledger, keeping accepted user
+not be settled again. Interview through grilling and record consequential decisions in the mandate's ledger, keeping accepted user
 decisions apart from reversible agent choices.
 
 - While a governing mandate constraint is unresolved, ask it first and wait for its
   answer before presenting WHAT / HOW alternatives that depend on it.
-- Keep provisional mechanisms internal. A request to go through the mandate and the
-  design does not combine their question rounds into an implementation menu.
+- Keep provisional mechanisms internal; going through the mandate and the design does
+  not merge their question rounds into an implementation menu.
 - A request to settle only the goal and constraints ends with the mandate's exit
   block; a plan-only request ends with the plan.
 
@@ -60,21 +59,22 @@ responsibilities, behavior for flows, state and ordering; include only the views
 resolve a live risk. They are lenses on one brief, not three approval turns.
 Reuse existing mechanisms; compare an alternative only when it is viable and material.
 Use the project's [glossary](../../runtime/domain/glossary.md) and keep it current as terms settle.
+Where the crew profile (`.scratch/crew.md`) covers an area, take that area's crew rows from it and cite it.
 Use [prototype](jobs/prototype.md) only for a question that evidence on paper cannot settle.
-Leave ordinary types, helper files and library plumbing to implementation; a concrete
-interface or snippet belongs in the plan only when needed to settle the contract.
+Leave ordinary types, helpers and plumbing to implementation; put an interface or
+snippet in the plan only to settle a contract.
 
 Before declaring the plan ready for refinement, check that each acceptance method can
 tell success from failure with the available inputs and environment. Name who can
 observe each outcome: code, an agent, or only the user; plan the user-only
 observations as one request, sent once an integrated build allows them. Known
 unstable or unsuitable evidence is a readiness gap: investigate it now or record the
-blocked criterion and next action, rather than discover it at delivery.
+blocked criterion and next action.
 Point at the project's current runner contract and record only the task-specific
 gates, inputs and ownership, not transport or snapshot internals; refresh affected
 assumptions when that contract changes. For an accepted delivery goal, establish the
 repository's [approval path](../../runtime/board/approval-path.md) early, so an
-impossible self-review is not discovered only after implementation.
+impossible self-review shows sooner.
 
 Check the brief, and any design ruling it adopts, against the user's recorded
 principles quoted in the Mandate section; a ruling that judges only API coherence has
@@ -113,9 +113,13 @@ Problem and relevant constraints.
 ## HOW
 Approach, responsibilities, seams and only the diagrams/flows needed to explain them.
 Consequential ledger IDs; open decisions and the work each blocks, if any.
+
+## Crew
+One row per expert: agent; skills, each with the fact that selects it; area; whether it
+starts before a diff exists.
 ```
 
-When new evidence contradicts a decision, reopen it at once, not at the next phase, and tell the user when it was their decision. Then reopen its
+When new evidence contradicts a decision, reopen it at once and tell the user if it was theirs. Then reopen its
 dependent design, tickets and review coverage, preserving unaffected conclusions.
 Dispatch returns here when implementation disproves a design assumption; refinement
 re-cuts only affected work. Independent work may continue when its contracts, worktree
