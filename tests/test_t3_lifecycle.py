@@ -473,6 +473,22 @@ else:
         error = self.record('startup', attempt='pi-pi/1', native=str(native), code=2)
         self.assertIn('configuration does not belong', error)
 
+    def test_configuration_for_another_provider_or_model_cannot_prove_thinking(self):
+        # Rule: a thinking level is evidence only for the provider and the model the registered thread runs.
+        for caller, field, other in (('claude', 'instanceId', 'codex'), ('codex', 'model', 'another-model')):
+            with self.subTest(field=field):
+                thread = self.resolved_route(caller, 'pi', effort='high')
+                attempt = f'{thread}/1'
+                self.register(attempt, assignment=thread, session=thread, worker=thread,
+                              runtime='t3', t3={'thread': thread})
+                native = self.snapshot(thread)
+                record = json.loads(native.read_text())
+                selection = {'instanceId': 'pi', 'model': 'pi-model', 'options': [{'id': 'thinking', 'value': 'high'}]}
+                record['configuration'] = {'threadId': thread, 'modelSelection': dict(selection, **{field: other})}
+                native.write_text(json.dumps(record))
+                error = self.record('startup', attempt=attempt, native=str(native), code=2)
+                self.assertIn('configuration does not belong', error)
+
 
 class RegistrationRefusals(T3Threads):
     def test_registration_refuses_a_thread_another_live_attempt_holds(self):
@@ -570,6 +586,33 @@ class Retirement(T3Threads):
         attempt = self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0]
         self.assertTrue(attempt['closed'])
         self.assertIn('left idle (no CLI stop)', result['evidence'][0])
+
+    def test_a_t3_closure_is_never_recorded_by_hand(self):
+        # Rule: T3 reports the state of a worker's thread, so only `retire` closes a T3 worker; a closure recorded
+        # by hand would rest on the evidence it states.
+        self.registered()
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        error = self.record('closed', evidence=['said so'],
+                            acceptance={'decision': 'deferred', 'reason': 'review pending'}, code=2)
+        self.assertIn('its closure is not recorded by hand', str(error))
+        self.assertIn('retire --state', str(error))
+        self.assertFalse(self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0].get('closed'))
+
+    def test_reap_leaves_a_retained_t3_worker_of_an_ended_run_to_retire(self):
+        # Rule: likewise at a stop. An ended run closes a retained native subagent on its card, but a retained T3
+        # worker still has a thread T3 reports, so reap leaves it open for `retire`.
+        import support
+        self.state = self.root / 'ws' / 'reports' / 'workers.sqlite'
+        support.run_card(self.root / 'ws' / 'autopilot.md', confirmed='yes', terminal='delivered')
+        self.registered()
+        self.ready()
+        self.collect()
+        self.acknowledge()
+        self.record('retain', reason='the repair round', next_use='fix round', evidence=['report'])
+        self.assertEqual({'closed': [], 'open': [], 'refused': []}, self.cli('reap'))
+        self.assertFalse(self.cli('status', '--attempt', 'ticket-1/1')['attempts'][0].get('closed'))
 
 
 

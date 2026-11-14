@@ -2136,16 +2136,19 @@ def require_closable(db, saved, acceptance):
 
 
 def require_ended(db, attempt, acceptance):
-    """Refuse a hand-recorded closure while Herdr shows the worker present or cannot confirm its absence.
-    Retire closes an owned pane or records release of an unowned worker."""
+    """Refuse a hand-recorded closure while Herdr shows the worker present or cannot confirm its absence, and any for
+    a T3 worker, whose thread only retire reads. Retire closes an owned pane or records release of an unowned worker."""
     saved = get(db, attempt)
     placed = saved.get('herdr')
+    script, state = shlex.quote(str(Path(__file__).resolve())), shlex.quote(state_path(db))
+    retire = f'`python3 {script} retire --state {state} --attempt {attempt} --input <request>`'
+    require(not saved.get('t3'), "T3 reports this worker's thread, so its closure is not recorded by hand: retire it "
+                                 f'with {retire}')
     if not placed:
         return
     require((saved['runtime'], saved['native_session']) not in closed_sessions(db), 'Native conversation already closed')
     require_closable(db, saved, acceptance)
-    pane, script, state = placed['pane_id'], shlex.quote(str(Path(__file__).resolve())), shlex.quote(state_path(db))
-    retire = f'`python3 {script} retire --state {state} --attempt {attempt} --input <request>`'
+    pane = placed['pane_id']
     line, found, held = herdr_state(saved, placed['session'], pane, placed.get('tab_id'))
     identity = held.get('agent_session') if isinstance(held.get('agent_session'), dict) else {}
     named = ''.join(f'{word} ' for word in server_option(placed['session']))
@@ -2206,7 +2209,7 @@ def recorded_sessions(data):
 def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
     """Close, through `record`, each included attempt whose status is already decided: a collected worker whose Herdr
     pane and recorded tab its server confirms gone, or whose pane it shows holding another conversation, and a retained native subagent
-    (no Herdr placement) of a run whose card ended delivered. Returns what it closed, what it left open for want of
+    (no Herdr placement, no T3 thread) of a run whose card ended delivered. Returns what it closed, what it left open for want of
     Herdr's confirmation, and what the lifecycle refused to close, with its refusal. It spends `budget` seconds in all,
     on Herdr's answers; a locked state or an attempt it did not reach is left for the next stop."""
     deadline = time.monotonic() + budget
@@ -2236,7 +2239,7 @@ def reap(db, state, include=lambda saved: True, budget=REAP_SECONDS):
             why = 'its Herdr tab is gone' if found == 'gone' else 'its Herdr pane holds another conversation'
             if found == 'silent':
                 silent.add(server)
-        elif saved.get('retained') and terminal in ENDED:
+        elif saved.get('retained') and not saved.get('t3') and terminal in ENDED:
             evidence, gone, why = f'{card}: terminal: {terminal}', True, f'its run card ended {terminal}'
         else:
             continue
