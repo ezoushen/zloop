@@ -54,6 +54,7 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    agent_file: <plugin_root>/agents/builder.md  job_file: <plugin_root>/skills/dispatch/jobs/ticket.md
    ticket: <canonical ID/URL or absolute local ticket path>
    needs: <the ticket's needs list, [] when none; its own line, before ticket context>
+   skills: <the ticket's skills list, [] when none; its own line, before ticket context; registration refuses a local ticket's list that differs>
    ticket context: <current issue content, criteria, dependencies, priority and revision>
    focus: <highest-priority outcome, next acceptance condition and deferred optional work>
    checks: <each check's criterion or project requirement and tier: focused and affected for this worker; full gate and E2E with phase and owner; reusable proof>
@@ -63,7 +64,6 @@ Goal: every selected ticket accepted and integrated, or blocked with the attempt
    brief: <absolute alignment.md>  report: <absolute reports/key.md>
    evidence: <absolute main-checkout reports/evidence/key/attempt/head directory>
    worktree: <absolute>  branch: <assigned branch>  project instructions: <paths and applicable facts>
-   skills: <situational skill paths or names, each with its fact>
    comments: <previous failing command/output, if any>
    ```
 

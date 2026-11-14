@@ -164,12 +164,12 @@ class BoardCLI(unittest.TestCase):
         self.root = Path(tmp.name)
         subprocess.run(['git', 'init', '-q', '-b', 'main', str(self.root)], check=True)
 
-    def write_ticket(self, name, status='ready', touches='runtime', blocked='', devices='', extra='', accepted=True):
+    def write_ticket(self, name, status='ready', touches='runtime', blocked='', devices='', extra='', accepted=True, skills=()):
         """A ticket file; a done one carries the acceptance fields `--accept` writes, unless `accepted` is False."""
         # inline/01 of a measured workstream keeps the start measured_ticket recorded, as --set would have.
         if name == 'inline/01' and getattr(self, 'inline_start', None) and 'start:' not in extra:
             extra += f'start: {self.inline_start}\n'
-        return support.ticket_file(self.root, name, status, blocked_by=blocked, touches=touches, devices=devices, extra=extra,
+        return support.ticket_file(self.root, name, status, blocked_by=blocked, touches=touches, devices=devices, extra=extra, skills=skills,
                                    accepted=accepted and 'accepted:' not in extra and 'delivered_by' not in extra)
 
     def cli(self, *args, code=0, input=None):
@@ -196,7 +196,7 @@ class BoardCLI(unittest.TestCase):
         self.assertEqual(second, str(self.root.resolve() / '.scratch/fx/issues/09-warp-root-cause.md'))
         text = Path(second).read_text()
         self.assertTrue(text.startswith('---\nticket: fx/09\nstatus: ready\nblocked_by: [fx/08]\ntouches: [k8s, docs]\n'
-                                        'devices: []\nneeds: []\nmodel: standard\nworker:\n---\n# 09: WARP: root cause\n'), text)
+                                        'devices: []\nneeds: []\nskills: []\nmodel: standard\nworker:\n---\n# 09: WARP: root cause\n'), text)
         self.assertIn('\n**Story:** As a <actor>', text)
         self.assertIn('\n## Acceptance criteria\n', text)
         self.cli('fx', '--check')
@@ -540,12 +540,23 @@ class BoardCLI(unittest.TestCase):
         refused = self.cli('--check', code=1).stderr
         assert refused == f"fx/01: needs must be a bracketed list of {allowed}\n", refused
 
+    def test_check_refuses_a_ticket_whose_skills_are_missing_or_not_a_list_naming_the_ticket(self):
+        # Rule: `skills` is written like `blocked_by`, `[]` when none, so the builder's skills never hang on an omission.
+        self.write_ticket('fx/01', extra='skills: [a, b]\n')
+        self.cli('--check')
+        self.write_ticket('fx/01', extra='skills: a\n')
+        refused = self.cli('--check', code=1).stderr
+        assert refused == "fx/01: skills must be a bracketed list (write skills: [] when it names none)\n", refused
+        self.write_ticket('fx/01', skills=None)
+        refused = self.cli('--check', code=1).stderr
+        assert refused == "fx/01: no skills key (write skills: [] when it names none)\n", refused
+
     def test_a_ticket_with_block_lists_is_scheduled_like_one_with_bracketed_lists(self):
         # Rule: `touches:`, `devices:` and `blocked_by:` written as `- item` lines hold the same areas, devices and
         # dependencies as the bracketed form.
         path = self.write_ticket('active/01')
         path.write_text('---\nticket: active/01\nstatus: ready\nblocked_by:\n  - active/02\ntouches:\n  - docs\n'
-                        '  - runtime\ndevices:\n  - ios\n---\n')
+                        '  - runtime\ndevices:\n  - ios\nskills: []\n---\n')
         self.write_ticket('active/02', 'done', touches='unrelated')
         assert [t['ticket'] for t in json.loads(self.cli('active').stdout)] == ['active/01']
         self.write_ticket('other/02', 'implementing', touches='runtime')

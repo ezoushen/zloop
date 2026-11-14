@@ -1,7 +1,7 @@
 ---
 name: ticket
 agent: builder
-inputs: ["ticket", "needs", "ticket context", "focus", "checks", "timing", "checkpoint", "return", "brief", "report", "evidence", "worktree", "branch", "project instructions"]
+inputs: ["ticket", "needs", "skills", "ticket context", "focus", "checks", "timing", "checkpoint", "return", "brief", "report", "evidence", "worktree", "branch", "project instructions"]
 returns: ["## Implemented"]
 independent_of: []
 acceptance: true
@@ -16,7 +16,7 @@ worktree, where `worktree` and `branch` name the workstream's
 
 ## Inputs
 
-The assignment names `ticket`, `needs`, `brief`, `report`, `worktree`, `branch`, `evidence`,
+The assignment names `ticket`, `needs`, `skills`, `brief`, `report`, `worktree`, `branch`, `evidence`,
 `project instructions`, and sometimes `comments` (a previous attempt's failing
 output — start from it). All paths are absolute main-checkout paths; the worktree
 has no `.scratch/`. `ticket` is a canonical remote ID/URL with the current issue

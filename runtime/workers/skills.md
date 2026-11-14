@@ -16,9 +16,8 @@ Contents:
    the test and comment checks when a change touches tests or comments. Never
    re-decide or drop them per launch, and never send them to the decision model.
 2. **Situational:** other skills this assignment needs, picked by the orchestrator
-   for each launch from facts the assignment states. List them in the assignment's
-   `skills` field as absolute paths, or host skill names where no stable path
-   exists, each with the fact that selected it.
+   for each launch from facts the assignment states. List them on one `skills:` line holding a bracketed list, as absolute paths, or host skill names where no stable path
+   exists; the facts that selected them stay in the Crew rows the worker reads through `brief`.
 3. **On demand:** everything else. The worker finds it through the host's own skill
    listing when a step needs it, and reports what it loaded beyond its agent and job
    files and the listed skills.

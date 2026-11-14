@@ -73,6 +73,7 @@ operation stops with its input kept (see [Explicit phase composition](#explicit-
    gates it, never omitted.
    `needs` lists the capabilities (`network`, `docker`, `setuid`, `repo-write`, `dev-fd`) the criteria's Verify
    commands use, `[]` when none, kept with a remote ticket's execution inputs in alignment; the worker probes its own environment first and stops when one is unavailable, and its result is not collected without a probe that shows each available.
+   `skills` lists the skills (host skill names or plugin-relative or absolute paths) of the ticket's expert's row in the alignment's Crew section, `[]` when none, kept with a remote ticket's execution inputs in alignment.
 6. **Present the breakdown:** each ticket's outcome, dependency and decisive verification, plus
    material trade-offs and ledger rows; explain a rejected cut only when it was viable with a different
    outcome, risk or verification cost. Apply the [question filter](../../runtime/interview/question-filter.md).

@@ -164,6 +164,9 @@ def problems(tickets, refused=(), accepting=False):
                     if need not in capability_probe.NEEDS]
     bad += [mine(t, "no blocked_by key (write blocked_by: [] when nothing gates it)") for t, fm in tickets.items()
             if "blocked_by" not in fm]
+    bad += [mine(t, "no skills key (write skills: [] when it names none)") if "skills" not in fm else
+            mine(t, "skills must be a bracketed list (write skills: [] when it names none)")
+            for t, fm in tickets.items() if not isinstance(fm.get("skills", []), list) or "skills" not in fm]
     bad += [mine(t, f"number differs from its filename {Path(fm['path']).name}") for t, fm in tickets.items()
             if not Path(fm["path"]).name.startswith(t.split("/")[-1] + "-")]
     graphs = {"ticket": {t: fm.get("blocked_by", []) for t, fm in tickets.items()},
@@ -1046,7 +1049,7 @@ def new_ticket(slug, title, blocked_by, touches):
                   f"{words}, which name its branch {slug}/{words}; reword the title", file=sys.stderr)
             sys.exit(2)
         fields = {"ticket": f"{slug}/{nn}", "status": "ready", "blocked_by": blocked_by, "touches": touches,
-                  "devices": [], "needs": [], "path": str(path.relative_to(ROOT))}
+                  "devices": [], "needs": [], "skills": [], "path": str(path.relative_to(ROOT))}
         if not check({**tickets, fields["ticket"]: fields}):
             print("--new wrote nothing: the board with this ticket fails its check; fix what it names, then run it "
                   "again", file=sys.stderr)
@@ -1063,7 +1066,7 @@ def new_ticket(slug, title, blocked_by, touches):
         with stream:
             stream.write("\n".join(["---", f"ticket: {slug}/{nn}", "status: ready",
                                     f"blocked_by: [{', '.join(blocked_by)}]", f"touches: [{', '.join(touches)}]",
-                                    "devices: []", "needs: []", "model: standard", "worker:", "---", body]))
+                                    "devices: []", "needs: []", "skills: []", "model: standard", "worker:", "---", body]))
     return path
 
 

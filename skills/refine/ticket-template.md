@@ -11,6 +11,8 @@ touches: [<area>]
 devices: []
 # needs: the capabilities its Verify commands use, from network, docker, setuid, repo-write, dev-fd
 needs: []
+# skills: the expert's skills from its Crew row in the alignment (names or paths), [] when none
+skills: []
 model: standard
 worker:
 ---

@@ -46,10 +46,11 @@ def without_host_sessions(env=None):
 
 
 def ticket_file(repo, name, status='ready', *, blocked_by='', touches=None, devices='', worker=None, title=None,
-                extra='', blocker=None, accepted=True, path=None):
+                extra='', blocker=None, accepted=True, path=None, skills=()):
     """A local ticket `name` ('slug/NN') under repo's `.scratch/slug/issues/` with the front matter the board reads,
     touching an area of its own number unless `touches` names one; a `worker:` line only when `worker` is given and a
     body only when `title` is. A done one carries the acceptance fields `--accept` writes, unless `accepted` is False.
+    `skills` is the ticket's `skills:` list, left out when None or when `extra` holds one.
     `extra` is raw front-matter lines (each ending in a newline); `path` names the file instead of the numbered one
     (repo may then be None)."""
     slug, number = name.split('/')
@@ -64,6 +65,8 @@ def ticket_file(repo, name, status='ready', *, blocked_by='', touches=None, devi
     if status == 'done' and accepted:
         lines += [f"accepted: {'a' * 40}", f"accepted_report: {'b' * 64}"]
     body = f'# {number}: {title}\n\n**Story:** a story.\n' if title else ''
+    if skills is not None and 'skills:' not in extra:
+        lines.append(f"skills: [{', '.join(skills)}]")
     path.write_text('\n'.join(lines) + '\n' + extra + '---\n' + body)
     return path
 
@@ -148,8 +151,8 @@ def assignment_file(root, job, text='', *, attempt='ticket-1/1'):
     import agent_defs
     definition = agent_defs.load()['jobs'][job]
     # The ticket is a tracker ID, not a path: an absolute path to a missing ticket file is refused at collection.
-    # A ticket assignment needs no capability.
-    lines = [f'{name}: ' + {'ticket': 'fx/01', 'needs': '[]'}.get(name, f'/fixture/{name.replace(" ", "-")}')
+    # A ticket assignment needs no capability and no skill.
+    lines = [f'{name}: ' + {'ticket': 'fx/01', 'needs': '[]', 'skills': '[]'}.get(name, f'/fixture/{name.replace(" ", "-")}')
              for name in (*agent_defs.COMMON_INPUTS, *definition['inputs'])]
     path = Path(root) / f'{job}-assignment.txt'
     path.write_text(f'attempt: {attempt}\n' + '\n'.join(lines) + '\n' + text)

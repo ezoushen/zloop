@@ -815,20 +815,37 @@ def submitted_at(db, attempt):
     return min(times) if times else None
 
 
-def assigned_needs(assignment):
-    """The capabilities an assignment's `needs` input names, None unless it is exactly one line of its own before
+def assigned_list(assignment, name):
+    """The items an assignment's `name` input lists, None unless it is exactly one line of its own before
     `ticket context:` holding a one-line bracketed list. The ticket context may quote an issue, and nothing in it
-    is the assignment's needs."""
+    is the assignment's input."""
     head = re.split(r'^[ \t]*ticket context:', assignment, maxsplit=1, flags=re.M)[0]
-    lines = re.findall(r'^[ \t]*needs:[ \t]*(.*?)[ \t]*$', head, re.M)
+    lines = re.findall(rf'^[ \t]*{name}:[ \t]*(.*?)[ \t]*$', head, re.M)
     listed = re.fullmatch(r'\[([^\]]*)\]', lines[0]) if len(lines) == 1 else None
-    return list(dict.fromkeys(need.strip() for need in listed.group(1).split(',') if need.strip())) if listed else None
+    return list(dict.fromkeys(item.strip() for item in listed.group(1).split(',') if item.strip())) if listed else None
+
+
+def skills_problems(assignment, ticket):
+    """Why an assignment's `skills` input is not one bracketed list, or differs from the skills a local ticket
+    declares, naming the ones missing and the ones added; else ''."""
+    skills = assigned_list(assignment, 'skills')
+    if skills is None:
+        return 'skills must be one line of its own, before ticket context, holding a bracketed list'
+    path = Path(ticket or '')
+    declared = (front_matter.parse(path.read_text(errors='replace')) or {}).get('skills') \
+        if path.is_absolute() and path.is_file() else None
+    if not isinstance(declared, list):
+        return ''
+    missing, added = [x for x in declared if x not in skills], [x for x in skills if x not in declared]
+    return 'skills differ from the ticket: ' + '; '.join(
+        part for part in (missing and f'missing {", ".join(missing)}', added and f'added {", ".join(added)}') if part) \
+        if missing or added else ''
 
 
 def needs_problems(assignment):
     """Why an assignment's `needs` input is not a bracketed list of probe capabilities, else ''."""
     allowed = ', '.join(capability_probe.NEEDS)
-    needs = assigned_needs(assignment)
+    needs = assigned_list(assignment, 'needs')
     if needs is None:
         return f'needs must be one line of its own, before ticket context, holding a bracketed list of {allowed}'
     return '; '.join(f'needs {need!r} is not one of {allowed}' for need in needs if need not in capability_probe.NEEDS)
@@ -1024,9 +1041,11 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                     job, packet.read_text(errors='replace'), 'findings'))
             problem = 'needs' in job['inputs'] and needs_problems(packet.read_text(errors='replace'))
             require(not problem, f'The {execution["job"]} assignment {problem}')
-            needs = assigned_needs(packet.read_text(errors='replace')) if 'needs' in job['inputs'] else None
+            needs = assigned_list(packet.read_text(errors='replace'), 'needs') if 'needs' in job['inputs'] else None
             ticket = (agent_defs.input_value(job, packet.read_text(errors='replace'), 'ticket')
                       if 'ticket' in job['inputs'] else None)
+            problem = 'skills' in job['inputs'] and skills_problems(packet.read_text(errors='replace'), ticket)
+            require(not problem, f'The {execution["job"]} assignment {problem}')
             runtime = execution.get('target_runtime') or (execution.get('host') if execution.get('native_dispatch') else None)
             require(runtime is None or runtime == data['runtime'], 'Runtime conflicts with resolved execution')
             closed = closed_sessions(db)
