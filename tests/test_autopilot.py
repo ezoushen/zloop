@@ -280,7 +280,7 @@ class EffortLevels(unittest.TestCase):
         state = CARD.read_text().split('## State', 1)[1]
         self.assertRegex(state, r'(?m)^dispatch-effort: medium$')
         self.assertRegex(state, r'(?m)^review-effort: high\b')
-        # Review FC-3: the direct path's level is on the card the review reads, stated once.
+        # Rule: the direct path's level is on the card the review reads, stated once.
         self.assertIn('`low` on a direct card unless a level flag sets another', ' '.join(state.split()))
         self.assertEqual(' '.join(CARD.read_text().split()).count('records `review-effort: low`'), 1)
         self.assertIn('both effort levels on their own lines', prose(CARD))
@@ -387,8 +387,8 @@ class TakeOverCommand(unittest.TestCase):
             self.assertIn(phrase, card)
 
     def test_the_interview_and_the_users_confirmation_are_the_full_paths_and_the_direct_path_keeps_align_and_refine(self):
-        # Review FC-1: the description, goal, confirmation, glossary and README said every run interviews and is
-        # confirmed by the user; the direct path does neither, yet still writes the brief and refines it (ledger A16).
+        # Rule: the interview and the user's confirmation belong to the full path wherever autopilot is described; the
+        # direct path has neither, yet still writes the brief and runs refine.
         text = SKILL.read_text()
         description = re.search(r'^description: (.+)$', text.split('---', 2)[1], re.M).group(1)
         self.assertIn('a small change skips both', description)

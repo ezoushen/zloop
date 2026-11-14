@@ -356,8 +356,8 @@ class Phase(unittest.TestCase):
                                         capture_output=True, text=True, timeout=30).returncode, 0)
 
     def test_a_full_card_confirmed_by_rule_is_refused_dispatch_and_pr_until_the_user_confirms_it(self):
-        # Review FC-2: switching a direct card to `mode: full` by hand kept its by-rule confirmation, so the full
-        # path ran with no confirmation by the user. The rule is closed here, not left to the run card's prose.
+        # Rule: a full card confirmed by rule, as a direct card switched by hand would be, enters neither dispatch nor
+        # pr until the user's own confirmation is recorded.
         self.card.parent.mkdir(exist_ok=True)
         self.ticket('01')
         by_rule = DRAFT.replace('mode: full', 'mode: direct').replace('confirmed: no', 'confirmed: 2026-11-06 by rule "go"')
@@ -381,7 +381,7 @@ class Phase(unittest.TestCase):
         self.assertEqual(run('phase', 'pr').returncode, 0)
 
     def test_a_full_card_the_user_confirmed_in_words_that_say_by_rule_is_not_taken_for_a_confirmation_by_rule(self):
-        # Review FC-6: only the form `confirm` writes for a direct card is a confirmation by rule; the user's own words
+        # Rule: only the form `confirm` writes for a direct card is a confirmation by rule; the user's own words
         # are recorded verbatim and may contain the phrase.
         self.card.parent.mkdir(exist_ok=True)
         self.ticket('01')
