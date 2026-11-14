@@ -355,6 +355,31 @@ class Phase(unittest.TestCase):
         self.assertEqual(subprocess.run([sys.executable, '-B', str(COMMAND), 'phase', str(self.card), 'dispatch'],
                                         capture_output=True, text=True, timeout=30).returncode, 0)
 
+    def test_a_full_card_confirmed_by_rule_is_refused_dispatch_and_pr_until_the_user_confirms_it(self):
+        # Review FC-2: switching a direct card to `mode: full` by hand kept its by-rule confirmation, so the full
+        # path ran with no confirmation by the user. The rule is closed here, not left to the run card's prose.
+        self.card.parent.mkdir(exist_ok=True)
+        self.ticket('01')
+        by_rule = DRAFT.replace('mode: full', 'mode: direct').replace('confirmed: no', 'confirmed: 2026-11-06 by rule "go"')
+        self.card.write_text(by_rule.replace(UNNAMED, 'session: host-1'))
+
+        def run(command, *args):
+            return subprocess.run([sys.executable, '-B', str(COMMAND), command, str(self.card), *args],
+                                  capture_output=True, text=True, timeout=30)
+        self.assertEqual(run('phase', 'dispatch').returncode, 0)
+        self.card.write_text(self.card.read_text().replace('mode: direct', 'mode: full'))
+        for phase in ('dispatch', 'pr'):
+            with self.subTest(phase=phase):
+                result = run('phase', phase)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn('confirm --words', result.stderr)
+        self.assertIn('\nphase: dispatch\n', self.card.read_text())
+        # The user's own confirmation, recorded by the command, clears it.
+        env = {**os.environ, 'PI_SESSION_ID': 'pi-1'}
+        subprocess.run([sys.executable, '-B', str(COMMAND), 'confirm', str(self.card), '--words', 'ok'], env=env,
+                       check=True, capture_output=True, text=True, timeout=30)
+        self.assertEqual(run('phase', 'pr').returncode, 0)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -9,7 +9,8 @@ A phase of dispatch or pr needs the tickets of the board the card names on `boar
 A confirmation records the date and the user's words on `confirmed:` (on a `mode: direct` card, as `by rule` with
 the goal the user typed, since a direct run asks nothing), and on `session:` each host session ID this shell exports,
 as the stop hook counts them, so the panel and the stop hold find the run. A direct card whose local board holds more
-than two tickets is refused its dispatch: it takes the full path.
+than two tickets is refused its dispatch: it takes the full path, and a `mode: full` card still confirmed `by rule` is
+refused dispatch and pr until `confirm --words` records the user's words.
 
 Rewrites the lines of the card's `## State` section in place and nothing else, so a Goal quoting `auto-merge:` is
 left alone. `auto-merge:` becomes `yes` only with `--auto-merge`, so a grant from the run that
@@ -110,6 +111,9 @@ def ticket_files(issues):
 def board_problem(card, state):
     """Why the run of `card` cannot work its board yet, or None: a tracker's URL holds its own tickets; a `local` board
     needs ticket files that pass the board's check."""
+    if state_fields(state).get('mode') == 'full' and ' by rule ' in f" {field(state, 'confirmed')} ":
+        return (f"the full card of {card.parent.name} was confirmed by rule, not by the user: have the user confirm it, "
+                "then record it with `confirm --words` and the user's words")
     board = field(state, 'board')
     if tracker_url(board):
         return None
