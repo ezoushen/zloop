@@ -1,7 +1,7 @@
 ---
 name: readiness
 agent: verifier
-inputs: ["report", "checks"]
+inputs: ["worktree", "report", "checks"]
 returns: ["## Readiness"]
 independent_of: []
 acceptance: false
@@ -15,10 +15,11 @@ assigns it once per workstream, in the step that launches the first builders, wh
 
 ## Inputs
 
-The assignment names the `report`, a file of its own that the orchestrator creates before the
+The assignment names the `worktree`, the workstream worktree, which you confirm and leave as you
+found it; the `report`, a file of its own that the orchestrator creates before the
 launch, and the planned E2E `checks`: each check's command, the worker routes the E2E stage
 will launch, the models or local backends those routes use, the hooks that need trust and the
-devices. No diff or head is involved; run from the `repo`.
+devices. No diff is involved; run the probes in the `worktree`, never in the main checkout.
 
 ## Finish line
 

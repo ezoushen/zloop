@@ -170,7 +170,7 @@ class DispatchLevels(unittest.TestCase):
         # the first builders, and a failed precondition only the user can clear goes to the user at once, in one request.
         body = prose(DISPATCH / 'iteration.md')
         self.assertIn('With `--autofix` and E2E planned, launch one [readiness](jobs/readiness.md) verifier in the '
-                      'same step as the first builders, with a `report` of its own and the planned E2E `checks`; '
+                      'same step as the first builders, with the workstream `worktree`, a `report` of its own and the planned E2E `checks`; '
                       'a failed precondition only the user can clear goes to the user at once, in one request', body)
         launch = body.split('4. **Launch.**', 1)[1].split('5. **Accept.**', 1)[0]
         self.assertIn('readiness', launch)
