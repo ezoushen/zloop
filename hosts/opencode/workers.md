@@ -28,11 +28,21 @@ specifies. It refuses before opening a tab if any of the three installed Herdr f
 naming `herdr integration install opencode`. The launcher copies `plugins/herdr-agent-state.js`,
 `herdr-tui-session.js` and `herdr-opencode/tui.js` into private configuration; `tui.jsonc` loads the
 v1 reporter and `cli.json` loads `./herdr-opencode` for v2. It copies no other user configuration.
-Generated `opencode.json` allows edit, bash, webfetch and external_directory, leaving the session's
-deny rules to set write scope without permission prompts, including reports outside the worktree.
+Generated `opencode.json` allows edit, bash, webfetch and external_directory without permission prompts.
+The keeper runs `opencode serve` under `sandbox-exec`: a shell can write regardless of OpenCode's edit
+deny rules, so the OS sandbox contains its writes. Platforms without `sandbox-exec` are refused before
+tab creation. Resolve with `--reports <absolute reports directory>`; a `writes: worktree` route also needs
+`--worktree <absolute checkout>`. Its `launch.writable` uses the Codex path computation: temporary files
+and reports, plus the worktree, common git directory and worktree git directory for `worktree`.
+The profile permits writes only there, in the keeper's private folder, the user's OpenCode data folder
+(`${XDG_DATA_HOME:-~/.local/share}/opencode`), resolved TMPDIR, `/private/tmp` and `/dev`.
+All profile paths are resolved and quoted; private `XDG_CACHE_HOME` keeps cache writes inside the sandbox.
 
-The tab's environment carries `ZLOOP_WORKER`, private `XDG_CONFIG_HOME` and `XDG_STATE_HOME`, and
-`OPENCODE_PASSWORD`. Herdr starts the OpenCode TUI itself with only `--server <url> --session <id>`.
+The tab's environment carries `ZLOOP_WORKER` and private `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and
+`XDG_CACHE_HOME`. After tab creation, `herdr pane run` exports `OPENCODE_PASSWORD` by reading the
+owner-only password file; its command starts with a space to keep it out of shell history. Only the file
+path appears in arguments, never the password. Herdr then starts the OpenCode TUI itself with only
+`--server <url> --session <id>`.
 A detached launcher keeper owns the loopback server outside the pane, with its streams and the
 server's streams sent to `/dev/null`: `opencode serve` logs its password. The server receives the
 worker's `HERDR_PANE_ID` and `HERDR_TAB_ID`, so its integration reports that worker. Configuration
@@ -62,7 +72,7 @@ keep `--server <url>` and never substitute another server. The password file rem
 
 Run `opencode run` against the server with stdin from `/dev/null` (`< /dev/null`); it blocks when stdin is
 not a terminal. A `writes: none` worker keeps the shell for checks and its report but no editing tool;
-the read-only worktree check at collection covers what its shell writes.
+the sandbox restricts its shell to the reports and runtime storage; collection also checks the read-only worktree.
 `opencode mini --model <provider/model>#<variant>` applies settings at launch, but Herdr cannot observe
 `mini`'s activity, so it does not suit lifecycle workers. The private server has no providers from the
 user's configuration; the available providers and models must be checked on that server before work.

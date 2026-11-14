@@ -943,7 +943,8 @@ def launch_controls(runtime, agent, settings, repo, worktree=None, reports=None)
     writes = definition['writes']
     model, effort = settings.get('model'), settings.get('effort')
     needs = {('claude', 'none'): ('worktree', 'reports'), ('codex', 'none'): ('reports',),
-             ('codex', 'worktree'): ('worktree', 'reports')}.get((runtime, writes), ())
+             ('codex', 'worktree'): ('worktree', 'reports'), ('opencode', 'none'): ('reports',),
+             ('opencode', 'worktree'): ('worktree', 'reports')}.get((runtime, writes), ())
     missing = [f'--{name}' for name, value in (('worktree', worktree), ('reports', reports))
                if name in needs and value is None]
     if missing:
@@ -971,6 +972,9 @@ def launch_controls(runtime, agent, settings, repo, worktree=None, reports=None)
         argv = ['--tools', ','.join(tools), '--no-mcp'] + (['--provider', provider] if provider else []) + (
             ['--model', name] if name else []) + (['--thinking', effort] if effort else [])
         return {'writes': writes, 'argv': argv, 'verify': {'tools': sorted(tools)}}
+    writable = [':tmpdir', str(reports)]
+    if writes == 'worktree':
+        writable += dict.fromkeys([str(worktree), git_dir(repo), git_dir(worktree, '--git-dir')])
     if runtime == 'opencode':
         # The TUI has no --agent or -m: the session is created with them. A denied agent still writes through the
         # general subagent unless subagent is denied too.
@@ -979,15 +983,12 @@ def launch_controls(runtime, agent, settings, repo, worktree=None, reports=None)
         if model:
             provider, _, name = model.partition('/')
             body['model'] = dict(providerID=provider, id=name, **({'variant': effort} if effort else {}))
-        return {'writes': writes, 'api': {'method': 'POST', 'path': '/api/session', 'body': body},
+        return {'writes': writes, 'writable': writable, 'api': {'method': 'POST', 'path': '/api/session', 'body': body},
                 'verify': {'permissions': rules}}
     # A permissions profile given with -c applies over the user's sandbox_mode and is recorded as a workspace-write
     # policy with its entries. Both scopes read everything and write temporary files and the reports; `worktree` also
     # writes the worktree and the main checkout's .git, where a linked worktree's commits land, and the worktree's own
     # git directory, which Codex keeps read-only under the common one.
-    writable = [':tmpdir', str(reports)]
-    if writes == 'worktree':
-        writable += dict.fromkeys([str(worktree), git_dir(repo), git_dir(worktree, '--git-dir')])
     profile = f'zloop_{writes}'
     table = ','.join(['":root"="read"'] + [f'{json.dumps(path)}="write"' for path in writable])
     argv = ['-c', f'default_permissions="{profile}"', '-c', f'permissions.{profile}.filesystem={{{table}}}',

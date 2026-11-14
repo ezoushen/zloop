@@ -28,6 +28,7 @@ from pathlib import Path
 import re
 import secrets
 import shutil
+import shlex
 import signal
 import socket
 import subprocess
@@ -183,6 +184,8 @@ def start(argv):
     connection = None
     extra_env = []
     if route['target_runtime'] == 'opencode':
+        if shutil.which('sandbox-exec') is None:
+            parser.error('sandbox-exec is required to contain OpenCode worker writes; this platform is unsupported')
         integration = Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config'))) / 'opencode'
         if not all((integration / name).is_file() for name in (
                 'plugins/herdr-agent-state.js', 'herdr-tui-session.js', 'herdr-opencode/tui.js')):
@@ -202,11 +205,12 @@ def start(argv):
             with os.fdopen(os.open(password, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as stream:
                 stream.write(secrets.token_urlsafe(32))
             env = dict(os.environ, XDG_CONFIG_HOME=str(private / 'config'), XDG_STATE_HOME=str(private / 'state'),
+                       XDG_CACHE_HOME=str(private / 'cache'),
                        OPENCODE_PASSWORD=password.read_text())
             for key in ('OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT', 'OPENCODE_CONFIG_DIR', 'OPENCODE_TUI_CONFIG'):
                 env.pop(key, None)
                 os.environ.pop(key, None)
-            for key in ('XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'OPENCODE_PASSWORD'):
+            for key in ('XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME'):
                 extra_env.extend(['--env', f'{key}={env[key]}'])
         except OSError as error:
             shutil.rmtree(private)
@@ -226,12 +230,18 @@ def start(argv):
                        {'pane': os.environ.get('HERDR_PANE_ID'), 'session': (lifecycle.host_sessions() or [None])[0]},
                        args.worktree)
             if private:
+                tab = response['result']['tab']['tab_id']
+                step = 'password export'
+                code, response = lifecycle.herdr(None, 'pane', 'run', pane,
+                    ' export OPENCODE_PASSWORD="$(cat ' + shlex.quote(str(password)) + ')"')
+                if code:
+                    raise ValueError(f'command exited {code}')
                 step = 'keeper start'
                 error_control = tempfile.TemporaryDirectory(prefix='zloop-opencode-launch-')
                 error_file = Path(error_control.name) / 'error'
                 keeper = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), 'opencode',
                     '--route', str(Path(args.route).resolve()), '--worktree', args.worktree,
-                    '--private', str(private), '--pane', pane, '--tab', response['result']['tab']['tab_id'],
+                    '--private', str(private), '--pane', pane, '--tab', tab,
                     '--error-file', str(error_file)],
                     env=env, start_new_session=True, stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -280,6 +290,16 @@ def pane_verdict(code, response, failing_since, now):
     return ('lost' if now - failing_since >= PANE_GRACE else None), failing_since
 
 
+def sandbox_profile(writable, private, data, tmpdir):
+    """Seatbelt profile denying writes outside route paths and OpenCode's runtime storage.
+    All paths are resolved and quoted as profile strings; :tmpdir names the resolved temporary folder."""
+    paths = [tmpdir if path == ':tmpdir' else path for path in writable]
+    paths += [private, data, tmpdir, '/private/tmp', '/dev']
+    quoted = dict.fromkeys(json.dumps(str(Path(path).resolve()), ensure_ascii=False) for path in paths)
+    return ('(version 1)\n(allow default)\n(deny file-write*)\n(allow file-write* ' +
+            ' '.join(f'(subpath {path})' for path in quoted) + ')')
+
+
 def opencode(argv):
     """Keep a private server until Herdr reports its pane gone, answers no pane lookup for PANE_GRACE seconds, the server
     exits, or this detached owner receives SIGHUP/SIGTERM."""
@@ -303,7 +323,11 @@ def opencode(argv):
             listener.bind(('127.0.0.1', 0))
             port = listener.getsockname()[1]
         url = f'http://127.0.0.1:{port}'
-        server = subprocess.Popen(['opencode', 'serve', '--hostname', '127.0.0.1', '--port', str(port)],
+        launch = json.loads(Path(args.route).read_text())['launch']
+        data = Path(env.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'opencode'
+        profile = sandbox_profile(launch['writable'], private, data, env.get('TMPDIR', tempfile.gettempdir()))
+        server = subprocess.Popen(['sandbox-exec', '-p', profile,
+                                   'opencode', 'serve', '--hostname', '127.0.0.1', '--port', str(port)],
                                   env=env, cwd=args.worktree, stdin=subprocess.DEVNULL,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         step = 'server readiness'
@@ -322,7 +346,7 @@ def opencode(argv):
                     raise ValueError('server did not answer within 20 seconds')
                 time.sleep(.05)
         step = 'session POST'
-        api = json.loads(Path(args.route).read_text())['launch']['api']
+        api = launch['api']
         body = dict(api['body'], location={'directory': args.worktree})
         created = subprocess.run(['opencode', 'api', api['method'], api['path'], '--server', url,
                                   '-d', json.dumps(body)], env=env, cwd=args.worktree,

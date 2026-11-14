@@ -155,7 +155,8 @@ class Preferences(unittest.TestCase):
         result = subprocess.run([
             sys.executable, '-B', str(SCRIPT), '--repo', str(self.root),
             '--user-config', str(self.user), '--user-executors', str(config),
-            '--host', 'opencode', '--job', 'diff-review', '--route'], capture_output=True, text=True)
+            '--host', 'opencode', '--job', 'diff-review', '--route',
+            '--reports', str(self.root / 'reports')], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         route = json.loads(result.stdout)
         self.assertEqual(route['executor'], 'herdr')

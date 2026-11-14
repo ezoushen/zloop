@@ -3,6 +3,7 @@
 import json
 import os
 import signal
+import shlex
 import shutil
 from pathlib import Path
 import subprocess
@@ -122,6 +123,7 @@ class OpenCodeStart(unittest.TestCase):
         self.body = {'agent': 'build', 'model': {'providerID': 'openai', 'id': 'fixture', 'variant': 'high'},
                      'permissions': [{'action': 'subagent', 'resource': '*', 'effect': 'deny'}]}
         self.route.write_text(json.dumps({'target_runtime': 'opencode', 'launch': {
+            'writable': [':tmpdir', str(self.root / 'reports'), str(self.worktree)],
             'api': {'method': 'POST', 'path': '/api/session', 'body': self.body}}}))
         self.config = self.root / 'user config'
         self.integration = self.config / 'opencode'
@@ -148,6 +150,13 @@ if args[:2] == ['tab', 'create']:
     env = dict(item.split('=', 1) for at, item in enumerate(args) if at and args[at-1] == '--env')
     Path(os.environ['TAB_ENV']).write_text(json.dumps(env))
     print(json.dumps({'result': {'tab': {'tab_id': 'worker-tab'}, 'root_pane': {'pane_id': 'root-pane'}}}))
+elif args[:2] == ['pane', 'run']:
+    env = json.loads(Path(os.environ['TAB_ENV']).read_text())
+    password = subprocess.check_output(['/bin/sh', '-c', args[3] +
+        '; printf "%s" "$OPENCODE_PASSWORD"'], env=dict(os.environ, **env), text=True)
+    env['OPENCODE_PASSWORD'] = password
+    Path(os.environ['TAB_ENV']).write_text(json.dumps(env))
+    print(json.dumps({'result': {}}))
 elif args[:2] == ['agent', 'start']:
     if os.environ.get('HERDR_FAIL'):
         print('invalid Herdr response' if os.environ.get('HERDR_FAIL_JSON') else
@@ -200,6 +209,16 @@ else:
     while config.exists() and not Path(os.environ['RELEASE']).exists(): time.sleep(.02)
 ''')
         stub.chmod(0o755)
+        sandbox = self.bin / 'sandbox-exec'
+        sandbox.write_text(f'#!{sys.executable}\n' + """import json, os, sys
+from pathlib import Path
+Path(os.environ['SANDBOX_CALL']).write_text(json.dumps({
+    'args': sys.argv[1:], 'cache': os.environ.get('XDG_CACHE_HOME')}))
+os.execvp(sys.argv[3], sys.argv[3:])
+""")
+        sandbox.chmod(0o755)
+        self.sandbox_call = self.root / 'sandbox.json'
+        self.env['SANDBOX_CALL'] = str(self.sandbox_call)
         self.addCleanup(self.stop_keeper)
 
     def stop_keeper(self):
@@ -276,7 +295,7 @@ else:
         self.assertEqual(json.loads(serve['files']['opencode/opencode.json']), {'permission': {
             'edit': 'allow', 'bash': 'allow', 'webfetch': 'allow', 'external_directory': 'allow'}})
         tab_env = json.loads(self.tab_env.read_text())
-        self.assertEqual(set(tab_env), {'ZLOOP_WORKER', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'OPENCODE_PASSWORD'})
+        self.assertEqual(set(tab_env), {'ZLOOP_WORKER', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'OPENCODE_PASSWORD'})
         self.assertEqual(tab_env['ZLOOP_WORKER'], 'workstream/05')
         self.assertEqual(tab_env['XDG_CONFIG_HOME'], serve['config'])
         self.assertEqual(tab_env['XDG_STATE_HOME'], serve['state'])
@@ -287,6 +306,42 @@ else:
                          dict(self.body, location={'directory': str(self.worktree)}))
         self.assertEqual(tui['args'], ['--server', connection['server'], '--session', 'private-session'])
         self.assertEqual(tui['config'], serve['config'])
+
+    def test_password_reaches_tui_from_file_before_agent_start_without_entering_argv(self):
+        result = self.start()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        password = Path(json.loads(result.stdout)['opencode']['password_file'])
+        secret = password.read_text()
+        calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
+        self.assertFalse(any(secret in arg for call in calls for arg in call),
+                         'no Herdr argument may contain the password')
+        create = calls[0]
+        self.assertFalse(any(arg.startswith('OPENCODE_PASSWORD=') for arg in create))
+        export = next(call for call in calls if call[:2] == ['pane', 'run'])
+        self.assertEqual(export, ['pane', 'run', 'root-pane',
+            ' export OPENCODE_PASSWORD="$(cat ' + shlex.quote(str(password)) + ')"'])
+        start = next(call for call in calls if call[:2] == ['agent', 'start'])
+        self.assertLess(calls.index(export), calls.index(start))
+        _, _, tui = self.wait_events(3)
+        self.assertTrue(tui['password'], 'the TUI must inherit the password loaded by pane run')
+        self.assertTrue(json.loads(self.tab_env.read_text())['OPENCODE_PASSWORD'] == secret)
+
+    def test_server_writes_are_contained_and_cache_is_private(self):
+        result = self.start()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        private = Path(json.loads(result.stdout)['opencode']['password_file']).parent
+        self.assertTrue(self.sandbox_call.exists(), 'the server must run through sandbox-exec')
+        call = json.loads(self.sandbox_call.read_text())
+        paths = [Path(self.env.get('TMPDIR', tempfile.gettempdir())).resolve(),
+                 self.root / 'reports', self.worktree, private.resolve(),
+                 self.root / 'user data/opencode', Path('/private/tmp'), Path('/dev')]
+        expected = ('(version 1)\n(allow default)\n(deny file-write*)\n(allow file-write* ' +
+                    ' '.join('(subpath ' + json.dumps(str(path)) + ')' for path in paths) + ')')
+        self.assertEqual(call['args'][:3], ['-p', expected, 'opencode'])
+        serve, _, _ = self.wait_events(3)
+        self.assertEqual(call['args'][3:], serve['args'])
+        self.assertEqual(call['cache'], str(private / 'cache'))
+        self.assertEqual(json.loads(self.tab_env.read_text())['XDG_CACHE_HOME'], str(private / 'cache'))
 
     def test_inherited_config_overrides_cannot_load_the_users_configuration(self):
         for key in ('OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT', 'OPENCODE_CONFIG_DIR', 'OPENCODE_TUI_CONFIG'):
@@ -316,6 +371,15 @@ else:
                 with self.assertRaises(ProcessLookupError, msg='keeper must stop and reap its server'):
                     os.kill(serve['pid'], 0)
                 self.release.touch()
+
+    def test_missing_sandbox_refuses_before_creating_tab(self):
+        (self.bin / 'sandbox-exec').unlink()
+        (self.bin / 'git').symlink_to(shutil.which('git'))
+        self.env['PATH'] = str(self.bin)
+        result = self.start()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('sandbox-exec is required to contain OpenCode worker writes', result.stderr)
+        self.assertFalse(self.calls.exists(), 'sandbox support must be checked before any Herdr call')
 
     def test_missing_any_integration_file_refuses_before_creating_tab(self):
         for name in ('plugins/herdr-agent-state.js', 'herdr-tui-session.js', 'herdr-opencode/tui.js'):

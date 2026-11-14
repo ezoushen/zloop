@@ -154,13 +154,20 @@ class LaunchControls(unittest.TestCase):
         # Rule: the TUI has no --agent or -m, so the session is created through the API with its model, variant and
         # permissions; `none` denies edit and subagent but keeps the shell for checks, `worktree` denies subagent
         # (a denied agent still writes through the general subagent).
+        options, worktree, reports, git = self.places()
+        for args in (['init', '-q', str(self.root)],
+                     ['-C', str(self.root), *IDENTITY, 'commit', '-q', '--allow-empty', '-m', 'init'],
+                     ['-C', str(self.root), 'worktree', 'add', '-q', worktree]):
+            subprocess.run(['git', *args], check=True, capture_output=True)
         def deny(*actions):
             return [{'action': action, 'resource': '*', 'effect': 'deny'} for action in actions]
         for job, writes, rules in (('diff-review', 'none', deny('edit', 'subagent')),
                                    ('ticket', 'worktree', deny('subagent'))):
             with self.subTest(job=job):
-                self.assertEqual(self.route('flash', job)['launch'], {
+                self.assertEqual(self.route('flash', job, 'claude', *options)['launch'], {
                     'writes': writes,
+                    'writable': [':tmpdir', reports] + (
+                        [worktree, git, git + '/worktrees/wt'] if writes == 'worktree' else []),
                     'api': {'method': 'POST', 'path': '/api/session', 'body': {
                         'agent': 'build',
                         'model': {'providerID': 'opencode', 'id': 'deepseek-v4.1-flash-free', 'variant': 'high'},

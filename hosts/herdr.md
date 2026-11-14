@@ -46,15 +46,11 @@ only where the skill permits model invocation. Retain the actual source/result.
 Session-local settings isolation must keep the plugins the assignment invokes,
 such as zloop for its slash commands, and Herdr's native identity hook;
 verify both before accepting the launch.
-Launch an OpenCode 2 worker as the full TUI, on a private server, as the
-[OpenCode adapter](opencode/workers.md#top-level-workers) describes; Herdr's
-integration reports the TUI's activity and session, not `mini`'s. Its isolated
-configuration keeps the installed Herdr server plugin and, for the full TUI, its native TUI
-session reporter, and nothing else of the user's: MCP tools from the user's configuration
-stay callable under the session's deny rules. Reproduce the installer's current TUI
-configuration in the isolated config directory, including its referenced module; a
-server-plugin entry alone does not load the TUI reporter. Use the supported configuration filename (for
-example, `tui.jsonc`) rather than assuming another file is read.
+Launch OpenCode 2's full TUI on a private server per the
+[OpenCode adapter](opencode/workers.md#top-level-workers); Herdr observes its activity and session, not `mini`'s.
+Keep only Herdr's installed server plugin and full native TUI reporter config: user MCP tools remain callable
+under deny rules. Match installer filenames (such as `tui.jsonc`) and modules;
+server-plugin entries alone cannot load the TUI reporter.
 Check `integration status` and the actual `agent_session` before productive work;
 a current server alone does not establish that its integration is loaded.
 If startup returns before the native input UI finishes loading, wait for its
@@ -75,10 +71,14 @@ pane, whatever placement the installed skill defaults to:
    `HERDR_WORKSPACE_ID` with `ZLOOP_WORKER` set, logs the launch for the stop check,
    and starts the agent in its root pane.
    `ZLOOP_WORKER` is how zloop's stop check tells a worker from its orchestrator.
-   It uses the caller's Herdr socket and prints its response. OpenCode's
-   `launch.api` starts a detached private-server keeper, then attaches the TUI, adding `opencode.server`,
-   `opencode.session` and `opencode.password_file`. Register/export as its adapter specifies.
-   Missing integration refuses before tab creation: `herdr integration install opencode`.
+   It uses the caller's Herdr socket. For OpenCode,
+   `launch.api` starts a detached private-server keeper and attaches its TUI, returning `opencode.server`,
+   `opencode.session` and `opencode.password_file`. Register/export per its adapter.
+   Missing integration refuses before any tab: `herdr integration install opencode`.
+   Without `sandbox-exec`, refuse: it confines shell writes to `launch.writable`, private storage
+   (cache included), OpenCode data, resolved TMPDIR, `/private/tmp` and `/dev`. After tab creation,
+   `pane run` exports `OPENCODE_PASSWORD` from its owner-only file before `agent start`:
+   a leading space avoids shell history; arguments hold only its path, never the password.
    Keep `launch.argv` in JSON, never shell text. The resolver supplies write scope, model and effort; recipes: [Claude](claude/workers.md#top-level-workers),
    [Codex](codex/workers.md#top-level-workers), [Pi](pi/workers.md#top-level-workers) and
    [OpenCode](opencode/workers.md#top-level-workers). A native route without `launch` uses its host's
