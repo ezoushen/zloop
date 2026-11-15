@@ -1362,9 +1362,28 @@ def notification(value):
     return dict(argv=argv, timeout=timeout)
 
 
+def linked_wake(saved, notify):
+    """Refuse a notify the orchestrator hands over that cannot wake it for its worker on a linked environment."""
+    environment = t3_environment(saved) if saved.get('t3') else None
+    if not environment or not os.environ.get('T3CODE_CLI_PATH'):
+        return
+    # T3 hands a thread's result to its parent only, and a linked environment's thread has none: an orchestrator
+    # T3 hosts gets this receipt as a message to its own thread. T3 names that thread to Claude and Codex sessions;
+    # a Pi or OpenCode session reads it from T3, and no script can check the one it names.
+    own = os.environ.get('T3CODE_THREAD_ID')
+    require(notify['argv'][:3] == ['t3', 'thread', 'send'] and (not own or notify['argv'][3] == own),
+            f'T3 thread {saved["t3"]["thread"]} runs on linked environment {environment}, where it is nobody\'s '
+            'child, so T3 reports its result to no one: wake this orchestrator with notify argv '
+            + (f'`t3 thread send {own} {{receipt}}`' if own else
+               '`t3 thread send <its own thread> {receipt}`, its thread being the `threadId` `t3_thread_configure` '
+               'answers with no arguments'))
+
+
 def escalate(db, state, attempt, request):
     """Pause dependent work before delivering uncertainty to its decision owner."""
     saved = get(db, attempt)
+    if 'notify' in request:
+        linked_wake(saved, notification(request['notify']))
     risk = request.get('risk')
     require(risk in ('within-agreement', 'possible-breach'), 'Escalation requires explicit agreement risk')
     criteria = Path(request['criteria'])
@@ -1402,6 +1421,8 @@ def deliver(db, state, event_id, request):
                     'Owned notification process is still running; reconcile teardown before retry')
         config = notification(request.get('notify', payload.get('notify')))
         saved = get(db, attempt)
+        if 'notify' in request:
+            linked_wake(saved, config)
         directory = state.parent / (state.name + '.logs')
         directory.mkdir(mode=0o700, exist_ok=True)
         log = directory / (uuid.uuid4().hex + '.notification.log')
@@ -1505,7 +1526,7 @@ def mismatched(saved):
             if observed.get(key) != value and not (key == 'model' and aliases)]
 
 
-def wait_preconditions(db, saved, productive, notify):
+def wait_preconditions(db, saved, productive):
     differs = '; '.join(f'{key} requested {value}, observed {"none" if seen is None else seen}'
                         for key, value, seen in mismatched(saved)) if 'observed' in saved else ''
     require(saved.get('verified') and not saved.get('result')
@@ -1525,15 +1546,6 @@ def wait_preconditions(db, saved, productive, notify):
                 'its result and register a new attempt' if saved.get('submission_requested') else
                 'Wait for submitted work: `submit` its assignment, or record `submitted` with evidence the worker '
                 'already has it')
-    environment = t3_environment(saved) if saved.get('t3') else None
-    if notify and environment and os.environ.get('T3CODE_CLI_PATH'):
-        # T3 hands a thread's result to its parent only, and a linked environment's thread has none: an orchestrator
-        # T3 hosts gets this receipt as a message to its own thread, which T3 names to Claude and Codex sessions.
-        own = os.environ.get('T3CODE_THREAD_ID')
-        require(notify['argv'][:3] == ['t3', 'thread', 'send'] and (not own or notify['argv'][3] == own),
-                f'T3 thread {saved["t3"]["thread"]} runs on linked environment {environment}, where it is nobody\'s '
-                'child, so T3 reports its result to no one: wake this orchestrator with notify argv '
-                f'`t3 thread send {own or "<its own thread>"} {{receipt}}`')
 
 
 def watch(db, state, attempt, request, *, productive=False):
@@ -1550,11 +1562,13 @@ def watch(db, state, attempt, request, *, productive=False):
     require(completion is None or not productive and isinstance(completion, list) and completion
             and all(text(x) and '\0' not in x for x in completion),
             'Completion requires literal argv on watch, not submit; submit once, then watch with a completion check')
-    if notify and not channel_proven(db, notify['argv']):
+    if notify:
         # Refuse an invalid wait before sending its parent anything.
         saved = get(db, attempt)
-        wait_preconditions(db, saved, productive, notify)
-        check_channel(db, state, saved, notify)
+        wait_preconditions(db, saved, productive)
+        linked_wake(saved, notify)
+        if not channel_proven(db, notify['argv']):
+            check_channel(db, state, saved, notify)
     token = uuid.uuid4().hex
     directory = state.parent / (state.name + '.logs')
     directory.mkdir(mode=0o700, exist_ok=True)
@@ -1562,7 +1576,7 @@ def watch(db, state, attempt, request, *, productive=False):
     db.execute('BEGIN IMMEDIATE')
     with db:
         saved = get(db, attempt)
-        wait_preconditions(db, saved, productive, notify)
+        wait_preconditions(db, saved, productive)
         if productive:
             saved['submission_requested'] = dict(argv=argv, requested_at=time.time())
         stamp = process_stamp(os.getpid())

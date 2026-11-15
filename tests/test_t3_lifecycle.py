@@ -336,18 +336,22 @@ class RemoteSubmit(RemoteEnvironment):
 
     def submitted_linked(self, host):
         """A linked worker that has its packet, for the orchestrator `host` marks, and a `t3` whose `thread send`
-        accepts a message, logging the thread it names and the kind of message."""
+        accepts a message, logging the thread it names and the kind of message; while the file `wake-down` exists
+        it refuses a wait's receipt."""
         self.registered_remote(host=host)
         self.submit_packet()
         self.record('reconciled', evidence=['send accepted; thread running'])
         directory = self.root / 'wakebin'
         directory.mkdir()
         (directory / 't3').write_text('#!' + sys.executable + '\n' + f'''
-import json, sys
+import json, os, sys
 if sys.argv[1:3] != ['thread', 'send']:
     sys.exit(3)
+kind = json.loads(sys.argv[4])['kind']
+if kind == 'wait-finished' and os.path.exists({str(self.root / 'wake-down')!r}):
+    sys.exit(1)
 with open({str(self.root / 't3-wake.log')!r}, 'a') as log:
-    log.write(sys.argv[3] + ' ' + json.loads(sys.argv[4])['kind'] + chr(10))
+    log.write(sys.argv[3] + ' ' + kind + chr(10))
 ''')
         (directory / 't3').chmod(0o700)
         self.native_env = dict(self.native_env, PATH=str(directory) + os.pathsep + self.native_env['PATH'])
@@ -366,6 +370,7 @@ with open({str(self.root / 't3-wake.log')!r}, 'a') as log:
         error = self.arm(['echo', '{receipt}'], code=2)
         self.assertIn('T3 thread mcp:peer-1 runs on linked environment peer', error)
         self.assertIn('`t3 thread send <its own thread> {receipt}`', error)
+        self.assertIn('the `threadId` `t3_thread_configure` answers with no arguments', error)
         receipt = self.arm(['t3', 'thread', 'send', 'orch-7', '{receipt}'])
         self.assertEqual((receipt['reason'], receipt['delivery']['state']), ('settled', 'sent'))
         self.assertEqual((self.root / 't3-wake.log').read_text().splitlines(),
@@ -380,6 +385,56 @@ with open({str(self.root / 't3-wake.log')!r}, 'a') as log:
         self.assertFalse((self.root / 't3-wake.log').exists(), 'a message was sent before the wait was refused')
         receipt = self.arm(['t3', 'thread', 'send', 'orch-1', '{receipt}'])
         self.assertEqual((receipt['reason'], receipt['delivery']['state']), ('settled', 'sent'))
+        self.assertEqual((self.root / 't3-wake.log').read_text().splitlines(),
+                         ['orch-1 channel-check', 'orch-1 wait-finished'])
+
+    def test_a_wait_that_cannot_be_armed_yet_is_told_why_before_its_notify_is_judged(self):
+        # Rule: a worker that is not ready to be waited for is told so first: the wake rule speaks about a wait that
+        # could otherwise be armed.
+        self.registered_remote(host={'T3CODE_CLI_PATH': '/t3/bin/t3'})
+        self.assertIn('Wait requires a verified, unfinished worker', self.arm(['echo', '{receipt}'], code=2))
+
+    def hold(self, code=0, **fields):
+        criteria = self.root / 'criteria.md'
+        criteria.write_text('Accepted: preserve the public API.\n')
+        request = self.root / 'escalate.json'
+        request.write_text(json.dumps(dict(
+            risk='possible-breach', reason='Compatibility is uncertain', brief=str(self.root / 'decision.md'),
+            criteria=str(criteria), evidence=['native blocker report'], **fields)))
+        return self.cli('escalate', '--attempt', 'ticket-1/1', '--input', str(request), code=code)
+
+    def test_a_hold_for_a_linked_worker_is_raised_only_through_a_notify_that_wakes(self):
+        # Rule: the wake rule holds wherever the orchestrator hands over a notify, not only where a wait is armed. A
+        # hold raised with a notify of its own that only records would reach nobody: it is refused before the hold
+        # is recorded, and goes out through a message to the orchestrator's thread.
+        self.submitted_linked({'T3CODE_CLI_PATH': '/t3/bin/t3', 'T3CODE_THREAD_ID': 'orch-1'})
+        error = self.hold(code=2, notify={'argv': ['echo', '{receipt}'], 'timeout': 5})
+        self.assertIn('`t3 thread send orch-1 {receipt}`', error)
+        self.assertEqual(self.cli('status')['holds'], [])
+        raised = self.hold(notify={'argv': ['t3', 'thread', 'send', 'orch-1', '{receipt}'], 'timeout': 5})
+        self.assertEqual(raised['delivery']['state'], 'sent')
+        self.assertEqual((self.root / 't3-wake.log').read_text().splitlines(), ['orch-1 hold'])
+
+    def test_a_receipt_is_redelivered_only_through_a_notify_that_wakes(self):
+        # Rule: a receipt whose delivery failed may be sent again through another channel, and that channel is held
+        # to the same rule: one that only records is refused and the receipt stays undelivered.
+        self.submitted_linked({'T3CODE_CLI_PATH': '/t3/bin/t3', 'T3CODE_THREAD_ID': 'orch-1'})
+        own = {'argv': ['t3', 'thread', 'send', 'orch-1', '{receipt}'], 'timeout': 5}
+        (self.root / 'wake-down').touch()
+        receipt = self.arm(own['argv'])
+        self.assertEqual(receipt['delivery']['state'], 'failed')
+        (self.root / 'wake-down').unlink()
+        retry = self.root / 'retry.json'
+        retry.write_text(json.dumps({'retry': True, 'evidence': ['same thread inspected; the send had failed'],
+                                     'notify': {'argv': ['echo', '{receipt}'], 'timeout': 5}}))
+        error = self.cli('deliver', '--event-id', str(receipt['event_id']), '--input', str(retry), code=2)
+        self.assertIn('`t3 thread send orch-1 {receipt}`', error)
+        undelivered = next(row for row in self.cli('status')['pending'] if row['id'] == receipt['event_id'])
+        self.assertEqual(undelivered['payload']['delivery']['state'], 'failed')
+        retry.write_text(json.dumps({'retry': True, 'evidence': ['same thread inspected; the send had failed'],
+                                     'notify': own}))
+        delivered = self.cli('deliver', '--event-id', str(receipt['event_id']), '--input', str(retry))
+        self.assertEqual(delivered['state'], 'sent')
         self.assertEqual((self.root / 't3-wake.log').read_text().splitlines(),
                          ['orch-1 channel-check', 'orch-1 wait-finished'])
 
