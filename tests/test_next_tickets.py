@@ -1999,14 +1999,19 @@ class BoardCLI(unittest.TestCase):
         ledger.write_text('# fx ledger\n\n## User decisions\n\n| # | Decision | Date |\n|---|---|---|\n'
                           '| U1 | "Fix it" | 2026-11-15 |\n\n## Agent decisions\n\n| # | Decision | Hinge | Rejected |\n'
                           '|---|---|---|---|\n| A2 | Sandbox the server | F1 | Rules only |\n| FU-1 | Follow-up | x | |\n')
+        # Review (Sonnet): a candidate's indented context lines, a numbered list, sub-headings that group candidates
+        # and a later section are not candidates of their own.
         for body in ('- A2: workers run in a sandbox, approved as ADR 0022', '- U1 and A2: one decision, unanswered',
-                     '* FU-1: declined by the user'):
+                     '* FU-1: declined by the user', '- A2: the sandbox\n  - because a shell writes anywhere\n  - not U9',
+                     '1. A2: the sandbox\n2) U1: the fix', '### Approved\n\n- A2: the sandbox\n\n### Declined\n\n+ FU-1',
+                     '- A2: the sandbox\n\n## Workers\n\n- review/fx/1'):
             with self.subTest(body=body, ledger=True):
                 self.deliver('fx', 'feat/fx', start, head, adrs=body)
                 self.cli('fx', '--delivery')
         for body, entry in (('- the sandbox decision', 'the sandbox decision'), ('- A9: not a row', 'A9: not a row'),
                             ('- U12: a longer ID than a row', 'U12: a longer ID than a row'),
-                            ('- A2: the sandbox\n- Decision: a header cell', 'Decision: a header cell')):
+                            ('- #: the header row', '#: the header row'), ('- ---: a separator', '---: a separator'),
+                            ('### Approved\n\n- A2: the sandbox\n#tag\n### Declined\n\n- U9: not a row', 'U9: not a row')):
             with self.subTest(body=body):
                 self.deliver('fx', 'feat/fx', start, head, adrs=body)
                 self.assertIn(f'.scratch/fx/reports/dispatch.md: candidate `{entry}` names no row ID of '

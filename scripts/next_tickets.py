@@ -381,16 +381,18 @@ def adr_candidate_problems(slug):
     count, [] when it does."""
     report = ISSUES / slug / 'reports' / 'dispatch.md'
     text = report.read_text() if report.is_file() else ''
-    heading = re.search(r'(?mi)^#{2,6}[ \t]+Candidate ADRs[ \t]*$', text)
+    heading = re.search(r'(?mi)^(#{2,6})[ \t]+Candidate ADRs[ \t]*$', text)
     if not heading:
         return [f'{report} has no `## Candidate ADRs` section: list each ledger row that qualifies as a candidate ADR '
                 f"on a line naming its ID, or write `None: <reason>` (runtime/domain/adr.md, deliver a workstream's "
                 f'decisions)']
-    section = re.split(r'(?m)^#', text[heading.end():], maxsplit=1)[0]
-    lines = [line.strip() for line in section.splitlines() if line.strip()]
-    entries = [re.sub(r'^[-*][ \t]+', '', line) for line in lines]
+    section = re.split(rf'(?m)^#{{1,{len(heading.group(1))}}}[ \t]', text[heading.end():], maxsplit=1)[0]
+    # Top-level lines only: an indented line is a candidate's context, and a deeper heading groups candidates.
+    lines = [line.rstrip() for line in section.splitlines() if line.strip() and line[0] not in ' \t#']
+    marker = r'(?:[-*+]|\d+[.)])[ \t]+'
+    entries = [re.sub('^' + marker, '', line) for line in lines]
     nones = [re.match(r'(?i)none\b\W*(\w.*)?$', entry) for entry in entries]
-    candidates = [entry for line, entry, none in zip(lines, entries, nones) if not none and re.match(r'[-*][ \t]', line)]
+    candidates = [entry for line, entry, none in zip(lines, entries, nones) if not none and re.match(marker, line)]
     if not candidates and not any(none and none.group(1) for none in nones):
         return [f'{report} lists no candidate ADR: name each qualifying ledger row by its ID, or give the reason none '
                 f'qualifies as `None: <reason>`']

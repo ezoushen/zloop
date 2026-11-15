@@ -78,9 +78,10 @@ silently followed.
 A workstream's ledger stays in ignored `.scratch/`, so its lasting decisions reach other
 members only as ADRs. When the workstream's implementation is complete, list each ledger
 row that qualifies as a candidate ADR in the dispatch report, with the row it
-comes from, and ask the user once for the whole list: under a `## Candidate ADRs` heading
-in `.scratch/<slug>/reports/dispatch.md`, one list line per candidate naming its row's ID,
-or `None: <reason>` when no row qualifies. The delivery gate refuses a workstream without
+comes from, and ask the user once for the whole list. Write the list in
+`.scratch/<slug>/reports/dispatch.md` under a `## Candidate ADRs` heading: one top-level
+list line per candidate naming its row's ID, its context indented below it, or
+`None: <reason>` when no row qualifies. The delivery gate refuses a workstream without
 that list, or with a candidate naming no row of its ledger. Do not wait for the answer:
 write only the candidates the user approves into the workstream branch, those answered
 before its review head is pinned, so the review covers them; candidates still

@@ -24,8 +24,9 @@ class DeliveryHistory(unittest.TestCase):
                      'records an evidenced skip', 'A merge, renumbering or index fix after the review head is pinned returns to review and E2E',
                      'a duplicate number or an index problem fails the delivery gate', 'Fix an index problem the workstream caused in the same commit as its ADR',
                      'A problem that comes from `main` is fixed in the workstream branch with the merge, whatever it needs',
-                     'under a `## Candidate ADRs` heading in `.scratch/<slug>/reports/dispatch.md`',
-                     'one list line per candidate naming its row\'s ID, or `None: <reason>` when no row qualifies',
+                     'Write the list in `.scratch/<slug>/reports/dispatch.md` under a `## Candidate ADRs` heading',
+                     'one top-level list line per candidate naming its row\'s ID, its context indented below it, or '
+                     '`None: <reason>` when no row qualifies',
                      'The delivery gate refuses a workstream without that list, or with a candidate naming no row of its ledger'):
             self.assertIn(rule, text)
         self.assertNotIn('supersede link goes to the user', text)
