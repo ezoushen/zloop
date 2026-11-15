@@ -45,6 +45,10 @@ only accepted ADRs bind, and a change that conflicts with one is raised, not wor
   ([ADR 0019](adr/0019-titles-follow-gits-summary-line-convention.md)).
 - Autopilot finishes one or two tickets with no pause-list action or material question without an interview or a
   confirmation, keeping the required checks and one review ([ADR 0020](adr/0020-small-work-finishes-without-an-interview.md)).
+- OpenCode-runtime workers launch only through Herdr, each on a private `opencode serve` that shares the user's data
+  folder for logins; the resolver refuses native-subagent routes ([ADR 0021](adr/0021-opencode-workers-run-through-herdr-on-a-private-server.md)).
+- An OpenCode worker's server runs under a `scripts/seatbelt.py` profile, and its launch is refused where the sandbox
+  cannot be proven enforced ([ADR 0022](adr/0022-opencode-workers-run-inside-an-os-sandbox.md)).
 
 ## Suite and hooks
 

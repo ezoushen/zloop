@@ -24,6 +24,8 @@ The binding decisions of this repository, newest last. Format, statuses and supe
 - [0018](0018-tickets-land-by-rebase-proven-by-patch-equivalence.md) Tickets land by rebase and fast-forward, proven by patch equivalence: no merge commit from a local ticket branch, and the done check compares each commit's change, not its id.
 - [0019](0019-titles-follow-gits-summary-line-convention.md) Titles follow git's summary-line convention: one standard for ticket, commit and PR titles, a branch named from the title's words, scripts refusing what they can check.
 - [0020](0020-small-work-finishes-without-an-interview.md) Small work finishes without an interview or confirmation: one or two tickets with no pause-list action or material question run on a card confirmed by rule, keeping the required checks and one review.
+- [0021](0021-opencode-workers-run-through-herdr-on-a-private-server.md) OpenCode workers run through Herdr on a private server: one `opencode serve` per worker that shares the user's data folder for logins and stops when its pane is gone; native-subagent routes are refused.
+- [0022](0022-opencode-workers-run-inside-an-os-sandbox.md) OpenCode workers run inside an OS sandbox: the server runs under `sandbox-exec` with the route's writable paths, and a launch whose sandbox cannot be proven enforced is refused.
 
 ## Superseded
 
