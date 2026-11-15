@@ -69,7 +69,8 @@ Inside Herdr, [caller-specific routes](../runtime/config/catalog.md#caller-speci
 let Claude/Codex use native workers for same-runtime work and Herdr for other
 destinations; the [Herdr guidance](../hosts/herdr.md) covers waits and cleanup.
 The resolver refuses native OpenCode dispatch; OpenCode workers use the
-[Herdr top-level route](../hosts/opencode/workers.md#top-level-workers), which needs runtime verification.
+[Herdr top-level route](../hosts/opencode/workers.md#top-level-workers), each inside an OS sandbox, so only on macOS
+([ADR 0022](adr/0022-opencode-workers-run-inside-an-os-sandbox.md)).
 
 ## Routers and decisions
 

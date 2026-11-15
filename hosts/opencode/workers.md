@@ -32,8 +32,9 @@ Generated `opencode.json` allows edit, bash, webfetch and external_directory wit
 The keeper runs `opencode serve` under `sandbox-exec`: a shell can write regardless of OpenCode's edit
 deny rules, so the OS sandbox contains its writes. The profile is `scripts/seatbelt.py`'s for the route's
 write scope (temporary files and the reports, plus the worktree and the git commit machinery for
-`worktree`; credential reads denied), with the keeper's private folder and the user's OpenCode data folder
-(`${XDG_DATA_HOME:-~/.local/share}/opencode`) added; a private `XDG_CACHE_HOME` keeps cache writes inside.
+`worktree`; the ssh, aws, gnupg, gcloud and netrc credentials unreadable), with the keeper's private folder
+and the user's OpenCode data folder (`${XDG_DATA_HOME:-~/.local/share}/opencode`) added; a private
+`XDG_CACHE_HOME` keeps cache writes inside.
 A platform whose `sandbox-exec` is missing or does not enforce is refused before tab creation. Resolve with
 `--reports <absolute reports directory>` (the route carries it as `launch.reports`); a `writes: worktree`
 route also needs `--worktree <absolute checkout>`.
