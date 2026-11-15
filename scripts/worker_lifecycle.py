@@ -1505,7 +1505,7 @@ def mismatched(saved):
             if observed.get(key) != value and not (key == 'model' and aliases)]
 
 
-def wait_preconditions(db, saved, productive):
+def wait_preconditions(db, saved, productive, notify):
     differs = '; '.join(f'{key} requested {value}, observed {"none" if seen is None else seen}'
                         for key, value, seen in mismatched(saved)) if 'observed' in saved else ''
     require(saved.get('verified') and not saved.get('result')
@@ -1525,6 +1525,15 @@ def wait_preconditions(db, saved, productive):
                 'its result and register a new attempt' if saved.get('submission_requested') else
                 'Wait for submitted work: `submit` its assignment, or record `submitted` with evidence the worker '
                 'already has it')
+    environment = t3_environment(saved) if saved.get('t3') else None
+    if notify and environment and os.environ.get('T3CODE_CLI_PATH'):
+        # T3 hands a thread's result to its parent only, and a linked environment's thread has none: an orchestrator
+        # T3 hosts gets this receipt as a message to its own thread, which T3 names to Claude and Codex sessions.
+        own = os.environ.get('T3CODE_THREAD_ID')
+        require(notify['argv'][:3] == ['t3', 'thread', 'send'] and (not own or notify['argv'][3] == own),
+                f'T3 thread {saved["t3"]["thread"]} runs on linked environment {environment}, where it is nobody\'s '
+                'child, so T3 reports its result to no one: wake this orchestrator with notify argv '
+                f'`t3 thread send {own or "<its own thread>"} {{receipt}}`')
 
 
 def watch(db, state, attempt, request, *, productive=False):
@@ -1544,7 +1553,7 @@ def watch(db, state, attempt, request, *, productive=False):
     if notify and not channel_proven(db, notify['argv']):
         # Refuse an invalid wait before sending its parent anything.
         saved = get(db, attempt)
-        wait_preconditions(db, saved, productive)
+        wait_preconditions(db, saved, productive, notify)
         check_channel(db, state, saved, notify)
     token = uuid.uuid4().hex
     directory = state.parent / (state.name + '.logs')
@@ -1553,7 +1562,7 @@ def watch(db, state, attempt, request, *, productive=False):
     db.execute('BEGIN IMMEDIATE')
     with db:
         saved = get(db, attempt)
-        wait_preconditions(db, saved, productive)
+        wait_preconditions(db, saved, productive, notify)
         if productive:
             saved['submission_requested'] = dict(argv=argv, requested_at=time.time())
         stamp = process_stamp(os.getpid())

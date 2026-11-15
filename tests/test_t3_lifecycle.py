@@ -334,6 +334,62 @@ class RemoteSubmit(RemoteEnvironment):
                          ['t3_thread_read'] * 3)
         self.assertFalse((self.root / 't3-argv.log').exists(), 'the local CLI was asked about a linked thread')
 
+    def submitted_linked(self, host):
+        """A linked worker that has its packet, for the orchestrator `host` marks, and a `t3` whose `thread send`
+        accepts a message, logging the thread it names and the kind of message."""
+        self.registered_remote(host=host)
+        self.submit_packet()
+        self.record('reconciled', evidence=['send accepted; thread running'])
+        directory = self.root / 'wakebin'
+        directory.mkdir()
+        (directory / 't3').write_text('#!' + sys.executable + '\n' + f'''
+import json, sys
+if sys.argv[1:3] != ['thread', 'send']:
+    sys.exit(3)
+with open({str(self.root / 't3-wake.log')!r}, 'a') as log:
+    log.write(sys.argv[3] + ' ' + json.loads(sys.argv[4])['kind'] + chr(10))
+''')
+        (directory / 't3').chmod(0o700)
+        self.native_env = dict(self.native_env, PATH=str(directory) + os.pathsep + self.native_env['PATH'])
+
+    def arm(self, notify, code=0):
+        request = self.root / 'wait.json'
+        request.write_text(json.dumps({'timeout': 10, 'argv': [sys.executable, '-c', 'print("idle")'],
+                                       'notify': {'argv': notify, 'timeout': 5}}))
+        return self.cli('watch', '--attempt', 'ticket-1/1', '--input', str(request), code=code)
+
+    def test_a_hosted_orchestrators_linked_wait_refuses_a_notify_that_wakes_nobody(self):
+        # Rule: T3 hands a thread's result to its parent only, and a linked environment's thread has none. An
+        # orchestrator T3 hosts is then woken only by a message to its own thread, so its wait refuses a notify that
+        # only records the receipt, naming the argv that wakes, and arms with a message to a thread.
+        self.submitted_linked({'T3CODE_CLI_PATH': '/t3/bin/t3'})
+        error = self.arm(['echo', '{receipt}'], code=2)
+        self.assertIn('T3 thread mcp:peer-1 runs on linked environment peer', error)
+        self.assertIn('`t3 thread send <its own thread> {receipt}`', error)
+        receipt = self.arm(['t3', 'thread', 'send', 'orch-7', '{receipt}'])
+        self.assertEqual((receipt['reason'], receipt['delivery']['state']), ('settled', 'sent'))
+        self.assertEqual((self.root / 't3-wake.log').read_text().splitlines(),
+                         ['orch-7 channel-check', 'orch-7 wait-finished'])
+
+    def test_the_wake_of_a_linked_wait_names_the_orchestrators_own_thread_where_t3_names_it(self):
+        # Rule: where T3 names the orchestrator's thread (Claude, Codex), the wake is a message to that thread. One to
+        # another thread is refused before anything is sent there.
+        self.submitted_linked({'T3CODE_CLI_PATH': '/t3/bin/t3', 'T3CODE_THREAD_ID': 'orch-1'})
+        error = self.arm(['t3', 'thread', 'send', 'orch-2', '{receipt}'], code=2)
+        self.assertIn('`t3 thread send orch-1 {receipt}`', error)
+        self.assertFalse((self.root / 't3-wake.log').exists(), 'a message was sent before the wait was refused')
+        receipt = self.arm(['t3', 'thread', 'send', 'orch-1', '{receipt}'])
+        self.assertEqual((receipt['reason'], receipt['delivery']['state']), ('settled', 'sent'))
+        self.assertEqual((self.root / 't3-wake.log').read_text().splitlines(),
+                         ['orch-1 channel-check', 'orch-1 wait-finished'])
+
+    def test_an_orchestrator_outside_t3_keeps_its_own_wake_for_a_linked_worker(self):
+        # Rule: the wake through a T3 thread is the hosted orchestrator's. One outside T3 has no thread to message:
+        # its notify is its own host's channel, as on every transport.
+        self.submitted_linked({})
+        receipt = self.arm(['echo', '{receipt}'])
+        self.assertEqual((receipt['reason'], receipt['delivery']['state']), ('settled', 'sent'))
+
 
 class ResolverSeam(RemoteEnvironment):
     def test_the_resolver_output_feeds_the_lifecycle_transport(self):
@@ -717,6 +773,19 @@ class HostedOrchestrator(T3Threads):
         self.t3_fixture(host=host, parent='orch-1')
         self.register(worker='th-1', t3={'thread': 'th-1'})
         self.assertEqual(self.cli('status')['attempts'][0]['t3']['thread'], 'th-1')
+
+    def test_a_hosted_orchestrators_child_thread_keeps_a_notify_that_only_records(self):
+        # Rule: T3 hands a child thread's result to its parent, so on this machine the wait's notify need wake nobody.
+        # The wake through a message is the linked environment's rule.
+        self.t3_route()
+        self.t3_fixture(host=dict(self.HOST, T3CODE_THREAD_ID='orch-1'), parent='orch-1')
+        self.register(worker='th-1', t3={'thread': 'th-1'})
+        self.ready()
+        request = self.root / 'wait.json'
+        request.write_text(json.dumps({'timeout': 10, 'argv': [sys.executable, '-c', 'print("idle")'],
+                                       'notify': {'argv': ['echo', '{receipt}'], 'timeout': 5}}))
+        receipt = self.cli('watch', '--attempt', 'ticket-1/1', '--input', str(request))
+        self.assertEqual((receipt['reason'], receipt['delivery']['state']), ('settled', 'sent'))
 
     def test_a_hosted_orchestrator_archives_its_worker_thread_before_retiring_it(self):
         # Rule: the t3 CLI cannot archive, so an orchestrator T3 hosts archives its finished worker thread with
