@@ -243,6 +243,7 @@
    ],
    "code": [
     "scripts/native_wait.py",
+    "scripts/t3_send.py",
     "scripts/worker_lifecycle.py",
     "scripts/workstream_spend.py"
    ]

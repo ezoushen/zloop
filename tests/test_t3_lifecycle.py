@@ -113,10 +113,11 @@ class RemoteEnvironment(T3Threads):
 
     def mcp_fixture(self, thread='mcp:peer-1', status='completed', reply='assignment done'):
         """A stub T3 MCP server: /mcp answers initialize + tools/call for thread read/send/organize with the
-        fixture's thread state, recording the arguments it was given."""
+        fixture's thread state, recording the arguments it was given. Each read reports the next of
+        `recorded['statuses']`, staying on the last; `recorded['refuse_send']` is the sentence a send is refused with."""
         import threading
         from http.server import BaseHTTPRequestHandler, HTTPServer
-        recorded = {}
+        recorded = {'statuses': [status]}
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):
@@ -137,18 +138,20 @@ class RemoteEnvironment(T3Threads):
                 args = params.get('arguments', {})
                 recorded.setdefault('calls', []).append({'tool': tool, 'args': args})
                 result = {}
+                refused = recorded.get('refuse_send') if tool == 't3_thread_send' else None
                 if tool == 't3_thread_read':
-                    result = {'thread': {'threadId': args.get('threadId'), 'status': status,
+                    statuses = recorded['statuses']
+                    result = {'thread': {'threadId': args.get('threadId'),
+                                         'status': statuses.pop(0) if len(statuses) > 1 else statuses[0],
                                          'providerInstanceId': 'claude', 'model': 'sonnet'},
                               'messages': [{'role': 'assistant', 'text': reply}]}
                 elif tool == 't3_thread_send':
-                    result = {'threadId': args.get('threadId'), 'status': 'completed',
-                              'delivery': 'started'}
+                    result = {'threadId': args.get('threadId'), 'status': 'starting', 'delivery': 'started'}
                 elif tool == 't3_thread_organize':
                     result = {'sequence': 1}
                 payload = {'jsonrpc': '2.0', 'id': body.get('id'), 'result': {
-                    'content': [{'type': 'text', 'text': json.dumps(result)}],
-                    'structuredContent': result, 'isError': False}}
+                    'content': [{'type': 'text', 'text': refused or json.dumps(result)}],
+                    **({} if refused else {'structuredContent': result}), 'isError': bool(refused)}}
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
@@ -173,18 +176,17 @@ class RemoteEnvironment(T3Threads):
                          settings={'model': 'sonnet', 'provider': 'claude'})
         self.execution.write_text(json.dumps(execution))
 
-
-class RemoteLifecycle(RemoteEnvironment):
     def registered_remote(self, thread='mcp:peer-1', host=None):
         self.environment_route()
         self.t3_fixture()  # the local CLI stub must NOT be consulted for a remote thread
         self.mcp_fixture(thread=thread)
-        import os
-        self.native_env = dict(os.environ, T3_MCP_URL=self.mcp_url,
+        self.native_env = dict(self.native_env, T3_MCP_URL=self.mcp_url,
                                T3_MCP_BEARER_TOKEN='stub-token', **(host or {}))
         self.register(worker=thread, t3={'thread': thread})
         return self.cli('status')['attempts'][0]
 
+
+class RemoteLifecycle(RemoteEnvironment):
     def test_a_hosted_orchestrator_registers_a_linked_environments_thread_unparented(self):
         # Rule: the child-thread rule is the local environment's. A linked environment's worker thread is launched
         # on that machine, where this orchestrator's thread is not its parent.
@@ -238,14 +240,14 @@ class RemoteLifecycle(RemoteEnvironment):
         self.assertEqual(organize[0]['args'].get('action'), 'archive')
         self.assertEqual(organize[0]['args'].get('threadId'), 'mcp:peer-1')
 
-    def test_a_linked_environments_thread_registers_while_its_packet_runs(self):
-        # Rule: on a linked environment the packet is the thread's start message, so that thread is registered
-        # while its turn runs; only a thread on this machine must have settled.
+    def test_a_linked_environments_thread_registers_once_its_turn_has_settled(self):
+        # Rule: a turn still running would answer the packet with its own reply, on a linked environment as on this
+        # machine: the thread starts with the startup probe and is registered once that turn has settled.
         self.environment_route()
         self.mcp_fixture(status='running')
         self.native_env = dict(os.environ, T3_MCP_URL=self.mcp_url, T3_MCP_BEARER_TOKEN='stub-token')
-        self.register(worker='mcp:peer-1', t3={'thread': 'mcp:peer-1'})
-        self.assertEqual(self.cli('status')['attempts'][0]['t3']['status'], 'running')
+        error = self.register(worker='mcp:peer-1', t3={'thread': 'mcp:peer-1'}, code=2)
+        self.assertIn('T3 thread mcp:peer-1 is running: register it once its turn has settled', error)
 
     def test_a_linked_environments_thread_the_orchestrator_does_not_own_is_released(self):
         # Rule: a worker the orchestrator does not own is released; on a linked environment, where the lifecycle
@@ -274,6 +276,63 @@ class RemoteLifecycle(RemoteEnvironment):
         finally:
             os.environ.clear(); os.environ.update(saved_env)
         self.assertIn('T3_MCP_URL', str(error))
+
+
+class RemoteSubmit(RemoteEnvironment):
+    """A worker on a linked environment gets its packet and is waited for with the commands the local path uses; the
+    lifecycle reaches its thread through that environment's MCP server."""
+
+    def submit_packet(self, code=0):
+        self.record('startup', native=str(self.native('ticket-1/1')))
+        packet = Path(self.packet('ticket-1/1')).read_text(errors='replace').strip()
+        request = self.root / 'submit-send.json'
+        request.write_text(json.dumps({'argv': ['t3', 'thread', 'send', 'mcp:peer-1', packet, '--json'], 'timeout': 5,
+                                       'native': str(self.native('ticket-1/1'))}))
+        return packet, self.cli('submit', '--attempt', 'ticket-1/1', '--input', str(request), code=code)
+
+    def test_a_linked_submit_hands_the_packet_to_the_environments_server(self):
+        # Rule: the packet of a worker on a linked environment goes to that environment's MCP server as a new turn
+        # (`queue`: a busy thread gets it next, and no running turn is steered), and T3's acceptance there is the
+        # submission. The local CLI, which answers only this machine's threads, is not asked.
+        self.registered_remote()
+        self.mcp_recorded['calls'].clear()
+        packet, receipt = self.submit_packet()
+        self.assertEqual((receipt['reason'], receipt['exit_code']), ('settled', 0))
+        sent = [call['args'] for call in self.mcp_recorded['calls'] if call['tool'] == 't3_thread_send']
+        self.assertEqual(sent, [{'threadId': 'mcp:peer-1', 'message': packet, 'mode': 'queue'}])
+        self.assertIn('"delivery": "started"', Path(receipt['log']).read_text())
+        self.assertFalse((self.root / 't3-argv.log').exists(), 'the local CLI was asked about a linked thread')
+
+    def test_a_send_the_environment_refuses_leaves_the_attempt_unsubmitted(self):
+        # Rule: `submitted` is T3's acceptance of the send, on a linked environment too: a send it refuses is a wait
+        # error, and the completion wait cannot be armed on it.
+        self.registered_remote()
+        self.mcp_recorded['refuse_send'] = 'Thread mcp:peer-1 is archived.'
+        _, receipt = self.submit_packet(code=1)
+        self.assertEqual((receipt['reason'], receipt['exit_code']), ('wait-error', 1))
+        self.assertIn('Thread mcp:peer-1 is archived.', Path(receipt['log']).read_text())
+        self.record('reconciled', evidence=['send refused; thread inspected'])
+        self.assertIn('Its submission was not confirmed', self.watch(code=2))
+
+    def test_a_linked_workers_turn_is_waited_for_on_its_environments_server(self):
+        # Rule: the completion wait of a worker on a linked environment is the command the local path arms. The
+        # lifecycle names the attempt's environment to it, so the thread is read where it lives.
+        self.registered_remote()
+        self.submit_packet()
+        self.record('reconciled', evidence=['send accepted; thread running'])
+        self.mcp_recorded['statuses'] = ['running', 'running', 'completed']
+        self.mcp_recorded['calls'].clear()
+        request = self.root / 'wait.json'
+        request.write_text(json.dumps({'timeout': 10, 'argv': [
+            sys.executable, '-B', str(SCRIPT.with_name('native_wait.py')), 't3', 'mcp:peer-1', '--interval', '0.05',
+            '--timeout', '3']}))
+        receipt = self.cli('watch', '--attempt', 'ticket-1/1', '--input', str(request))
+        self.assertEqual((receipt['reason'], receipt['exit_code']), ('settled', 0))
+        self.assertTrue(Path(receipt['log']).read_text().strip().endswith('mcp:peer-1: completed'))
+        # The stub also records each call's `notifications/initialized`, which names no tool.
+        self.assertEqual([call['tool'] for call in self.mcp_recorded['calls'] if call['tool']],
+                         ['t3_thread_read'] * 3)
+        self.assertFalse((self.root / 't3-argv.log').exists(), 'the local CLI was asked about a linked thread')
 
 
 class ResolverSeam(RemoteEnvironment):
@@ -882,6 +941,25 @@ sys.exit(3)
         self.assertIn('run-2', Path(receipt['log']).read_text())
         self.record('reconciled', evidence=['send accepted; thread running'])
         self.assertEqual(self.watch()['reason'], 'settled')
+
+    def test_a_local_threads_wait_reads_this_machine_whatever_the_callers_environment_names(self):
+        # Rule: the attempt's route says where its thread lives. A linked environment named in the orchestrator's own
+        # environment does not move a local worker's wait off this machine's CLI.
+        self.registered()
+        self.record('startup', native=str(self.native('ticket-1/1')))
+        self.t3_send_fixture(exit_code=0, reply='{"runId": "run-2", "status": "running"}')
+        packet = Path(self.packet('ticket-1/1')).read_text(errors='replace').strip()
+        self.assertEqual(self.submit_send(text=packet).returncode, 0)
+        self.record('reconciled', evidence=['send accepted; thread running'])
+        self.native_env = {key: value for key, value in dict(self.send_env, ZLOOP_T3_ENVIRONMENT='peer').items()
+                           if not key.startswith('T3_MCP_')}
+        request = self.root / 'wait.json'
+        request.write_text(json.dumps({'timeout': 10, 'argv': [
+            sys.executable, '-B', str(SCRIPT.with_name('native_wait.py')), 't3', 'th-1', '--interval', '0.05',
+            '--timeout', '3']}))
+        receipt = self.cli('watch', '--attempt', 'ticket-1/1', '--input', str(request))
+        self.assertEqual((receipt['reason'], receipt['exit_code']), ('settled', 0))
+        self.assertTrue(Path(receipt['log']).read_text().strip().endswith('th-1: completed'))
 
     def test_a_send_t3_does_not_accept_leaves_the_attempt_unsubmitted(self):
         # Rule: `submitted` is T3's acceptance of the send. A send that fails is a wait error like any transport's; a

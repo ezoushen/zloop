@@ -8,15 +8,16 @@ claude, a native subagent: exits 0 once the record's last assistant row ended it
 with no user row after it (tool results are user rows, so a turn in progress always has one); a missing record is
 waited for. Arm it after the assignment is sent: an end_turn already followed by no user row counts as finished.
 
-t3, a worker in a T3 Code thread on this machine: exits 0 once T3 reports the thread's turn completed, and 1, printing
-T3's answer, once the turn ended any other way, the agent waits for an answer in the app, or the thread is gone. A turn
-still running and a read T3 does not answer are waited on. Arm it after `submit`: T3 reports the thread running from
-the moment it accepts the send.
+t3, a worker in a T3 Code thread: exits 0 once T3 reports the thread's turn completed, and 1, printing T3's answer, once
+the turn ended any other way, the agent waits for an answer in the app, or the thread is gone. A turn still running and
+a read T3 does not answer are waited on. Arm it after `submit`: T3 reports the thread running from the moment it accepts
+the send. The thread is read on this machine, or on the linked environment `watch` names in ZLOOP_T3_ENVIRONMENT.
 
 Both exit 124 when the timeout passes first, and 2 for any other runtime.
 """
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 import time
@@ -41,7 +42,7 @@ def turn_ended(path):
 
 def t3_turn(thread):
     """(Exit code once the thread's turn is over, None while it runs or T3 does not answer; T3's answer as one line)."""
-    line, found, placed = t3_state({'t3': {'thread': thread}})
+    line, found, placed = t3_state({'t3': {'thread': thread}, 'environment': os.environ.get('ZLOOP_T3_ENVIRONMENT')})
     if found in ('busy', 'silent'):
         return None, line
     return int(found != 'idle' or placed.get('status') != 'completed'), line

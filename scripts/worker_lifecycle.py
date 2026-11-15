@@ -1565,6 +1565,8 @@ def watch(db, state, attempt, request, *, productive=False):
         event(db, attempt, 'wait-started', dict(token=token, argv=argv, timeout=timeout,
                                                **({'completion': completion} if completion else {})))
     process, code, reason = None, 2, 'launch-error'
+    # `native_wait.py t3` reads a T3 worker's thread where its route says it lives, whatever the caller's environment names.
+    environ = dict(os.environ, ZLOOP_T3_ENVIRONMENT=t3_environment(saved) or '') if saved.get('t3') else None
     previous_handler = signal.signal(signal.SIGTERM, interrupted)
     try:
         deadline = time.monotonic() + timeout
@@ -1577,7 +1579,7 @@ def watch(db, state, attempt, request, *, productive=False):
                         if time.monotonic() >= deadline:
                             raise subprocess.TimeoutExpired(command, timeout)
                         code = 2
-                        process = subprocess.Popen(command, cwd=saved['worktree'], stdout=output,
+                        process = subprocess.Popen(command, cwd=saved['worktree'], stdout=output, env=environ,
                                                    stderr=subprocess.STDOUT, start_new_session=True)
                         saved = get(db, attempt)
                         saved['monitor']['wait_pid'] = process.pid
@@ -1670,6 +1672,9 @@ def submit(db, state, attempt, request):
                 'submit takes the t3 argv, not observed or evidence')
         record(db, dict(kind='startup', attempt=attempt, native=request.get('native'),
                         model_alias_evidence=request.get('model_alias_evidence', [])), submitting=True)
+        if t3_environment(saved):
+            # The local CLI answers only this machine's threads: a linked environment takes the packet on its MCP server.
+            request = dict(request, argv=[sys.executable, str(Path(__file__).with_name('t3_send.py')), thread, text])
         return watch(db, state, attempt, request, productive=True)
     text, flags = herdr_prompt(request.get('argv')) or (None, None)
     # Plain --wait returns when the worker's turn settles, which would hold the orchestrator for the whole job.
@@ -1876,9 +1881,8 @@ def t3_placement(data, execution=None):
     require(isinstance(placed, dict) and placed.get('threadId') == thread,
             f'T3 thread show named {placed.get("threadId")!r}, not the registered thread {thread!r}')
     require(not placed.get('archived'), f'T3 thread {thread} is archived, so its worker has left: start a fresh thread')
-    # A turn still running would answer the packet with its own reply. A linked environment's thread starts with its
-    # packet, so only a thread on this machine must have settled.
-    require(environment or placed.get('status') not in T3_UNSETTLED,
+    # A turn still running would answer the packet with its own reply.
+    require(placed.get('status') not in T3_UNSETTLED,
             f'T3 thread {thread} is {placed.get("status")}: register it once its turn has settled')
     if not environment and os.environ.get('T3CODE_CLI_PATH'):
         # T3 Code hosts this orchestrator (it puts its CLI's path in every session it starts), so the worker is a
