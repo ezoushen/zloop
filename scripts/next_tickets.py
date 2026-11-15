@@ -335,6 +335,7 @@ def delivery_problems(slug):
     if not profile.is_file() or not re.search(rf'(?<![\w-]){re.escape(slug)}(?![\w-])', profile.read_text()):
         problems.append(f'{profile} does not name {slug}: write its entry in the handoff step that updates the crew '
                         f'profile (runtime/workers/skills.md, record and learn)')
+    problems += adr_candidate_problems(slug)
     if fm.get('autofix') == 'true' and not any(saved.get('job') == 'readiness' and saved.get('result')
                                                for saved in workstream_attempts(slug)):
         problems.append('autofix: true but no collected readiness attempt; launch the readiness verifier named in '
@@ -373,6 +374,32 @@ def delivery_problems(slug):
                         f'review_base and {branch} head {sha}; run a whole-range final review from review_base '
                         f'{base} at head {sha}, collect its reviewer attempts and set review_by to them')
     return problems
+
+
+def adr_candidate_problems(slug):
+    """Why the dispatch report's candidate ADR list (runtime/domain/adr.md, deliver a workstream's decisions) does not
+    count, [] when it does."""
+    report = ISSUES / slug / 'reports' / 'dispatch.md'
+    text = report.read_text() if report.is_file() else ''
+    heading = re.search(r'(?mi)^#{2,6}[ \t]+Candidate ADRs[ \t]*$', text)
+    if not heading:
+        return [f'{report} has no `## Candidate ADRs` section: list each ledger row that qualifies as a candidate ADR '
+                f"on a line naming its ID, or write `None: <reason>` (runtime/domain/adr.md, deliver a workstream's "
+                f'decisions)']
+    section = re.split(r'(?m)^#', text[heading.end():], maxsplit=1)[0]
+    lines = [line.strip() for line in section.splitlines() if line.strip()]
+    entries = [re.sub(r'^[-*][ \t]+', '', line) for line in lines]
+    nones = [re.match(r'(?i)none\b\W*(\w.*)?$', entry) for entry in entries]
+    candidates = [entry for line, entry, none in zip(lines, entries, nones) if not none and re.match(r'[-*][ \t]', line)]
+    if not candidates and not any(none and none.group(1) for none in nones):
+        return [f'{report} lists no candidate ADR: name each qualifying ledger row by its ID, or give the reason none '
+                f'qualifies as `None: <reason>`']
+    ledger = ISSUES / slug / 'ledger.md'
+    # A ledger row's ID is the first cell of its table row; the header's `#` is none.
+    rows = set(re.findall(r'(?m)^\|[ \t]*([^|#\s-][^|]*?)[ \t]*\|', ledger.read_text())) if ledger.is_file() else set()
+    missing = '' if ledger.is_file() else ' (it does not exist)'
+    return [f'{report}: candidate `{entry}` names no row ID of {ledger}{missing}' for entry in candidates
+            if not any(re.search(rf'(?<![\w-]){re.escape(row)}(?![\w-])', entry) for row in rows)]
 
 
 # The statuses each worker field vouches for: a required value, or None for the value the review report records.

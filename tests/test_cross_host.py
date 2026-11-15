@@ -94,6 +94,7 @@ class CrossHost(unittest.TestCase):
                     f'review_by: review/a/1\ne2e_by: e2e/a/1\n---\n')
             source_report.write_text(evidence)
             (repo / '.scratch/crew.md').write_text('# Crew\n- a: builder\n')
+            (repo / '.scratch/a/reports/dispatch.md').write_text('## Candidate ADRs\n\nNone: a fixture change.\n')
             assert cli('a', '--delivery', ok=False).returncode != 0  # No worker returned these statuses yet.
             support.collected_attempt(repo, 'a', 'review/a/1', source_report, job='diff-review', head=reviewed_head)
             support.collected_attempt(repo, 'a', 'e2e/a/1', source_report, job='e2e-gate', head=reviewed_head)

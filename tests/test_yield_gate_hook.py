@@ -1422,6 +1422,7 @@ class DeliveryHold(GateRepo):
         self.report = self.repo / '.scratch/fix/reports/spec-review.md'
         self.report.parent.mkdir(parents=True)
         (self.repo / '.scratch/crew.md').write_text('# Crew\n- fix: builder\n')
+        (self.repo / '.scratch/fix/reports/dispatch.md').write_text('## Candidate ADRs\n\nNone: a fixture fix.\n')
         self.review()
         support.collected_attempt(self.repo, 'fix', 'readiness/fix', self.report, job='readiness', head=self.start)
 
@@ -1742,6 +1743,9 @@ class DeliveryHold(GateRepo):
                       'e2e_by: missing names no worker run',
                       f'{self.repo}/.scratch/crew.md does not name audit: write its entry in the handoff step that '
                       'updates the crew profile (runtime/workers/skills.md, record and learn)',
+                      f'{self.repo}/.scratch/audit/reports/dispatch.md has no `## Candidate ADRs` section: list each '
+                      'ledger row that qualifies as a candidate ADR on a line naming its ID, or write `None: <reason>` '
+                      "(runtime/domain/adr.md, deliver a workstream's decisions)",
                       'workstream branch feat/audit is not an existing branch'),
             self.gap()])
 
@@ -2453,6 +2457,7 @@ class AutopilotCardHold(GateRepo):
         support.collected_attempt(self.repo, 'run', 'review/run/1', review, job='diff-review', head=head)
         support.collected_attempt(self.repo, 'run', 'e2e/run/1', review, job='e2e-gate', head=head)
         (self.repo / '.scratch/crew.md').write_text('# Crew\n- run: builder\n')
+        (self.repo / '.scratch/run/reports/dispatch.md').write_text('## Candidate ADRs\n\nNone: a fixture run.\n')
         self.card(terminal='merged', evidence='PR 1 merged', phase='pr')
         self.assertEqual(self.check(session='host-1'), [])
         # Review (Sonnet): another workstream's problem is not this session's to fix, so it holds nothing here; this

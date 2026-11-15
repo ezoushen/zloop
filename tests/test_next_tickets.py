@@ -1879,10 +1879,16 @@ class BoardCLI(unittest.TestCase):
             self.write_report(base, name, [work])
             self.cli('inline', '--accept', 'inline/01')
 
-    def deliver(self, slug, branch, start, head, workers=True, crew=True, autofix=False, readiness=True):
+    def deliver(self, slug, branch, start, head, workers=True, crew=True, autofix=False, readiness=True,
+                adrs='None: no ledger row affects others or passes the three tests.'):
         """The workstream's review report, clean and passed at head, as its reviewer and E2E worker returned it (two
         collected attempts that review_by and e2e_by name) unless workers=False. The repository's crew profile names the
-        workstream unless crew=False; under autofix a collected readiness attempt is there unless readiness=False."""
+        workstream unless crew=False; under autofix a collected readiness attempt is there unless readiness=False. The
+        dispatch report's candidate ADR section holds `adrs`, and there is no dispatch report when adrs is None."""
+        if adrs is not None:
+            dispatch = self.root / f'.scratch/{slug}/reports/dispatch.md'
+            dispatch.parent.mkdir(parents=True, exist_ok=True)
+            dispatch.write_text(f'# {slug} dispatch\n\n## Candidate ADRs\n\n{adrs}\n')
         if crew:
             profile = self.root / '.scratch/crew.md'
             profile.write_text((profile.read_text() if profile.is_file() else '# Crew\n') + f'- {slug}: builder\n')
@@ -1937,6 +1943,74 @@ class BoardCLI(unittest.TestCase):
         self.assertIn('.scratch/crew.md', self.cli('fx', '--delivery', code=1).stderr)
         profile.write_text('# Crew\n- fx: builder\n')
         self.cli('fx', '--delivery')
+
+    def test_delivery_requires_the_dispatch_reports_candidate_adr_section(self):
+        # Rule: a workstream delivers only once its dispatch report lists its candidate ADRs. Live (opencode-workers,
+        # opencode-sandbox): both delivered with no list; the step lived in runtime/domain/adr.md's prose only.
+        self.write_ticket('fx/01', 'done')
+        start = self.commit('start')
+        self.git('checkout', '-b', 'feat/fx')
+        head = self.commit('reviewed work')
+        self.deliver('fx', 'feat/fx', start, head, adrs=None)
+        dispatch = '.scratch/fx/reports/dispatch.md'
+        expected = ('has no `## Candidate ADRs` section: list each ledger row that qualifies as a candidate ADR on a '
+                    "line naming its ID, or write `None: <reason>` (runtime/domain/adr.md, deliver a workstream's "
+                    'decisions)')
+        refused = self.cli('fx', '--delivery', code=1).stderr
+        self.assertIn(f'{dispatch} {expected}', refused)
+        (self.root / dispatch).write_text('# fx dispatch\n\n## Workers\n\n- review/fx/1\n')
+        self.assertIn(f'{dispatch} {expected}', self.cli('fx', '--delivery', code=1).stderr)
+        (self.root / dispatch).write_text('# fx dispatch\n\n## Candidate ADRs\n\nNone: nothing outlives the fix.\n')
+        self.cli('fx', '--delivery')
+
+    def test_a_candidate_adr_section_without_candidates_needs_its_reason(self):
+        # Rule: a list with no candidate counts only as `None: <reason>`; the reason is the judgement the step asks
+        # for, so a bare None or an empty section is refused.
+        self.write_ticket('fx/01', 'done')
+        start = self.commit('start')
+        self.git('checkout', '-b', 'feat/fx')
+        head = self.commit('reviewed work')
+        expected = ('.scratch/fx/reports/dispatch.md lists no candidate ADR: name each qualifying ledger row by its ID, '
+                    'or give the reason none qualifies as `None: <reason>`')
+        for body in ('', 'None', 'None.', '- None:', 'nothing'):
+            with self.subTest(body=body):
+                self.deliver('fx', 'feat/fx', start, head, adrs=body)
+                self.assertIn(expected, self.cli('fx', '--delivery', code=1).stderr)
+        for body in ('None: the fix changes no interface and no rule later work follows.',
+                     '- None — a one-line fix nobody builds on.'):
+            with self.subTest(body=body):
+                self.deliver('fx', 'feat/fx', start, head, adrs=body)
+                self.cli('fx', '--delivery')
+
+    def test_each_candidate_adr_names_the_ledger_row_it_comes_from(self):
+        # Rule: a candidate counts only when its line names the ID of a row in the workstream's ledger, the decision it
+        # would record (runtime/domain/adr.md: "with the row it comes from").
+        self.write_ticket('fx/01', 'done')
+        start = self.commit('start')
+        self.git('checkout', '-b', 'feat/fx')
+        head = self.commit('reviewed work')
+        ledger = self.root / '.scratch/fx/ledger.md'
+        for body in ('- A2: workers run in a sandbox, approved as ADR 0022', '- U1 and A2: one decision, unanswered',
+                     '* FU-1: declined by the user'):
+            with self.subTest(body=body, ledger=False):
+                self.deliver('fx', 'feat/fx', start, head, adrs=body)
+                self.assertIn(f'.scratch/fx/reports/dispatch.md: candidate `{body[2:]}` names no row ID of '
+                              f'{ledger.resolve()} (it does not exist)', self.cli('fx', '--delivery', code=1).stderr)
+        ledger.write_text('# fx ledger\n\n## User decisions\n\n| # | Decision | Date |\n|---|---|---|\n'
+                          '| U1 | "Fix it" | 2026-11-15 |\n\n## Agent decisions\n\n| # | Decision | Hinge | Rejected |\n'
+                          '|---|---|---|---|\n| A2 | Sandbox the server | F1 | Rules only |\n| FU-1 | Follow-up | x | |\n')
+        for body in ('- A2: workers run in a sandbox, approved as ADR 0022', '- U1 and A2: one decision, unanswered',
+                     '* FU-1: declined by the user'):
+            with self.subTest(body=body, ledger=True):
+                self.deliver('fx', 'feat/fx', start, head, adrs=body)
+                self.cli('fx', '--delivery')
+        for body, entry in (('- the sandbox decision', 'the sandbox decision'), ('- A9: not a row', 'A9: not a row'),
+                            ('- U12: a longer ID than a row', 'U12: a longer ID than a row'),
+                            ('- A2: the sandbox\n- Decision: a header cell', 'Decision: a header cell')):
+            with self.subTest(body=body):
+                self.deliver('fx', 'feat/fx', start, head, adrs=body)
+                self.assertIn(f'.scratch/fx/reports/dispatch.md: candidate `{entry}` names no row ID of '
+                              f'{ledger.resolve()}\n', self.cli('fx', '--delivery', code=1).stderr + '\n')
 
     def test_delivery_under_autofix_requires_a_collected_readiness_attempt(self):
         # Live checks (claude, codex): no host launched the readiness verifier its setup step names.
