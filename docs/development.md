@@ -49,6 +49,9 @@ only accepted ADRs bind, and a change that conflicts with one is raised, not wor
   folder for logins; the resolver refuses native-subagent routes ([ADR 0021](adr/0021-opencode-workers-run-through-herdr-on-a-private-server.md)).
 - An OpenCode worker's server runs under a `scripts/seatbelt.py` profile, and its launch is refused where the sandbox
   cannot be proven enforced ([ADR 0022](adr/0022-opencode-workers-run-inside-an-os-sandbox.md)).
+- Every worker transport follows the same framework rules and differs only in the means that carry a rule out;
+  a difference stands only where a transport lacks the means, and the code says so
+  ([ADR 0023](adr/0023-worker-transports-follow-the-same-framework-rules.md)).
 
 ## Suite and hooks
 

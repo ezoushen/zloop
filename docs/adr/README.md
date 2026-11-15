@@ -26,6 +26,7 @@ The binding decisions of this repository, newest last. Format, statuses and supe
 - [0020](0020-small-work-finishes-without-an-interview.md) Small work finishes without an interview or confirmation: one or two tickets with no pause-list action or material question run on a card confirmed by rule, keeping the required checks and one review.
 - [0021](0021-opencode-workers-run-through-herdr-on-a-private-server.md) OpenCode workers run through Herdr on a private server: one `opencode serve` per worker that shares the user's data folder for logins and stops when its pane is gone; native-subagent routes are refused.
 - [0022](0022-opencode-workers-run-inside-an-os-sandbox.md) OpenCode workers run inside an OS sandbox: the server runs under `sandbox-exec` with the route's writable paths, and a launch whose sandbox cannot be proven enforced is refused.
+- [0023](0023-worker-transports-follow-the-same-framework-rules.md) Worker transports follow the same framework rules: every transport registers, submits, waits for, collects and retires a worker by the same rules and differs only in the means; a difference stands only where a transport lacks the means, and the code says so.
 
 ## Superseded
 
