@@ -926,11 +926,11 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
             require(code == 0 and isinstance(placed, dict) and placed.get('threadId') == thread,
                     f'T3 cannot confirm thread {thread} at collection: reconcile it and collect again')
             status = placed.get('status')
-            require(status not in ('running', 'queued', 'starting', 'preparing'),
+            require(status not in T3_UNSETTLED or not t3_asks(placed),
+                    f'T3 thread {thread} waits for an answer in the T3 app: answer it or decline the worker there; '
+                    'the choice is not the orchestrator\'s')
+            require(status not in T3_UNSETTLED,
                     f'T3 thread {thread} is still {status}; let its turn settle, then collect again')
-            if status == 'waiting':
-                raise ValueError(f'T3 thread {thread} waits for an answer in the T3 app: answer it or decline the '
-                                 'worker there; the choice is not the orchestrator\'s')
             messages = response.get('messages') or []
             reply = next((m.get('text') for m in reversed(messages) if m.get('role') == 'assistant'), None)
             require(text(reply), f'T3 thread {thread} answered no reply; let the worker answer, then collect again')
@@ -1920,6 +1920,12 @@ def t3_placement(data, execution=None):
                 runtime=placed.get('providerInstanceId'), model=placed.get('model'))
 
 
+def t3_asks(placed):
+    """How many answers a T3 thread waits for in the app. T3 counts them; its `waiting` status alone is also every
+    turn's last moment, between its reply and its end (probed on T3 Code v0.1.9)."""
+    return placed.get('pendingRequestCount')
+
+
 def t3_state(saved, budget=None):
     """(T3's answer as one line, what it shows of the attempt's worker, the thread as T3 reports it); every closure of
     a T3 worker judges it here, as `herdr_state` does a Herdr worker's. The state: `gone` (the thread is settled and
@@ -1941,7 +1947,9 @@ def t3_state(saved, budget=None):
         return f'{command}: not confirmed', 'silent', {}
     status = placed.get('status')
     if status in T3_UNSETTLED:
-        return f'{command}: {status}', 'waiting' if status == 'waiting' else 'busy', placed
+        asks = t3_asks(placed)
+        return (f'{command}: {status}' + (f', {asks} answer{"s" * (asks != 1)} pending' if asks else ''),
+                'waiting' if asks else 'busy', placed)
     return (f'{command}: {status}, archived', 'gone', placed) if placed.get('archived') else (
         f'{command}: {status}', 'idle', placed)
 

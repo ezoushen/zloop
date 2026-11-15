@@ -62,8 +62,9 @@ class NativeWait(unittest.TestCase):
 class T3Wait(unittest.TestCase):
     def wait(self, *answers, timeout='0.6'):
         """Run the script on thread th-1 against a `t3` stub whose `thread show` gives the next of `answers` each time
-        it is asked (the last one repeats): a status, `archived:<status>`, or `says:<sentence>`, which the CLI
-        answers instead on stderr with exit 1 and no JSON. Its exit code and output."""
+        it is asked (the last one repeats): a status, `archived:<status>`, `asks:<status>` for a thread that waits
+        for one answer in the app, or `says:<sentence>`, which the CLI answers instead on stderr with exit 1 and no
+        JSON. Its exit code and output."""
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
@@ -80,7 +81,8 @@ if sys.argv[1:4] != ['thread', 'show', '--json'] or sys.argv[4] != 'th-1':
 if answer.startswith('says:'):
     sys.exit(answer[5:])
 print(json.dumps({{'thread': {{'threadId': 'th-1', 'status': answer.split(':')[-1],
-                             'archived': answer.startswith('archived:')}}, 'messages': []}}))
+                             'archived': answer.startswith('archived:'),
+                             'pendingRequestCount': int(answer.startswith('asks:'))}}, 'messages': []}}))
 ''')
         stub.chmod(0o700)
         environment = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'])
@@ -102,13 +104,22 @@ print(json.dumps({{'thread': {{'threadId': 'th-1', 'status': answer.split(':')[-
         # Rule: a turn that ended another way, an agent waiting for an answer in the app, and a thread that is gone
         # all need the orchestrator: the wait ends 1 and says what T3 answered.
         for answer, said in (('failed', 'th-1: failed'), ('interrupted', 'th-1: interrupted'),
-                             ('cancelled', 'th-1: cancelled'), ('waiting', 'th-1: waiting'),
+                             ('cancelled', 'th-1: cancelled'),
+                             ('asks:waiting', 'th-1: waiting, 1 answer pending'),
+                             ('asks:running', 'th-1: running, 1 answer pending'),
                              ('archived:completed', 'th-1: completed, archived'),
                              ('says:Thread th-1 is no longer available.', 'th-1: no longer available')):
             with self.subTest(answer=answer):
                 code, output = self.wait('running', answer, timeout='20')
                 self.assertEqual(code, 1, output)
                 self.assertIn(said, output)
+
+    def test_a_turn_between_its_reply_and_its_end_is_waited_on(self):
+        # Rule: T3 counts the answers a thread waits for. Its `waiting` status alone is also every turn's last moment,
+        # between its reply and its end (probed on T3 Code v0.1.9), so with no answer pending the wait goes on.
+        code, output = self.wait('running', 'waiting', 'completed', timeout='20')
+        self.assertEqual(code, 0, output)
+        self.assertIn('t3 thread show --json th-1: completed', output)
 
     def test_a_running_turn_and_an_unanswered_read_are_waited_on(self):
         # Rule: neither a turn still running nor a read T3 does not answer is the end of the turn.

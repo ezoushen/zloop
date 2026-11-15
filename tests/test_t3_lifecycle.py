@@ -56,17 +56,19 @@ class T3Threads(WorkerLifecycleCase):
 
     def t3_fixture(self, thread='th-1', status='completed', show_error=None, runtime='claude',
                    model='sonnet', title='zloop/slug/a-1 builder', parent=None, archived=False, host=None,
-                   says=None):
+                   says=None, asks=0):
         """A `t3` stub whose `thread show --json <thread>` answers with the fixture's state. `parent` makes the
         thread that thread's child, as `delegate_task` does; `host` is what T3 puts in the environment of an
-        orchestrator it hosts; `says` is a sentence the CLI answers instead, on stderr with exit 1 and no JSON."""
+        orchestrator it hosts; `says` is a sentence the CLI answers instead, on stderr with exit 1 and no JSON;
+        `asks` is how many answers the thread waits for in the app."""
         directory = self.root / 'bin'
         directory.mkdir(exist_ok=True)
         executable = directory / 't3'
         # The real CLI nests the thread under `thread` beside `messages`.
         payload = {'thread': {'threadId': thread, 'title': title, 'status': status,
                               'providerInstanceId': runtime, 'model': model, 'parentThreadId': parent,
-                              'relationshipToParent': 'subagent' if parent else None, 'archived': archived},
+                              'relationshipToParent': 'subagent' if parent else None, 'archived': archived,
+                              'pendingRequestCount': asks},
                    'messages': [{'role': 'assistant', 'text': 'assignment done'}]}
         body = (json.dumps(payload) if show_error is None
                 else json.dumps({'error': {'code': show_error}}))
@@ -984,12 +986,44 @@ class WaitingThreadRetirement(T3Threads):
         self.ready()
         report = self.collect()
         self.acknowledge()
-        self.t3_fixture(status='waiting')
+        self.t3_fixture(status='waiting', asks=1)
         request = self.root / 'retire-waiting.json'
         request.write_text(json.dumps({'evidence': ['t3 thread show th-1: waiting'],
                                        'acceptance': {'decision': 'deferred', 'reason': 'waiting on the user'}}))
         error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
         self.assertIn('waits for an answer', str(error))
+
+    def test_a_settled_thread_is_collected_whatever_count_t3_still_shows(self):
+        # Rule: only a thread whose turn has not ended can wait for an answer. Once it settled, collection reads
+        # its reply, as the wait already took its turn as over; a count T3 still shows sends nobody to the app.
+        self.registered()
+        self.ready()
+        self.t3_fixture(asks=1)
+        self.collect()
+        self.assertEqual(self.cli('status')['attempts'][0]['result']['status'], 'completed')
+
+    def test_a_thread_between_its_reply_and_its_end_is_a_turn_still_running(self):
+        # Rule: T3 counts the answers a thread waits for. Its `waiting` status with none pending is a turn in its
+        # last moment: collection and retirement both wait for it to settle, and neither sends anyone to the app.
+        self.registered()
+        self.ready()
+        report = self.root / 'ticket-1-1.md'
+        report.write_text('## Implemented\n\nVerified assignment report at head-1\n')
+        result = dict(status='completed', head='head-1', report=str(report), evidence=['checks.log@head-1'])
+        self.t3_fixture(status='waiting', asks=1)
+        self.assertIn('T3 thread th-1 waits for an answer in the T3 app', str(self.completed(code=2, **result)))
+        self.t3_fixture(status='waiting')
+        self.assertIn('T3 thread th-1 is still waiting; let its turn settle, then collect again',
+                      str(self.completed(code=2, **result)))
+        self.t3_fixture()
+        self.collect()
+        self.acknowledge()
+        self.t3_fixture(status='waiting')
+        request = self.root / 'retire-ending.json'
+        request.write_text(json.dumps({'evidence': ['t3 thread show th-1: waiting'],
+                                       'acceptance': {'decision': 'deferred', 'reason': 'review pending'}}))
+        error = self.cli('retire', '--attempt', 'ticket-1/1', '--input', str(request), code=2)
+        self.assertIn('T3 thread th-1 is waiting; let its turn settle, then retire again', str(error))
 
 
 class T3Submit(T3Threads):
