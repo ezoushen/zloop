@@ -12,7 +12,7 @@ Contents:
 - [Establish the design](#establish-the-design)
 - [Save the current alignment](#save-the-current-alignment)
 
-First read: the runtime bootstrap (`../../bootstrap.md`), the host session part, [grilling](../../runtime/interview/grilling.md), [question filter](../../runtime/interview/question-filter.md).
+First read: the runtime bootstrap (`../../bootstrap.md`), the host session part.
 
 Goal: a settled mandate, then a plan from it sufficient to split and verify. Reuse
 the conversation and existing alignment; a mandate the user already stated need
@@ -30,7 +30,9 @@ decisions apart from reversible agent choices.
 
 A mandate is the user's goal, principles, constraints and reserved decisions.
 Inside it the agent decides; a material choice outside it needs the user.
-Work its design tree through grilling: the user decides principles and material
+Before an interview, read [grilling](../../runtime/interview/grilling.md) and the
+[question filter](../../runtime/interview/question-filter.md). Work the design tree
+through them: the user decides principles and material
 forks; the agent decides implementation detail, showing material ones for veto, at
 every depth. A missing source stays an investigation gap for [research](../research/SKILL.md);
 ask the human only for material choices they can decide from their priorities.
@@ -49,6 +51,11 @@ contradicts one proposes a superseding ADR. Then prepare one concise WHAT / WHY 
   ledger row that decided it and whether the user or the agent decided. A non-goal
   that narrows an earlier user decision is a question for the user, not an agent choice. Where real
   consumers or their data exist, acceptance uses them as well as fixtures.
+  For comparative outcomes, name the observable result, comparison inputs and baseline,
+  acceptance rule, preserved behavior and observer or command; qualitative outcomes use
+  an agreed scenario and rubric. Derive targets from accepted requirements, never invent
+  them. An observational audit may deliver measurements and ranked options without an
+  improvement target; a material unresolved target blocks dependent implementation.
 - **WHY:** the concrete problem and why existing behavior/mechanisms are inadequate.
 - **HOW:** the smallest adequate approach, responsibilities, interfaces and material
   tradeoffs. Apply [module design](../../standards/design.md) when interface/ownership
@@ -57,7 +64,20 @@ contradicts one proposes a superseding ADR. Then prepare one concise WHAT / WHY 
 Choose depth by uncertainty: context for system boundaries, modules for changing
 responsibilities, behavior for flows, state and ordering; include only the views that
 resolve a live risk. They are lenses on one brief, not three approval turns.
-Reuse existing mechanisms; compare an alternative only when it is viable and material.
+When correctness depends on state or ordering, record the affected entity and owner,
+reachable states, and event plus guard → next state plus side effects. State invariants
+and applicable retry, interruption, timeout, cancellation and resume behavior. Cite
+implementation or check evidence and mark unknowns. Cover the changed lifecycle and
+affected callers; this evidence decides whether a structural change is needed.
+
+Inspect the repository, standard library and current dependencies for the required
+capability first. If a capability or design question remains unresolved, investigate
+relevant external implementations through [research](../research/SKILL.md). Compare only
+viable, material alternatives with the smallest local approach on required behavior,
+supported versions, interface fit, license constraints, dependency cost and migration
+or removal cost. Record exact versions and decisive evidence. Stop when an option meets
+the accepted constraints and identified facts that could change the choice are resolved;
+otherwise name the remaining fact and next probe. Adoption stays within the mandate.
 Use the project's [glossary](../../runtime/domain/glossary.md) and keep it current as terms settle.
 Use [prototype](jobs/prototype.md) only for a question that evidence on paper cannot settle.
 Leave ordinary types, helpers and plumbing to implementation; put an interface or
@@ -104,7 +124,7 @@ and limits with their decision sources.
 Consumers and compatibility obligations, including lockstep dependencies.
 
 ## WHAT
-Outcomes, scope/non-goals and acceptance evidence.
+Outcomes, scope/non-goals and acceptance evidence, including comparative baselines and criteria.
 
 ## WHY
 Problem and relevant constraints.

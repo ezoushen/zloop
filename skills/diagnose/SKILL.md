@@ -1,6 +1,6 @@
 ---
 name: diagnose
-description: "Find the cause of a bug, failing check or regression: build a command that fails on it, shrink the case, test ranked hypotheses, and report the cause with a reproducer. Use when the user reports something broken, throwing, failing or slower, or asks why it happens."
+description: "Find the cause of a bug, failing check or regression: build a failing command, shrink the case and test ranked hypotheses. Use when the user reports something broken, throwing or failing, or a performance regression; unmeasured bottleneck questions start with observation."
 argument-hint: "[<symptom, failing command or issue>]"
 ---
 
@@ -34,6 +34,14 @@ Contents:
   what the step changes and how it is undone. Reading them is not consent to change them.
 
 ## Build the loop
+
+For a performance regression, identify the baseline, workload, environment and
+discriminating failure signal from the reported symptom or accepted requirements.
+For a cost or latency bottleneck question without an established violation, first
+produce an observational measurement report: inputs, timing or cost definitions,
+sources, observed values and gaps. Return that report if no violation is established;
+do not invent a failing threshold. Unsupported causal explanations stay hypotheses.
+Once the reported violation has a repeatable signal, continue with the defect loop.
 
 First build one fast, repeatable command that fails on this bug, before any theory.
 Reading code to form a theory before that command exists is the failure this
