@@ -82,6 +82,10 @@ group, not a remote worker or its jobs.
 
 ## Wake and yield
 
+An async wait yields the turn, not the workstream. A native child's recorded startup
+proves its automatic completion notification; it needs no second watcher before submission.
+Keep the run active while waiting, and never record a user pause to satisfy a stop-hook warning.
+
 At every host continuation and after a wait wakes, run `status`: `--attempt` for a
 focused read, otherwise reconcile the run's full set of handles. It lists unacknowledged
 receipts, attempts needing attention and unresolved design holds, including holds whose

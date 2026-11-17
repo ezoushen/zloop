@@ -373,8 +373,10 @@ def unfinished_runs(root, session, named):
         missing += board_gaps(root, path, state)
         if not awaited(path.with_name('reports') / 'workers.sqlite'):
             missing.append(f"{path}: this session's autopilot run has no terminal state or no evidence; record "
-                           f"`terminal:` as exactly one of {', '.join(f'`{name}`' for name in life.TERMINAL_STATES)} and "
-                           "`evidence:` in the card's State")
+                           "a terminal state only when the run has actually ended. Otherwise continue its phase "
+                           "or arm a wake and keep `terminal:` empty. An actual end records exactly one of "
+                           f"{', '.join(f'`{name}`' for name in life.TERMINAL_STATES)} and `evidence:` in the card's "
+                           "State; `paused-by-user` requires the user's explicit `--pause`")
     return missing
 
 
@@ -491,8 +493,7 @@ def undelivered(root, pane, session, named):
 
 
 def awaited(state):
-    """Whether a live worker of the run holds a running wait with a wake channel: the host is told when it settles, so
-    its delivery is not stuck."""
+    """Whether a live worker can wake the host natively or through its notified wait; a recorded wait owns its wake."""
     module = lifecycle()
     try:
         saved_attempts = read_state(state)[0]
@@ -500,7 +501,9 @@ def awaited(state):
         return False
     closed = {(saved['runtime'], saved['native_session']) for saved in saved_attempts if saved.get('closed')}
     return any(not saved.get('result') and (saved['runtime'], saved['native_session']) not in closed
-               and module.watching(saved) and not module.wake_gap(saved) for saved in saved_attempts)
+               and (module.native_notifies(saved) and not saved.get('monitor')
+                    or module.watching(saved) and not module.wake_gap(saved))
+               for saved in saved_attempts)
 
 
 def read_binding(path, pane, session):

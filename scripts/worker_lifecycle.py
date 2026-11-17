@@ -276,6 +276,13 @@ def watching(data):
     return monitor.get('state') == 'running'
 
 
+def native_notifies(data):
+    """Whether a live native child has startup evidence for its automatic host completion notification."""
+    return bool((data.get('execution_snapshot') or {}).get('native_dispatch') and data.get('startup_evidence')
+                and not (data.get('submitted') or data.get('submission_requested') or data.get('result')
+                         or data.get('closed')))
+
+
 def wake_gap(data):
     """Why a running wait of an attempt will not wake the host, None when it will."""
     monitor = data['monitor']
@@ -361,7 +368,7 @@ def yield_gaps(db, include=None, rows=None):
         if not submitted and hold(db, saved.get('assignment')):
             continue
         if not submitted and (saved.get('execution_snapshot') or {}).get('native_dispatch'):
-            if not saved.get('startup_evidence'):
+            if not native_notifies(saved):
                 missing.append(f"{saved['attempt']}: native child with no recorded startup; record `startup` with "
                                'native: its session record, or `collect` a cancelled result if it never started')
             continue

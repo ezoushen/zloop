@@ -14,6 +14,7 @@ import unittest
 
 import support
 from gate_case import GateRepo
+from native_records import codex_child_session, session_record
 
 ROOT = support.ROOT
 HOOK = ROOT / 'hooks' / 'yield_gate.py'
@@ -2321,8 +2322,11 @@ class AutopilotCardHold(GateRepo):
         return support.run_card(self.repo / f'.scratch/{slug}/autopilot.md', slug, phase=phase, **fields)
 
     def gap(self, path):
-        return (f"{path}: this session's autopilot run has no terminal state or no evidence; record `terminal:` as "
-                f"exactly one of {', '.join(f'`{state}`' for state in self.STATES)} and `evidence:` in the card's State")
+        return (f"{path}: this session's autopilot run has no terminal state or no evidence; record "
+                "a terminal state only when the run has actually ended. Otherwise continue its phase "
+                "or arm a wake and keep `terminal:` empty. An actual end records exactly one of "
+                f"{', '.join(f'`{state}`' for state in self.STATES)} and `evidence:` in the card's "
+                "State; `paused-by-user` requires the user's explicit `--pause`")
 
     def refused_delivery(self, path, problem):
         """The card's delivery gap for a refused ticket file, including its repair advice."""
@@ -2588,6 +2592,55 @@ class AutopilotCardHold(GateRepo):
         self.assertEqual(self.check(session='host-1'), [])
         self.lose_wait(pidfile)
         self.assertEqual(self.check(session='host-1'), [self.gap(path)])  # The lifecycle names no worker gap for it.
+
+    def test_native_completion_notifications_let_the_run_yield_without_a_terminal_state(self):
+        path = self.card(slug='workstream', session='codex-host')
+        child = self.state.parent / 'child-execution.json'
+        child.write_text(json.dumps(dict(json.loads(self.execution.read_text()), native_dispatch=True, settings={})))
+        for runtime in ('pi', 'codex', 'claude'):
+            with self.subTest(runtime=runtime):
+                attempt = f'workstream/{runtime}/1'
+                session = codex_child_session(attempt) if runtime == 'codex' else f'native-{runtime}'
+                env = {'CODEX_SESSION_ID': 'codex-host'}
+                self.lifecycle('register', attempt, assignment=f'workstream/{runtime}', repo=str(self.repo),
+                               worktree=str(self.repo), head='head-1', execution=str(child), runtime=runtime,
+                               worker=f'helper-{runtime}', native_session=session, owned=True, env=env,
+                               packet=str(support.assignment_file(child.parent, 'ticket')))
+                self.assertTrue(self.check(session='codex-host'))  # A launch alone proves no completion channel.
+                native = session_record(child.parent / f'{runtime}.jsonl', runtime, session, self.repo,
+                                        child=runtime == 'codex')
+                self.lifecycle('startup', attempt, native=str(native), env=env)
+                self.assertEqual(self.check(session='codex-host'), [])
+                self.assertIsNone(self.stop(session='codex-host'))
+                self.assertRegex(path.read_text(), r'(?m)^terminal:\s*$')
+
+    def test_a_collected_native_result_needs_continuation_instead_of_another_completion_notice(self):
+        path = self.card(slug='workstream')
+        child = self.state.parent / 'child-execution.json'
+        child.write_text(json.dumps(dict(json.loads(self.execution.read_text()), native_dispatch=True, settings={})))
+        attempt = 'workstream/01/1'
+        self.lifecycle('register', attempt, assignment='workstream/01', repo=str(self.repo), worktree=str(self.repo),
+                       head='head-1', execution=str(child), runtime='pi', worker='helper-1',
+                       native_session='native-1', owned=True,
+                       packet=str(support.assignment_file(child.parent, 'ticket')))
+        self.lifecycle('startup', attempt, native=str(self.native(attempt)))
+        report = self.state.parent / 'failed.md'
+        report.write_text('Worker failed; continue with recovery.\n')
+        self.lifecycle('result', attempt, status='failed', head='head-1', report=str(report), evidence=['worker.log'])
+        self.assertEqual(self.check(session='host-1'), [self.gap(path)])
+
+    def test_a_submitted_native_worker_without_a_watcher_does_not_release_the_run(self):
+        path = self.card(slug='workstream')
+        child = self.state.parent / 'child-execution.json'
+        child.write_text(json.dumps(dict(json.loads(self.execution.read_text()), native_dispatch=True, settings={})))
+        attempt = 'workstream/01/1'
+        self.lifecycle('register', attempt, assignment='workstream/01', repo=str(self.repo), worktree=str(self.repo),
+                       head='head-1', execution=str(child), runtime='pi', worker='helper-1',
+                       native_session='native-1', owned=True,
+                       packet=str(support.assignment_file(child.parent, 'ticket')))
+        self.lifecycle('startup', attempt, native=str(self.native(attempt)))
+        self.lifecycle('submitted', attempt, evidence=['native.jsonl:2:accepted prompt'])
+        self.assertEqual(self.check(session='host-1'), [f'{self.state}: {attempt}: no armed wait', self.gap(path)])
 
 
 if __name__ == '__main__':
