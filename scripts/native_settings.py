@@ -34,7 +34,7 @@ def packet_reply(path, runtime, session, attempt, *, parents=None):
     """Return packet proof and its reply, or parent proof and a reply for a Codex native child.
 
     Only user text establishes a packet. Codex children have encrypted tasks and use parents from registration.
-    Pi follows its active branch.
+    Pi unwraps its native Task prefix and follows its active branch.
     """
     path = Path(path)
     if runtime == 't3':
@@ -87,6 +87,8 @@ def packet_reply(path, runtime, session, attempt, *, parents=None):
             text = parts if isinstance(parts, str) else '\n'.join(
                 part['text'] for part in parts if isinstance(part, dict) and part.get('type') in text_types
                 and isinstance(part.get('text'), str))
+            if runtime == 'pi':
+                text = text.removeprefix('Task: ')
             packet = packet or has_attempt(text, attempt)
         elif role == 'assistant' and packet:
             return True, True

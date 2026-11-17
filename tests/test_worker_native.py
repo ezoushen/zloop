@@ -359,6 +359,27 @@ class NativeProof(WorkerLifecycleCase):
         error = self.cli('collect', '--attempt', attempt, '--input', self.result_request(attempt, path), code=2)
         self.assertIn('send the worker its packet', error)
 
+    def test_pi_collects_a_native_task_prefixed_assignment(self):
+        attempt, model = self.runtime_attempt('pi')
+        path = session_record(self.root / 'pi.jsonl', 'pi', 'pi', self.root, model=model)
+        self.record('startup', attempt, native=str(path))
+        user_message(path, 'pi', f'Task: assignment: pi  attempt: {attempt}')
+        assistant_turn(path, 'pi')
+        self.cli('collect', '--attempt', attempt, '--input', self.result_request(attempt, path))
+
+    def test_pi_task_prefix_does_not_prove_another_attempt_or_a_packet_in_tool_data(self):
+        attempt, model = self.runtime_attempt('pi')
+        path = session_record(self.root / 'pi.jsonl', 'pi', 'pi', self.root, model=model)
+        self.record('startup', attempt, native=str(path))
+        for text, kind in ((f'Task: assignment: pi  attempt: {attempt}0', 'text'),
+                           (f'Task: assignment: pi  attempt: {attempt}', 'tool_result'),
+                           (f'Task: assignment: pi  attempt: {attempt}', 'tool_input')):
+            with self.subTest(kind=kind):
+                user_message(path, 'pi', text, kind=kind)
+                assistant_turn(path, 'pi')
+                error = self.cli('collect', '--attempt', attempt, '--input', self.result_request(attempt, path), code=2)
+                self.assertIn('send the worker its packet', error)
+
     def test_effort_levels_pi_run3_cannot_verify_a_claude_worker_without_its_record(self):
         # The recorded failure had worker_seconds=0.294 and used the orchestrator's own spec-review.md.
         self.execution.write_text(json.dumps({'host': 'pi', 'target_runtime': 'claude', 'native_dispatch': True,
