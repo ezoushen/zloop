@@ -59,6 +59,9 @@ def verify(feature, evidence, driver=None):
         try:
             for step in STEPS[:-1]:
                 if step == 'drive':
+                    cleanup_inputs.update({arg: hashlib.sha256(Path(arg).read_bytes()).hexdigest()
+                                           for arg in commands['cleanup'] if arg.startswith('/')
+                                           and Path(arg).is_file() and arg not in cleanup_inputs})
                     inputs = [Path(arg) for command in commands.values() for arg in command
                               if arg.startswith('/') and Path(arg).suffix in ('.py', '.json') and Path(arg).is_file()]
                     inputs += [Path(expand([path], values)[0]) for path in feature.get('protected_inputs', [])]

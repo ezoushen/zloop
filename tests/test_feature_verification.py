@@ -82,6 +82,22 @@ class FeatureVerification(unittest.TestCase):
         self.assertIn('reconciliation', result['steps']['cleanup']['reason'])
         self.assertFalse(marker.exists())
 
+    def test_cleanup_created_by_launch_is_protected_before_drive(self):
+        self.feature['launch'] = [sys.executable, '-c',
+            'from pathlib import Path; import sys; Path(sys.argv[1]).write_text("print(123)")',
+            '{workspace}/cleanup.py']
+        self.feature['cleanup'] = [sys.executable, '{workspace}/cleanup.py']
+        self.feature['drive'] = [sys.executable, '-c',
+            'from pathlib import Path; import sys; Path(sys.argv[1]).write_text(sys.argv[2])',
+            '{workspace}/cleanup.py',
+            'from pathlib import Path; Path("{evidence}/untrusted-ran").write_text("untrusted")']
+        result = self.run_feature()
+        self.assertEqual(result['steps']['drive']['exit_code'], 0)
+        self.assertEqual(result['status'], 'blocked')
+        self.assertEqual(result['steps']['cleanup']['exit_code'], 125)
+        self.assertIn('reconciliation', result['steps']['cleanup']['reason'])
+        self.assertFalse((self.root / 'evidence/untrusted-ran').exists())
+
     def test_project_feature_map_exercises_its_real_drivers_and_graders(self):
         manifest = json.loads((support.ROOT / 'benchmarks/workflows/features.json').read_text())
         for feature in manifest['features']:
