@@ -42,7 +42,7 @@ def launch(name, workspace, evidence):
             base = workspace / label
             (base / 'scripts').mkdir(parents=True)
             (base / 'bootstrap.md').write_text('identical entry instructions\n')
-            (base / 'scripts/queue.py').write_text(f'VERSION = {version}\n')
+            (base / 'scripts/source_identity.py').write_text(f'VERSION = {version}\n')
         oracle['inputs'] = {str(p.relative_to(workspace)): sha(p) for p in workspace.rglob('*') if p.is_file()}
     elif name in ('pause-provenance', 'continue-phase'):
         path = card(workspace)
@@ -131,8 +131,8 @@ def drive(name, workspace):
 def grade(name, workspace, evidence):
     oracle = json.loads((evidence / 'oracle.json').read_text())
     passed = False
-    retained = {'source-drift': ['source/bootstrap.md', 'source/scripts/queue.py', 'installed/bootstrap.md',
-                               'installed/scripts/queue.py', 'comparison.json'],
+    retained = {'source-drift': ['source/bootstrap.md', 'source/scripts/source_identity.py', 'installed/bootstrap.md',
+                               'installed/scripts/source_identity.py', 'comparison.json'],
                 'pause-provenance': ['autopilot.md', 'autopilot-control.json', 'native.jsonl', 'decision.json'],
                 'stale-report': ['collected.json', 'report.md', 'verdict.json'],
                 'paused-completion': ['native.jsonl', 'completed.md', 'paused/autopilot.md',
@@ -145,7 +145,7 @@ def grade(name, workspace, evidence):
             raise ValueError('Fixture artifact escapes its workspace')
         if name == 'source-drift':
             result = json.loads((workspace / 'comparison.json').read_text())
-            passed = result['status'] == 'mismatch' and result['changed'] == ['scripts/queue.py']
+            passed = result['status'] == 'mismatch' and result['changed'] == ['scripts/source_identity.py']
             passed &= all(sha(workspace / path) == value for path, value in oracle['inputs'].items())
         elif name == 'pause-provenance':
             passed = (json.loads((workspace / 'decision.json').read_text()).get('paused') is False
