@@ -29,6 +29,20 @@ def expand(argv, values):
     return result
 
 
+def file_hashes(argv, workspace):
+    """Fingerprint existing file arguments in the command's working directory."""
+    files = {}
+    for arg in argv:
+        path = Path(workspace) / arg
+        try:
+            exists = path.is_file()
+        except OSError:
+            continue
+        if exists:
+            files[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return files
+
+
 def verify(feature, evidence, driver=None):
     """Grade actual post-state; setup gaps and invalid retained evidence cannot pass."""
     evidence = Path(evidence).resolve()
@@ -52,20 +66,18 @@ def verify(feature, evidence, driver=None):
             raise ValueError('Agent verification needs an explicit feature task')
         commands = {step: expand(driver if step == 'drive' and driver else feature[step], values) for step in STEPS}
         result['task'] = task
-        cleanup_inputs = {arg: hashlib.sha256(Path(arg).read_bytes()).hexdigest() for arg in commands['cleanup']
-                          if arg.startswith('/') and Path(arg).is_file()}
+        cleanup_inputs = file_hashes(commands['cleanup'], tmp)
         cleanup_runtime = source_identity.snapshot()['digest']
         frozen = {}
         try:
             for step in STEPS[:-1]:
                 if step == 'drive':
-                    cleanup_inputs.update({arg: hashlib.sha256(Path(arg).read_bytes()).hexdigest()
-                                           for arg in commands['cleanup'] if arg.startswith('/')
-                                           and Path(arg).is_file() and arg not in cleanup_inputs})
-                    inputs = [Path(arg) for command in commands.values() for arg in command
-                              if arg.startswith('/') and Path(arg).suffix in ('.py', '.json') and Path(arg).is_file()]
-                    inputs += [Path(expand([path], values)[0]) for path in feature.get('protected_inputs', [])]
-                    frozen = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
+                    cleanup_inputs.update({path: value for path, value in file_hashes(commands['cleanup'], tmp).items()
+                                           if path not in cleanup_inputs})
+                    frozen = file_hashes([arg for command in commands.values() for arg in command
+                                          if Path(arg).suffix in ('.py', '.json')], tmp)
+                    inputs = [Path(tmp) / expand([path], values)[0] for path in feature.get('protected_inputs', [])]
+                    frozen.update({str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs})
                     result['input_hashes'] = frozen
                     result['runtime_identity'] = source_identity.snapshot()['digest']
                 command = [sys.executable, '-B', str(ROOT / 'scripts/run_check.py'), '--timeout', str(timeout),

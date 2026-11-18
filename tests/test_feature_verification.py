@@ -86,17 +86,47 @@ class FeatureVerification(unittest.TestCase):
         self.feature['launch'] = [sys.executable, '-c',
             'from pathlib import Path; import sys; Path(sys.argv[1]).write_text("print(123)")',
             '{workspace}/cleanup.py']
-        self.feature['cleanup'] = [sys.executable, '{workspace}/cleanup.py']
         self.feature['drive'] = [sys.executable, '-c',
             'from pathlib import Path; import sys; Path(sys.argv[1]).write_text(sys.argv[2])',
             '{workspace}/cleanup.py',
             'from pathlib import Path; Path("{evidence}/untrusted-ran").write_text("untrusted")']
+        for name, path in [('absolute', '{workspace}/cleanup.py'), ('relative', 'cleanup.py')]:
+            with self.subTest(path=path):
+                self.feature['cleanup'] = [sys.executable, path]
+                evidence = self.root / name
+                result = self.runner.verify(self.feature, evidence)
+                self.assertEqual(result['steps']['drive']['exit_code'], 0)
+                self.assertEqual(result['status'], 'blocked')
+                self.assertEqual(result['steps']['cleanup']['exit_code'], 125)
+                self.assertIn('reconciliation', result['steps']['cleanup']['reason'])
+                self.assertFalse((evidence / 'untrusted-ran').exists())
+
+    def test_relative_cleanup_runs_after_success_and_driver_failure(self):
+        self.feature['launch'] = [sys.executable, '-c',
+            'from pathlib import Path; import sys; Path("cleanup.py").write_text(sys.argv[1])',
+            'from pathlib import Path; Path("{evidence}/cleaned").write_text("yes")']
+        self.feature['cleanup'] = [sys.executable, 'cleanup.py']
+        for name, status in [('success', 'passed'), ('failed-drive', 'blocked')]:
+            with self.subTest(name=name):
+                if name == 'failed-drive':
+                    self.feature['drive'] = [sys.executable, '-c', 'raise SystemExit(7)']
+                evidence = self.root / name
+                result = self.runner.verify(self.feature, evidence)
+                self.assertEqual(result['status'], status)
+                self.assertEqual(result['steps']['cleanup']['exit_code'], 0)
+                self.assertEqual((evidence / 'cleaned').read_text(), 'yes')
+
+    def test_driver_cannot_replace_a_relative_verification_program(self):
+        self.feature['launch'] = [sys.executable, '-c',
+            'from pathlib import Path; Path("grader.py").write_text("raise SystemExit(1)")']
+        self.feature['drive'] = [sys.executable, '-c',
+            'from pathlib import Path; import sys; Path("grader.py").write_text(sys.argv[1])',
+            'from pathlib import Path; import sys; Path(sys.argv[1]).write_text("fake proof")']
+        self.feature['evidence'] = [sys.executable, 'grader.py', '{evidence}/proof.txt']
         result = self.run_feature()
         self.assertEqual(result['steps']['drive']['exit_code'], 0)
         self.assertEqual(result['status'], 'blocked')
-        self.assertEqual(result['steps']['cleanup']['exit_code'], 125)
-        self.assertIn('reconciliation', result['steps']['cleanup']['reason'])
-        self.assertFalse((self.root / 'evidence/untrusted-ran').exists())
+        self.assertNotIn('evidence', result['steps'])
 
     def test_project_feature_map_exercises_its_real_drivers_and_graders(self):
         manifest = json.loads((support.ROOT / 'benchmarks/workflows/features.json').read_text())

@@ -17,8 +17,11 @@ directory. Existing project boot/device/HTTP/UI drivers remain the commands.
 The evidence command independently judges post-state; a successful drive exit does
 not establish correct behavior. Setup/doctor/driver failures are blocked runs;
 an evidence assertion failure is a failed feature. Exit 125 is an infrastructure
-gap. Cleanup runs after failure too, including an oracle change. If cleanup command
-inputs or the framework runtime changed, teardown is untrusted: the runner blocks
+gap. Cleanup runs after failure too, including an oracle change. Existing cleanup
+file arguments are fingerprinted before launch; files prepared by setup are added
+before drive. Relative paths resolve in the trial workspace. Setup must prepare
+teardown code before drive. If captured cleanup inputs or the framework runtime
+changed, teardown is untrusted: the runner blocks
 cleanup and records required operator reconciliation of the owned resources.
 Missing retained artifacts or changed protected inputs cannot pass, and every stage
 uses the existing bounded check runner.
@@ -26,6 +29,8 @@ uses the existing bounded check runner.
 `protected_inputs` names immutable oracle/fixture paths. Keep the oracle outside
 the driver's workspace and preserve its source and hash. The runner also checks
 runtime and driver input hashes, so editing the check cannot manufacture a pass.
+Python/JSON file arguments are pinned automatically; list other driver and grader
+implementation files in `protected_inputs`.
 It does not replace native filesystem restrictions; verify actual permissions when
 the evaluation depends on them. Retain only the input/output files needed to
 inspect or replay the claim, including failed trials.
