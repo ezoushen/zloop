@@ -15,6 +15,8 @@ Rules for the orchestrator and its workers, in the order a worker runs.
 | [lifetime.md](../resources/lifetime.md) | reserving a resource or starting an owned job |
 | [prepare.md](prepare.md) | to register an attempt and verify its settings before productive work |
 | [wait.md](wait.md) | to arm a wait, handle each wake and pass the yield gate |
+| [control.md](control.md) | for explicit managed pause/resume events and revision guards |
+| [supervisor.md](supervisor.md) | for persisted, externally supervised allowance recovery |
 | [collect.md](collect.md) | to collect a result, accept or decline it and record its outcome |
 | [workstream-spend.md](workstream-spend.md) | to report a workstream's tokens per accepted ticket |
 | [recovery.md](recovery.md) | after an availability failure, a blocker or a failed check |

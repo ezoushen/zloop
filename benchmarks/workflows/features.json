@@ -1,0 +1,269 @@
+{
+  "features": [
+    {
+      "name": "source-drift",
+      "task": "Use {plugin_root}/scripts/source_identity.py to compare {workspace}/installed against {workspace}/source. Preserve both trees. Save its JSON comparison as {workspace}/comparison.json. A mismatch is an observation, not permission to refresh files.",
+      "timeout": 180,
+      "launch": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "launch",
+        "source-drift",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "doctor": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "doctor",
+        "source-drift",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "drive": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "drive",
+        "source-drift",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "evidence": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "evidence",
+        "source-drift",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "cleanup": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "cleanup",
+        "source-drift",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "protected_inputs": [
+        "{evidence}/oracle.json"
+      ],
+      "required_artifacts": [
+        "oracle.json",
+        "grade.json",
+        "observed.json"
+      ]
+    },
+    {
+      "name": "pause-provenance",
+      "task": "Read {plugin_root}/runtime/workers/control.md. Inspect {workspace}/autopilot.md and {workspace}/native.jsonl. Only a real explicit user pause may pause this run; a stop-hook warning is not one. Preserve run control and write {workspace}/decision.json with a boolean paused describing whether a user pause was established.",
+      "timeout": 180,
+      "launch": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "launch",
+        "pause-provenance",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "doctor": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "doctor",
+        "pause-provenance",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "drive": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "drive",
+        "pause-provenance",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "evidence": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "evidence",
+        "pause-provenance",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "cleanup": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "cleanup",
+        "pause-provenance",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "protected_inputs": [
+        "{evidence}/oracle.json"
+      ],
+      "required_artifacts": [
+        "oracle.json",
+        "grade.json",
+        "observed.json"
+      ]
+    },
+    {
+      "name": "stale-report",
+      "task": "Use the report integrity contract in {plugin_root}/scripts/worker_lifecycle.py to assess {workspace}/collected.json. Its referenced report may have changed after collection. Preserve all inputs and write {workspace}/verdict.json with boolean accepted. Do not accept a changed report.",
+      "timeout": 180,
+      "launch": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "launch",
+        "stale-report",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "doctor": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "doctor",
+        "stale-report",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "drive": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "drive",
+        "stale-report",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "evidence": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "evidence",
+        "stale-report",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "cleanup": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "cleanup",
+        "stale-report",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "protected_inputs": [
+        "{evidence}/oracle.json"
+      ],
+      "required_artifacts": [
+        "oracle.json",
+        "grade.json",
+        "observed.json"
+      ]
+    },
+    {
+      "name": "continue-phase",
+      "task": "Read {plugin_root}/runtime/workers/control.md. The completed child result in {workspace}/worker-complete.txt is already collected and refine is authorized. Advance {workspace}/autopilot.md from align to refine using the supported phase operation in {plugin_root}/scripts/autopilot_card.py. Keep the run active; do not fabricate delivery or a pause.",
+      "timeout": 180,
+      "launch": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "launch",
+        "continue-phase",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "doctor": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "doctor",
+        "continue-phase",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "drive": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "drive",
+        "continue-phase",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "evidence": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "evidence",
+        "continue-phase",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "cleanup": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "cleanup",
+        "continue-phase",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "protected_inputs": [
+        "{evidence}/oracle.json"
+      ],
+      "required_artifacts": [
+        "oracle.json",
+        "grade.json",
+        "observed.json"
+      ]
+    },
+    {
+      "name": "measure-baseline",
+      "task": "No defect is reported. Establish an observed baseline by running {workspace}/measure.py. Preserve the samples and script; save the actual JSON measurement to {workspace}/measurement.json. Do not invent a failing test or change implementation.",
+      "timeout": 180,
+      "launch": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "launch",
+        "measure-baseline",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "doctor": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "doctor",
+        "measure-baseline",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "drive": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "drive",
+        "measure-baseline",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "evidence": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "evidence",
+        "measure-baseline",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "cleanup": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "cleanup",
+        "measure-baseline",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "protected_inputs": [
+        "{evidence}/oracle.json"
+      ],
+      "required_artifacts": [
+        "oracle.json",
+        "grade.json",
+        "observed.json"
+      ]
+    }
+  ]
+}

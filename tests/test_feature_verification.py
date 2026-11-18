@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""Feature verification grades post-state and retains proof across cleanup."""
+import json
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+
+import support
+
+
+class FeatureVerification(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.runner = support.load_script('verify_features.py')
+        py = sys.executable
+        self.feature = dict(name='example', timeout=5,
+            launch=[py, '-c', 'print("launched")'], doctor=[py, '-c', 'print("ready")'],
+            drive=[py, '-c', 'from pathlib import Path; Path("observed").write_text("right")'],
+            evidence=[py, '-c', 'from pathlib import Path; import sys; '
+                      'ok=Path("observed").read_text()=="right"; '
+                      'Path(sys.argv[1]).write_text(str(ok)); sys.exit(0 if ok else 1)', '{evidence}/proof.txt'],
+            cleanup=[py, '-c', 'print("owned cleanup complete")'], required_artifacts=['proof.txt'])
+
+    def run_feature(self):
+        return self.runner.verify(self.feature, self.root / 'evidence')
+
+    def test_real_post_state_and_retained_artifacts_are_required(self):
+        result = self.run_feature()
+        self.assertEqual(result['status'], 'passed')
+        self.assertTrue((self.root / 'evidence/proof.txt').is_file())
+        self.assertFalse(Path(result['workspace']).exists())
+
+    def test_a_successful_driver_with_wrong_behavior_fails_the_independent_grader(self):
+        self.feature['drive'] = [sys.executable, '-c', 'from pathlib import Path; Path("observed").write_text("wrong")']
+        result = self.run_feature()
+        self.assertEqual(result['status'], 'failed')
+        self.assertEqual(result['steps']['drive']['exit_code'], 0)
+        self.assertNotEqual(result['steps']['evidence']['exit_code'], 0)
+
+    def test_missing_setup_is_blocked_and_owned_cleanup_still_runs(self):
+        self.feature['launch'] = [sys.executable, '-c', 'raise SystemExit(7)']
+        result = self.run_feature()
+        self.assertEqual(result['status'], 'blocked')
+        self.assertNotIn('drive', result['steps'])
+        self.assertEqual(result['steps']['cleanup']['exit_code'], 0)
+
+    def test_cleanup_cannot_delete_evidence_and_leave_a_pass(self):
+        self.feature['cleanup'] = [sys.executable, '-c', 'from pathlib import Path; import sys; Path(sys.argv[1]).unlink()',
+                                   '{evidence}/proof.txt']
+        result = self.run_feature()
+        self.assertEqual(result['status'], 'blocked')
+        self.assertEqual(result['missing_artifacts'], ['proof.txt'])
+
+    def test_driver_cannot_edit_the_retained_oracle_to_manufacture_a_pass(self):
+        self.feature['doctor'] = [sys.executable, '-c', 'from pathlib import Path; import sys; Path(sys.argv[1]).write_text("right")',
+                                  '{evidence}/oracle.txt']
+        self.feature['protected_inputs'] = ['{evidence}/oracle.txt']
+        self.feature['drive'] = [sys.executable, '-c', 'from pathlib import Path; import sys; Path(sys.argv[1]).write_text("changed")',
+                                '{evidence}/oracle.txt']
+        result = self.run_feature()
+        self.assertEqual(result['status'], 'blocked')
+        self.assertNotIn('evidence', result['steps'])
+
+    def test_project_feature_map_exercises_its_real_drivers_and_graders(self):
+        manifest = json.loads((support.ROOT / 'benchmarks/workflows/features.json').read_text())
+        for feature in manifest['features']:
+            with self.subTest(feature=feature['name']):
+                result = self.runner.verify(feature, self.root / feature['name'])
+                self.assertEqual(result['status'], 'passed', result)
+                self.assertTrue((self.root / feature['name'] / 'observed.json').is_file())
+
+
+if __name__ == '__main__':
+    unittest.main()

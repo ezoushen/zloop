@@ -120,3 +120,17 @@ Later evidence about collected work goes back to its attempt:
 integration or a defect the user found. Registering a repair with `repairs`
 attributes its `repair-round`. Each signal updates the routed outcome, so later
 routing sees it.
+
+Use `--incident-id <stable-id>` for retry-safe attributions. Repeating that incident
+and kind keeps its count; a different count is refused. Later calls may add evidence
+and `--failure-class`, `--owner` (the owning contract), `--check` and
+`--negative-control` links without incrementing it. Conflicting links need explicit
+reconciliation. Retain the actual failing variant/output behind a negative-control link.
+
+`outcomes.py summary --quality [--since <epoch>] [--until <epoch>]` reports quality
+separately from acceptance: counts, attempt/acceptance denominators, incident
+categories and check links. Bounds use original completion time, so a late defect
+stays in its completion cohort; unknown dates are reported and excluded from a
+bounded cohort. Attributions are not a complete defect census: absent signals are
+unknown, never a verified zero-defect result. The cost-aware shadow record includes
+this history without changing its acceptance-based utility or the selected route.

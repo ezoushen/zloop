@@ -10,11 +10,24 @@ import contextlib
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 import tempfile
 
 
-def write_atomic(path, text):
+def state_fields(text):
+    """Read key/value lines in a run card's State section; blank/placeholders become empty values."""
+    heading = re.search(r'^## State[ \t]*$', text, re.M)
+    fields = {}
+    for line in re.split(r'^## ', text[heading.end():], maxsplit=1, flags=re.M)[0].splitlines() if heading else []:
+        key, colon, value = line.partition(':')
+        if colon and re.fullmatch(r'[a-z-]+', key):
+            value = value.strip()
+            fields.setdefault(key, '' if value.startswith('<') else value)
+    return fields
+
+
+def write_atomic(path, text, mode=None):
     path = Path(path)
     descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=f'.{path.name}.', suffix='.tmp')
     try:
@@ -22,7 +35,7 @@ def write_atomic(path, text):
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
-        os.chmod(temporary, path.stat().st_mode & 0o777 if path.exists() else 0o644)
+        os.chmod(temporary, mode if mode is not None else path.stat().st_mode & 0o777 if path.exists() else 0o644)
         os.replace(temporary, path)
     except BaseException:
         Path(temporary).unlink(missing_ok=True)

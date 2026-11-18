@@ -31,9 +31,10 @@ class Research(unittest.TestCase):
                 self.assertIn(f']({link})', text)
                 self.assertNotIn('use `research`', text.lower())
 
-    def test_research_runs_as_a_host_helper_not_a_worker_job(self):
+    def test_research_uses_the_registered_read_only_job(self):
         text = prose(DOC)
-        self.assertIn("a helper agent of the host, not a job of the builder, reviewer or verifier", text)
+        self.assertIn('registered [research job](jobs/research.md) of the researcher', text)
+        self.assertIn('launch, registration, wait, collection and retirement contract', text)
         self.assertIn('](../../runtime/resources/capacity.md)', text)
         self.assertIn('record it in the workstream\'s dispatch report when one exists', text)
         self.assertNotIn('](../../runtime/workers/launch.md)', text)

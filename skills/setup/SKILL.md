@@ -51,7 +51,7 @@ against the destination before launch, not assumed portable across runtimes.
 
 You can describe the same changes in natural language after the command. Name the
 agent, desired executor and any model/thinking choices. Available agents are
-`builder`, `reviewer` and `verifier`. The skill
+`builder`, `reviewer`, `verifier` and `researcher`. The skill
 uses the current host and project by default and asks only for missing choices
 that cannot be established from the request or current setup.
 

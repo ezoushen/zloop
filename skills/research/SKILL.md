@@ -30,9 +30,11 @@ the caller decides what to do with it.
 
 ## Run
 
-Run it as a background worker so the caller keeps working while it reads: a helper
-agent of the host, not a job of the builder, reviewer or verifier, on the cheapest
-model adequate for reading. Count it in [shared capacity](../../runtime/resources/capacity.md)
+Run it as a background worker so the caller keeps working while it reads: the
+registered [research job](jobs/research.md) of the researcher, on the cheapest
+permitted model adequate for reading. Follow the shared launch, registration,
+wait, collection and retirement contract; pass the absolute adapter, agent and job
+paths with the job inputs. Count it in [shared capacity](../../runtime/resources/capacity.md)
 and record it in the workstream's dispatch report when one exists, like any other worker. It reads and runs read-only
 commands; it changes no code, configuration or tracker state.
 

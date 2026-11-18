@@ -365,6 +365,11 @@ def unfinished_runs(root, session, named):
         state = life.card_state(path)
         if not (session in life.card_sessions(state) and life.confirmed(state)):
             continue
+        try:
+            script('run_control').read(path)
+        except (OSError, ValueError) as error:
+            missing.append(Unchecked(f'{path}: {error}'))
+            continue
         if state.get('terminal') in life.TERMINAL_STATES and state.get('evidence'):
             if state['terminal'] in life.ENDED and (found := delivery_gaps(root, path, state)):
                 missing += found

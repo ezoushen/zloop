@@ -79,6 +79,9 @@ new value and cites the same row. A workstream without the file is accepted with
 
 ## E2E steps
 
+For repeatedly used scenarios, retain a [feature verification contract](verification.md)
+around the existing project driver and its observable outcomes.
+
 Identify the project's applicable E2E checks for the affected behaviors and areas:
 what to boot, the commands and the artefacts that count as evidence (log tail,
 screenshot, checksum). Use its existing device boot/wait/teardown scripts through

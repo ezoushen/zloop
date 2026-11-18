@@ -27,7 +27,7 @@ Claude and Codex startup hooks and Pi's bootstrap extension name the current hos
 Without that hint, select the host explicitly under the runtime bootstrap; OpenCode
 always needs it.
 
-Top-level `agents` defines shared pools for `builder`, `reviewer` and `verifier`, or
+Top-level `agents` defines shared pools for `builder`, `reviewer`, `verifier` and `researcher`, or
 fixed instances. `router` selects host judgment (default), a routing skill, a System One
 decision model or a sparse named profile
 ([routers and sparse profiles](../config/routers.md#routers-and-sparse-profiles)). A

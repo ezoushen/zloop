@@ -29,6 +29,9 @@ import front_matter  # noqa: E402
 import journal_store  # noqa: E402
 import native_settings  # noqa: E402
 import outcomes  # noqa: E402
+import run_control  # noqa: E402
+import source_identity  # noqa: E402
+from state_files import state_fields  # noqa: E402
 
 DEFINITIONS = agent_defs.load()
 TAB_RECIPE = 'start the worker in a tab of its own with the Herdr guide\'s start command, then register it'
@@ -37,9 +40,9 @@ STARTUP_SECONDS = 45
 REAP_SECONDS = 5  # All a stop's reap may spend, inside the hosts' 20 s hook timeout, which the gate's other checks share.
 # The terminal states a run card may record: ENDED after which nothing of the run is used again,
 # PAUSED leaving a resume step on the card's `resume:` line.
-ENDED = ('delivered', 'delivered-local', 'merged')
+ENDED = run_control.ENDED
 T3_UNSETTLED = ('running', 'queued', 'starting', 'preparing', 'waiting')  # A T3 thread whose turn has not ended.
-PAUSED = ('waiting-on-user', 'paused-allowance', 'paused-by-user', 'blocked')
+PAUSED = run_control.PAUSED
 TERMINAL_STATES = ENDED + PAUSED
 # Native write-scope controls: a launch requests them (its `verify`) and startup observes them.
 SCOPE = ('permission_mode', 'sandbox', 'approval', 'filesystem', 'tools', 'permissions')
@@ -471,17 +474,35 @@ def annotate(saved, kind, **fields):
 ATTRIBUTIONS = outcomes.METRICS
 
 
-def attribute(db, attempt, kind, count, evidence):
+def attribute(db, attempt, kind, count, evidence, incident_id=None, feedback=None):
     """Attribute a later quality signal to the collected attempt whose work it concerns."""
     require(kind in ATTRIBUTIONS, 'Attribution kind must be ' + ', '.join(ATTRIBUTIONS))
     require(type(count) is int and count > 0, 'Attribution count must be a positive integer')
     require(isinstance(evidence, list) and evidence and all(text(x) for x in evidence),
             'Attribution requires evidence references')
+    feedback = feedback or {}
+    require(not feedback or text(incident_id), 'Feedback links require a stable incident ID')
+    require(not set(feedback) - {'failure_class', 'owner', 'check', 'negative_control'}
+            and all(text(value) for value in feedback.values()), 'Invalid feedback links')
     db.execute('BEGIN IMMEDIATE')
     with db:
         saved = get(db, attempt)
         require(saved.get('result'), 'Attribute quality signals to a collected attempt')
-        event_id = event(db, attempt, 'attribution', dict(kind=kind, count=count, evidence=evidence))
+        previous = [(row[0], json.loads(row[1])) for row in db.execute(
+            "SELECT id,payload FROM events WHERE attempt = ? AND kind = 'attribution'", (attempt,))]
+        found = next(((eid, payload) for eid, payload in previous
+                      if incident_id and payload.get('incident_id') == incident_id and payload['kind'] == kind), None)
+        if found:
+            event_id, payload = found
+            require(payload['count'] == count, 'Incident count changed; reconcile the attribution')
+            require(all(key not in payload or payload[key] == value for key, value in feedback.items()),
+                    'Incident feedback changed; reconcile its existing links')
+            payload.update(feedback)
+            payload['evidence'] = list(dict.fromkeys([*payload['evidence'], *evidence]))
+            db.execute('UPDATE events SET payload = ? WHERE id = ?', (json.dumps(payload), event_id))
+        else:
+            event_id = event(db, attempt, 'attribution', dict(kind=kind, count=count, evidence=evidence,
+                            **({'incident_id': incident_id} if incident_id else {}), **feedback))
         signals = [json.loads(row[0]) for row in db.execute(
             "SELECT payload FROM events WHERE attempt = ? AND kind = 'attribution' ORDER BY id", (attempt,))]
     counts = {}
@@ -919,6 +940,8 @@ def record(db, data, refuse_changes=False, submitting=False, waiting=30):
 def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
     kind, attempt = data.get('kind'), data.get('attempt')
     require(text(attempt), 'Event requires attempt')
+    if kind in ('register', 'submitted', 'accepted'):
+        run_control.require_active(Path(state_path(db)).parent.parent / 'autopilot.md')
     # A read-only worktree is read before the write lock is taken; the result check and any refusal use that one read.
     now = observed_state(get(db, attempt)) if kind == 'result' and data.get('status') == 'completed' else None
     located = elsewhere = observation = weighed = None
@@ -1010,7 +1033,8 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
             # place, so the lookup keeps the thread's state instead.
             placed = t3_placement(data, execution)
     db.execute('BEGIN IMMEDIATE')
-    with db:
+    guarded = kind in ('register', 'submitted', 'accepted') or (data.get('acceptance') or {}).get('decision') == 'accepted'
+    with db, run_control.active_guard(Path(state_path(db)).parent.parent / 'autopilot.md', guarded):
         if kind == 'register':
             extra = sorted(set(data) - set(REGISTERED))
             require(not extra, f'Registration takes no {", ".join(extra)}: it takes only {", ".join(REGISTERED)}; the '
@@ -1104,6 +1128,8 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                     '(launch.verify); resolve it again with agent_models.py --route')
             saved = dict(data, agent=execution['agent'], job=execution['job'], execution_snapshot=execution,
                          requested=dict(scope, **settings, runtime=data['runtime']), verified=False)
+            identity = source_identity.snapshot()
+            saved['runtime_source'] = {key: identity[key] for key in ('root', 'digest', 'scope')}
             if needs is not None:
                 saved['needs'] = needs
             if ticket is not None:
@@ -1581,7 +1607,7 @@ def watch(db, state, attempt, request, *, productive=False):
     directory.mkdir(mode=0o700, exist_ok=True)
     log = directory / (token + '.log')
     db.execute('BEGIN IMMEDIATE')
-    with db:
+    with db, run_control.active_guard(Path(state).parent.parent / 'autopilot.md', productive):
         saved = get(db, attempt)
         wait_preconditions(db, saved, productive)
         if productive:
@@ -1604,7 +1630,7 @@ def watch(db, state, attempt, request, *, productive=False):
             while True:
                 for command in ([argv, completion] if completion else [argv]):
                     # Take the write lock before spawning, so recording the wait's pid never waits behind another writer.
-                    with db:
+                    with db, run_control.active_guard(Path(state).parent.parent / 'autopilot.md', productive):
                         db.execute('BEGIN IMMEDIATE')
                         if time.monotonic() >= deadline:
                             raise subprocess.TimeoutExpired(command, timeout)
@@ -1631,7 +1657,7 @@ def watch(db, state, attempt, request, *, productive=False):
         if process is not None:
             stop(process)
         code, reason = 130, 'interrupted'
-    except OSError as error:
+    except (OSError, ValueError) as error:
         with log.open('a') as output:
             output.write(str(error) + '\n')
     finally:
@@ -1682,6 +1708,7 @@ def t3_send(argv):
 
 def submit(db, state, attempt, request):
     """Verify native settings and arm a durable wait before invoking productive submission once."""
+    run_control.require_active(Path(state).parent.parent / 'autopilot.md')
     t3_target = t3_send(request.get('argv'))
     saved_for_route = get(db, attempt)
     if t3_target is None and saved_for_route and saved_for_route.get('t3'):
@@ -2225,6 +2252,8 @@ def require_closable(db, saved, acceptance):
     """Refuse a closure the lifecycle would not record, whoever asks (retire, collect, `record closed`, the reap): each
     attempt of the conversation collected with its report settled and nothing waiting, and this one's acceptance
     settled."""
+    if acceptance and acceptance.get('decision') == 'accepted':
+        run_control.require_active(Path(state_path(db)).parent.parent / 'autopilot.md')
     final_retirement(db, saved, declining(saved, acceptance))
     settle(dict(saved), acceptance)
 
@@ -2264,19 +2293,6 @@ def require_ended(db, attempt, acceptance):
             "has not ended" if found == 'mine' else 'is open with no worker in it') + f': retire it with {retire}, which '
             + ('closes that pane and records the closure' if saved['owned'] else
              'records its release and leaves the pane open'))
-
-
-def state_fields(text):
-    """The `key: value` lines of the State section (heading `## State` exactly) of a run card's text, '' for a blank or
-    placeholder (`<...>`) value; {} when it has none."""
-    heading = re.search(r'^## State[ \t]*$', text, re.M)
-    fields = {}
-    for line in re.split(r'^## ', text[heading.end():], maxsplit=1, flags=re.M)[0].splitlines() if heading else []:
-        key, colon, value = line.partition(':')
-        if colon and re.fullmatch(r'[a-z-]+', key):
-            value = value.strip()
-            fields.setdefault(key, '' if value.startswith('<') else value)
-    return fields
 
 
 def card_state(path):
@@ -2474,6 +2490,11 @@ def main():
     parser.add_argument('--evidence', action='append', default=[])
     parser.add_argument('--kind', choices=tuple(ATTRIBUTIONS), help='attribute: the quality signal')
     parser.add_argument('--count', type=int, default=1, help='attribute: how many of that signal')
+    parser.add_argument('--incident-id', help='attribute: stable ID for retries and later feedback links')
+    parser.add_argument('--failure-class')
+    parser.add_argument('--owner', help='owning contract reference')
+    parser.add_argument('--check', help='check that catches this failure class')
+    parser.add_argument('--negative-control', help='evidence that a broken variant fails the check')
     parser.add_argument('--job', help='plan: the job whose assignments are planned')
     parser.add_argument('--assignment', action='append', default=[], help='plan: one planned assignment, repeated')
     parser.add_argument('--finding', action='append', default=[],
@@ -2525,7 +2546,9 @@ def main():
                           else plan(db, args.job, args.assignment, args.replace))
             elif args.action == 'attribute':
                 require(text(args.attempt) and args.kind, 'Attribution requires --attempt and --kind')
-                result = attribute(db, args.attempt, args.kind, args.count, args.evidence)
+                result = attribute(db, args.attempt, args.kind, args.count, args.evidence, args.incident_id,
+                                   {key: getattr(args, key) for key in ('failure_class', 'owner', 'check', 'negative_control')
+                                    if getattr(args, key)})
             elif args.action == 'ack':
                 require(args.event_id is not None, 'Ack requires --event-id')
                 db.execute('BEGIN IMMEDIATE')

@@ -244,8 +244,12 @@ def shadow_selection(names, catalog, agent, job, seed, levels=None):
                         'mean': round((1 + successes) / (2 + successes + failures), 3), 'sample': round(draw, 3),
                         'utility': round(draw - weight(names[name], levels or {}) * COSTS.get(cost, 1.0), 3)}
     choice = max(scored, key=lambda name: scored[name]['utility']) if scored else None
+    try:
+        quality = outcomes.quality_report(agent, job)
+    except (OSError, ValueError, sqlite3.Error) as error:
+        quality = {'status': 'unavailable', 'error': str(error)}
     return {'policy': 'thompson-cost-v1', 'cost_weight': COST_WEIGHT, 'allowance': levels or {},
-            'candidates': scored, 'choice': choice}
+            'candidates': scored, 'choice': choice, 'quality_history': quality}
 
 
 def backend_unavailable(definition, backends, checked=None):

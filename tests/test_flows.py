@@ -40,7 +40,7 @@ JOBS = {'diff-review': ('reviewer', 'review'), 'repair': ('builder', 'review'), 
         'e2e-gate': ('verifier', 'review'), 'audit': ('reviewer', 'remediate'), 'ticket': ('builder', 'dispatch'),
         'merge-conflict': ('builder', 'dispatch'), 'acceptance-rerun': ('verifier', 'dispatch'),
         'readiness': ('verifier', 'dispatch'),
-        'prototype': ('builder', 'align')}
+        'prototype': ('builder', 'align'), 'research': ('researcher', 'research')}
 
 
 def targets(path):

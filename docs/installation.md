@@ -62,6 +62,18 @@ Check installation with
 `hooks/list`: a listed installation alone does not prove that its skills or hook were
 loaded. Its required presentation reference is packaged with the plugin.
 
+Compare the installed runtime with the intended checkout before relying on a repair:
+
+```sh
+python3 /absolute/path/to/zloop/scripts/source_identity.py \
+  --root ~/.codex/plugins/cache/zloop-dev/zloop/0.3.0 --compare /absolute/path/to/zloop
+```
+
+Exit 1 identifies changed, missing or unexpected runtime files. The digest excludes
+local state and Python caches; worker registrations retain the executing runtime's
+root and digest. This identifies files on disk, not a running extension's loaded
+build or approved hooks. A new session and its native discovery checks remain required.
+
 ## OpenCode
 
 There is no zloop OpenCode bootstrap extension

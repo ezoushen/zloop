@@ -402,7 +402,8 @@ class NativeHosts(unittest.TestCase):
         inventory = run('claude', '--plugin-dir', str(PLUGIN), 'plugin', 'details', 'zloop').stdout
         skill_count = len(list((PLUGIN / 'skills').glob('*/SKILL.md')))
         hook_events = len(json.loads((PLUGIN / 'hooks/hooks.json').read_text())['hooks'])
-        for expected in (f'Skills ({skill_count})', 'Agents (3)', f'Hooks ({hook_events})'):
+        agent_count = len(list((PLUGIN / 'agents').glob('*.md')))
+        for expected in (f'Skills ({skill_count})', f'Agents ({agent_count})', f'Hooks ({hook_events})'):
             assert expected in inventory, inventory
         # Source inventory does not resolve installed-plugin dependencies.
         installed = json.loads(run('claude', 'plugin', 'list', '--json').stdout)
@@ -415,7 +416,7 @@ class NativeHosts(unittest.TestCase):
             print('Claude installed development plugin: enabled, no loading errors')
         else:
             print('Claude installed development plugin: not present; source inventory only')
-        server = subprocess.Popen(['codex', 'app-server', '--stdio'], stdin=subprocess.PIPE,
+        server = subprocess.Popen(['codex', 'app-server', '--listen', 'stdio://'], stdin=subprocess.PIPE,
                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         selector = selectors.DefaultSelector()
         selector.register(server.stdout, selectors.EVENT_READ)
@@ -444,7 +445,7 @@ class NativeHosts(unittest.TestCase):
                 assert 25 <= len(interface.get('shortDescription') or '') <= 64, skill['name']
                 assert f"${skill['name']}" in (interface.get('defaultPrompt') or ''), skill['name']
             assert plugin['summary']['localVersion'] == json.loads((PLUGIN / 'plugin.json').read_text())['version']
-            print(f'native readers: Claude {skill_count} skills / 5 agents / {hook_events} hook events; Codex {skill_count} shared skills')
+            print(f'native readers: Claude {skill_count} skills / {agent_count} agents / {hook_events} hook events; Codex {skill_count} shared skills')
         finally:
             selector.close()
             server.terminate()

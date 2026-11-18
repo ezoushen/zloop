@@ -262,7 +262,7 @@ class Definitions(unittest.TestCase):
 
     def test_the_plugin_definitions_are_valid(self):
         loaded = agent_defs.load(support.ROOT)
-        self.assertEqual(set(loaded['agents']), {'builder', 'reviewer', 'verifier'})
+        self.assertEqual(set(loaded['agents']), {'builder', 'reviewer', 'verifier', 'researcher'})
         for name, agent in loaded['agents'].items():
             for item in agent['core_skills']:
                 self.assertTrue(':' in item or item.startswith(('standards/', 'runtime/')), (name, item))
@@ -270,6 +270,14 @@ class Definitions(unittest.TestCase):
         schema = json.loads((support.ROOT / 'schemas/executors.schema.json').read_text())
         self.assertEqual(schema['$defs']['agentName']['enum'], sorted(loaded['agents']))
         self.assertEqual(schema['$defs']['jobName']['enum'], sorted(loaded['jobs']))
+
+    def test_research_has_a_registered_read_only_job_with_a_bounded_question(self):
+        loaded = agent_defs.load(support.ROOT)
+        job = loaded['jobs']['research']
+        self.assertEqual(loaded['agents'][job['agent']]['writes'], 'none')
+        self.assertEqual(job['inputs'], ['worktree', 'head', 'question', 'report'])
+        self.assertEqual(job['returns'], ['## Findings'])
+        self.assertFalse(job['acceptance'])
 
 
 if __name__ == '__main__':

@@ -1,6 +1,6 @@
 ---
 name: autopilot
-description: "Run the whole loop hands-off: settle the goal in one interview and confirm a run card with its stop condition (a small change skips both), then refine, dispatch with autofix, review and open the PR without asking again; --pause takes control, --take-over hands it back."
+description: "Run the loop hands-off: interview and confirm a run card (a small change skips both), then refine, dispatch with autofix, review and open the PR; --pause takes control, --take-over returns it."
 disable-model-invocation: true
 argument-hint: "<goal> [--effort low|medium|high|xhigh|max] [--dispatch-effort low|medium|high|xhigh|max] [--review-effort low|medium|high|xhigh|max] | --take-over [--auto-merge] [--effort low|medium|high|xhigh|max] [--dispatch-effort low|medium|high|xhigh|max] [--review-effort low|medium|high|xhigh|max] | --pause"
 ---
@@ -26,6 +26,7 @@ types the command; a message that mentions it is not one. Never widens native pe
   Verify lines that tell success from failure, and what the user reserves.
 - **`autopilot --take-over`:** start from the session's current state. It reuses accepted decisions, tickets and reports,
   and asks only the align questions still unsettled; a phase already finished is not redone. With an existing card, continue from its State.
+  Managed cards use [control events](../../runtime/workers/control.md).
   A confirmed card whose goal, criteria and grants are unchanged is not reconfirmed;
   a card that ended `waiting-on-user` or `paused-allowance` resumes once its cause is gone. Take over a card with
   `python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--auto-merge] [--effort <level>]

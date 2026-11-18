@@ -229,6 +229,7 @@
     "agentName": {
       "enum": [
         "builder",
+        "researcher",
         "reviewer",
         "verifier"
       ]
@@ -244,6 +245,7 @@
         "readiness",
         "repair",
         "reproduce",
+        "research",
         "ticket"
       ]
     },

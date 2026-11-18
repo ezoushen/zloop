@@ -45,6 +45,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import capability_probe  # noqa: E402
 import front_matter  # noqa: E402
+import run_control  # noqa: E402
 import state_files  # noqa: E402
 import title_rules  # noqa: E402
 import worker_lifecycle  # noqa: E402
@@ -626,6 +627,7 @@ def ticket_branch(slug, path):
 def accept(tickets, name):
     """Deterministic verify node: the report exists in the main checkout with its evidence, and the branch moved.
     Any failure withdraws an earlier acceptance."""
+    run_control.require_active(ISSUES / name.split('/')[0] / 'autopilot.md')
     if verify(tickets, name):
         return True
     fm = tickets[name]
@@ -676,7 +678,8 @@ def verify(tickets, name):
         for note in notes:
             print(f"{name}: {note}")
         # The head and the report that passed: done needs both, the head landed on the workstream branch.
-        write_fields(tickets[name], {"accepted": commit_of(ref), "accepted_report": report_digest(report)})
+        with run_control.active_guard(ISSUES / slug / 'autopilot.md'):
+            write_fields(tickets[name], {"accepted": commit_of(ref), "accepted_report": report_digest(report)})
         print(f"{name}: report and branch carry the evidence; judge the content now")
     return not problems
 
@@ -1063,7 +1066,8 @@ def accept_delivered(tickets, name, urls):
         print(f"{name}: {problem}", file=sys.stderr)
     if problems:
         return False
-    write_fields(tickets[name], {"delivered_by": f"[{', '.join(urls)}]"})
+    with run_control.active_guard(ISSUES / name.split('/')[0] / 'autopilot.md'):
+        write_fields(tickets[name], {"delivered_by": f"[{', '.join(urls)}]"})
     print(f"{name}: delivered by merged or successful {', '.join(urls)}; judge the content now")
     return True
 

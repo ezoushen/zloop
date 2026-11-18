@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_matter  # noqa: E402
 import state_files  # noqa: E402
 import next_tickets  # noqa: E402
+import run_control  # noqa: E402
 from worker_lifecycle import SESSION_VARIABLES, host_sessions, state_fields  # noqa: E402
 
 LEVELS = ('low', 'medium', 'high', 'xhigh', 'max')
@@ -220,8 +221,15 @@ def main():
     if args.command == 'phase':
         if not args.phase:
             parser.error(f'phase takes one of {", ".join(PHASES)}')
-        state_files.write_atomic(args.card, phase(args.card, args.card.read_text(), args.phase))
+        text = phase(args.card, args.card.read_text(), args.phase)
+        managed = run_control.read(args.card)
+        if managed:
+            run_control.phase(args.card, text, managed['revision'])
+        else:
+            state_files.write_atomic(args.card, text)
         return
+    if run_control.read(args.card):
+        parser.error('Managed run: use run_control.py for pause/resume; changing its grant needs a new confirmed run')
     if args.command == 'confirm':
         state_files.write_atomic(args.card, confirm(args.card, args.card.read_text(), args.words, host_sessions(), today))
         return

@@ -9,6 +9,7 @@ result waits on something outside the worker and counts neither way.
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import sqlite3
@@ -78,18 +79,22 @@ def verdict(row):
     return 'success'
 
 
-def summary(agent=None, job=None):
-    """Read-only: a missing ledger has no outcomes yet."""
+def read_rows():
+    """Read-only rows; a missing ledger has no observations."""
     path = ledger_path()
     if not path.is_file():
-        return {}
+        return []
     db = sqlite3.connect(f'file:{path}?mode=ro', uri=True, timeout=30)
     try:
-        rows = [json.loads(data) for (data,) in db.execute('SELECT data FROM outcomes ORDER BY key')]
+        return [json.loads(data) for (data,) in db.execute('SELECT data FROM outcomes ORDER BY key')]
     finally:
         db.close()
+
+
+def summary(agent=None, job=None):
+    """Acceptance outcomes, preserving the original summary API."""
     agents = {}
-    for row in rows:
+    for row in read_rows():
         # Rows recorded before agents and jobs measured different work; they are not compared.
         if 'agent' not in row or agent is not None and row['agent'] != agent or job is not None and row['job'] != job:
             continue
@@ -99,13 +104,61 @@ def summary(agent=None, job=None):
     return agents
 
 
+def quality_report(agent=None, job=None, since=None, until=None):
+    """Quality counts by completion cohort, with attribution-only coverage kept explicit."""
+    if any(value is not None and not math.isfinite(value) for value in (since, until)) or (
+            since is not None and until is not None and since >= until):
+        raise ValueError('Quality cohort needs finite bounds with since before until')
+    agents, classes, unknown = {}, {}, 0
+    seen = {}
+    for row in read_rows():
+        if 'agent' not in row or agent is not None and row['agent'] != agent or job is not None and row['job'] != job:
+            continue
+        completed = row.get('completed_at')
+        if completed is None:
+            unknown += 1
+            if since is not None or until is not None:
+                continue
+        elif since is not None and completed < since or until is not None and completed >= until:
+            continue
+        counts = agents.setdefault(row['agent'], {}).setdefault(row['job'], {}).setdefault(row['candidate'],
+            dict(successes=0, failures=0, pending=0, attempts=0, accepted_attempts=0,
+                 attributed_attempts=0, **{name: 0 for name in METRICS.values()}))
+        counts[{'success': 'successes', 'failure': 'failures', 'pending': 'pending'}[verdict(row)]] += 1
+        counts['attempts'] += 1
+        counts['accepted_attempts'] += bool(row.get('accepted'))
+        counts['attributed_attempts'] += any(key in row for key in METRICS.values())
+        for key in METRICS.values():
+            counts[key] += row.get(key, 0)
+        for signal in row.get('feedback', []):
+            category, incident = signal.get('failure_class'), signal.get('incident_id')
+            if not category or not incident:
+                continue
+            entry = classes.setdefault(category, dict(incidents=0, checks=[], negative_controls=[], owners=[]))
+            key = (row.get('source') or row.get('repo'), incident)
+            if key not in seen.setdefault(category, set()):
+                seen[category].add(key)
+                entry['incidents'] += 1
+            for source, target in (('check', 'checks'), ('negative_control', 'negative_controls'), ('owner', 'owners')):
+                if signal.get(source) and signal[source] not in entry[target]:
+                    entry[target].append(signal[source])
+    return dict(agents=agents, failure_classes=classes, window={'since': since, 'until': until},
+                coverage={'unknown_completed_at': unknown,
+                          'quality_observation': 'Attributions only; absent signals are unknown, not verified zero defects'})
+
+
 def attempt_row(db, saved, source):
     """A collected lifecycle attempt's outcome, with the quality signals attributed to it."""
-    counts = {}
+    counts, feedback = {}, []
     for (payload,) in db.execute("SELECT payload FROM events WHERE attempt = ? AND kind = 'attribution'",
                                  (saved['attempt'],)):
         signal = json.loads(payload)
         counts[METRICS[signal['kind']]] = counts.get(METRICS[signal['kind']], 0) + signal['count']
+        if signal.get('incident_id'):
+            feedback.append({key: signal[key] for key in ('incident_id', 'failure_class', 'owner', 'check',
+                                                         'negative_control', 'kind', 'recorded_at') if key in signal})
+    collected = db.execute("SELECT payload FROM events WHERE attempt = ? AND kind = 'result' ORDER BY id LIMIT 1",
+                           (saved['attempt'],)).fetchone()
     execution = saved.get('execution_snapshot', {})
     actual = saved.get('observed') or saved['requested']
     # States from before the lifecycle kept the link still hold it in the resolved route.
@@ -119,7 +172,9 @@ def attempt_row(db, saved, source):
                 shadow_choice=(execution.get('shadow_selection') or {}).get('choice'),
                 result=saved['result']['status'], status=STATUSES[saved['result']['status']],
                 accepted=bool(saved.get('accepted')),
-                declined=bool(saved.get('declined')), **counts)
+                declined=bool(saved.get('declined')),
+                completed_at=json.loads(collected[0]).get('recorded_at') if collected else None,
+                feedback=feedback, **counts)
 
 
 def state_rows(path):
@@ -201,12 +256,18 @@ def main():
     report = commands.add_parser('summary', help='successes, failures and pending attempts per agent, job and candidate')
     report.add_argument('--agent')
     report.add_argument('--job')
+    report.add_argument('--quality', action='store_true', help='include attributed quality and coverage separately')
+    report.add_argument('--since', type=float, help='inclusive completion-cohort UTC epoch, with --quality')
+    report.add_argument('--until', type=float, help='exclusive completion-cohort UTC epoch, with --quality')
     load = commands.add_parser('import', help='add past decision journals and lifecycle state files once')
     load.add_argument('sources', nargs='+', type=Path, help='decisions .jsonl or lifecycle workers .sqlite files')
     args = parser.parse_args()
     try:
         if args.command == 'summary':
-            result = {'ledger': str(ledger_path()), 'agents': summary(args.agent, args.job)}
+            if (args.since is not None or args.until is not None) and not args.quality:
+                parser.error('cohort bounds require --quality')
+            result = dict(ledger=str(ledger_path()), **quality_report(args.agent, args.job, args.since, args.until)) if args.quality else {
+                'ledger': str(ledger_path()), 'agents': summary(args.agent, args.job)}
         else:
             result = import_sources(args.sources)
     except (OSError, ValueError, sqlite3.Error) as error:

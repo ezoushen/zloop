@@ -10,6 +10,9 @@ their claims against the current installed runner contract before distributing
 assignments. If deployment is uncertain or changed, record the resolved plugin
 root/version and relevant agent/job/skill content hashes once, and verify workers use
 that source. A fresh development checkout is not proof that another host loaded it.
+Use `scripts/source_identity.py --root <installed-root> --compare <source-root>` to
+check runtime content; registration retains its executing root and digest. Disk
+identity does not establish a long-lived extension's loaded build or hook approval.
 No script is copied to a
 project. `plugin_root`, `repo`, `adapter`, `agent_file` and `job_file` in worker messages are
 absolute paths, not assumed shell variables.

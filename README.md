@@ -45,9 +45,9 @@ Codex and Pi list it.
 - **Tickets on the project's tracker.** The configured tracker (Linear, GitHub, …) is
   the authority for work items; local Markdown under `.scratch/<slug>/issues/` is the
   fallback. Existing project conventions take precedence.
-- **One orchestrator, three agents.** The orchestrator owns scheduling, worktrees,
+- **One orchestrator, bounded worker roles.** The orchestrator owns scheduling, worktrees,
   integration and board updates. Each assignment goes to one worker, which gets an
-  agent file (builder, reviewer or verifier: permissions and principles) and a job file
+  agent file (builder, reviewer, verifier or researcher: permissions and principles) and a job file
   (inputs, finish line, return). Workers do not create nested teams.
 - **Evidence, not claims.** Reports in `.scratch/<slug>/reports/` hold check output and
   decisions. Review reconciles that evidence; `--autofix` repairs in-scope findings
@@ -76,7 +76,7 @@ Codex and Pi list it.
 |---|---|
 | `skills/<skill>/` | One folder per skill: its procedure in `SKILL.md`, its other docs and its job files (`jobs/`) |
 | `bootstrap.md` | Session rules every host reads first, with the triggers table for rules that fire outside their owner |
-| `agents/` | The builder, reviewer and verifier agents; Claude loads them natively |
+| `agents/` | The builder, reviewer, verifier and researcher agents; Claude loads them natively |
 | `standards/` | What good looks like: engineering judgment, test-first development, module design, PR descriptions, code comments, documentation and the remediation kinds |
 | `hosts/claude/`, `hosts/codex/`, `hosts/pi/`, `hosts/opencode/` | Each host's session part and worker part; OpenCode covers model settings and the yield gate's plugin |
 | `hosts/herdr.md`, `hosts/executors/` | Herdr guidance; Bash, sub-agent and skill executors |
