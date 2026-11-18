@@ -186,6 +186,13 @@ def user_source(path, runtime, sessions, action, after):
     raise ValueError(f'No recent explicit user command {flag} in the bound native record')
 
 
+def user_boundary(state, action):
+    """Keep user decisions ordered; a resume must also follow the terminal decision it clears."""
+    events = [event for event in state['events'] if event.get('source', {}).get('kind') == 'user'
+              or action == 'resume' and event.get('terminal')]
+    return max([state['created_at']] + [event.get('source', {}).get('at', event['at']) for event in events])
+
+
 def transition(card, terminal, source, reason, expected, request_id, updates=None):
     """Commit an idempotent transition at an expected revision, then update its card view."""
     if terminal not in ('', *TERMINAL_STATES) or not reason.strip() or not request_id:
@@ -206,6 +213,8 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
         if state['revision'] != expected:
             raise ValueError('Control revision changed; inspect the current run before retrying')
         old = state_files.state_fields(state['card_text']).get('terminal', '')
+        if old == 'paused-by-user' and terminal not in ('', 'paused-by-user'):
+            raise ValueError('Run is paused-by-user; a new user resume is required')
         if terminal == 'merged' and state_files.state_fields(state['card_text']).get('auto-merge') != 'yes':
             raise ValueError('Merged state requires the existing merge grant')
         if terminal == '' and source.get('kind') == 'timer':
@@ -221,7 +230,7 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
                 raise ValueError('Transition requires the bound user command')
             proof = user_source(source['native'], source['runtime'],
                                 sessions(state['card_text']),
-                                action, state['created_at'])
+                                action, math.nextafter(user_boundary(state, action), math.inf))
             if proof != source or any(e.get('source', {}).get('key') == source['key'] for e in state['events']):
                 raise ValueError('User command source changed or was already consumed')
         elif source.get('kind') != 'host' or not source.get('reference'):
@@ -268,7 +277,7 @@ def timer_source(queue, event_id):
     document = json.loads(queue.read_text())
     wake = document['wakes'][event_id]
     checked = wake.get('preflight', {})
-    if (document.get('schema') != 1 or wake.get('state') not in ('sending', 'sent')
+    if (document.get('schema') != 1 or wake.get('state') not in ('sending', 'sent', 'uncertain')
             or wake['request']['due'] > time.time() or checked.get('ready') is not True
             or checked.get('allowance') != 'eligible' or checked.get('approval') != 'clear'):
         raise ValueError('Wake is not due, preflighted and in delivery')

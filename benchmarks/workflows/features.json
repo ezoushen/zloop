@@ -264,6 +264,59 @@
         "grade.json",
         "observed.json"
       ]
+    },
+    {
+      "name": "paused-completion",
+      "task": "An explicit native user pause is already recorded at {workspace}/paused/autopilot.md. The worker result was collected before this turn; its receipt (event 1) is in {workspace}/paused/reports/workers.sqlite and its report is {workspace}/completed.md. Acknowledge that receipt with {plugin_root}/scripts/worker_lifecycle.py ack. Preserve the completed result and user control. Do not accept the result, advance the phase, resume, or launch work while paused.",
+      "timeout": 180,
+      "launch": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "launch",
+        "paused-completion",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "doctor": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "doctor",
+        "paused-completion",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "drive": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "drive",
+        "paused-completion",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "evidence": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "evidence",
+        "paused-completion",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "cleanup": [
+        "{python}",
+        "{plugin_root}/benchmarks/workflows/case.py",
+        "cleanup",
+        "paused-completion",
+        "{workspace}",
+        "{evidence}"
+      ],
+      "protected_inputs": [
+        "{evidence}/oracle.json"
+      ],
+      "required_artifacts": [
+        "oracle.json",
+        "grade.json",
+        "observed.json"
+      ]
     }
   ]
 }

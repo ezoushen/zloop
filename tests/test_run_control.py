@@ -72,6 +72,44 @@ class RunControl(unittest.TestCase):
                                     'pause', 1, 'p1')
         self.control.require_active(self.card)
 
+    def test_a_takeover_older_than_the_user_pause_cannot_resume_it(self):
+        self.control.adopt(self.card, 'confirmed run')
+        native = self.root / 'ordered.jsonl'
+        rows = [{'type': 'session_meta', 'payload': {'id': 'host-1'}}]
+        def append(command):
+            rows.append({'type': 'response_item',
+                         'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                         'payload': {'role': 'user', 'content': [{'type': 'input_text', 'text': command}]}})
+            native.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        append('autopilot --take-over')
+        old = self.control.user_source(native, 'codex', ['host-1'], 'resume', 0)
+        append('autopilot --pause')
+        pause = self.control.user_source(native, 'codex', ['host-1'], 'pause', 0)
+        self.control.transition(self.card, 'paused-by-user', pause, 'actual pause', 1, 'pause')
+        with self.assertRaisesRegex(ValueError, 'recent explicit user command'):
+            self.control.transition(self.card, '', old, 'stale takeover', 2, 'old-resume')
+        with self.assertRaisesRegex(ValueError, 'paused-by-user'):
+            self.control.require_active(self.card)
+        append('autopilot --take-over')
+        fresh = self.control.user_source(native, 'codex', ['host-1'], 'resume', 0)
+        self.control.transition(self.card, '', fresh, 'new takeover', 2, 'new-resume')
+        self.control.require_active(self.card)
+
+    def test_a_host_decision_cannot_replace_an_explicit_user_pause(self):
+        self.control.adopt(self.card, 'confirmed recovery grant', allow_resume=True)
+        proof = self.user('autopilot --pause')
+        self.control.transition(self.card, 'blocked', {'kind': 'host', 'reference': 'diagnostic'},
+                                'host decision before pause was processed', 1, 'block')
+        paused = self.control.transition(self.card, 'paused-by-user', proof, 'pause', 2, 'pause')
+        for terminal in self.control.TERMINAL_STATES:
+            if terminal == 'paused-by-user':
+                continue
+            with self.subTest(terminal=terminal):
+                with self.assertRaisesRegex(ValueError, 'paused-by-user'):
+                    self.control.transition(self.card, terminal, {'kind': 'host', 'reference': 'diagnostic'},
+                                            'host decision', 3, 'host-' + terminal)
+        self.assertEqual(self.control.read(self.card), paused)
+
     def test_delivered_state_cannot_invent_a_merge_grant(self):
         self.control.adopt(self.card, 'confirmed run')
         with self.assertRaisesRegex(ValueError, 'merge grant'):

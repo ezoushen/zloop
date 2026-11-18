@@ -56,4 +56,7 @@ The sender records intent before delivery. Sent events only poll their progress
 driver, never resend. A lost or timed-out sender becomes `uncertain`; the loop
 stops rather than guess. Inspect the same target, then use `reconcile <queue>
 --event-id <id>`: it requires readback of actual authorized progress for that event
-and does not replay the command. If that evidence is unavailable, keep the gap.
+and does not replay the command. A parent may still consume its already accepted
+receipt while delivery is uncertain, under the same run, revision, preflight and
+grant checks. Uncertainty never permits another send. If progress evidence is
+unavailable, keep the gap.

@@ -37,6 +37,9 @@ The native file is evidence, not a cryptographic authority against unrestricted
 filesystem access. Unavailable timestamps or unsupported exports remain gaps.
 
 `resume` uses the same shape and an actual `autopilot --take-over` user command.
+New user decisions must follow the last recorded user decision; a takeover must
+also be newer than the terminal decision it clears. An older unused command cannot
+clear a newer pause. Host decisions cannot replace an explicit user pause.
 It preserves effort levels; only an explicit `--auto-merge` in that native command
 grants merging for the resumed run. Other grant/criteria changes require a new
 confirmed run. Managed cards use this command instead of the legacy take-over.

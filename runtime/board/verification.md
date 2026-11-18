@@ -17,8 +17,11 @@ directory. Existing project boot/device/HTTP/UI drivers remain the commands.
 The evidence command independently judges post-state; a successful drive exit does
 not establish correct behavior. Setup/doctor/driver failures are blocked runs;
 an evidence assertion failure is a failed feature. Exit 125 is an infrastructure
-gap. Cleanup runs after failure too. Missing retained artifacts or changed protected
-inputs cannot pass, and every stage uses the existing bounded check runner.
+gap. Cleanup runs after failure too, including an oracle change. If cleanup command
+inputs or the framework runtime changed, teardown is untrusted: the runner blocks
+cleanup and records required operator reconciliation of the owned resources.
+Missing retained artifacts or changed protected inputs cannot pass, and every stage
+uses the existing bounded check runner.
 
 `protected_inputs` names immutable oracle/fixture paths. Keep the oracle outside
 the driver's workspace and preserve its source and hash. The runner also checks
@@ -28,8 +31,10 @@ the evaluation depends on them. Retain only the input/output files needed to
 inspect or replay the claim, including failed trials.
 
 Zloop's pilot map, `benchmarks/workflows/features.json`, covers source drift, false
-user-pause inference, stale reports, next-phase continuation and observational
-measurement. The scripted mode verifies the driver and grader infrastructure:
+user-pause inference, a collected result during an explicit pause, stale reports,
+next-phase continuation and observational measurement. The paused-completion case
+uses a persisted completed-worker fixture, not a concurrent live child. The scripted
+mode verifies the driver and grader infrastructure:
 
 ```sh
 python3 <plugin_root>/scripts/verify_features.py <plugin_root>/benchmarks/workflows/features.json \

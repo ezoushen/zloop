@@ -60,9 +60,27 @@ class FeatureVerification(unittest.TestCase):
         self.feature['protected_inputs'] = ['{evidence}/oracle.txt']
         self.feature['drive'] = [sys.executable, '-c', 'from pathlib import Path; import sys; Path(sys.argv[1]).write_text("changed")',
                                 '{evidence}/oracle.txt']
+        self.feature['cleanup'] = [sys.executable, '-c',
+            'from pathlib import Path; import sys; Path(sys.argv[1]).write_text("cleaned")', '{evidence}/cleanup.txt']
         result = self.run_feature()
         self.assertEqual(result['status'], 'blocked')
         self.assertNotIn('evidence', result['steps'])
+        self.assertEqual(result['steps']['cleanup']['exit_code'], 0)
+        self.assertEqual((self.root / 'evidence/cleanup.txt').read_text(), 'cleaned')
+
+    def test_a_modified_cleanup_program_requires_explicit_reconciliation(self):
+        program = self.root / 'cleanup.py'
+        program.write_text('from pathlib import Path; Path("cleaned").write_text("yes")')
+        marker = self.root / 'untrusted-ran'
+        self.feature['cleanup'] = [sys.executable, str(program)]
+        self.feature['drive'] = [sys.executable, '-c',
+            'from pathlib import Path; import sys; Path(sys.argv[1]).write_text(sys.argv[2])',
+            str(program), f'from pathlib import Path; Path({str(marker)!r}).write_text("yes")']
+        result = self.run_feature()
+        self.assertEqual(result['status'], 'blocked')
+        self.assertEqual(result['steps']['cleanup']['exit_code'], 125)
+        self.assertIn('reconciliation', result['steps']['cleanup']['reason'])
+        self.assertFalse(marker.exists())
 
     def test_project_feature_map_exercises_its_real_drivers_and_graders(self):
         manifest = json.loads((support.ROOT / 'benchmarks/workflows/features.json').read_text())
@@ -71,6 +89,22 @@ class FeatureVerification(unittest.TestCase):
                 result = self.runner.verify(feature, self.root / feature['name'])
                 self.assertEqual(result['status'], 'passed', result)
                 self.assertTrue((self.root / feature['name'] / 'observed.json').is_file())
+
+    def test_paused_completion_grader_rejects_a_broken_acceptance_guard(self):
+        manifest = json.loads((support.ROOT / 'benchmarks/workflows/features.json').read_text())
+        feature = next(f for f in manifest['features'] if f['name'] == 'paused-completion')
+        feature['drive'] = [sys.executable, '-c',
+            f'import sys; sys.path.insert(0,{str(support.SCRIPTS)!r}); '
+            'from pathlib import Path; import subprocess,run_control,worker_lifecycle as life; '
+            f'subprocess.run([sys.executable,{str(support.SCRIPTS / "worker_lifecycle.py")!r},"ack",'
+            '"--state",sys.argv[1],"--event-id","1"],check=True); '
+            'run_control.require_active=lambda card:None; db=life.connect(Path(sys.argv[1])); '
+            'life.record(db,dict(kind="accepted",attempt="worker/1",commit="integrated",reason="broken guard",evidence=["fixture"])); '
+            'db.close()', '{workspace}/paused/reports/workers.sqlite']
+        result = self.runner.verify(feature, self.root / 'broken-guard')
+        self.assertEqual(result['steps']['drive']['exit_code'], 0)
+        self.assertEqual(result['status'], 'failed')
+        self.assertNotEqual(result['steps']['evidence']['exit_code'], 0)
 
 
 if __name__ == '__main__':

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Isolated zloop feature fixtures and outcome graders; no product checkout is mutated."""
+import datetime
 import hashlib
 import json
 from pathlib import Path
@@ -62,6 +63,32 @@ def launch(name, workspace, evidence):
         oracle['input_hash'] = sha(workspace / 'collected.json')
         report.write_text('Changed after collection\n')
         oracle['report_hash'] = sha(report)
+    elif name == 'paused-completion':
+        (workspace / 'paused/reports').mkdir(parents=True)
+        path = card(workspace / 'paused')
+        native = workspace / 'native.jsonl'
+        rows = [{'type': 'session_meta', 'payload': {'id': 'fixture-host'}},
+                {'type': 'response_item', 'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                 'payload': {'role': 'user', 'content': [{'type': 'input_text', 'text': 'autopilot --pause'}]}}]
+        native.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        source = run_control.user_source(native, 'codex', ['fixture-host'], 'pause', 0)
+        run_control.transition(path, 'paused-by-user', source, 'explicit user pause', 1, 'pause')
+        report = workspace / 'completed.md'
+        report.write_text('## Implemented\nCompleted worker fixture, already collected.\n')
+        db = worker_lifecycle.connect(workspace / 'paused/reports/workers.sqlite')
+        try:
+            saved = dict(attempt='worker/1', assignment='worker', agent='builder', job='ticket', repo=str(workspace),
+                         runtime='codex', native_session='completed-fixture', verified=True,
+                         requested={'model': 'fixture'}, execution_snapshot={},
+                         result=dict(status='completed', head='fixture', report=str(report), report_sha256=sha(report), evidence=[]))
+            db.execute('INSERT INTO attempts VALUES (?,?)', ('worker/1', json.dumps(saved)))
+            db.execute('INSERT INTO events (attempt,kind,payload,acknowledged) VALUES (?,?,?,0)',
+                       ('worker/1', 'result', json.dumps({'recorded_at': 1})))
+            db.commit()
+        finally:
+            db.close()
+        oracle.update(control_hash=sha(run_control.location(path)), report_hash=sha(report),
+                      attempt_hash=run_control.digest(json.dumps(saved, sort_keys=True)))
     elif name == 'measure-baseline':
         values = [secrets.randbelow(100) + 1 for _ in range(5)]
         put(workspace / 'samples.json', values)
@@ -90,6 +117,9 @@ def drive(name, workspace):
     elif name == 'stale-report':
         saved = json.loads((workspace / 'collected.json').read_text())
         put(workspace / 'verdict.json', {'accepted': worker_lifecycle.report_intact(saved)})
+    elif name == 'paused-completion':
+        subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/worker_lifecycle.py'), 'ack',
+                        '--state', str(workspace / 'paused/reports/workers.sqlite'), '--event-id', '1'], check=True)
     elif name == 'continue-phase':
         subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/autopilot_card.py'), 'phase',
                         str(workspace / 'autopilot.md'), 'refine'], check=True)
@@ -105,6 +135,8 @@ def grade(name, workspace, evidence):
                                'installed/scripts/queue.py', 'comparison.json'],
                 'pause-provenance': ['autopilot.md', 'autopilot-control.json', 'native.jsonl', 'decision.json'],
                 'stale-report': ['collected.json', 'report.md', 'verdict.json'],
+                'paused-completion': ['native.jsonl', 'completed.md', 'paused/autopilot.md',
+                                      'paused/autopilot-control.json', 'paused/reports/workers.sqlite'],
                 'continue-phase': ['autopilot.md', 'autopilot-control.json', 'worker-complete.txt'],
                 'measure-baseline': ['samples.json', 'measure.py', 'measurement.json', 'measurement-execution.json']}[name]
     try:
@@ -123,6 +155,19 @@ def grade(name, workspace, evidence):
             passed = (json.loads((workspace / 'verdict.json').read_text()).get('accepted') is False
                       and sha(workspace / 'collected.json') == oracle['input_hash']
                       and sha(workspace / 'report.md') == oracle['report_hash'])
+        elif name == 'paused-completion':
+            db = worker_lifecycle.connect(workspace / 'paused/reports/workers.sqlite')
+            try:
+                saved = worker_lifecycle.get(db, 'worker/1')
+                acknowledged = db.execute('SELECT acknowledged FROM events WHERE id=1').fetchone()[0]
+                passed = (acknowledged == 1 and not saved.get('accepted') and not saved.get('declined')
+                          and run_control.digest(json.dumps(saved, sort_keys=True)) == oracle['attempt_hash']
+                          and saved['result']['status'] == 'completed'
+                          and sha(workspace / 'completed.md') == oracle['report_hash']
+                          and sha(run_control.location(workspace / 'paused/autopilot.md')) == oracle['control_hash']
+                          and run_control.read(workspace / 'paused/autopilot.md')['events'][-1]['terminal'] == 'paused-by-user')
+            finally:
+                db.close()
         elif name == 'continue-phase':
             state = run_control.read(workspace / 'autopilot.md')
             fields = run_control.state_files.state_fields(state['card_text'])

@@ -63,10 +63,21 @@ class Supervisor(unittest.TestCase):
 
     def test_critical_allowance_is_pending_and_does_not_notify(self):
         self.config['preflight'] = [sys.executable, '-c',
-            'print(\'{"ready": false, "allowance": "critical", "approval": "clear"}\')', '{receipt}']
+            'print(\'{"ready": true, "allowance": "critical", "approval": "clear"}\')', '{receipt}']
         self.schedule()
         self.assertEqual(self.supervisor.tick(self.queue)['state'], 'pending')
         self.assertFalse(self.output.exists())
+
+    def test_readiness_and_approval_each_prevent_notification(self):
+        for name, checked in [('unready', dict(ready=False, allowance='eligible', approval='clear')),
+                              ('approval', dict(ready=True, allowance='eligible', approval='pending'))]:
+            with self.subTest(name=name):
+                config = dict(self.config, preflight=[sys.executable, '-c',
+                    f'print({json.dumps(checked)!r})', '{receipt}'])
+                queue = self.root / (name + '.json')
+                self.supervisor.schedule(queue, self.card, 0, config, name)
+                self.assertEqual(self.supervisor.tick(queue)['state'], 'pending')
+                self.assertFalse(self.output.exists())
 
     def test_lost_sender_is_uncertain_until_target_readback_reconciles_same_event(self):
         self.schedule()
@@ -84,6 +95,35 @@ class Supervisor(unittest.TestCase):
         self.assertEqual(self.supervisor.tick(self.queue)['state'], 'uncertain')
         self.assertTrue(self.output.exists())
         self.assertEqual(self.supervisor.reconcile(self.queue, 'wake-1')['state'], 'progressed')
+
+    def test_a_queued_parent_can_consume_its_receipt_after_sender_loss(self):
+        work = self.config['notify']
+        queued = self.root / 'queued.json'
+        self.config['notify'] = [sys.executable, '-c',
+            'from pathlib import Path; import sys; Path(sys.argv[1]).write_text(sys.argv[2])',
+            str(queued), '{receipt}']
+        self.schedule()
+        invoke = self.supervisor.invoke
+        calls = []
+        def accepted_then_lost(*args):
+            calls.append(args)
+            result = invoke(*args)
+            if len(calls) == 2:
+                raise KeyboardInterrupt('transport accepted before parent consumed')
+            return result
+        with patch.object(self.supervisor, 'invoke', side_effect=accepted_then_lost):
+            with self.assertRaises(KeyboardInterrupt):
+                self.supervisor.tick(self.queue)
+        self.assertEqual(self.supervisor.tick(self.queue)['state'], 'uncertain')
+        self.assertFalse(self.output.exists())
+        result = subprocess.run([queued.read_text() if arg == '{receipt}' else arg for arg in work],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(self.output.read_text())['event_id'], 'wake-1')
+        self.assertEqual(self.supervisor.reconcile(self.queue, 'wake-1')['state'], 'progressed')
+        queued.unlink()
+        self.assertEqual(self.supervisor.tick(self.queue)['state'], 'progressed')
+        self.assertFalse(queued.exists(), 'the accepted receipt must not be sent again')
 
     def test_a_lost_sender_before_delivery_is_not_guessed_safe_to_retry(self):
         self.schedule()

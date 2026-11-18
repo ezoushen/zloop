@@ -52,8 +52,10 @@ def verify(feature, evidence, driver=None):
             raise ValueError('Agent verification needs an explicit feature task')
         commands = {step: expand(driver if step == 'drive' and driver else feature[step], values) for step in STEPS}
         result['task'] = task
+        cleanup_inputs = {arg: hashlib.sha256(Path(arg).read_bytes()).hexdigest() for arg in commands['cleanup']
+                          if arg.startswith('/') and Path(arg).is_file()}
+        cleanup_runtime = source_identity.snapshot()['digest']
         frozen = {}
-        scope_changed = False
         try:
             for step in STEPS[:-1]:
                 if step == 'drive':
@@ -84,8 +86,11 @@ def verify(feature, evidence, driver=None):
             else:
                 result['status'] = 'passed'
         finally:
-            if scope_changed:
-                result['steps']['cleanup'] = {'exit_code': 125, 'reason': 'Changed driver requires operator reconciliation'}
+            cleanup_changed = (any(not Path(path).is_file() or hashlib.sha256(Path(path).read_bytes()).hexdigest() != value
+                                   for path, value in cleanup_inputs.items())
+                               or source_identity.snapshot()['digest'] != cleanup_runtime)
+            if cleanup_changed:
+                result['steps']['cleanup'] = {'exit_code': 125, 'reason': 'Changed cleanup inputs require operator reconciliation'}
             else:
                 command = [sys.executable, '-B', str(ROOT / 'scripts/run_check.py'), '--timeout', str(timeout),
                            '--log', str(evidence / 'cleanup.log'), '--', *commands['cleanup']]
