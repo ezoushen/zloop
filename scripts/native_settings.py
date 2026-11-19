@@ -19,15 +19,20 @@ def has_attempt(text, attempt):
                           + re.escape(attempt) + r'[ \t]*$', text))
 
 
+def is_startup_probe(text):
+    """Whether user text is the startup-only turn, which names the attempt but is not the productive packet."""
+    return bool(re.search(r'(?m)^Startup only\.', text))
+
+
 def _packet_reply_t3(messages, attempt):
-    """Packet proof and reply from a T3 thread's messages: the packet is the user text naming the attempt; the
-    reply is the first assistant text after it."""
+    """Packet proof and reply from a T3 thread's messages: the packet is the last user text naming the attempt
+    that is not the startup probe; the reply is the first assistant text after it."""
     packet = False
     for message in messages:
         role, body = message.get('role'), message.get('text') or ''
-        if role == 'user':
-            packet = packet or has_attempt(body, attempt)
-        elif role == 'assistant' and packet:
+        if role == 'user' and has_attempt(body, attempt) and not is_startup_probe(body):
+            packet = True
+        elif role == 'assistant' and packet and (message.get('text') or '').strip():
             return True, True
     return packet, False
 

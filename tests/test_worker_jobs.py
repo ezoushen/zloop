@@ -279,6 +279,32 @@ sys.exit(process.returncode)
             else:
                 self.assertTrue(gate['complete'])
 
+    def test_a_read_only_agents_staging_change_is_a_change_but_a_restored_index_is_not(self):
+        head = self.checkout()
+        (self.worktree / 'code.py').write_text('x = 3\n')
+        reason = 'the Git index (staging) differs from its state at registration'
+        # (the user's staging at registration, what the agent does, whether collection refuses)
+        for number, (staged, steps, refused) in enumerate((
+                (False, (), False),
+                (False, (('add', 'code.py'),), True),
+                (False, (('add', 'code.py'), ('reset', '-q', 'code.py')), False),
+                (True, (), False),
+                (True, (('reset', '-q', 'code.py'),), True)), 1):
+            self.git('reset', '-q')
+            if staged:
+                self.git('add', 'code.py')
+            attempt = f'review-{number}/1'
+            report = self.review(head, attempt, f'native-{number}')
+            for step in steps:
+                self.git(*step)
+            self.completed(attempt, status='completed', head=head, report=str(report), evidence=['review.md'])
+            gate = self.cli('gate', '--attempt', attempt, '--stage', 'accept', '--revision', head,
+                            code=1 if refused else 0)
+            if refused:
+                self.assertEqual(gate['missing'], [f'unchanged worktree for a read-only agent ({reason})'])
+            else:
+                self.assertTrue(gate['complete'])
+
     def test_untracked_files_present_at_registration_are_not_a_change(self):
         head = self.checkout()
         (self.worktree / 'before.txt').write_text('there before the agent started\n')

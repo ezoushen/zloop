@@ -56,7 +56,7 @@ class T3Threads(WorkerLifecycleCase):
 
     def t3_fixture(self, thread='th-1', status='completed', show_error=None, runtime='claude',
                    model='sonnet', title='zloop/slug/a-1 builder', parent=None, archived=False, host=None,
-                   says=None, asks=0):
+                   says=None, asks=0, messages=None):
         """A `t3` stub whose `thread show --json <thread>` answers with the fixture's state. `parent` makes the
         thread that thread's child, as `delegate_task` does; `host` is what T3 puts in the environment of an
         orchestrator it hosts; `says` is a sentence the CLI answers instead, on stderr with exit 1 and no JSON;
@@ -69,7 +69,9 @@ class T3Threads(WorkerLifecycleCase):
                               'providerInstanceId': runtime, 'model': model, 'parentThreadId': parent,
                               'relationshipToParent': 'subagent' if parent else None, 'archived': archived,
                               'pendingRequestCount': asks},
-                   'messages': [{'role': 'assistant', 'text': 'assignment done'}]}
+                   'messages': messages if messages is not None else [
+                       *({'role': 'user', 'text': f'attempt: ticket-1/{n}'} for n in (1, 2)),
+                       {'role': 'assistant', 'text': 'assignment done'}]}
         body = (json.dumps(payload) if show_error is None
                 else json.dumps({'error': {'code': show_error}}))
         exit_code = 1 if show_error else 0
@@ -146,7 +148,9 @@ class RemoteEnvironment(T3Threads):
                     result = {'thread': {'threadId': args.get('threadId'),
                                          'status': statuses.pop(0) if len(statuses) > 1 else statuses[0],
                                          'providerInstanceId': 'claude', 'model': 'sonnet'},
-                              'messages': [{'role': 'assistant', 'text': reply}]}
+                              'messages': [
+                                  *({'role': 'user', 'text': f'attempt: ticket-1/{n}'} for n in (1, 2)),
+                                  {'role': 'assistant', 'text': reply}]}
                 elif tool == 't3_thread_send':
                     result = {'threadId': args.get('threadId'), 'status': 'starting', 'delivery': 'started'}
                 elif tool == 't3_thread_organize':
@@ -489,6 +493,51 @@ class RemoteTransport(RemoteEnvironment):
         self.assertTrue(sent and sent[0]['args']['threadId'] == 'mcp:peer-1'
                         and sent[0]['args']['message'] == 'packet text'
                         and 'environmentId' not in sent[0]['args'])
+
+
+class StartupReplyIsNotCompletion(T3Threads):
+    PROBE = {'role': 'user', 'text': 'dispatch_card: c\nexecution: e\nattempt: ticket-1/1\n'
+                                      'Startup only. Report provider, model, working directory and runtime mode. '
+                                      'Do no productive work.'}
+    ANSWER = {'role': 'assistant', 'text': 'claude sonnet /w default'}
+    PACKET = {'role': 'user', 'text': 'assignment: ticket-1  attempt: ticket-1/1'}
+
+    def attempt(self, messages, live=None):
+        """A completed result whose saved native record holds `messages`, while T3 itself shows `live`."""
+        self.registered()
+        self.ready()
+        path = self.native_paths['ticket-1/1']
+        record = json.loads(path.read_text())
+        record['messages'] = messages
+        path.write_text(json.dumps(record))
+        self.t3_fixture(messages=messages if live is None else live)
+        report = self.root / 'ticket-1-1.md'
+        report.write_text('## Implemented\n\nVerified assignment report at head-1\n')
+        return dict(status='completed', head='head-1', report=str(report), evidence=['checks.log@head-1'],
+                    native=str(path))
+
+    def test_an_unanswered_productive_packet_is_not_completed_by_the_startup_reply(self):
+        result = self.attempt([self.PROBE, self.ANSWER, self.PACKET])
+        error = str(self.record('result', 'ticket-1/1', code=2, **result))
+        self.assertIn('answered no reply', error)
+
+    def test_the_saved_record_alone_refuses_a_startup_reply_when_t3_shows_the_answer(self):
+        # The saved record is what an old startup attempt left; T3's own thread holds a later answer.
+        result = self.attempt([self.PROBE, self.ANSWER, self.PACKET],
+                              live=[self.PROBE, self.ANSWER, self.PACKET, {'role': 'assistant', 'text': 'done'}])
+        error = str(self.record('result', 'ticket-1/1', code=2, **result))
+        self.assertIn('Completion requires the packet reply', error)
+
+    def test_a_productive_reply_after_the_probe_is_collectable(self):
+        messages = [self.PROBE, self.ANSWER, self.PACKET, {'role': 'assistant', 'text': 'done'}]
+        result = self.attempt(messages)
+        self.record('result', 'ticket-1/1', **result)
+        self.assertEqual(self.cli('status')['attempts'][0]['result']['status'], 'completed')
+
+    def test_a_startup_probe_alone_is_no_packet(self):
+        result = self.attempt([self.PROBE, self.ANSWER])
+        error = str(self.record('result', 'ticket-1/1', code=2, **result))
+        self.assertIn('answered no reply', error)
 
 
 class Registration(T3Threads):

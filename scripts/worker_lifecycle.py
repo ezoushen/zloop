@@ -707,6 +707,8 @@ def checkout_change(baseline, now):
                 else (f'submodule {link} is not the checkout it was at registration', False))
     if now['changes'] != baseline['changes']:
         return 'tracked files differ from their state at registration', True
+    if now['index'] != baseline['index']:
+        return 'the Git index (staging) differs from its state at registration', True
     before, after = baseline['untracked'], now['untracked']
     if appeared := sorted(set(after) - set(before)):
         return f'an untracked file appeared: {appeared[0]}', True
@@ -741,7 +743,7 @@ def refusal(change):
 
 
 def worktree_state(worktree):
-    """HEAD, a digest of tracked changes against it, a digest of each untracked file the ignore rules leave
+    """HEAD, a digest of tracked changes against it, a digest of the staged index, a digest of each untracked file the ignore rules leave
     visible (the state of a nested repository, the record of a directory Git cannot open) and the state of each
     submodule, or None outside a readable Git checkout. A snapshot check may start from a dirty tree, so a
     read-only agent is held to the state it was given."""
@@ -779,6 +781,7 @@ def worktree_state(worktree):
     links = {os.fsdecode(entry.split(b'\t', 1)[1]) for entry in index.stdout.split(b'\0')
              if entry.startswith(b'160000 ')}
     return {'head': head.decode().strip(), 'changes': hashlib.sha256(diff.stdout).hexdigest(),
+            'index': hashlib.sha256(index.stdout).hexdigest(),
             'untracked': {name: digest for name, digest in digests.items() if digest is not None},
             'submodules': {link: checkout_or_directory(worktree, link) for link in sorted(links)}}
 
@@ -963,7 +966,11 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
             require(status not in T3_UNSETTLED,
                     f'T3 thread {thread} is still {status}; let its turn settle, then collect again')
             messages = response.get('messages') or []
-            reply = next((m.get('text') for m in reversed(messages) if m.get('role') == 'assistant'), None)
+            # The reply must answer the productive packet, not the startup-only turn that names the attempt too.
+            packet_at = next((i for i, m in enumerate(messages) if m.get('role') == 'user'
+                              and native_settings.has_attempt(m.get('text') or '', attempt)
+                              and not native_settings.is_startup_probe(m.get('text') or '')), len(messages))
+            reply = next((m.get('text') for m in reversed(messages[packet_at + 1:]) if m.get('role') == 'assistant'), None)
             require(text(reply), f'T3 thread {thread} answered no reply; let the worker answer, then collect again')
             data.setdefault('evidence', []).append(f't3 thread show --json {thread}: {status}; reply: {reply[:120]}')
     if kind == 'startup':

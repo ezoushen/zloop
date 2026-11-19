@@ -4,6 +4,7 @@ import datetime
 import json
 from pathlib import Path
 import tempfile
+import time
 import unittest
 
 import support
@@ -144,6 +145,44 @@ class RunControl(unittest.TestCase):
                 path.write_text(json.dumps(content) if isinstance(content, dict) else
                                 ''.join(json.dumps(row) + '\n' for row in content))
                 self.assertEqual(self.control.user_source(path, runtime, ['host-1'], 'pause', 0)['kind'], 'user')
+
+    def test_native_claude_slash_command_rows_are_exact_user_commands(self):
+        stamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        tags = ('<command-message>zloop:autopilot</command-message>\n<command-name>/zloop:autopilot</command-name>\n'
+                '<command-args>{}</command-args>')
+
+        def source(content, action='pause', **row):
+            path = self.root / 'claude.jsonl'
+            body = dict(type='user', sessionId='host-1', timestamp=stamp,
+                        message={'role': 'user', 'content': content})
+            body.update(row)
+            path.write_text(json.dumps(body) + '\n')
+            return self.control.user_source(path, 'claude', ['host-1'], action, 0)
+
+        self.assertEqual(source(tags.format('--pause'))['command'], 'pause')
+        self.assertEqual(source([{'type': 'text', 'text': tags.format('--pause')}])['command'], 'pause')
+        resumed = source(tags.format('--take-over --auto-merge'), 'resume')
+        self.assertEqual((resumed['command'], resumed['flags']), ('resume', ['--take-over', '--auto-merge']))
+        self.assertEqual(source(tags.format('--take-over'), 'resume')['flags'], ['--take-over'])
+        for content, action, row in [
+                (tags.format('--pause --auto-merge'), 'pause', {}),
+                (tags.format('--pause now'), 'pause', {}),
+                (tags.format('--take-over --other'), 'resume', {}),
+                (tags.format('--pause'), 'resume', {}),
+                (tags.format('--pause').replace('/zloop:autopilot', '/zloop:other'), 'pause', {}),
+                ('I typed ' + tags.format('--pause'), 'pause', {}),
+                (tags.format('--pause') + '\n' + tags.format('--pause'), 'pause', {}),
+                (tags.format('--pause'), 'pause', {'sessionId': 'another'}),
+                (tags.format('--pause'), 'pause', {'isSidechain': True}),
+                (tags.format('--pause'), 'pause', {'agentId': 'a1'})]:
+            with self.subTest(content=content, action=action, row=row):
+                with self.assertRaises(ValueError):
+                    source(content, action, **row)
+        path = self.root / 'late.jsonl'
+        path.write_text(json.dumps(dict(type='user', sessionId='host-1', timestamp=stamp,
+                                        message={'role': 'user', 'content': tags.format('--pause')})) + '\n')
+        with self.assertRaises(ValueError):
+            self.control.user_source(path, 'claude', ['host-1'], 'pause', time.time() + 100)
 
 
 if __name__ == '__main__':

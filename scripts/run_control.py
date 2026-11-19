@@ -135,6 +135,10 @@ def adopt(card, reference, allow_resume=False):
         return state
 
 
+TAGGED_COMMAND = re.compile(r'<command-message>zloop:autopilot</command-message>\s*<command-name>/zloop:autopilot'
+                            r'</command-name>\s*<command-args>(?P<args>[^<>\r\n]*)</command-args>')
+
+
 def user_source(path, runtime, sessions, action, after):
     """Find an explicit control command in a bound native user's active conversation."""
     path = Path(path).resolve()
@@ -184,6 +188,10 @@ def user_source(path, runtime, sessions, action, after):
                   else stamp / 1000 if stamp and stamp > 1e11 else float(stamp or 0))
         except (ValueError, TypeError):
             continue
+        if runtime == 'claude' and role == 'user':
+            # A native Claude command row stores its invocation as exactly three tags, not as typed text.
+            tagged = TAGGED_COMMAND.fullmatch(text.strip())
+            text = f'/zloop:autopilot {tagged["args"]}' if tagged else text
         if role == 'user' and at >= after and pattern.fullmatch(text.strip()):
             if runtime == 'claude' and (row.get('sessionId') != session or row.get('agentId') or row.get('isSidechain')):
                 continue
