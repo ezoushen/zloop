@@ -189,7 +189,6 @@ def user_source(path, runtime, sessions, action, after):
         except (ValueError, TypeError):
             continue
         if runtime == 'claude' and role == 'user':
-            # A native Claude command row stores its invocation as exactly three tags, not as typed text.
             tagged = TAGGED_COMMAND.fullmatch(text.strip())
             text = f'/zloop:autopilot {tagged["args"]}' if tagged else text
         if role == 'user' and at >= after and pattern.fullmatch(text.strip()):

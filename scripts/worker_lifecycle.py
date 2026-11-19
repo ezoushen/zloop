@@ -966,11 +966,7 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
             require(status not in T3_UNSETTLED,
                     f'T3 thread {thread} is still {status}; let its turn settle, then collect again')
             messages = response.get('messages') or []
-            # The reply must answer the productive packet, not the startup-only turn that names the attempt too.
-            packet_at = next((i for i, m in enumerate(messages) if m.get('role') == 'user'
-                              and native_settings.has_attempt(m.get('text') or '', attempt)
-                              and not native_settings.is_startup_probe(m.get('text') or '')), len(messages))
-            reply = next((m.get('text') for m in reversed(messages[packet_at + 1:]) if m.get('role') == 'assistant'), None)
+            reply = next((m.get('text') for m in reversed(messages) if m.get('role') == 'assistant'), None)
             require(text(reply), f'T3 thread {thread} answered no reply; let the worker answer, then collect again')
             data.setdefault('evidence', []).append(f't3 thread show --json {thread}: {status}; reply: {reply[:120]}')
     if kind == 'startup':
@@ -1009,7 +1005,8 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                              '(OpenCode: a fresh opencode session export)') from None
         child = target['runtime'] == 'codex' and target['execution_snapshot'].get('native_dispatch')
         packet, reply = native_settings.packet_reply(data['native'], target['runtime'], target['native_session'], attempt,
-            parents=target.get('sessions', []) if child else None)
+            parents=target.get('sessions', []) if child else None,
+            packet=Path(target.get('packet') or '').read_text(errors='replace') if target['runtime'] == 't3' else '')
         require(not child or packet, 'Completion requires the Codex child rollout to name a registering host session '
                 'as parent_thread_id; start a native child from that host and collect with its native record')
         require(packet, 'Completion requires the assignment packet; send the worker its packet, which starts with '

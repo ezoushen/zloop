@@ -283,7 +283,6 @@ sys.exit(process.returncode)
         head = self.checkout()
         (self.worktree / 'code.py').write_text('x = 3\n')
         reason = 'the Git index (staging) differs from its state at registration'
-        # (the user's staging at registration, what the agent does, whether collection refuses)
         for number, (staged, steps, refused) in enumerate((
                 (False, (), False),
                 (False, (('add', 'code.py'),), True),

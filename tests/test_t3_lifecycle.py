@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from lifecycle_case import WorkerLifecycleCase, SCRIPT
+import dispatch_state
 import worker_lifecycle as worker_lifecycle_module
 
 
@@ -46,10 +47,9 @@ class T3Threads(WorkerLifecycleCase):
 
     def completion_evidence(self, attempt='ticket-1/1'):
         """The thread answers its packet; the native record, rewritten before collection, holds both."""
-        saved = self.cli('status', '--attempt', attempt)['attempts'][0]
         path = self.native_paths[attempt]
         record = json.loads(path.read_text())
-        record['messages'] += [{'role': 'user', 'text': f'assignment: {saved["assignment"]}  attempt: {attempt}'},
+        record['messages'] += [{'role': 'user', 'text': self.packet(attempt).read_text()},
                                {'role': 'assistant', 'text': 'assignment done'}]
         path.write_text(json.dumps(record))
         return {'native': str(path)}
@@ -79,12 +79,15 @@ class T3Threads(WorkerLifecycleCase):
         executable.write_text('#!' + sys.executable + '\n' + f'''
 import json, sys
 args = sys.argv[1:]
+window = int(args[args.index('--messages') + 1]) if '--messages' in args else 10
 with open({str(self.root / 't3-argv.log')!r}, 'a') as log:
     log.write(' '.join(args) + chr(10))
 if args[:2] == ['thread', 'show'] and args[2] == '--json' and {says!r}:
     sys.exit({says!r})
 elif args[:2] == ['thread', 'show'] and args[2] == '--json':
-    print({body!r} if args[3] == {thread!r} else json.dumps({{'error': {{'code': 'not_found'}}}}))
+    shown = json.loads({body!r})
+    shown['messages'] = shown.get('messages', [])[-window:]
+    print(json.dumps(shown) if args[3] == {thread!r} else json.dumps({{'error': {{'code': 'not_found'}}}}))
     sys.exit({exit_code} if args[3] == {thread!r} else 1)
 elif args[:2] == ['thread', 'list'] and args[2] == '--json':
     print({listing!r})
@@ -496,48 +499,76 @@ class RemoteTransport(RemoteEnvironment):
 
 
 class StartupReplyIsNotCompletion(T3Threads):
-    PROBE = {'role': 'user', 'text': 'dispatch_card: c\nexecution: e\nattempt: ticket-1/1\n'
-                                      'Startup only. Report provider, model, working directory and runtime mode. '
-                                      'Do no productive work.'}
     ANSWER = {'role': 'assistant', 'text': 'claude sonnet /w default'}
-    PACKET = {'role': 'user', 'text': 'assignment: ticket-1  attempt: ticket-1/1'}
+    DONE = {'role': 'assistant', 'text': 'done'}
 
-    def attempt(self, messages, live=None):
-        """A completed result whose saved native record holds `messages`, while T3 itself shows `live`."""
+    def attempt(self, packet=None, native=(), live=None):
+        """A completed result whose saved native record holds the startup probe, its answer, the registered
+        packet and `native`, while T3 shows `live` (the same messages by default) through its default window."""
         self.registered()
         self.ready()
+        packet_file = self.packet()
+        if packet is not None:
+            packet_file.write_text(packet_file.read_text() + packet)
+        probe = {'role': 'user', 'text': dispatch_state.startup_probe(
+            self.root / 'card.md', self.execution, {'attempt': 'ticket-1/1'})}
+        self.packet_message = {'role': 'user', 'text': packet_file.read_text()}
+        messages = [probe, self.ANSWER, self.packet_message,
+                    *(self.packet_message if m == 'packet' else m for m in native)]
         path = self.native_paths['ticket-1/1']
         record = json.loads(path.read_text())
         record['messages'] = messages
         path.write_text(json.dumps(record))
-        self.t3_fixture(messages=messages if live is None else live)
+        self.t3_fixture(messages=messages if live is None else live(messages))
         report = self.root / 'ticket-1-1.md'
         report.write_text('## Implemented\n\nVerified assignment report at head-1\n')
         return dict(status='completed', head='head-1', report=str(report), evidence=['checks.log@head-1'],
                     native=str(path))
 
-    def test_an_unanswered_productive_packet_is_not_completed_by_the_startup_reply(self):
-        result = self.attempt([self.PROBE, self.ANSWER, self.PACKET])
-        error = str(self.record('result', 'ticket-1/1', code=2, **result))
-        self.assertIn('answered no reply', error)
+    def refused(self, result, message):
+        self.assertIn(message, str(self.record('result', 'ticket-1/1', code=2, **result)))
 
-    def test_the_saved_record_alone_refuses_a_startup_reply_when_t3_shows_the_answer(self):
-        # The saved record is what an old startup attempt left; T3's own thread holds a later answer.
-        result = self.attempt([self.PROBE, self.ANSWER, self.PACKET],
-                              live=[self.PROBE, self.ANSWER, self.PACKET, {'role': 'assistant', 'text': 'done'}])
-        error = str(self.record('result', 'ticket-1/1', code=2, **result))
-        self.assertIn('Completion requires the packet reply', error)
-
-    def test_a_productive_reply_after_the_probe_is_collectable(self):
-        messages = [self.PROBE, self.ANSWER, self.PACKET, {'role': 'assistant', 'text': 'done'}]
-        result = self.attempt(messages)
+    def collected(self, result):
         self.record('result', 'ticket-1/1', **result)
         self.assertEqual(self.cli('status')['attempts'][0]['result']['status'], 'completed')
 
+    def test_an_unanswered_productive_packet_is_not_completed_by_the_startup_reply(self):
+        self.refused(self.attempt(), 'Completion requires the packet reply')
+
+    def test_the_saved_record_alone_refuses_a_startup_reply_when_t3_shows_the_answer(self):
+        self.refused(self.attempt(live=lambda messages: [*messages, self.DONE]),
+                     'Completion requires the packet reply')
+
+    def test_a_productive_reply_after_the_probe_is_collectable(self):
+        self.collected(self.attempt(native=[self.DONE]))
+
     def test_a_startup_probe_alone_is_no_packet(self):
-        result = self.attempt([self.PROBE, self.ANSWER])
-        error = str(self.record('result', 'ticket-1/1', code=2, **result))
-        self.assertIn('answered no reply', error)
+        result = self.attempt()
+        path = Path(result['native'])
+        record = json.loads(path.read_text())
+        record['messages'] = record['messages'][:2]
+        path.write_text(json.dumps(record))
+        self.refused(result, 'Completion requires the assignment packet')
+
+    def test_a_turn_longer_than_the_default_show_window_is_collectable(self):
+        # The default `t3 thread show --json` window holds the latest 10 messages, which a long turn pushes the
+        # packet out of; the retained record holds all of them.
+        self.collected(self.attempt(native=[{'role': 'assistant', 'text': f'step {n}'} for n in range(12)]))
+
+    def test_a_repeated_packet_is_unanswered_when_nothing_follows_the_last(self):
+        self.refused(self.attempt(native=[{'role': 'assistant', 'text': 'partial'}, 'packet']),
+                     'Completion requires the packet reply')
+
+    def test_a_repeated_packet_is_answered_by_a_reply_after_the_last(self):
+        self.collected(self.attempt(native=[{'role': 'assistant', 'text': 'partial'}, 'packet', self.DONE]))
+
+    def test_a_packet_that_says_startup_only_is_collectable(self):
+        self.collected(self.attempt(packet='Startup only. This is the productive task.\n', native=[self.DONE]))
+
+    def test_an_empty_reply_is_no_reply(self):
+        self.refused(self.attempt(native=[{'role': 'assistant', 'text': '  '}],
+                                  live=lambda messages: [*messages, self.DONE]),
+                     'Completion requires the packet reply')
 
 
 class Registration(T3Threads):
@@ -1089,6 +1120,7 @@ class T3Submit(T3Threads):
         executable.write_text('#!' + sys.executable + '\n' + f'''
 import json, sys
 args = sys.argv[1:]
+window = int(args[args.index('--messages') + 1]) if '--messages' in args else 10
 with open({str(self.root / 't3-send-argv.log')!r}, 'a') as log:
     log.write(' '.join(args) + chr(10))
 if args[:2] == ['thread', 'send']:

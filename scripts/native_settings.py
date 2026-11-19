@@ -19,28 +19,25 @@ def has_attempt(text, attempt):
                           + re.escape(attempt) + r'[ \t]*$', text))
 
 
-def is_startup_probe(text):
-    """Whether user text is the startup-only turn, which names the attempt but is not the productive packet."""
-    return bool(re.search(r'(?m)^Startup only\.', text))
-
-
-def _packet_reply_t3(messages, attempt):
-    """Packet proof and reply from a T3 thread's messages: the packet is the last user text naming the attempt
-    that is not the startup probe; the reply is the first assistant text after it."""
-    packet = False
+def _packet_reply_t3(messages, attempt, packet):
+    """Packet proof and reply from a T3 thread's messages: the packet is the last user text equal to the registered
+    productive packet and naming the attempt; the reply is a non-empty assistant text after it."""
+    sent = False
+    reply = False
     for message in messages:
         role, body = message.get('role'), message.get('text') or ''
-        if role == 'user' and has_attempt(body, attempt) and not is_startup_probe(body):
-            packet = True
-        elif role == 'assistant' and packet and (message.get('text') or '').strip():
-            return True, True
-    return packet, False
+        if role == 'user' and body.strip() == packet.strip() and has_attempt(body, attempt):
+            sent, reply = True, False
+        elif role == 'assistant' and sent and body.strip():
+            reply = True
+    return sent, reply
 
 
-def packet_reply(path, runtime, session, attempt, *, parents=None):
+def packet_reply(path, runtime, session, attempt, *, parents=None, packet=''):
     """Return packet proof and its reply, or parent proof and a reply for a Codex native child.
 
-    Only user text establishes a packet. Codex children have encrypted tasks and use parents from registration.
+    Only user text establishes a packet; a T3 thread's packet is the registered `packet` text. Codex children
+    have encrypted tasks and use parents from registration.
     Pi unwraps its native Task prefix and follows its active branch.
     """
     path = Path(path)
@@ -48,7 +45,7 @@ def packet_reply(path, runtime, session, attempt, *, parents=None):
         # A T3 worker's record is the thread state `t3 thread show --json` wrote: nested thread beside messages
         # whose text rides a 'text' field.
         document = json.loads(path.read_bytes())
-        return _packet_reply_t3(document.get('messages') or [], attempt)
+        return _packet_reply_t3(document.get('messages') or [], attempt, packet)
     if runtime == 'opencode':
         rows = json.loads(path.read_bytes())['messages']
     else:
