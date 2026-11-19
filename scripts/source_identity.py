@@ -11,7 +11,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 FOLDERS = ('agents', 'skills', 'standards', 'runtime', 'hosts', 'scripts', 'hooks', 'schemas', 'assets')
-MANIFESTS = ('bootstrap.md', '.claude-plugin/plugin.json', '.codex-plugin/plugin.json',
+MANIFESTS = ('bootstrap.md', 'plugin.json', '.claude-plugin/plugin.json', '.codex-plugin/plugin.json',
              '.agents/plugins/marketplace.json', 'requirements.txt')
 SKIP = {'.git', '.venv', '__pycache__', 'node_modules', '.DS_Store'}
 

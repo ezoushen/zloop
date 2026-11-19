@@ -25,6 +25,22 @@ class SourceIdentity(unittest.TestCase):
             (installed / 'scripts/worker.py').unlink()
             self.assertEqual(identity.compare(installed, source)['missing'], ['scripts/worker.py'])
 
+    def test_the_codex_root_manifest_is_part_of_the_runtime_identity(self):
+        identity = support.load_script('source_identity.py')
+        with tempfile.TemporaryDirectory() as tmp:
+            source, installed = Path(tmp) / 'source', Path(tmp) / 'installed'
+            (source / 'scripts').mkdir(parents=True)
+            (source / 'scripts/worker.py').write_text('pass\n')
+            (source / 'plugin.json').write_text('{"hooks": "hosts/codex/hooks.json"}')
+            shutil.copytree(source, installed)
+            self.assertEqual(identity.compare(installed, source)['status'], 'same')
+            (installed / 'plugin.json').write_text('{"hooks": "elsewhere.json"}')
+            result = identity.compare(installed, source)
+            self.assertEqual((result['status'], result['changed']), ('mismatch', ['plugin.json']))
+            (installed / 'plugin.json').unlink()
+            result = identity.compare(installed, source)
+            self.assertEqual((result['status'], result['missing']), ('mismatch', ['plugin.json']))
+
     def test_local_state_and_root_location_do_not_change_runtime_identity(self):
         identity = support.load_script('source_identity.py')
         with tempfile.TemporaryDirectory() as tmp:

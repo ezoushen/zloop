@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Feature verification grades post-state and retains proof across cleanup."""
+import hashlib
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -127,6 +129,61 @@ class FeatureVerification(unittest.TestCase):
         self.assertEqual(result['steps']['drive']['exit_code'], 0)
         self.assertEqual(result['status'], 'blocked')
         self.assertNotIn('evidence', result['steps'])
+
+    def cli(self, manifest, *extra):
+        return subprocess.run([sys.executable, str(support.script('verify_features.py')), str(manifest),
+                               '--evidence', str(self.root / 'cli'), *extra], capture_output=True, text=True)
+
+    def test_a_manifest_changed_during_drive_keeps_its_original_identity_and_blocks(self):
+        manifest = self.root / 'features.json'
+        self.feature['drive'] = [sys.executable, '-c',
+            f'from pathlib import Path; Path({str(manifest)!r}).write_text(\'{{"features": []}}\'); Path("observed").write_text("right")']
+        manifest.write_text(json.dumps(dict(features=[self.feature])))
+        original = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        process = self.cli(manifest)
+        report = json.loads((self.root / 'cli/report.json').read_text())
+        self.assertEqual(report['manifest_sha256'], original)
+        self.assertEqual(report['results'][0]['status'], 'blocked')
+        self.assertIn('changed during verification', report['results'][0]['reason'])
+        self.assertEqual(process.returncode, 1)
+
+    def test_a_driver_changed_during_drive_blocks_the_result(self):
+        driver = self.root / 'driver.json'
+        manifest = self.root / 'features.json'
+        self.feature['task'] = 'do it'
+        manifest.write_text(json.dumps(dict(features=[self.feature])))
+        driver.write_text(json.dumps([sys.executable, '-c',
+            'from pathlib import Path; import sys; Path(sys.argv[1]).write_text("[]"); Path("observed").write_text("right")',
+            str(driver)]))
+        original = hashlib.sha256(driver.read_bytes()).hexdigest()
+        self.cli(manifest, '--driver', str(driver))
+        report = json.loads((self.root / 'cli/report.json').read_text())
+        self.assertEqual(report['driver_sha256'], original)
+        self.assertEqual(report['results'][0]['status'], 'blocked')
+
+    def test_an_unchanged_manifest_still_passes_through_the_cli(self):
+        manifest = self.root / 'features.json'
+        manifest.write_text(json.dumps(dict(features=[self.feature])))
+        process = self.cli(manifest)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        report = json.loads((self.root / 'cli/report.json').read_text())
+        self.assertEqual(report['results'][0]['status'], 'passed')
+
+    def test_a_missing_protected_input_keeps_a_blocked_result_and_later_features_run(self):
+        broken = dict(self.feature, name='broken', protected_inputs=['{evidence}/absent-oracle.txt'])
+        healthy = dict(self.feature, name='healthy')
+        manifest = self.root / 'features.json'
+        manifest.write_text(json.dumps(dict(features=[broken, healthy])))
+        process = self.cli(manifest)
+        self.assertEqual(process.returncode, 1, process.stderr)
+        report = json.loads((self.root / 'cli/report.json').read_text())
+        statuses = {r['feature']: r['status'] for r in report['results']}
+        self.assertEqual(statuses, {'broken': 'blocked', 'healthy': 'passed'})
+        blocked = json.loads((self.root / 'cli/broken/1/result.json').read_text())
+        self.assertIn('absent-oracle.txt', blocked['reason'])
+        self.assertEqual(blocked['steps']['cleanup']['exit_code'], 0)
+        self.assertNotIn('drive', blocked['steps'])
+        self.assertFalse(Path(blocked['workspace']).exists())
 
     def test_project_feature_map_exercises_its_real_drivers_and_graders(self):
         manifest = json.loads((support.ROOT / 'benchmarks/workflows/features.json').read_text())

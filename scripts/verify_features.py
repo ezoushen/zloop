@@ -110,6 +110,8 @@ def verify(feature, evidence, driver=None):
                         break
             else:
                 result['status'] = 'passed'
+        except OSError as error:
+            result.update(status='blocked', reason=f'Verification input unavailable: {error}')
         finally:
             cleanup_changed = (any(not Path(path).is_file() or hashlib.sha256(Path(path).read_bytes()).hexdigest() != value
                                    for path, value in cleanup_inputs.items())
@@ -155,14 +157,16 @@ def main():
     parser.add_argument('--trials', type=int, default=1)
     args = parser.parse_args()
     try:
-        manifest = json.loads(args.manifest.read_text())
+        manifest_bytes = args.manifest.read_bytes()
+        manifest = json.loads(manifest_bytes)
         features = manifest['features']
         if args.trials < 1 or not isinstance(features, list):
             raise ValueError('Require a feature list and at least one trial')
         selected = [f for f in features if not args.feature or f['name'] in args.feature]
         if not selected or args.feature and set(args.feature) - {f['name'] for f in selected}:
             raise ValueError('Unknown or empty feature selection')
-        driver = json.loads(args.driver.read_text()) if args.driver else None
+        driver_bytes = args.driver.read_bytes() if args.driver else None
+        driver = json.loads(driver_bytes) if args.driver else None
         for feature in selected:
             validate(feature, driver)
         if args.inspect:
@@ -171,11 +175,18 @@ def main():
             return 0
         if not args.evidence:
             raise ValueError('Execution requires --evidence')
-        results = [verify(feature, args.evidence / feature['name'] / str(trial), driver)
-                   for feature in selected for trial in range(1, args.trials + 1)]
+        results = []
+        for feature in selected:
+            for trial in range(1, args.trials + 1):
+                results.append(result := verify(feature, args.evidence / feature['name'] / str(trial), driver))
+                if result['status'] == 'passed' and (args.manifest.read_bytes() != manifest_bytes
+                                                    or args.driver and args.driver.read_bytes() != driver_bytes):
+                    result.update(status='blocked', reason='Feature map or driver changed during verification')
+                    (Path(result['evidence']) / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
         report = {'manifest': str(args.manifest.resolve()),
-                  'manifest_sha256': hashlib.sha256(args.manifest.read_bytes()).hexdigest(),
+                  'manifest_sha256': hashlib.sha256(manifest_bytes).hexdigest(),
                   'driver': str(args.driver.resolve()) if args.driver else None,
+                  'driver_sha256': hashlib.sha256(driver_bytes).hexdigest() if args.driver else None,
                   'trials': args.trials, 'results': results}
         (args.evidence / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps({f'{r["feature"]}:{index}': r['status'] for index, r in enumerate(results, 1)}, indent=2))
