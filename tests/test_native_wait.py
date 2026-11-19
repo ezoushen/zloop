@@ -124,7 +124,8 @@ print(json.dumps({{'thread': {{'threadId': 'th-1', 'status': answer.split(':')[-
     def test_a_running_turn_and_an_unanswered_read_are_waited_on(self):
         # Rule: neither a turn still running nor a read T3 does not answer is the end of the turn.
         unanswered = 'says:No running T3 Code server uses /home. Start T3 Code, then retry.'
-        for answers, last in ((('running',), 'th-1: running'), (('preparing', 'starting'), 'th-1: starting'),
+        for answers, last in ((('running',), 'th-1: running'), (('preparing',), 'th-1: preparing'),
+                              (('starting',), 'th-1: starting'),
                               ((unanswered,), 'th-1: no answer (t3 thread show --json th-1 answered no JSON: No run')):
             with self.subTest(answers=answers):
                 code, output = self.wait(*answers)
