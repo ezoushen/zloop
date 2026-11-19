@@ -512,7 +512,7 @@ class StartupReplyIsNotCompletion(T3Threads):
             packet_file.write_text(packet_file.read_text() + packet)
         probe = {'role': 'user', 'text': dispatch_state.startup_probe(
             self.root / 'card.md', self.execution, {'attempt': 'ticket-1/1'})}
-        self.packet_message = {'role': 'user', 'text': packet_file.read_text()}
+        self.packet_message = {'role': 'user', 'text': packet_file.read_text().strip()}  # T3 trims outer whitespace
         messages = [probe, self.ANSWER, self.packet_message,
                     *(self.packet_message if m == 'packet' else m for m in native)]
         path = self.native_paths['ticket-1/1']
@@ -542,6 +542,12 @@ class StartupReplyIsNotCompletion(T3Threads):
     def test_a_productive_reply_after_the_probe_is_collectable(self):
         self.collected(self.attempt(native=[self.DONE]))
 
+    def test_a_packet_the_transport_trimmed_is_collectable(self):
+        result = self.attempt(native=[self.DONE])
+        self.assertTrue(self.packet().read_text().endswith('\n'))
+        self.assertNotEqual(self.packet_message['text'], self.packet().read_text())
+        self.collected(result)
+
     def test_a_startup_probe_alone_is_no_packet(self):
         result = self.attempt()
         path = Path(result['native'])
@@ -551,8 +557,6 @@ class StartupReplyIsNotCompletion(T3Threads):
         self.refused(result, 'Completion requires the assignment packet')
 
     def test_a_turn_longer_than_the_default_show_window_is_collectable(self):
-        # The default `t3 thread show --json` window holds the latest 10 messages, which a long turn pushes the
-        # packet out of; the retained record holds all of them.
         self.collected(self.attempt(native=[{'role': 'assistant', 'text': f'step {n}'} for n in range(12)]))
 
     def test_a_repeated_packet_is_unanswered_when_nothing_follows_the_last(self):
@@ -1120,7 +1124,6 @@ class T3Submit(T3Threads):
         executable.write_text('#!' + sys.executable + '\n' + f'''
 import json, sys
 args = sys.argv[1:]
-window = int(args[args.index('--messages') + 1]) if '--messages' in args else 10
 with open({str(self.root / 't3-send-argv.log')!r}, 'a') as log:
     log.write(' '.join(args) + chr(10))
 if args[:2] == ['thread', 'send']:

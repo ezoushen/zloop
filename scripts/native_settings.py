@@ -21,7 +21,8 @@ def has_attempt(text, attempt):
 
 def _packet_reply_t3(messages, attempt, packet):
     """Packet proof and reply from a T3 thread's messages: the packet is the last user text equal to the registered
-    productive packet and naming the attempt; the reply is a non-empty assistant text after it."""
+    productive packet, ignoring outer whitespace, and naming the attempt; the reply is a non-empty assistant text
+    after it."""
     sent = False
     reply = False
     for message in messages:
@@ -36,7 +37,8 @@ def _packet_reply_t3(messages, attempt, packet):
 def packet_reply(path, runtime, session, attempt, *, parents=None, packet=''):
     """Return packet proof and its reply, or parent proof and a reply for a Codex native child.
 
-    Only user text establishes a packet; a T3 thread's packet is the registered `packet` text. Codex children
+    Only user text establishes a packet; a T3 thread's packet is the registered `packet` text, compared
+    ignoring outer whitespace as T3 trims it from its messages. Codex children
     have encrypted tasks and use parents from registration.
     Pi unwraps its native Task prefix and follows its active branch.
     """

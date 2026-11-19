@@ -156,7 +156,9 @@ class RunControl(unittest.TestCase):
             body = dict(type='user', sessionId='host-1', timestamp=stamp,
                         message={'role': 'user', 'content': content})
             body.update(row)
-            path.write_text(json.dumps(body) + '\n')
+            bound = dict(type='user', sessionId='host-1', timestamp=stamp,
+                         message={'role': 'user', 'content': 'hello'})
+            path.write_text(json.dumps(bound) + '\n' + json.dumps(body) + '\n')
             return self.control.user_source(path, 'claude', ['host-1'], action, 0)
 
         self.assertEqual(source(tags.format('--pause'))['command'], 'pause')
