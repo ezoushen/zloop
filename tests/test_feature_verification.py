@@ -236,6 +236,38 @@ class FeatureVerification(unittest.TestCase):
         self.assertNotIn('drive', blocked['steps'])
         self.assertFalse(Path(blocked['workspace']).exists())
 
+    def test_a_reused_evidence_root_is_refused_and_keeps_the_original_run_intact(self):
+        first, second = self.root / 'first.json', self.root / 'second.json'
+        first.write_text(json.dumps(dict(features=[self.feature])))
+        second.write_text(json.dumps(dict(features=[dict(self.feature, name='other')])))
+        self.assertEqual(self.cli(first).returncode, 0)
+        kept = {p: p.read_bytes() for p in (self.root / 'cli').rglob('*') if p.is_file()}
+        process = self.cli(second)
+        self.assertEqual(process.returncode, 2)
+        self.assertIn('already exists', process.stderr)
+        self.assertIn('new --evidence directory', process.stderr)
+        self.assertEqual({p: p.read_bytes() for p in (self.root / 'cli').rglob('*') if p.is_file()}, kept)
+
+    def test_an_unreadable_required_artifact_keeps_a_blocked_result_and_later_features_run(self):
+        broken = dict(self.feature, name='broken', evidence=[sys.executable, '-c',
+            'from pathlib import Path; import sys; Path(sys.argv[1]).write_text("True"); Path(sys.argv[1]).chmod(0)',
+            '{evidence}/proof.txt'])
+        healthy = dict(self.feature, name='healthy')
+        manifest = self.root / 'features.json'
+        manifest.write_text(json.dumps(dict(features=[broken, healthy])))
+        process = self.cli(manifest)
+        self.assertEqual(process.returncode, 1, process.stderr)
+        report = json.loads((self.root / 'cli/report.json').read_text())
+        self.assertEqual({r['feature']: r['status'] for r in report['results']},
+                         {'broken': 'blocked', 'healthy': 'passed'})
+        blocked = json.loads((self.root / 'cli/broken/1/result.json').read_text())
+        self.assertIn('proof.txt', blocked['unreadable_artifacts'])
+        self.assertIn('Permission denied', blocked['unreadable_artifacts']['proof.txt'])
+        self.assertIn('proof.txt', blocked['reason'])
+        self.assertNotIn('proof.txt', blocked['artifact_hashes'])
+        self.assertEqual(blocked['steps']['cleanup']['exit_code'], 0)
+        self.assertFalse(Path(blocked['workspace']).exists())
+
     def test_project_feature_map_exercises_its_real_drivers_and_graders(self):
         manifest = json.loads((support.ROOT / 'benchmarks/workflows/features.json').read_text())
         for feature in manifest['features']:

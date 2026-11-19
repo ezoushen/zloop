@@ -11,7 +11,7 @@ Inspect the executable contract without running its commands:
 python3 <plugin_root>/scripts/verify_features.py <feature-map.json> --inspect
 ```
 
-Use `--evidence <directory>` to execute it. For behavioral evaluation, add `--driver
+Use `--evidence <new directory>` to execute it; an existing directory is refused so earlier evidence stays intact. For behavioral evaluation, add `--driver
 <argv.json> --trials 2`, optionally `--feature <name>`; the JSON argv driver receives
 `{task}` and `{workspace}`. Use the installed host's supported invocation and permissions.
 The pilot map is `benchmarks/workflows/features.json`.

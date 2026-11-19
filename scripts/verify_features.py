@@ -137,19 +137,27 @@ def verify(feature, evidence, driver=None):
                     result['steps']['cleanup'] = {'exit_code': process.returncode or 125, 'runner_error': True}
             if result['steps']['cleanup'].get('exit_code') != 0 and result['status'] == 'passed':
                 result['status'] = 'blocked'
-        missing = []
+        missing, unreadable, hashes = [], {}, {}
         for name in feature.get('required_artifacts', []):
             path = evidence / name
-            if not path.resolve().is_relative_to(evidence) or not path.is_file():
-                missing.append(name)
+            try:
+                if not path.resolve().is_relative_to(evidence) or not path.is_file():
+                    missing.append(name)
+                else:
+                    hashes[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+            except OSError as error:
+                unreadable[name] = str(error)
         if missing:
             result['missing_artifacts'] = missing
-            if result['status'] == 'passed':
-                result['status'] = 'blocked'
+        if unreadable:
+            result['unreadable_artifacts'] = unreadable
+            result['reason'] = '; '.join(filter(None, [
+                result.get('reason'), 'Required artifact unreadable: ' + ', '.join(unreadable)]))
+        if (missing or unreadable) and result['status'] == 'passed':
+            result['status'] = 'blocked'
         if changed(frozen):
             result.update(status='blocked', reason='Protected input did not survive verification and cleanup')
-        result['artifact_hashes'] = {name: hashlib.sha256((evidence / name).read_bytes()).hexdigest()
-                                    for name in feature.get('required_artifacts', []) if name not in missing}
+        result['artifact_hashes'] = hashes
     result['finished_at'] = time.time()
     (evidence / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
     return result
@@ -183,7 +191,10 @@ def main():
             return 0
         if not args.evidence:
             raise ValueError('Execution requires --evidence')
-        args.evidence.mkdir(parents=True, exist_ok=True)
+        try:
+            args.evidence.mkdir(parents=True, exist_ok=False)
+        except FileExistsError:
+            raise ValueError(f'Evidence directory {args.evidence} already exists; use a new --evidence directory')
         (args.evidence / 'manifest.original.json').write_bytes(manifest_bytes)
         if driver_bytes is not None:
             (args.evidence / 'driver.original.json').write_bytes(driver_bytes)
