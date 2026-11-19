@@ -512,7 +512,7 @@ class StartupReplyIsNotCompletion(T3Threads):
             packet_file.write_text(packet_file.read_text() + packet)
         probe = {'role': 'user', 'text': dispatch_state.startup_probe(
             self.root / 'card.md', self.execution, {'attempt': 'ticket-1/1'})}
-        self.packet_message = {'role': 'user', 'text': packet_file.read_text().strip()}  # T3 trims outer whitespace
+        self.packet_message = {'role': 'user', 'text': packet_file.read_text().strip()}
         messages = [probe, self.ANSWER, self.packet_message,
                     *(self.packet_message if m == 'packet' else m for m in native)]
         path = self.native_paths['ticket-1/1']
