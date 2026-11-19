@@ -3,6 +3,7 @@
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -153,13 +154,47 @@ class FeatureVerification(unittest.TestCase):
         self.feature['task'] = 'do it'
         manifest.write_text(json.dumps(dict(features=[self.feature])))
         driver.write_text(json.dumps([sys.executable, '-c',
-            'from pathlib import Path; import sys; Path(sys.argv[1]).write_text("[]"); Path("observed").write_text("right")',
-            str(driver)]))
+            f'from pathlib import Path; Path({str(driver)!r}).write_text("[]"); Path("observed").write_text("right")']))
         original = hashlib.sha256(driver.read_bytes()).hexdigest()
         self.cli(manifest, '--driver', str(driver))
         report = json.loads((self.root / 'cli/report.json').read_text())
         self.assertEqual(report['driver_sha256'], original)
         self.assertEqual(report['results'][0]['status'], 'blocked')
+
+    def drift_run(self, victim, trials=1, fail=False):
+        """Delete the manifest or driver from a drive step; return the aggregate report and process."""
+        manifest, driver = self.root / 'features.json', self.root / 'driver.json'
+        code = (f'from pathlib import Path; Path({str(manifest if victim == "manifest" else driver)!r})'
+                '.unlink(); Path("observed").write_text("right")' + ('; raise SystemExit(7)' if fail else ''))
+        self.feature['task'] = 'do it'
+        manifest.write_text(json.dumps(dict(features=[self.feature])))
+        driver.write_text(json.dumps([sys.executable, '-c', code]))
+        extra = ['--driver', str(driver), '--trials', str(trials)]
+        process = self.cli(manifest, *extra)
+        return json.loads((self.root / 'cli/report.json').read_text()), process
+
+    def test_a_deleted_manifest_or_driver_blocks_every_trial_and_keeps_the_report(self):
+        for victim in ('manifest', 'driver'):
+            for fail in (False, True):
+                with self.subTest(victim=victim, failed_trial=fail):
+                    shutil.rmtree(self.root / 'cli', ignore_errors=True)
+                    report, process = self.drift_run(victim, trials=2, fail=fail)
+                    self.assertEqual(process.returncode, 1, process.stderr)
+                    self.assertEqual([r['status'] for r in report['results']], ['blocked', 'blocked'])
+                    self.assertTrue(all(r['configuration_changed'] for r in report['results']))
+                    self.assertEqual(report['manifest_sha256'], hashlib.sha256(
+                        (self.root / 'cli/manifest.original.json').read_bytes()).hexdigest())
+                    self.assertEqual(report['driver_sha256'], hashlib.sha256(
+                        (self.root / 'cli/driver.original.json').read_bytes()).hexdigest())
+
+    def test_the_executed_manifest_and_driver_bytes_are_retained_in_evidence(self):
+        manifest, driver = self.root / 'features.json', self.root / 'driver.json'
+        self.feature['task'] = 'do it'
+        manifest.write_text(json.dumps(dict(features=[self.feature])))
+        driver.write_text(json.dumps([sys.executable, '-c', 'from pathlib import Path; Path("observed").write_text("right")']))
+        self.cli(manifest, '--driver', str(driver))
+        self.assertEqual((self.root / 'cli/manifest.original.json').read_bytes(), manifest.read_bytes())
+        self.assertEqual((self.root / 'cli/driver.original.json').read_bytes(), driver.read_bytes())
 
     def test_an_unchanged_manifest_still_passes_through_the_cli(self):
         manifest = self.root / 'features.json'

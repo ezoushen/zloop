@@ -175,13 +175,24 @@ def main():
             return 0
         if not args.evidence:
             raise ValueError('Execution requires --evidence')
+        args.evidence.mkdir(parents=True, exist_ok=True)
+        (args.evidence / 'manifest.original.json').write_bytes(manifest_bytes)
+        if driver_bytes is not None:
+            (args.evidence / 'driver.original.json').write_bytes(driver_bytes)
+
+        def unchanged(path, original):
+            try:
+                return path.read_bytes() == original
+            except FileNotFoundError:
+                return False
+
         results = []
         for feature in selected:
             for trial in range(1, args.trials + 1):
                 results.append(result := verify(feature, args.evidence / feature['name'] / str(trial), driver))
-                if result['status'] == 'passed' and (args.manifest.read_bytes() != manifest_bytes
-                                                    or args.driver and args.driver.read_bytes() != driver_bytes):
-                    result.update(status='blocked', reason='Feature map or driver changed during verification')
+                if not (unchanged(args.manifest, manifest_bytes) and (not args.driver or unchanged(args.driver, driver_bytes))):
+                    result.update(status='blocked', configuration_changed=True, reason='; '.join(
+                        filter(None, [result.get('reason'), 'Feature map or driver changed during verification'])))
                     (Path(result['evidence']) / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
         report = {'manifest': str(args.manifest.resolve()),
                   'manifest_sha256': hashlib.sha256(manifest_bytes).hexdigest(),
