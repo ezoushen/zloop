@@ -14,6 +14,10 @@ Add `--allow-resume` only when its confirmed grants already permit unattended
 allowance recovery. Adoption grants no extra permissions or merge authority.
 The sibling `autopilot-control.json` retains run identity, revision, source events
 and the card view. `status <card>` reports managed state; absent records are legacy.
+It also retains the [managed dispatch policy](dispatch.md). Before a worker launch,
+or after completion and resume, inspect its saved batch and reconsider unfinished
+independent work. A control transition preserves policy and invalidates stale routes
+and batch decisions; it never requires a new concurrency reminder from the user.
 Manual edits or interrupted view updates become unknown and block managed work.
 Inspect the saved record and edits before recovery; never infer authorization from
 a mismatched card or delete the record to make it legacy.

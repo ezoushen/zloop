@@ -2,6 +2,8 @@
 
 Read before every worker launch. Goal: each worker starts on a verified executor with
 resolved settings and a complete assignment.
+Managed autopilot runs also follow [checked dispatch decisions](dispatch.md) before
+launching: route receipts and a complete batch are runtime inputs, retained on resume.
 
 Contents:
 - [Host selection](#host-selection)

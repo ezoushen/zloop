@@ -425,6 +425,20 @@ export default function (pi) {
   const launcher = (ctx) => (process.env.PI_SUBAGENT_CHILD === "1" && process.env.PI_SUBAGENT_PARENT_SESSION?.trim())
     || ctx.sessionManager.getSessionId();
 
+  pi.on("tool_call", (event, ctx) => {
+    if (!/(?:^|__|\.)(?:subagent|spawn_agent|followup_task|delegate_task)$/.test(event.toolName)) return undefined;
+    try {
+      const verdict = JSON.parse(execFileSync("python3", [`${root}/hooks/managed_launch.py`, "check"], {
+        input: JSON.stringify({ tool_name: event.toolName, tool_input: event.input,
+          tool_call_id: event.toolCallId, cwd: ctx.cwd, session_id: launcher(ctx) }),
+        encoding: "utf8", timeout: 10000,
+      }));
+      return verdict.block ? { block: true, reason: verdict.reason } : undefined;
+    } catch (error) {
+      return { block: true, reason: `Could not check managed dispatch: ${error.message}` };
+    }
+  });
+
   // Log each Herdr agent launch for the yield gate, as the Bash PreToolUse hook does on Claude and Codex.
   // A failing tool_call handler blocks the tool, so logging catches everything and never blocks.
   pi.on("tool_call", (event, ctx) => {

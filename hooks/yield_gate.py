@@ -27,8 +27,9 @@ a reviewer count only where review_target.py found no reviewer route for the rec
 again, still finds none. Launch evidence is a Herdr placement, verified startup or recorded submission.
 The review, delivery and card holds do not apply while a live worker of that state holds a running
 wait that will wake the host (the lifecycle's `wake_gap`). A stop
-is held while its gaps stand, up to three times in a row for an identical set (a count per session under
-.scratch/holds/); then the stop passes and the gate says it gave up. A check that cannot run is a named gap (marked `Unchecked` where it is made), never a
+is held while its gaps stand. Managed admission gaps and owned active managed runs without a terminal or wake do
+not expire; a handwritten terminal cannot end an active canonical run. Legacy gaps hold up to three times in a row
+for an identical set (a count per session under .scratch/holds/); then the gate says it gave up. A check that cannot run is a named gap (marked `Unchecked` where it is made), never a
 pass, and holds one stop with the retry advice, as do reminders when nothing else stands. `claude` and `codex` speak their shared Stop
 hook protocol; `check <cwd> [session]` prints the gaps and the hold's message as JSON, and `stop <cwd> [session]`, which
 other hosts call at each stop, also counts the stop and says whether to hold it. Set
@@ -68,6 +69,10 @@ class Reminder(str):
 
 class Unchecked(Reminder):
     """A check that could not run, marked where it is made; registering or dismissing cannot clear it: retry advice."""
+
+
+class Required(str):
+    """A managed admission decision that must be reconciled, or explicitly paused, before yielding."""
 
 
 def lifecycle():
@@ -366,9 +371,19 @@ def unfinished_runs(root, session, named):
         if not (session in life.card_sessions(state) and life.confirmed(state)):
             continue
         try:
-            script('run_control').read(path)
+            control = script('run_control').read(path)
+            if control and not state.get('terminal'):
+                missing += [Required(f'{path}: {gap}') for gap in script('dispatch_state').gaps(path)]
         except (OSError, ValueError) as error:
-            missing.append(Unchecked(f'{path}: {error}'))
+            gap_type = Unchecked
+            try:
+                canonical = script('run_control').canonical(path)
+                if (state.get('terminal') and session in script('run_control').sessions(canonical['card_text'])
+                        and not script('state_files').state_fields(canonical['card_text']).get('terminal')):
+                    gap_type = Required
+            except (OSError, ValueError):
+                pass
+            missing.append(gap_type(f'{path}: {error}'))
             continue
         if state.get('terminal') in life.TERMINAL_STATES and state.get('evidence'):
             if state['terminal'] in life.ENDED and (found := delivery_gaps(root, path, state)):
@@ -377,11 +392,11 @@ def unfinished_runs(root, session, named):
             continue
         missing += board_gaps(root, path, state)
         if not awaited(path.with_name('reports') / 'workers.sqlite'):
-            missing.append(f"{path}: this session's autopilot run has no terminal state or no evidence; record "
+            missing.append((Required if control else str)(f"{path}: this session's autopilot run has no terminal state or no evidence; record "
                            "a terminal state only when the run has actually ended. Otherwise continue its phase "
                            "or arm a wake and keep `terminal:` empty. An actual end records exactly one of "
                            f"{', '.join(f'`{name}`' for name in life.TERMINAL_STATES)} and `evidence:` in the card's "
-                           "State; `paused-by-user` requires the user's explicit `--pause`")
+                           "State; `paused-by-user` requires the user's explicit `--pause`"))
     return missing
 
 
@@ -660,8 +675,10 @@ def unregistered(root, pane, session, runs, siblings=True):
 
 def count_hold(cwd, session, missing):
     """Record one more stop of this session with these gaps: (whether to hold it, the notice that the gate gave up or
-    None, said once). An identical set holds up to MAX_HOLDS consecutive stops, one when every gap is a check that could
+    None, said once). Required managed gaps do not expire. An identical legacy set holds up to MAX_HOLDS consecutive stops, one when every gap is a check that could
     not run or a reminder; a changed or cleared set starts the count again."""
+    if any(isinstance(gap, Required) for gap in missing):
+        return True, None
     try:
         root = main_checkout(cwd)
     except Exception:

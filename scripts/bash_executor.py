@@ -5,10 +5,13 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
+import uuid
 
 import agent_models as models
+import dispatch_state
 
 
 def run(execution, assignment):
@@ -30,6 +33,16 @@ def run(execution, assignment):
     for field in ('agent_file', 'job_file'):
         if not Path(assignment[field]).is_absolute() or not Path(assignment[field]).is_file():
             raise ValueError(f'assignment.{field} must be an existing absolute file')
+    card = re.search(r'^dispatch_card:[ \t]*(.+)$', assignment['prompt'], re.M)
+    receipt = execution.get('dispatch')
+    if card or receipt:
+        if not receipt or not card or Path(card[1]).resolve() != Path(receipt['card']):
+            raise ValueError('Managed Bash launch requires its route receipt and packet card')
+        dispatch_state.require(assignment['assignment_id'] == receipt['attempt']
+            and assignment['prompt'].strip() == Path(receipt['packet']).read_text().strip(),
+            'Managed Bash launch requires its exact routed assignment packet and attempt ID')
+        dispatch_state.check(Path(card[1]), receipt['attempt'], execution, receipt['packet'], worktree,
+                             call_id=f'bash-{uuid.uuid4().hex}')
     request = {'assignment': assignment, 'models': policy}
     # argv remains literal: prompts and model selections travel through stdin, never shell expansion.
     argv = execution['executor_config']['argv']

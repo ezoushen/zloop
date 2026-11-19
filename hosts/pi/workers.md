@@ -1,5 +1,10 @@
 # Pi workers
 
+Contents:
+- [Delegation](#delegation)
+- [Continuation and coordination](#continuation-and-coordination)
+- [Top-level workers](#top-level-workers)
+
 ## Delegation
 
 Resolve [executors](../../runtime/workers/launch.md) first. In a Herdr session Pi workers run through Herdr, the
@@ -26,6 +31,10 @@ decisions. The child reads these files and verifies its checkout before acting.
 Register it with `native`: the child's `sessionFile` from `subagent` status. Record startup
 with `worker_lifecycle.py record`, `kind: startup` and that `native` path.
 Fresh context keeps prior hypotheses and unrelated parent history out of reviews.
+For [managed dispatch](../../runtime/workers/dispatch.md), send the exact routed packet,
+with its `dispatch_card` and `execution` paths. Launch individual native calls for
+chosen siblings without waiting for the previous child to finish. Workflow scripts
+hide child inputs from Pi's tool-call hook and are refused for managed runs.
 
 Use only the route's resolved settings by the **shared agent**, not the generic
 native `worker` name. Ticket workload labels do not select models. Validate an
@@ -62,8 +71,11 @@ pi-subagents child in the background runner (`PI_SUBAGENT_CHILD=1`) skips that c
 foreground child carries no such marker, so do not list this extension in a child agent's
 `extensions`.
 
-Use `action: "steer"` for a running child. For completed work, inspect
-`action: "children.list"` and use `action: "resume", id: <resumable-id>, message: ...`.
+Use `action: "steer"` for a running child. For completed work, inspect the exact
+saved run ID with `action: "status"`, then use `action: "resume", id: <resumable-id>, message: ...`.
+`action: "children.list"` lists workflow children, so an empty list does not establish
+that a direct native child is missing or cannot resume. The exact ID's resume
+response determines its eligibility.
 Resume may return a new run ID; record it and consume its completion. Queuing a
 message alone does not restart a completed child. If resume is unavailable, verify
 the old writer stopped, preserve its worktree/report and assign a replacement.

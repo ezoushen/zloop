@@ -18,6 +18,8 @@ import state_files  # noqa: E402
 ENDED = ('delivered', 'delivered-local', 'merged')
 PAUSED = ('waiting-on-user', 'paused-allowance', 'paused-by-user', 'blocked')
 TERMINAL_STATES = ENDED + PAUSED
+DISPATCH_POLICY = dict(version=1, routing='configured', scheduling='independent-ready',
+                       isolation='worktree-per-writer', integration='single-owner', max_live=8)
 
 
 def location(card):
@@ -112,6 +114,12 @@ def adopt(card, reference, allow_resume=False):
         raise ValueError('Adoption requires the confirmation reference')
     with state_files.locked(card):
         if existing := read(card):
+            if 'dispatch_policy' not in existing:
+                existing['dispatch_policy'] = dict(DISPATCH_POLICY)
+                existing['revision'] += 1
+                existing['events'].append(dict(id='dispatch-policy-v1', actor='host',
+                    source={'kind': 'confirmation', 'reference': reference}, at=time.time()))
+                save(card, existing)
             return existing
         text = card.read_text()
         values = state_files.state_fields(text)
@@ -119,6 +127,7 @@ def adopt(card, reference, allow_resume=False):
             raise ValueError('Only a confirmed card can be adopted')
         now, run = time.time(), uuid.uuid4().hex
         state = dict(schema=1, run_id=run, revision=1, created_at=now, allow_resume=bool(allow_resume),
+                     dispatch_policy=dict(DISPATCH_POLICY),
                      card_text=fields(text, {'control': run}),
                      events=[dict(id='adopt', actor='host', source={'kind': 'confirmation', 'reference': reference},
                                   terminal=values.get('terminal', ''), at=now)])
@@ -345,6 +354,7 @@ def main():
         result = {'managed': state is not None}
         if state:
             result.update({key: state[key] for key in ('run_id', 'revision', 'allow_resume')})
+            result['dispatch_policy'] = state.get('dispatch_policy')
             result['terminal'] = state_files.state_fields(state['card_text']).get('terminal', '')
             result['last_event'] = {key: state['events'][-1].get(key) for key in ('id', 'actor', 'at')}
         print(json.dumps(result, indent=2))

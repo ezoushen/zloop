@@ -214,6 +214,7 @@
     "scripts/decision_images.py",
     "scripts/native_settings.py",
     "scripts/run_control.py",
+    "scripts/dispatch_state.py",
     "scripts/source_identity.py",
     "scripts/state_files.py"
    ]

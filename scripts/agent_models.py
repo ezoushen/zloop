@@ -15,6 +15,7 @@ import agent_defs
 import allowance
 import capacity
 import decisions
+import dispatch_state
 import front_matter
 import journal_store
 import outcomes
@@ -1122,6 +1123,7 @@ def main():
     parser.add_argument('--worktree', type=Path, help='the worker\'s worktree, for launch controls; requires --route')
     parser.add_argument('--reports', type=Path, help='the reports directory a worker writes, for launch controls')
     parser.add_argument('--assignment-id', help='stable assignment/attempt identity; required with --journal')
+    parser.add_argument('--dispatch-card', type=Path, help='issue a route receipt for this managed autopilot card')
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument('--list-candidates', action='store_true', help='inspect the effective pool without selecting')
     actions.add_argument('--save-session', type=Path, help='replace session overrides from a validated config JSON file')
@@ -1163,6 +1165,9 @@ def main():
             return
         if args.route_choice and not args.route:
             raise ValueError('--route-choice requires --route')
+        if args.dispatch_card is not None and (not args.route or args.list_candidates or session_action
+                or not args.assignment_id or args.assignment is None or args.worktree is None):
+            raise ValueError('--dispatch-card requires --route, --assignment-id, --assignment and --worktree')
         if args.config_profile is not None and not args.route:
             raise ValueError('--config-profile requires --route')
         if args.target_runtime is not None and not args.route:
@@ -1173,11 +1178,18 @@ def main():
         if args.route and not args.list_candidates and args.job is None:
             raise ValueError('a launch route requires --job; use --agent only to inspect or edit settings')
         if args.route:
+            configuration = [user_config, repo / '.zloop/models.json', args.user_executors.expanduser().resolve(),
+                             repo / '.zloop/executors.json']
+            route_session = (dispatch_state.routing_session(args.dispatch_card, args.session)
+                             if args.dispatch_card else args.session)
+            if route_session:
+                configuration.append(session_path(repo, route_session))
+            before_configuration = dispatch_state.files(configuration) if args.dispatch_card else None
             choice = json_argument(args.route_choice, '--route-choice', dict,
                                    '\'{"executor":{"type":"subagent"}}\'')
             result = resolve_execution(repo, user_config, args.user_executors.expanduser().resolve(),
                                        args.host, agent, task, choice, args.config_profile,
-                                       args.adaptive_thinking, job=args.job, session_id=args.session, candidate=args.candidate,
+                                       args.adaptive_thinking, job=args.job, session_id=route_session, candidate=args.candidate,
                                        selection=args.selection,
                                        eligible_candidates=json_argument(args.eligible_candidates, '--eligible-candidates', list,
                                                                          '\'["luna","sol"]\''),
@@ -1185,7 +1197,8 @@ def main():
                                                                        '\'{"opus":["medium"]}\''),
                                        list_candidates=args.list_candidates, target_runtime=args.target_runtime,
                                        assignment=assignment_text(args.assignment) if args.assignment else None,
-                                       journal=args.journal, assignment_id=args.assignment_id,
+                                       journal=args.journal,
+                                       assignment_id=(args.assignment_id if args.journal or not args.dispatch_card else None),
                                        after_failure=args.after_failure,
                                        # Canonical, as Codex records resolved paths (/private/var for /var).
                                        worktree=args.worktree.expanduser().resolve() if args.worktree else None,
@@ -1203,6 +1216,11 @@ def main():
             if result.get('executor', 'native') != 'native':
                 raise ValueError('external executors own their launch settings; do not use native child profiles')
             result['native_profile'] = native_profile(result)
+        if args.dispatch_card is not None:
+            if before_configuration != dispatch_state.files(configuration):
+                raise ValueError('Routing configuration changed during resolution; resolve routing again')
+            result = dispatch_state.issue_route(args.dispatch_card.resolve(), repo, args.assignment_id,
+                args.assignment.resolve(), args.worktree.resolve(), result, configuration)
         print(json.dumps(result, indent=2))
     except (OSError, ValueError) as error:
         parser.exit(getattr(error, 'exit_status', 2), f'{error}\n')

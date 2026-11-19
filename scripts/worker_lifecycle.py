@@ -25,6 +25,7 @@ import agent_defs  # noqa: E402
 import capability_probe  # noqa: E402
 import capacity  # noqa: E402
 import decisions  # noqa: E402
+import dispatch_state  # noqa: E402
 import front_matter  # noqa: E402
 import journal_store  # noqa: E402
 import native_settings  # noqa: E402
@@ -1055,6 +1056,11 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                 data[key] = str(Path(data[key]).resolve())
             require(type(data.get('owned')) is bool, 'Registration requires explicit owned boolean')
             require(execution, 'Registration requires execution, the resolved execution file')
+            dispatch_assignment = dispatch_state.check(Path(state_path(db)).parent.parent / 'autopilot.md',
+                attempt, execution, data.get('packet') or '', data['worktree'], db=db)
+            if dispatch_assignment:
+                require(dispatch_assignment['assignment'] == data['assignment']
+                        and dispatch_assignment['repo'] == data['repo'], 'Registration differs from the dispatch batch')
             if data['runtime'] == 'codex' and execution.get('native_dispatch'):
                 task = native_settings.codex_task_name(attempt)
                 # The read-only hook resolves a child only by /root/<task>, so no nested path is registered.
@@ -1128,6 +1134,8 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                     '(launch.verify); resolve it again with agent_models.py --route')
             saved = dict(data, agent=execution['agent'], job=execution['job'], execution_snapshot=execution,
                          requested=dict(scope, **settings, runtime=data['runtime']), verified=False)
+            if dispatch_assignment:
+                saved['dispatch_assignment'] = dispatch_assignment
             identity = source_identity.snapshot()
             saved['runtime_source'] = {key: identity[key] for key in ('root', 'digest', 'scope')}
             if needs is not None:
@@ -1711,6 +1719,9 @@ def submit(db, state, attempt, request):
     run_control.require_active(Path(state).parent.parent / 'autopilot.md')
     t3_target = t3_send(request.get('argv'))
     saved_for_route = get(db, attempt)
+    dispatch_state.check(Path(state).parent.parent / 'autopilot.md', attempt,
+                         saved_for_route['execution_snapshot'], saved_for_route['packet'],
+                         saved_for_route['worktree'], db=db, admitted=True)
     if t3_target is None and saved_for_route and saved_for_route.get('t3'):
         require(False, 'A t3 worker submits through `t3 thread send <thread> <assignment>`; this argv is not a t3 '
                        'thread send')
