@@ -161,11 +161,12 @@ class FeatureVerification(unittest.TestCase):
         self.assertEqual(report['driver_sha256'], original)
         self.assertEqual(report['results'][0]['status'], 'blocked')
 
-    def drift_run(self, victim, trials=1, fail=False):
+    def drift_run(self, victim, trials=1, fail=False, directory=False):
         """Delete the manifest or driver from a drive step; return the aggregate report and process."""
         manifest, driver = self.root / 'features.json', self.root / 'driver.json'
         code = (f'from pathlib import Path; Path({str(manifest if victim == "manifest" else driver)!r})'
-                '.unlink(); Path("observed").write_text("right")' + ('; raise SystemExit(7)' if fail else ''))
+                '.unlink(); ' + ('Path({0!r}).mkdir(); '.format(str(manifest if victim == "manifest" else driver)) if directory else '') +
+                'Path("observed").write_text("right")' + ('; raise SystemExit(7)' if fail else ''))
         self.feature['task'] = 'do it'
         manifest.write_text(json.dumps(dict(features=[self.feature])))
         driver.write_text(json.dumps([sys.executable, '-c', code]))
@@ -175,10 +176,12 @@ class FeatureVerification(unittest.TestCase):
 
     def test_a_deleted_manifest_or_driver_blocks_every_trial_and_keeps_the_report(self):
         for victim in ('manifest', 'driver'):
-            for fail in (False, True):
-                with self.subTest(victim=victim, failed_trial=fail):
-                    shutil.rmtree(self.root / 'cli', ignore_errors=True)
-                    report, process = self.drift_run(victim, trials=2, fail=fail)
+            for fail, directory in ((False, False), (True, False), (False, True)):
+                with self.subTest(victim=victim, failed_trial=fail, replaced_by_directory=directory):
+                    for leftover in ('cli', 'features.json', 'driver.json'):
+                        shutil.rmtree(self.root / leftover, ignore_errors=True)
+                        (self.root / leftover).unlink(missing_ok=True)
+                    report, process = self.drift_run(victim, trials=2, fail=fail, directory=directory)
                     self.assertEqual(process.returncode, 1, process.stderr)
                     self.assertEqual([r['status'] for r in report['results']], ['blocked', 'blocked'])
                     self.assertTrue(all(r['configuration_changed'] for r in report['results']))
@@ -195,6 +198,19 @@ class FeatureVerification(unittest.TestCase):
         self.cli(manifest, '--driver', str(driver))
         self.assertEqual((self.root / 'cli/manifest.original.json').read_bytes(), manifest.read_bytes())
         self.assertEqual((self.root / 'cli/driver.original.json').read_bytes(), driver.read_bytes())
+
+    def test_an_unreadable_cleanup_program_is_refused_with_a_retained_blocked_result(self):
+        self.feature['launch'] = [sys.executable, '-c',
+            'from pathlib import Path; Path("cleanup.py").write_text("print(1)")']
+        self.feature['cleanup'] = [sys.executable, 'cleanup.py']
+        self.feature['evidence'] = [sys.executable, '-c',
+            'from pathlib import Path; import sys; Path("cleanup.py").chmod(0); Path(sys.argv[1]).write_text("True")',
+            '{evidence}/proof.txt']
+        result = self.run_feature()
+        self.assertEqual(result['status'], 'blocked')
+        self.assertEqual(result['steps']['cleanup']['exit_code'], 125)
+        self.assertIn('reconciliation', result['steps']['cleanup']['reason'])
+        self.assertTrue((self.root / 'evidence/result.json').is_file())
 
     def test_an_unchanged_manifest_still_passes_through_the_cli(self):
         manifest = self.root / 'features.json'

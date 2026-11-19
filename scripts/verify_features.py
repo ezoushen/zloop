@@ -43,6 +43,17 @@ def file_hashes(argv, workspace):
     return files
 
 
+def changed(files):
+    """True when a fingerprinted file differs, vanished or can no longer be read."""
+    for path, value in files.items():
+        try:
+            if not Path(path).is_file() or hashlib.sha256(Path(path).read_bytes()).hexdigest() != value:
+                return True
+        except OSError:
+            return True
+    return False
+
+
 def validate(feature, driver=None):
     """Inspect the same contract before either an execution or a read-only listing."""
     timeout = feature.get('timeout', 60)
@@ -102,8 +113,7 @@ def verify(feature, evidence, driver=None):
                     result['status'] = 'failed' if step == 'evidence' and summary.get('exit_code') != 125 else 'blocked'
                     break
                 if step == 'drive':
-                    scope_changed = (any(not Path(path).is_file() or hashlib.sha256(Path(path).read_bytes()).hexdigest() != value
-                                         for path, value in frozen.items())
+                    scope_changed = (changed(frozen)
                                      or source_identity.snapshot()['digest'] != result['runtime_identity'])
                     if scope_changed:
                         result.update(status='blocked', reason='Protected verification input changed during drive')
@@ -113,8 +123,7 @@ def verify(feature, evidence, driver=None):
         except OSError as error:
             result.update(status='blocked', reason=f'Verification input unavailable: {error}')
         finally:
-            cleanup_changed = (any(not Path(path).is_file() or hashlib.sha256(Path(path).read_bytes()).hexdigest() != value
-                                   for path, value in cleanup_inputs.items())
+            cleanup_changed = (changed(cleanup_inputs)
                                or source_identity.snapshot()['digest'] != cleanup_runtime)
             if cleanup_changed:
                 result['steps']['cleanup'] = {'exit_code': 125, 'reason': 'Changed cleanup inputs require operator reconciliation'}
@@ -137,8 +146,7 @@ def verify(feature, evidence, driver=None):
             result['missing_artifacts'] = missing
             if result['status'] == 'passed':
                 result['status'] = 'blocked'
-        if any(not Path(path).is_file() or hashlib.sha256(Path(path).read_bytes()).hexdigest() != value
-               for path, value in frozen.items()):
+        if changed(frozen):
             result.update(status='blocked', reason='Protected input did not survive verification and cleanup')
         result['artifact_hashes'] = {name: hashlib.sha256((evidence / name).read_bytes()).hexdigest()
                                     for name in feature.get('required_artifacts', []) if name not in missing}
@@ -183,7 +191,7 @@ def main():
         def unchanged(path, original):
             try:
                 return path.read_bytes() == original
-            except FileNotFoundError:
+            except OSError:
                 return False
 
         results = []
