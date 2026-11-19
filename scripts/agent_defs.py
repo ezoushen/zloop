@@ -5,7 +5,9 @@ An agent holds permissions, principles and core skills; a job holds what one ass
 needs and returns. Code reads both from here, so no script needs an agent's name.
 Run directly to print problems; exits 1 when any are found.
 """
+import argparse
 import ast
+import json
 from pathlib import Path
 import re
 import sys
@@ -188,6 +190,19 @@ def problems(root=ROOT):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--job', help='inspect one job and its agent permissions')
+    args = parser.parse_args()
+    if args.job:
+        definitions = load()
+        job = definitions['jobs'].get(args.job)
+        if not job:
+            parser.error(f'Unknown job {args.job!r}')
+        agent = definitions['agents'][job['agent']]
+        print(json.dumps(dict(job_file=job['path'], agent=agent,
+                              inputs=[*COMMON_INPUTS, *job['inputs']], returns=job['returns'],
+                              independent_of=job['independent_of'], acceptance=job['acceptance']), indent=2))
+        return 0
     found = problems()
     print('\n'.join(found) or 'agent and job definitions ok')
     return 1 if found else 0

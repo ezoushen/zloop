@@ -356,9 +356,47 @@ def gaps(card):
         return [str(error)]
 
 
+def inspect(card):
+    """Read current facts and a request template; no admission, claims or lifecycle files are written."""
+    control = managed(card, active=False)
+    if not control:
+        return {'managed': False}
+    saved, now = read(card, control), snapshot(card)
+    active = [row for row in now['rows'] if not row.get('result')]
+    previous = saved.get('batch') or {}
+    known = set(now['planned']) | {key(row) for row in [*previous.get('assignments', {}).values(),
+                                                      *previous.get('active', [])]}
+    problems = gaps(card)
+    registered = {row['attempt'] for row in now['rows']}
+    for attempt in previous.get('launch', []):
+        if attempt in registered:
+            continue
+        try:
+            item = previous['assignments'][attempt]
+            route(card, control, saved, attempt, json.loads(Path(item['execution']).read_text()),
+                  item['packet'], item['worktree'])
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            problems.append(f'{attempt}: {error}')
+    return dict(revision=control['revision'], policy=control['dispatch_policy'],
+                state=state_files.state_fields(control['card_text']), routing_session=saved.get('routing_session'),
+                known_unfinished=sorted(known - set(now['done']) - covers(active)),
+                active=[{field: row.get(field) for field in ('attempt', 'job', 'assignment', 'worktree')}
+                        for row in active],
+                batch={field: previous.get(field) for field in ('launch', 'deferred', 'capacity', 'integration_owner')},
+                claims=sorted(saved['claims']), gaps=problems,
+                input_template=dict(assignments=[], launch=[], deferred={}, capacity=dict(limit=None, evidence=[]),
+                                    decomposition='', integration_owner=next(iter(run_control.sessions(control['card_text'])), None)),
+                assignment_template=dict(job='', assignment='', attempt='', depends_on=[], touches=[],
+                                         packet='', execution='', worktree=''),
+                deferral_forms=dict(dependency=dict(kind='dependency', because=[]),
+                                    conflict=dict(kind='conflict', because=[]), capacity=dict(kind='capacity'),
+                                    restriction=dict(kind='restriction', evidence=[]),
+                                    availability=dict(kind='availability', evidence=[])))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('plan', 'status', 'release', 'probe'))
+    parser.add_argument('action', choices=('plan', 'status', 'inspect', 'release', 'probe'))
     parser.add_argument('--card', required=True, type=Path)
     parser.add_argument('--input', type=Path)
     parser.add_argument('--expected-revision', type=int)
@@ -370,6 +408,8 @@ def main():
         if args.action == 'plan':
             require(args.input, 'plan requires --input')
             result = plan(args.card, json.loads(args.input.read_text()), expected_revision=args.expected_revision)
+        elif args.action == 'inspect':
+            result = inspect(args.card)
         elif args.action == 'probe':
             require(args.execution and args.execution.is_absolute(), 'probe requires absolute --execution')
             execution = json.loads(args.execution.read_text())

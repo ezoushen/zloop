@@ -5,6 +5,8 @@ import json
 import re
 from pathlib import Path
 
+T3_OPTIONS = dict(codex='reasoningEffort', claude='effort', pi='thinking', opencode='variant')
+
 
 def codex_task_name(attempt):
     """A fixed 32-character Codex task name binding the full UTF-8 attempt ID to a 96-bit SHA-256 prefix."""

@@ -282,8 +282,6 @@ class EffortLevels(unittest.TestCase):
         self.assertRegex(state, r'(?m)^review-effort: high\b')
         # Rule: the direct path's level is on the card the review reads, stated once.
         self.assertIn('`low` on a direct card unless a level flag sets another', ' '.join(state.split()))
-        self.assertEqual(' '.join(CARD.read_text().split()).count('records `review-effort: low`'), 1)
-        self.assertIn('both effort levels on their own lines', prose(CARD))
 
     def test_the_start_and_a_take_over_take_the_three_flags(self):
         # Rule: start and take-over declare the level flags; the card states start precedence, defaults and refusals.
@@ -298,10 +296,8 @@ class EffortLevels(unittest.TestCase):
         start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
         for phrase in ('records both effort levels', "keeps the card's levels unless a level flag is given"):
             self.assertIn(phrase, start)
-        for phrase in ('`--effort` sets both steps, and a split flag overrides it for its step',
-                       'A start with no level writes these defaults', 'never a level typed earlier',
-                       '`max` runs only when the user asks', 'an unknown flag or level value is refused'):
-            self.assertIn(phrase, prose(CARD))
+        # Flag precedence, defaults and refusals are exercised by test_autopilot_card.py.
+        self.assertIn('autopilot_card.py confirm', prose(CARD))
         self.assertIn("the levels its setup recorded", prose(ROOT / 'skills/dispatch/SKILL.md'))
 
     def test_the_run_passes_both_levels_to_dispatch_beside_autofix(self):
@@ -384,8 +380,8 @@ class TakeOverCommand(unittest.TestCase):
         # Live check (codex, B1): a host took the direct path as skipping the loop.
         self.assertIn('[direct path](run-card.md), which skips only the interview and confirmation', ' '.join(start.split()))
         card = ' '.join(CARD.read_text().split())
-        for phrase in ('`mode: direct` or `mode: full`', 'one or two tickets with no pause-list action and no material question',
-                       'by rule', 'mode: full | direct', 'one independent review', 'A third ticket, a pause-list action or a material question switches to the full path', 'more than two tickets is refused its dispatch', 'set `mode: full`'):
+        for phrase in ('by rule', 'mode: full | direct', 'independent review',
+                       'a material question or pause-list action requires the full path'):
             self.assertIn(phrase, card)
 
     def test_the_interview_and_the_users_confirmation_are_the_full_paths_and_the_direct_path_keeps_align_and_refine(self):

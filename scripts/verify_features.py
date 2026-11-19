@@ -43,14 +43,24 @@ def file_hashes(argv, workspace):
     return files
 
 
-def verify(feature, evidence, driver=None):
-    """Grade actual post-state; setup gaps and invalid retained evidence cannot pass."""
-    evidence = Path(evidence).resolve()
+def validate(feature, driver=None):
+    """Inspect the same contract before either an execution or a read-only listing."""
     timeout = feature.get('timeout', 60)
     if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0:
         raise ValueError('Feature timeout must be finite and positive')
     if not isinstance(feature.get('name'), str) or not re.fullmatch(r'[a-z0-9_-]+', feature['name']):
         raise ValueError('Feature name must be a safe path segment')
+    for step in STEPS:
+        expand(driver if step == 'drive' and driver else feature[step], {})
+    if driver and not feature.get('task', '').strip():
+        raise ValueError('Agent verification needs an explicit feature task')
+    return timeout
+
+
+def verify(feature, evidence, driver=None):
+    """Grade actual post-state; setup gaps and invalid retained evidence cannot pass."""
+    evidence = Path(evidence).resolve()
+    timeout = validate(feature, driver)
     evidence.mkdir(parents=True, exist_ok=False)
     result = dict(feature=feature['name'], status='blocked', steps={}, started_at=time.time(),
                   evidence=str(evidence), mode='agent' if driver else 'scripted')
@@ -138,7 +148,8 @@ def verify(feature, evidence, driver=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('manifest', type=Path)
-    parser.add_argument('--evidence', type=Path, required=True)
+    parser.add_argument('--evidence', type=Path)
+    parser.add_argument('--inspect', action='store_true', help='validate and list contracts without executing steps')
     parser.add_argument('--feature', action='append')
     parser.add_argument('--driver', type=Path, help='JSON argv for an agent driver; uses {workspace} and {task}')
     parser.add_argument('--trials', type=int, default=1)
@@ -152,6 +163,14 @@ def main():
         if not selected or args.feature and set(args.feature) - {f['name'] for f in selected}:
             raise ValueError('Unknown or empty feature selection')
         driver = json.loads(args.driver.read_text()) if args.driver else None
+        for feature in selected:
+            validate(feature, driver)
+        if args.inspect:
+            print(json.dumps(dict(features=selected, steps=STEPS,
+                                  placeholders=['workspace', 'evidence', 'plugin_root', 'python', 'feature', 'task']), indent=2))
+            return 0
+        if not args.evidence:
+            raise ValueError('Execution requires --evidence')
         results = [verify(feature, args.evidence / feature['name'] / str(trial), driver)
                    for feature in selected for trial in range(1, args.trials + 1)]
         report = {'manifest': str(args.manifest.resolve()),

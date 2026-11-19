@@ -64,7 +64,8 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    session record). Assignment IDs identify a ticket and bounded
    job scope; attempt IDs identify retries. The execution snapshot must carry
    `agent` and `job`, and supplies the requested settings. `packet` is the exact
-   assignment text sent to the worker, naming the job's inputs as `name: value`. A repair attempt adds `repairs`, naming the collected
+   assignment text sent to the worker. Inspect its required inputs and permissions with
+   `agent_defs.py --job <job>`; name inputs as `name: value`. A repair attempt adds `repairs`, naming the collected
    attempt whose work it fixes; a third repair in a chain also adds `premise`, a sentence naming the earlier
    fixes' shared assumption and why it is being changed. When `wake-triage` is enabled, add `journal`, the
    absolute session decisions journal. A worker started through Herdr adds

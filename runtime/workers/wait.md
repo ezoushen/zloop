@@ -43,15 +43,8 @@ Use structured report and native job/status values, not words in pane output. Fo
 Supply that check with the assignment: a missing or draft report, a result for another
 attempt, an active worker or any live job stays pending. A failed assignment's final
 report also completes the wait once settled with no jobs. An unavailable status reader
-exits above 1 with the failing check and a working next step in its output. The helper
-runs the check after each successful bridge wait; pending checks repeat the wait after
-one second under the same monitor and original deadline. Only the final outcome emits
-a receipt and notification. A check that exits above 1 carries `reason: completion-error`;
-failure to launch either command carries `launch-error` and exit 2. Bridge errors,
-timeouts and interruption retain their usual receipts and logs. This option is for
-`watch` only: submit the assignment once before arming it, since repeating a prompt
-would resubmit productive work. Without `completion`, a successful bridge wait ends
-the monitor as usual. Collection still verifies the report, native record and revision.
+exits above 1 with the failing check and a working next step in its output. Use this option for `watch` after submitting once. Inspect the retained receipt and
+check output for errors; repeating a productive prompt to wait would resubmit work.
 
 The terminal receipt is committed before delivery. Accepted delivery records
 `delivery.state: sent`; failures and timeouts stay `failed`; an interruption before the

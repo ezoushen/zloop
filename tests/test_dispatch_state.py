@@ -61,6 +61,39 @@ class DispatchFixture:
 
 class ManagedDispatch(DispatchFixture, unittest.TestCase):
 
+    def test_inspection_reports_current_gaps_without_changing_admission(self):
+        self.plan()
+        before = {str(p): p.read_bytes() for p in self.card.parent.rglob('*') if p.is_file()}
+        status = self.dispatch.inspect(self.card)
+        self.assertEqual(status['revision'], self.control.read(self.card)['revision'])
+        self.assertEqual(status['known_unfinished'], ['ticket:a', 'ticket:b'])
+        self.assertEqual(status['batch']['launch'], ['a/1', 'b/1'])
+        self.assertEqual(len(status['gaps']), 2)
+        self.assertEqual(before, {str(p): p.read_bytes() for p in self.card.parent.rglob('*') if p.is_file()})
+        execution = Path(self.items[0]['execution'])
+        routed = json.loads(execution.read_text())
+        execution.write_text(json.dumps(dict(routed, settings=dict(model='substituted'))))
+        self.assertTrue(any('Resolved route was changed' in gap for gap in self.dispatch.inspect(self.card)['gaps']))
+        execution.write_text(json.dumps(routed))
+        self.proof.write_text('capacity changed\n')
+        self.assertIn('Dispatch state changed', self.dispatch.inspect(self.card)['gaps'][0])
+        with self.assertRaisesRegex(ValueError, 'Dispatch state changed'):
+            self.check()
+
+    def test_inspection_exposes_unplanned_board_work_without_creating_lifecycle_state(self):
+        issues = self.card.parent / 'issues'
+        issues.mkdir()
+        (issues / '03-missing.md').write_text('---\nticket: missing\nstatus: todo\nblocked_by: []\ntouches: [api]\n---\n')
+        status = self.dispatch.inspect(self.card)
+        self.assertIn('ticket:missing', status['known_unfinished'])
+        self.assertIn('checked dispatch batch', status['gaps'][0])
+        self.assertEqual(status['input_template']['capacity']['limit'], None)
+        self.assertEqual(status['input_template']['assignments'], [])
+        self.assertFalse((self.card.parent / 'reports').exists())
+        self.control.transition(self.card, 'blocked', dict(kind='host', reference='capacity unavailable'),
+                                'temporary failure', 1, 'block-inspection')
+        self.assertEqual(self.dispatch.inspect(self.card)['state']['terminal'], 'blocked')
+
     def test_incomplete_selection_and_handwritten_inherit_cannot_be_admitted(self):
         item = self.items[0]
         unresolved = dict(status='selection_required', eligible_candidates=['sol', 'sonnet'])

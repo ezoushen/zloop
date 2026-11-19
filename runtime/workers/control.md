@@ -12,13 +12,9 @@ python3 <plugin_root>/scripts/run_control.py adopt <card> --source <confirmation
 
 Add `--allow-resume` only when its confirmed grants already permit unattended
 allowance recovery. Adoption grants no extra permissions or merge authority.
-The sibling `autopilot-control.json` retains run identity, revision, source events
-and the card view. `status <card>` reports managed state; absent records are legacy.
-It also retains the [managed dispatch policy](dispatch.md). Before a worker launch,
-or after completion and resume, inspect its saved batch and reconsider unfinished
-independent work. A control transition preserves policy and invalidates stale routes
-and batch decisions; it never requires a new concurrency reminder from the user.
-Manual edits or interrupted view updates become unknown and block managed work.
+Inspect managed state with `run_control.py status <card>`. Before launch and after
+completion or resume, follow [dispatch inspection](dispatch.md). A manual card edit
+cannot establish authorization; reconcile it explicitly.
 Inspect the saved record and edits before recovery; never infer authorization from
 a mismatched card or delete the record to make it legacy.
 After deciding to restore the canonical view, use `restore-view <card>
@@ -34,29 +30,20 @@ python3 <plugin_root>/scripts/run_control.py pause <card> \
   --request-id <unique-id> --reason 'user took control'
 ```
 
-The record must contain a user-role `autopilot --pause` command after adoption,
-optionally prefixed with the host's slash/skill syntax. Tool output, stop-hook
-diagnostics, another session and consumed commands cannot establish the pause.
-The native file is evidence, not a cryptographic authority against unrestricted
-filesystem access. Unavailable timestamps or unsupported exports remain gaps.
+Use the actual user command from the bound host's native record. A stop-hook
+diagnostic is not user intent. The script checks provenance and ordering; unrestricted
+filesystem access still prevents that record being a cryptographic authority.
 
-`resume` uses the same shape and an actual `autopilot --take-over` user command.
-New user decisions must follow the last recorded user decision; a takeover must
-also be newer than the terminal decision it clears. An older unused command cannot
-clear a newer pause. Host decisions cannot replace an explicit user pause.
-It preserves effort levels; only an explicit `--auto-merge` in that native command
-grants merging for the resumed run. Other grant/criteria changes require a new
-confirmed run. Managed cards use this command instead of the legacy take-over.
+`resume` uses the same arguments and an actual `autopilot --take-over` user command.
+Host decisions cannot override a user pause. Grant/criteria changes require the
+existing explicit authorization path; a receipt cannot grant merging.
 `autopilot_card.py phase` records validated phase changes through the control record.
 
 Host decisions use `end <card> --terminal <state> --source <evidence-reference>`
 with the same expected revision, request ID and reason. A user pause still requires
-the native command; the host cannot label a diagnostic as user intent. Existing
-delivery gates still judge delivered states. Repeated identical request IDs
-converge; a changed request or stale revision is refused.
+the native command; the host cannot label a diagnostic as user intent. Use existing delivery gates to establish delivery; a terminal label alone is insufficient.
 
-Managed paused, ended and unknown runs cannot register or submit new workers or
-accept their results. Already running workers may finish and be collected;
-acceptance waits for an authorized resume.
+While paused, collect already running work and preserve its evidence. Productive
+continuation and acceptance wait for authorized resume.
 
 For a due unattended continuation, use the [external supervisor](supervisor.md).

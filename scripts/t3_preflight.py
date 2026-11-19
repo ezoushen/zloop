@@ -13,10 +13,16 @@ launch. Layered, each layer with its own reason:
 desktop-app server can still be serving), and bare doctor repairs and restarts the service. Diagnostics use
 `--dry-run` only.
 """
+import argparse
 import json
 import os
 import subprocess
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import agent_defs  # noqa: E402
+import native_settings  # noqa: E402
 
 LOOKUP_SECONDS = 20
 
@@ -120,3 +126,53 @@ def diagnose(project, home=None):
     except (subprocess.TimeoutExpired, FileNotFoundError) as error:
         return {'doctor': str(error)}
     return {'doctor': (process.stdout + process.stderr).strip()[:500]}
+
+
+def launch_arguments(execution):
+    """The transport fields of a resolved route; no launch or provider selection occurs here."""
+    if execution.get('executor_type') != 't3':
+        raise ValueError('Expected a resolved T3 route')
+    settings = execution['settings']
+    target = {argument: settings[setting] for setting, argument in
+              (('provider', 'providerInstanceId'), ('model', 'model')) if setting in settings}
+    if 'effort' in settings:
+        runtime = execution.get('target_runtime') or execution['host']
+        target['options'] = {native_settings.T3_OPTIONS[runtime]: settings['effort']}
+    definitions = agent_defs.load()
+    agent = definitions['agents'][definitions['jobs'][execution['job']]['agent']]
+    return dict(target=target, isolation='shared' if agent['writes'] == 'none' else 'worktree', mode='async')
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Inspect T3 readiness without repairing or starting threads.')
+    parser.add_argument('--project', type=Path, required=True)
+    parser.add_argument('--home', type=Path)
+    parser.add_argument('--environment')
+    parser.add_argument('--writes', choices=tuple(NEED_FLOOR), help='required with --environment unless --execution is supplied')
+    parser.add_argument('--execution', type=Path, help='resolved route; also emit native delegation arguments')
+    parser.add_argument('--diagnose', action='store_true', help='read-only doctor diagnostics')
+    args = parser.parse_args()
+    try:
+        execution = json.loads(args.execution.read_text()) if args.execution else None
+        environment, writes = args.environment, args.writes
+        if execution:
+            environment = execution.get('environment', environment)
+            definitions = agent_defs.load()
+            writes = definitions['agents'][definitions['jobs'][execution['job']]['agent']]['writes']
+        if environment and not writes:
+            raise ValueError('--environment requires --writes or --execution')
+        result = verify(args.project, args.home)
+        if result['ok'] and environment:
+            result = verify_environment(environment, writes)
+        if execution:
+            result['launch_arguments'] = launch_arguments(execution)
+        if args.diagnose:
+            result['diagnostics'] = diagnose(args.project, args.home)
+        print(json.dumps(result, indent=2))
+        return int(not result['ok'])
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        parser.exit(2, f'{error}\n')
+
+
+if __name__ == '__main__':
+    sys.exit(main())

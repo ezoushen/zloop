@@ -46,11 +46,10 @@ only where the skill permits model invocation. Retain the actual source/result.
 Session-local settings isolation must keep the plugins the assignment invokes,
 such as zloop for its slash commands, and Herdr's native identity hook;
 verify both before accepting the launch.
-Launch OpenCode 2's full TUI on a private server per the
-[OpenCode adapter](opencode/workers.md#top-level-workers); Herdr observes its activity and session, not `mini`'s.
-Keep only Herdr's installed server plugin and full native TUI reporter config: user MCP tools remain callable
-under deny rules. Match installer filenames (such as `tui.jsonc`) and modules;
-server-plugin entries alone cannot load the TUI reporter.
+Launch OpenCode through the supported launcher and
+[OpenCode adapter](opencode/workers.md#top-level-workers). Do not reconstruct its
+private server or copy user configuration into it; that can expose tools outside
+the assignment's permissions.
 Check `integration status` and the actual `agent_session` before productive work;
 a current server alone does not establish that its integration is loaded.
 If startup returns before the native input UI finishes loading, wait for its
@@ -71,14 +70,7 @@ pane, whatever placement the installed skill defaults to:
    `HERDR_WORKSPACE_ID` with `ZLOOP_WORKER` set, logs the launch for the stop check,
    and starts the agent in its root pane.
    `ZLOOP_WORKER` is how zloop's stop check tells a worker from its orchestrator.
-   It uses the caller's Herdr socket. For OpenCode,
-   `launch.api` starts a detached private-server keeper and attaches its TUI, returning `opencode.server`,
-   `opencode.session` and `opencode.password_file`. Register/export per its adapter.
-   Missing integration refuses before any tab: `herdr integration install opencode`.
-   Without an enforcing `sandbox-exec` (`scripts/seatbelt.py`), refuse: the server runs under its profile
-   for the route's scope plus private storage (cache too) and OpenCode data. After tab creation,
-   `pane run` exports `OPENCODE_PASSWORD` from its owner-only file before `agent start`:
-   arguments hold only its path, never the password.
+   Follow the returned runtime-specific handles under the selected adapter.
    Keep `launch.argv` in JSON, never shell text. The resolver supplies write scope, model and effort; recipes: [Claude](claude/workers.md#top-level-workers),
    [Codex](codex/workers.md#top-level-workers), [Pi](pi/workers.md#top-level-workers) and
    [OpenCode](opencode/workers.md#top-level-workers). A native route without `launch` uses its host's
@@ -87,14 +79,9 @@ pane, whatever placement the installed skill defaults to:
    names the session. Registration reads the worker's pane, tab, workspace and name
    from `herdr agent get` and refuses a tab that holds another pane or is your own.
 
-Registration owns the startup probe: from an `idle` or `done` worker it sends a
-fixed READY/no-tools prompt with `--wait --timeout 45000`, then polls for Herdr's
-session identity for at most 45 seconds (each lookup at most five seconds).
-Herdr's ID, or the session a Claude, Codex or Pi record path names once the probe has written it, fills
-`native_session`; omit it, or pass Herdr's ID or path. A stalled, failed or blocked probe never registers.
-The refusal names the probe or session step and an inspection command. Inspect
-that same worker before retrying registration; do not send a second probe blindly
-or press Enter into an unidentified input UI.
+Registration owns the startup probe and reports the missing step with an
+inspection command. Inspect that same worker before retrying; do not send a second
+probe blindly or press Enter into an unidentified input UI.
 
 Retirement closes the pane, which closes the tab; record closure under the
 [retirement contract](../runtime/resources/retire.md).

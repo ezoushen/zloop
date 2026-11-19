@@ -50,7 +50,7 @@ def settings(name, data, execution, receipt):
             options = target.get('options') or {}
             if isinstance(options, list):
                 options = {row['id']: row['value'] for row in options}
-            option = dict(codex='reasoningEffort', claude='effort', pi='thinking', opencode='variant')[runtime]
+            option = dispatch_state.native_settings.T3_OPTIONS[runtime]
             dispatch_state.require(options.get(option) == expected['effort'], 'T3 thinking differs from resolved settings')
         if dispatch_state.agent_defs.load()['agents'][execution['agent']]['writes'] != 'none':
             dispatch_state.require(data.get('isolation') == 'worktree', 'T3 writers require worktree isolation')

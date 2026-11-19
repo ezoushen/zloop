@@ -77,8 +77,8 @@ Reject an unknown flag or level value.
    the levels its setup recorded; a new invocation never inherits them. An invocation given level
    flags is a new one: dispatch starts again with those levels and its report records them anew.
 7. With `--autofix` and E2E planned, launch the readiness verifier in the step that launches the first builders; its
-   inputs are in [iteration](iteration.md) step 4. `--delivery` refuses a workstream whose report records
-   `autofix: true` with no collected readiness attempt.
+   inputs are in [iteration](iteration.md) step 4.
+
 
 A supplied scope is never widened, even to unblock it. Use the board's
 [overall scope](../../runtime/board/scope.md) rules to preserve

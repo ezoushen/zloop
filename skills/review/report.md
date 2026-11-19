@@ -3,8 +3,6 @@
 `review_target.py` writes the report outside disposable worktrees. For attribution,
 follow the [routing decision contract](../../runtime/routing/report.md).
 Front matter uses literal scalars, never quoted placeholders in a finished report.
-Use `review_status: clean|findings|incomplete` and
-`documentation_status: passed|findings|incomplete`; collection refuses other values.
 `review_by` and `e2e_by` name the collected worker attempts (one, or a list) whose own
 reports gave those statuses at those heads; for checks the orchestrator ran itself, `e2e_by`
 names their run_check logs. At `xhigh` and `max`, `review_by` names every angle and sweep attempt that
