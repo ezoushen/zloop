@@ -16,7 +16,7 @@ class RepoAdrs(unittest.TestCase):
                                  '--index'], capture_output=True, text=True)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         out = json.loads(result.stdout)
-        self.assertEqual('0024', out['next'])
+        self.assertEqual('0025', out['next'])
         index = (ROOT / 'docs/adr/README.md').read_text()
         accepted = index[index.index('## Accepted'):index.index('## Superseded')]
         for name in ('0001-adr-numbers-are-checked-on-main.md', '0002-grilling-asks-principles-only.md',
@@ -38,7 +38,8 @@ class RepoAdrs(unittest.TestCase):
                      '0020-small-work-finishes-without-an-interview.md',
                      '0021-opencode-workers-run-through-herdr-on-a-private-server.md',
                      '0022-opencode-workers-run-inside-an-os-sandbox.md',
-                     '0023-worker-transports-follow-the-same-framework-rules.md'):
+                     '0023-worker-transports-follow-the-same-framework-rules.md',
+                     '0024-the-control-record-owns-the-managed-run-card.md'):
             self.assertIn(f']({name})', accepted)
 
     def test_adr_0004_states_the_repair_exception(self):
@@ -74,7 +75,7 @@ class RepoAdrs(unittest.TestCase):
         index = (ROOT / 'docs/adr/README.md').read_text()
         accepted = index[index.index('## Accepted'):index.index('## Superseded')]
         entries = re.findall(r'^- \[\d{4}\]\((\d{4}-[^)]+\.md)\) (.+)$', accepted, re.M)
-        self.assertEqual(23, len(entries))
+        self.assertEqual(24, len(entries))
         for name, text in entries:
             title = (ROOT / 'docs/adr' / name).read_text().splitlines()[0].removeprefix('# ')
             with self.subTest(adr=name):
@@ -99,6 +100,23 @@ class RepoAdrs(unittest.TestCase):
         development = ' '.join((ROOT / 'docs/development.md').read_text().split())
         for text in (index, development):
             self.assertRegex(text, r"resume timer is the user's own take-over[^\n]*authorized on the run card[^\n]*`--take-over --timed`")
+
+    def test_the_managed_run_card_index_entry_states_the_recovery_rule(self):
+        index = (ROOT / 'docs/adr/README.md').read_text()
+        accepted = index[index.index('## Accepted'):index.index('## Superseded')]
+        self.assertIn(
+            '- [0024](0024-the-control-record-owns-the-managed-run-card.md) '
+            'The control record owns the managed run card: readers use its projection across interrupted '
+            'publication, and unrelated view edits require reconciliation against a reviewed hash.',
+            accepted.splitlines())
+
+    def test_the_managed_run_card_development_rule_states_when_to_reconcile(self):
+        self.assertIn(
+            'The control record owns the managed run card. When the Markdown is missing or matches the exact '
+            'view an interrupted publication was replacing, readers use the control record. Other edits require '
+            'reconciliation against the reviewed view hash, and reconciliation preserves the displaced bytes '
+            '([ADR 0024](adr/0024-the-control-record-owns-the-managed-run-card.md)).',
+            support.prose('docs/development.md'))
 
     def test_the_development_rules_point_to_the_standalone_framework_adrs(self):
         text = ' '.join((ROOT / 'docs/development.md').read_text().split())

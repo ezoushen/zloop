@@ -52,6 +52,10 @@ only accepted ADRs bind, and a change that conflicts with one is raised, not wor
 - Every worker transport follows the same framework rules and differs only in the means that carry a rule out;
   a difference stands only where a transport lacks the means, and the code says so
   ([ADR 0023](adr/0023-worker-transports-follow-the-same-framework-rules.md)).
+- The control record owns the managed run card. When the Markdown is missing or matches the exact view an interrupted
+  publication was replacing, readers use the control record. Other edits require reconciliation against the reviewed
+  view hash, and reconciliation preserves the displaced bytes
+  ([ADR 0024](adr/0024-the-control-record-owns-the-managed-run-card.md)).
 
 ## Suite and hooks
 
