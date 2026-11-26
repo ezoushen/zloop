@@ -68,6 +68,8 @@ def schedule(queue, card, due, config, event_id, expect_head=None):
     request = dict(card=str(card), run_id=control['run_id'], control_revision=control['revision'],
                    due=due, config=config)
     if expect_head is not None:
+        if not re.fullmatch(r'[0-9a-f]{40}', expect_head):
+            raise ValueError(f'The expected head must be a full SHA, not {expect_head!r}')
         request.update(branch=run_control.workstream_branch(card.parent), expect_head=expect_head)
         if problem := moved_branch(card, request['branch'], expect_head):
             raise ValueError(problem)

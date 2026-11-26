@@ -99,11 +99,26 @@ class RunAll(unittest.TestCase):
                   '    assert "parity lane" in str(error), error\n'
                   'else:\n'
                   '    raise AssertionError("a network lookup was not refused")\n'
-                  'assert socket.getaddrinfo("localhost", 80)\n'
+                  'try:\n'
+                  '    socket.gethostbyname("zloop-parity.invalid")\n'
+                  'except socket.gaierror as error:\n'
+                  '    assert "parity lane" in str(error), error\n'
+                  'else:\n'
+                  '    raise AssertionError("a gethostbyname lookup was not refused")\n'
+                  'assert socket.getaddrinfo("localhost", 80) and socket.getaddrinfo("LocalHost", 80)\n'
                   'assert os.environ["ZLOOP_TEST_SLOTS"] == str(2 * os.cpu_count()), os.environ["ZLOOP_TEST_SLOTS"]\n')
         result = self.suite({'test_network.py': script}, args=['--parity'], clean=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertRegex(result.stdout.splitlines()[0], r'^parity lane: git version \d+\.\d+.*, Python 3\.\d+.*, Node ')
+
+    def test_the_parity_lane_runs_on_its_launchers_python_and_keeps_a_callers_slot_budget(self):
+        # Rule: the version line names the interpreter the suite runs on, and an explicit budget is not overridden.
+        script = ('import os, sys\n'
+                  f'assert os.path.realpath(sys.executable) == {os.path.realpath(sys.executable)!r}, sys.executable\n'
+                  'assert os.environ["ZLOOP_TEST_SLOTS"] == "3", os.environ["ZLOOP_TEST_SLOTS"]\n')
+        result = self.suite({'test_python.py': script}, {'ZLOOP_TEST_SLOTS': '3'}, args=['--parity'], clean=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f', Python {sys.version.split()[0]}, ', result.stdout.splitlines()[0])
 
     def test_the_parity_lane_refuses_a_git_older_than_its_floor(self):
         tools = tempfile.TemporaryDirectory(prefix='parity tools ')

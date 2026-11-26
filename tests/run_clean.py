@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Run the suite runner with the arguments given here, under only a minimal tool path and the nested slot marker.
 
-`--parity` runs it as a busy hosted runner would: Python processes cannot look up network hosts (loopback still
-resolves), the slot budget is twice the CPU count, and the run first prints its tool versions and refuses a git
-older than GIT_FLOOR."""
+`--parity` runs it as a busy hosted runner would, on the Python that launched it: Python processes cannot look up
+network hosts (loopback still resolves), the slot budget is twice the CPU count unless ZLOOP_TEST_SLOTS sets one, and
+the run first prints its tool versions and refuses a git older than GIT_FLOOR."""
 import os
 from pathlib import Path
 import re
@@ -45,8 +45,8 @@ def main():
     if '--parity' in args:
         args.remove('--parity')
         print(tool_versions(path), flush=True)
-        environment += [f'PYTHONPATH={Path(__file__).resolve().with_name("parity_site")}',
-                        f'ZLOOP_TEST_SLOTS={2 * (os.cpu_count() or 1)}']
+        environment += [f'PYTHON={sys.executable}', f'PYTHONPATH={Path(__file__).resolve().with_name("parity_site")}',
+                        f'ZLOOP_TEST_SLOTS={os.environ.get("ZLOOP_TEST_SLOTS") or 2 * (os.cpu_count() or 1)}']
     os.execv('/usr/bin/env', ['env', '-i', *environment, sys.executable, str(runner), *args])
 
 

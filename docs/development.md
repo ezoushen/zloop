@@ -85,7 +85,7 @@ CPUs, and the run prints its tool versions and refuses git older than 2.40.
 
 Hosted CI (`.github/workflows/ci.yml`) runs once per change: `pull_request`, and `push` only for `main`; a newer push
 cancels the older run. `fast` runs the whole-repository doc check and the workflow contract test. `suite` runs the
-parity lane as 4 shards on `ubuntu-latest`, 2–3 minutes each; re-pick from the slowest units. `macos`
+parity lane as 4 shards on `ubuntu-latest`; re-pick from the slowest units. `macos`
 runs the parity lane on the scripts that branch on `darwin` or reach `sandbox-exec`, even indirectly; `tests/test_ci_workflow.py` lists them. `ci-ok` is the
 one check name and passes only when all three succeeded.
 

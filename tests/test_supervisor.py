@@ -200,6 +200,18 @@ class Supervisor(unittest.TestCase):
         self.assertRegex(refused.stderr, f'feat/wake.*{actual}.*{expected}')
         self.assertFalse(self.queue.exists())
 
+    def test_scheduling_refuses_an_expected_head_that_is_not_a_full_sha(self):
+        (self.root / 'reports').mkdir()
+        (self.root / 'reports' / 'spec-review.md').write_text('---\nworkstream_branch: feat/wake\n---\n')
+        self.git('init', '-q', '-b', 'main')
+        self.git('commit', '-q', '--allow-empty', '-m', 'base')
+        for head in ('', self.git('rev-parse', '--short', 'HEAD')):
+            with self.subTest(head=head):
+                refused = self.schedule_expecting(head)
+                self.assertEqual(refused.returncode, 2)
+                self.assertIn('full SHA', refused.stderr)
+                self.assertFalse(self.queue.exists())
+
 
 if __name__ == '__main__':
     unittest.main()

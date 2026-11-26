@@ -2,18 +2,19 @@
 that reaches the network fails at once instead of depending on the runner's network; loopback names still resolve."""
 import socket
 
-lookup = socket.getaddrinfo
-
 
 def loopback(host):
-    name = host.decode() if isinstance(host, bytes) else host
-    return name in (None, '', 'localhost', '::1') or name.startswith('127.') or name.endswith('.localhost')
+    name = (host.decode() if isinstance(host, bytes) else host or '').lower().rstrip('.')
+    return name in ('', 'localhost', '::1') or name.startswith('127.') or name.endswith('.localhost')
 
 
-def getaddrinfo(host, *args, **kwargs):
-    if not loopback(host):
-        raise socket.gaierror(socket.EAI_NONAME, f'parity lane refuses the network lookup of {host}')
-    return lookup(host, *args, **kwargs)
+def refusing(lookup):
+    def checked(host, *args, **kwargs):
+        if not loopback(host):
+            raise socket.gaierror(socket.EAI_NONAME, f'parity lane refuses the network lookup of {host}')
+        return lookup(host, *args, **kwargs)
+    return checked
 
 
-socket.getaddrinfo = getaddrinfo
+for name in ('getaddrinfo', 'gethostbyname', 'gethostbyname_ex'):
+    setattr(socket, name, refusing(getattr(socket, name)))

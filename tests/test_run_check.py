@@ -33,7 +33,8 @@ class RunCheckTests(unittest.TestCase):
         subprocess.run(['git', 'init', '-q', str(repo)], check=True)
         (repo / 'product.py').write_text('value = 1\n')
         (repo / 'legacy.py').write_text('retired = True\n')
-        subprocess.run(['git', '-C', str(repo), 'add', 'product.py', 'legacy.py'], check=True)
+        (repo / 'stable.py').write_text('kept = True\n')
+        subprocess.run(['git', '-C', str(repo), 'add', 'product.py', 'legacy.py', 'stable.py'], check=True)
         subprocess.run(['git', '-C', str(repo), '-c', 'user.name=t', '-c', 'user.email=t@t',
                         'commit', '-qm', 'base'], check=True)
         base = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
@@ -190,8 +191,8 @@ class RunCheckTests(unittest.TestCase):
         refused('stays green', ['helper.py'], f'{claim} did not fail as a unittest result')
         refused('test path', ['test_value.py'], f'revert path test_value.py is not a product path changed since {base}')
         subprocess.run([*git, 'checkout', base, '--', 'product.py'], check=True)
-        refused('unchanged path', ['product.py', 'missing.py'],
-                f'revert path missing.py is not a product path changed since {base}')
+        refused('unchanged path', ['product.py', 'stable.py'],
+                f'revert path stable.py is not a product path changed since {base}')
         subprocess.run([*git, 'checkout', base, '--', 'product.py'], check=True)
         refused('removed path left removed', ['product.py', 'legacy.py'],
                 f'revert source differs from {base}: legacy.py')
