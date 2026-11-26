@@ -20,7 +20,7 @@ LOCK = support.script('resource_lock.py')
 
 
 class RunCheckTests(unittest.TestCase):
-    def claim_fixture(self):
+    def claim_fixture(self, test_file=None):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
@@ -36,7 +36,8 @@ class RunCheckTests(unittest.TestCase):
         support.write_attempts(state, [support.attempt_row(
             repo, attempt='value-1', worktree=str(repo), head=base, job='ticket',
             dispatch_assignment={'assignment': 'ticket-1'},
-            check_receipts={'claims': [claim], 'identity': 'value-run'})])
+            check_receipts={'claims': [claim], 'identity': 'value-run',
+                            'test_files': {claim: test_file} if test_file else {}})])
         return repo, base, claim
 
     def red_check(self, repo, claim, name, wanted):
@@ -48,7 +49,8 @@ class RunCheckTests(unittest.TestCase):
         log = repo.parent / f'{name}.log'
         result = subprocess.run(
             [sys.executable, str(RUNNER), '--timeout', '5', '--log', str(log),
-             '--phase', 'red', '--claim', claim, '--state', str(repo.parent / 'workers.sqlite'),
+             '--phase', 'red', '--format', 'unittest', '--claim', claim,
+             '--state', str(repo.parent / 'workers.sqlite'),
              '--attempt', 'value-1', '--', sys.executable, '-B', '-m', 'unittest', '-v', 'test_value'],
             cwd=repo, capture_output=True, text=True, timeout=10)
         return log, result
@@ -98,6 +100,28 @@ class RunCheckTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 125, result.stdout + result.stderr)
                 self.assertRegex(result.stderr, rf'red source differs from [0-9a-f]+: {source}')
                 self.assertFalse(log.exists(), 'the check ran on changed product bytes')
+
+    def test_red_marker_requires_an_exact_unambiguous_claimed_failure(self):
+        repo, _, claim = self.claim_fixture(test_file='test_value.sh')
+        script = repo / 'test_value.sh'
+        cases = {
+            'mention': f'FAIL: some other test\nreason: FAIL: {claim}',
+            'error': f'FAIL: some other test\nERROR: {claim}',
+            'contradiction': f'PASS: {claim}\nFAIL: {claim}',
+        }
+        for name, output in cases.items():
+            with self.subTest(name=name):
+                script.write_text(f"printf '%s\\n' {shlex.quote(output)}\nexit 1\n")
+                log = repo.parent / f'{name}.log'
+                result = subprocess.run(
+                    [sys.executable, str(RUNNER), '--timeout', '5', '--log', str(log), '--phase', 'red',
+                     '--claim', claim, '--state', str(repo.parent / 'workers.sqlite'), '--attempt', 'value-1',
+                     '--', 'sh', 'test_value.sh'], cwd=repo, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 125, result.stdout + result.stderr)
+                self.assertEqual(log.read_text(), output + '\n')
+                summary = json.loads(result.stdout)
+                self.assertNotIn('tdd', summary)
+                self.assertIn(f'{claim} did not fail as a marker result', summary['test_claim_error'])
 
     def test_check_cannot_wait_on_the_host_input_stream(self):
         with tempfile.TemporaryDirectory() as tmp:

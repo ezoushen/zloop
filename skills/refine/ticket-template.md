@@ -31,7 +31,8 @@ worker:
 ## Acceptance criteria
 - [ ] Given <state>, when <action>, then <observable outcome>.
       Verify (code|agent|user): <command, test name or user check>
-      Test claim: <fully qualified unittest test ID for a code criterion>
+      Test claim: <test ID for a code criterion>
+      Test file: <repo-relative test file for a marker-based check>
 - [ ] …
 
 ## Comments

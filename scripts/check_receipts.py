@@ -3,14 +3,29 @@ from contextlib import closing
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import sqlite3
 import stat
 import subprocess
 
 
-CLAIM = re.compile(r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*){2,}')
+UNITTEST_CLAIM = re.compile(r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*){2,}')
+
+
+def valid_claim(value):
+    """A test ID fits on one result line and has no ambiguous outer whitespace."""
+    return bool(value and value.isprintable() and value == value.strip())
+
+
+def valid_test_file(value):
+    """A declared exception is one normalized, repo-relative conventional test file."""
+    path = PurePosixPath(value)
+    if (not valid_claim(value) or path.is_absolute() or path.as_posix() != value
+            or '..' in path.parts or '\\' in value):
+        return False
+    return (any(part in ('test', 'tests', '__tests__', 'spec', 'specs') for part in path.parts[:-1])
+            or path.name.startswith('test_') or path.stem.endswith(('_test', '.test', '.spec')))
 
 
 def assigned_attempt(state, attempt, claim):
@@ -79,7 +94,7 @@ def working_entry(root, name, expected, algorithm):
     return mode, blob
 
 
-def source_snapshot(root, phase, claim, base):
+def source_snapshot(root, phase, claim, base, test_file):
     """Verify staged and actual source against the commit and identify any red test module."""
     head = git(root, 'rev-parse', '--verify', 'HEAD').decode().strip()
     if phase == 'red' and head != base:
@@ -87,17 +102,18 @@ def source_snapshot(root, phase, claim, base):
     tracked, index = tree_entries(root, head), index_entries(root)
     untracked = set(entries(git(root, 'ls-files', '--others', '--exclude-standard', '-z')))
     algorithm = git(root, 'rev-parse', '--show-object-format').decode().strip()
-    module = claim.rsplit('.', 2)[0].replace('.', '/') + '.py'
-    filename = module.rsplit('/', 1)[-1]
-    test_module = os.fsencode(module) if filename.startswith('test_') or filename.endswith('_test.py') else None
+    module = claim.rsplit('.', 2)[0].replace('.', '/') + '.py' if test_file is None else None
+    test_module = os.fsencode(module) if module and valid_test_file(module) else None
+    declared = os.fsencode(test_file) if test_file else None
     changed_test = {}
     for path in sorted(tracked.keys() | index.keys() | untracked):
         expected = tracked.get(path)
         actual = working_entry(root, path, expected, algorithm)
         if path not in untracked and actual == expected and index.get(path) == expected:
             continue
-        if (phase == 'red' and test_module and actual and actual[0] == b'100644'
-                and (path == test_module or path.endswith(b'/' + test_module))):
+        if (phase == 'red' and actual and actual[0] in (b'100644', b'100755')
+                and (path == declared or test_module and
+                     (path == test_module or path.endswith(b'/' + test_module)))):
             changed_test[os.fsdecode(path)] = actual[1].decode()
             continue
         raise ValueError(f'{phase} source differs from {head}: {os.fsdecode(path)}')
@@ -107,9 +123,18 @@ def source_snapshot(root, phase, claim, base):
             'test_changes': changed_test}
 
 
-def observed_claim(log, phase, claim):
-    """Read an exact verbose unittest result and its matching run footer."""
+def observed_claim(log, phase, claim, output_format):
+    """Read a test's result in the selected output format."""
     lines = log.read_text(errors='replace').splitlines()
+    if output_format == 'marker':
+        verdict = 'FAIL' if phase == 'red' else 'PASS'
+        outcomes = {f'{status}: {claim}' for status in ('FAIL', 'PASS', 'ERROR', 'SKIP')}
+        return outcomes.intersection(lines) == {f'{verdict}: {claim}'}
+    return unittest_claim(lines, phase, claim)
+
+
+def unittest_claim(lines, phase, claim):
+    """Read an exact verbose unittest result and its matching run footer."""
     test = f'{claim.rsplit(".", 1)[1]} ({claim})'
     status = 'FAIL' if phase == 'red' else 'ok'
     separator = '=' * 70
@@ -131,10 +156,11 @@ def observed_claim(log, phase, claim):
                     for i, line in enumerate(lines[:-1])))
 
 
-def receipt(saved, phase, claim, snapshot, started_ns, finished_ns, log):
+def receipt(saved, phase, claim, snapshot, started_ns, finished_ns, log, output_format):
     """Describe a completed claim and its retained output at the verified source."""
     return dict(attempt=saved['attempt'], identity=saved['check_receipts']['identity'], phase=phase,
-                claim=claim, base=saved['head'], source=snapshot, started_ns=started_ns, finished_ns=finished_ns,
+                claim=claim, format=output_format, base=saved['head'], source=snapshot,
+                started_ns=started_ns, finished_ns=finished_ns,
                 log_sha256=hashlib.sha256(log.read_bytes()).hexdigest())
 
 
@@ -143,21 +169,27 @@ def criteria(path):
     document = path.read_text()
     section = re.search(r'^## Acceptance criteria[ \t]*\n(.*?)(?=^## |\Z)', document, re.M | re.S)
     if not section:
-        return {'criteria': None, 'claims': [], 'problems': []}
-    claims, problems = [], []
+        return {'criteria': None, 'claims': [], 'test_files': {}, 'problems': []}
+    claims, test_files, problems = [], {}, []
     items = re.split(r'^\s*[-*] \[[ xX]\][ \t]+', section[1], flags=re.M)
     for number, item in enumerate(items[1:], 1):
         if not re.search(r'^\s*Verify \(code\):', item, re.M):
             continue
         values = re.findall(r'^\s*Test claim:[ \t]*(.*)$', item, re.M)
-        if len(values) != 1 or not CLAIM.fullmatch(values[0].strip()):
-            problems.append(f'code criterion {number}: declare one fully qualified Test claim')
-        elif values[0].strip() in claims:
-            problems.append(f'code criterion {number}: test claim {values[0].strip()} is already used')
+        files = re.findall(r'^\s*Test file:[ \t]*(.*)$', item, re.M)
+        claim = values[0].strip() if len(values) == 1 else ''
+        if not valid_claim(claim):
+            problems.append(f'code criterion {number}: declare one Test claim')
+        elif claim in claims:
+            problems.append(f'code criterion {number}: test claim {claim} is already used')
+        elif files and (len(files) != 1 or not valid_test_file(files[0].strip())):
+            problems.append(f'code criterion {number}: declare one repo-relative Test file in a test location')
         else:
-            claims.append(values[0].strip())
-    return {'criteria': hashlib.sha256(section[1].encode()).hexdigest(),
-            'claims': claims, 'problems': problems}
+            claims.append(claim)
+            if files:
+                test_files[claim] = files[0].strip()
+    return {'criteria': hashlib.sha256(section[1].encode()).hexdigest(), 'claims': claims,
+            'test_files': test_files, 'problems': problems}
 
 
 def sealed_receipts(evidence):

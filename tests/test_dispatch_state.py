@@ -371,15 +371,16 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         self.assertEqual(replay.returncode, 0, replay.stderr)
         self.assertTrue(json.loads(replay.stdout)['result']['already_collected'])
 
-    def claimed_ticket(self, declare=True):
+    def claimed_ticket(self, declare=True, claim='test_value.ValueTest.test_wanted', test_file=None):
         ticket = support.ticket_file(self.repo, 'run/01')
-        claim = 'test_value.ValueTest.test_wanted'
         with ticket.open('a') as output:
             output.write('## Acceptance criteria\n'
                          '- [ ] The product exposes its expected value.\n'
                          '      Verify (code): Run the value test.\n')
             if declare:
                 output.write(f'      Test claim: {claim}\n')
+            if test_file:
+                output.write(f'      Test file: {test_file}\n')
         (self.repo / 'product.py').write_text('value = 1\n')
         self.git('add', 'product.py')
         self.git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'product base')
@@ -409,21 +410,24 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
             'class ValueTest(unittest.TestCase):\n'
             '    def test_wanted(self): self.assertEqual(value, 2)\n')
 
-    def phase_check(self, item, claim, phase, state=None, name=None):
+    def phase_check(self, item, claim, phase, state=None, name=None, command=None):
         log = self.card.parent / 'reports' / f'{name or phase}.log'
         state = state or self.card.parent / 'reports/workers.sqlite'
-        result = subprocess.run([sys.executable, str(support.script('run_check.py')), '--timeout', '5',
-                                 '--log', str(log), '--phase', phase, '--claim', claim, '--state', str(state),
-                                 '--attempt', item['attempt'], '--',
-                                 sys.executable, '-B', '-m', 'unittest', '-v', claim],
+        check = [sys.executable, str(support.script('run_check.py')), '--timeout', '5',
+                 '--log', str(log), '--phase', phase, '--claim', claim, '--state', str(state),
+                 '--attempt', item['attempt']]
+        if command is None:
+            check += ['--format', 'unittest']
+            command = [sys.executable, '-B', '-m', 'unittest', '-v', claim]
+        result = subprocess.run([*check, '--', *command],
                                 cwd=item['worktree'], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 1 if phase == 'red' else 0, result.stdout + result.stderr)
         self.assertEqual(json.loads(result.stdout)['tdd']['claim'], claim)
         return str(log)
 
-    def fixed_result(self, item):
+    def fixed_result(self, item, test_file='test_value.py'):
         (Path(item['worktree']) / 'product.py').write_text('value = 2\n')
-        self.worktree_git(item, 'add', 'product.py', 'test_value.py')
+        self.worktree_git(item, 'add', 'product.py', test_file)
         return self.completion(item)
 
     def collected_board(self, item, request):
@@ -476,6 +480,32 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         self.assertEqual(invalidated.returncode, 1, invalidated.stdout + invalidated.stderr)
         self.assertIn(f'{claim}: missing green receipt at accepted head', invalidated.stderr)
 
+    def test_managed_acceptance_accepts_exact_markers_from_a_shell_test(self):
+        test_file = 'tests/value-check.sh'
+        ticket, item, claim, _ = self.claimed_ticket(claim='shell::value matches expected result', test_file=test_file)
+        script = Path(item['worktree']) / test_file
+        script.parent.mkdir()
+        script.write_text('IFS= read -r actual < product.py || exit 2\n'
+                          'if [ "$actual" = "value = 2" ]; then\n'
+                          '  printf "PASS: %s\\n" "$1"\n'
+                          '  exit 0\n'
+                          'fi\n'
+                          'printf "FAIL: %s\\n" "$1"\n'
+                          'exit 1\n')
+        command = ['sh', test_file, claim]
+        red = self.phase_check(item, claim, 'red', command=command)
+        self.assertEqual(Path(red).read_text(), f'FAIL: {claim}\n')
+        request = self.fixed_result(item, test_file=test_file)
+        green = self.phase_check(item, claim, 'green', command=command)
+        self.assertEqual(Path(green).read_text(), f'PASS: {claim}\n')
+        request['evidence'] += [red, green]
+        accepted = self.collected_board(item, request)
+        self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+        self.assertIn(f"accepted: {request['head']}", ticket.read_text())
+        gate = self.lifecycle('gate', None, '--stage', 'accept', '--attempt', item['attempt'],
+                              '--revision', request['head'])
+        self.assertEqual(gate.returncode, 0, gate.stdout + gate.stderr)
+
     def test_managed_acceptance_refuses_a_green_at_an_earlier_head(self):
         ticket, item, claim, _ = self.claimed_ticket()
         self.write_claimed_test(item)
@@ -509,7 +539,12 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
     def test_managed_acceptance_refuses_a_code_criterion_without_a_declared_test_claim(self):
         ticket, item, _, _ = self.claimed_ticket(declare=False)
         self.assert_claim_refused(item, ticket, self.completion(item),
-                                  'code criterion 1: declare one fully qualified Test claim')
+                                  'code criterion 1: declare one Test claim')
+
+    def test_managed_acceptance_refuses_a_product_file_declared_as_a_test(self):
+        ticket, item, _, _ = self.claimed_ticket(test_file='product.py')
+        self.assert_claim_refused(item, ticket, self.completion(item),
+                                  'code criterion 1: declare one repo-relative Test file in a test location')
 
     def test_managed_acceptance_refuses_a_red_from_another_attempt_identity(self):
         ticket, item, claim, _ = self.claimed_ticket()

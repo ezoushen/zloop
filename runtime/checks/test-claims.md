@@ -1,25 +1,36 @@
 # Record a test claim
 
-Each code criterion in a managed local ticket declares a distinct fully qualified
-unittest test ID on its `Test claim:` line. Keep the verification instructions on
-`Verify (code):`. Run the claimed test with verbose unittest output from the
-assigned worktree root. Use the same worker state and attempt for both phases.
+Each code criterion in a managed local ticket declares a distinct test ID on its
+`Test claim:` line. Keep the verification instructions on `Verify (code):`.
+Use a single printable line for the ID. Run both phases from the assigned
+worktree root with the same worker state and attempt.
+
+By default, the project's check or adapter emits the exact line `FAIL: <id>`
+for the claimed assertion failure and exits 1. It emits `PASS: <id>` for a
+passing claim and exits 0. A wrapper must report the actual test outcome and
+preserve its exit status. Errors, skips and mentions in diagnostic text do not
+count as results. Declare the test's repo-relative path on a `Test file:` line
+under that criterion. Use a directory named `test`, `tests`, `__tests__`,
+`spec` or `specs`, or a filename with a `test_` prefix or a stem ending in
+`_test`, `.test` or `.spec`. A fully qualified Python unittest ID can use
+`--format unittest` with verbose output and omit the path when the ID
+identifies the test module.
 
 ```sh
 python3 "<plugin_root>/scripts/run_check.py" \
   --timeout 30 --log "<retained-evidence>/claimed-red.log" \
   --state "<workstream>/reports/workers.sqlite" --attempt "<attempt>" \
-  --phase red --claim test_value.ValueTests.test_value -- \
-  python3 -B -m unittest -v test_value.ValueTests.test_value
+  --phase red --claim "value follows the specification" -- \
+  sh tests/value-check.sh
 ```
 
-Red requires the assigned base commit and matching tracked bytes and index, with
-no Git-visible untracked files. Only the claimed module may differ. Its filename
-starts with `test_` or ends with `_test.py`. Keep the logs outside the worktree.
-The named test must produce an assertion failure. A valid red preserves exit 1
-and adds a `tdd` receipt to the summary. Other outcomes lack that receipt.
+Red fixes the checkout at the assigned base and compares the index and raw file
+bytes there to the commit. The declared test file or the matching unittest
+module may differ. Other tracked and Git-visible untracked paths must match
+the base. Keep the logs outside the worktree. A valid red preserves exit 1 and
+adds a `tdd` receipt to the summary.
 
-After committing the fix, run with `--phase green` and a fresh log. Green requires
-the same test to pass on a worktree and index matching the checked-out commit.
-Keep both logs and both summaries. Acceptance requires red to finish before green
-starts and green to identify the exact accepted head.
+After committing the fix, use `--phase green` and a fresh log. Green requires the
+same test to pass on a worktree and index matching the checked-out commit. Keep
+both logs and summaries. Acceptance requires red to finish before green starts
+and green to identify the exact accepted head.
