@@ -15,7 +15,10 @@ import plugin_lag  # noqa: E402
 context = f'zloop host: {args.host}. When using a zloop skill, first read {root}/bootstrap.md and {root}/hosts/{args.host}/session.md. Plugin root: {root}. Load only this host session part; pass its absolute path, the agent file and the job file to workers.'
 if os.environ.get('HERDR_ENV') == '1':
     context += f' Herdr environment detected: before delegation also read {root}/hosts/herdr.md for routing, waits and cleanup.'
-lag = plugin_lag.lagging(Path.cwd(), root)
+try:
+    lag = plugin_lag.lagging(Path.cwd(), root)
+except OSError:  # The session's directory is gone: nothing to judge, and the rest of the context stands.
+    lag = None
 if lag:
     context += f'\nzloop plugin lag: {lag}'
 print(json.dumps({'hookSpecificOutput': {

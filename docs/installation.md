@@ -29,11 +29,12 @@ reloading zloop.
 
 When the plugin root and the repository a session works on share a Git directory (you develop zloop with the
 plugin loaded from a checkout or worktree of the same repository), the session-start hook adds one line if the plugin
-root's `HEAD` is behind `origin/main`, and `autopilot_card.py phase <card> dispatch` and `... pr` refuse. Both name the
-refresh: `git -C <plugin root> pull --ff-only`, then a new session (or `/reload-plugins` on Claude). The check reads
+root is on `main` and its `HEAD` is behind `origin/main`, and `autopilot_card.py phase <card> dispatch` and
+`... pr` refuse. Both name the refresh: `git -C <plugin root> pull --ff-only`, then a new session (or `/reload-plugins` on Claude). The check reads
 local refs only (`scripts/plugin_lag.py`) and never fetches, so it trusts the last fetch of `origin/main`: a stale
-`origin/main` reads as up to date. A plugin root that is not a Git checkout and a repository
-without an `origin/main` ref are not judged.
+`origin/main` reads as up to date. A plugin root that is detached or on another branch (`pull --ff-only` would not
+bring it to `origin/main`), one that is not a Git checkout, and a repository without an `origin/main` ref are not
+judged.
 
 ## Codex
 

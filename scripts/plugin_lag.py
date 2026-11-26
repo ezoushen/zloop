@@ -1,9 +1,10 @@
 """Whether the plugin a session loaded is behind the repository it is working on: `lagging(repository)`.
 
 A session dogfoods when the plugin root and the repository share a Git directory (a worktree of the same repository
-counts). The plugin root lags when its `HEAD` lacks commits that `refs/remotes/origin/main` has. Only local refs are
-read and nothing is fetched, so the verdict is as fresh as the last fetch of `origin/main`. A plugin root that is not
-a Git checkout, a repository without that ref, or any Git failure is not judged.
+counts). The plugin root lags when it is on the local `main` branch and its `HEAD` lacks commits that
+`refs/remotes/origin/main` has. Only local refs are read and nothing is fetched, so the verdict is as fresh as the last
+fetch of `origin/main`. A plugin root that is detached or on another branch, where `git pull --ff-only` does not bring
+it to `origin/main`, one that is not a Git checkout, a repository without that ref, or any Git failure is not judged.
 """
 from pathlib import Path
 import subprocess
@@ -28,9 +29,11 @@ def common_directory(directory):
 
 
 def lagging(repository, root=ROOT):
-    """The refresh advice when `root` lags `origin/main` while `repository` shares its Git directory, else None."""
+    """The refresh advice when `root`, on `main`, lags `origin/main` while `repository` shares its Git directory."""
     common = common_directory(root)
     if common is None or common != common_directory(repository):
+        return None
+    if git(root, 'symbolic-ref', '--quiet', 'HEAD') != 'refs/heads/main':
         return None
     count = git(root, 'rev-list', '--count', f'HEAD..{MAIN}')
     if not count or int(count) == 0:
