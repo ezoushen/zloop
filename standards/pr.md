@@ -187,6 +187,7 @@ For all other PR invocations, confirm the PR head equals the pushed SHA and run
 no required checks, watch all checks with `gh pr checks <n> --watch`.
 
 Read the log of any failing required check and return through `recovery` to
-`review --autofix`. Reproduce the full failing CI job locally before pushing the
-repair, then verify the new SHA. Report "ready to merge" only when every required
+`review --autofix`. Reproduce it where it fails, in an environment matching that
+runner or with the job's own commands, or confirm its cause from the job's log,
+before changing product code; then verify the new SHA. Report "ready to merge" only when every required
 check is green and the approval path is known.
