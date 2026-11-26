@@ -6,17 +6,16 @@ words>"`, `autopilot_card.py phase <card> <align|refine|dispatch|pr>`, or `autop
 A phase of dispatch or pr needs the tickets of the board the card names on `board:`: a tracker's URL holds its own; a
 `local` board needs ticket files that pass `next_tickets.py --check`.
 
-A confirmation records the supplied `--confirmed-by` source and the date and user's words on `confirmed:`
+A confirmation records its verified human, relayed, or direct-by-rule source and the words on `confirmed:`
 (on a `mode: direct` card, as `by rule` with
-the goal the user typed, since a direct run asks nothing), and on `session:` each host session ID this shell exports,
-as the stop hook counts them, so the panel and the stop hold find the run. A direct card whose local board holds more
+the goal the user typed, since a direct run asks nothing). `session:` records routing IDs for the panel and stop hold.
+`intent-thread:` records the T3 conversation for later human decisions. A direct card whose local board holds more
 than two tickets is refused its dispatch: it takes the full path, and a `mode: full` card still confirmed `by rule` is
 refused dispatch and pr until `confirm --words` records the user's words.
 
 Rewrites the lines of the card's `## State` section in place and nothing else, so a Goal quoting `auto-merge:` is
-left alone. `auto-merge:` becomes `yes` only with `--auto-merge`, so a grant from the run that
-ended never carries into the next. The ended run's `terminal:` state moves, with today's date, to the end of
-`history:`, and `terminal:` is left empty. A card that has not ended keeps its history. `phase:` is left as
+left alone. Legacy control clears `auto-merge:`. Managed control records merge grants. An ended run moves
+its `terminal:` state and date to `history:` and clears `terminal:`. A card that has not ended keeps its history. `phase:` is left as
 recorded: a run that ends keeps the phase it stopped in.
 
 `dispatch-effort:` and `review-effort:` keep the levels the card confirmed unless a level flag is given: `--effort`
@@ -25,6 +24,7 @@ sets both, and a split flag overrides it for its own step. A card without either
 """
 import argparse
 import datetime
+import os
 import re
 import shlex
 import subprocess
@@ -34,7 +34,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_matter  # noqa: E402
-import pr_safety  # noqa: E402
+import human_intent  # noqa: E402
 import state_files  # noqa: E402
 import next_tickets  # noqa: E402
 import run_control  # noqa: E402
@@ -77,14 +77,6 @@ def state_section(text):
     if not state:
         sys.exit('the card has no `## State` section')
     return state
-
-
-def session_line(sessions, command):
-    """The `session:` value naming each host session exported here; exits when there is none."""
-    if not sessions:
-        sys.exit(f'no host session ID is exported here ({", ".join(SESSION_VARIABLES)}): {command} from the shell of '
-                 'the host session that runs this autopilot')
-    return ', '.join(sessions)
 
 
 def tracker_url(board):
@@ -182,8 +174,8 @@ def confirm(card, text, words, sessions, today, confirmed_by=None):
     problem = crew_problem(card)
     if problem:
         sys.exit(problem)
-    by_rule = ' by rule' if mode == 'direct' else ''
-    lines = set_field(set_field(state[0], 'confirmed', f'{today}{by_rule} "{words}"'), 'session', session_line(sessions, 'confirm'))
+    by_rule = ' by rule' if mode == 'direct' and confirmed_by is None else ''
+    lines = set_field(set_field(state[0], 'confirmed', f'{today}{by_rule} "{words}"'), 'session', ', '.join(sessions))
     if confirmed_by is not None:
         state_files.validate_confirmation_source(confirmed_by)
         if 'confirmed-by' in state_fields(lines):
@@ -194,15 +186,15 @@ def confirm(card, text, words, sessions, today, confirmed_by=None):
     return text[:state.start()] + lines + text[state.end():]
 
 
-def take_over(text, auto_merge, dispatch_effort, review_effort, today, sessions):
+def take_over(text, dispatch_effort, review_effort, today, sessions):
     """The card's text after a take-over by the host sessions exported here; only the lines of its `## State` section
     change."""
     state = state_section(text)
-    taken = take_over_state(state[0], auto_merge, dispatch_effort, review_effort, today)
-    return text[:state.start()] + set_field(taken, 'session', session_line(sessions, 'take over')) + text[state.end():]
+    taken = take_over_state(state[0], dispatch_effort, review_effort, today)
+    return text[:state.start()] + set_field(taken, 'session', ', '.join(sessions)) + text[state.end():]
 
 
-def take_over_state(text, auto_merge, dispatch_effort, review_effort, today):
+def take_over_state(text, dispatch_effort, review_effort, today):
     ended, history = field(text, 'terminal'), field(text, 'history')
     field(text, 'session')
     field(text, 'auto-merge')
@@ -210,7 +202,7 @@ def take_over_state(text, auto_merge, dispatch_effort, review_effort, today):
     dispatch, review = dispatch_effort or dispatch, review_effort or review
     if ended:
         text = set_field(set_field(text, 'terminal', ''), 'history', '; '.join(filter(None, [history, f'{ended} {today}'])))
-    text = set_field(set_field(text, 'auto-merge', 'yes' if auto_merge else 'no'), 'dispatch-effort', dispatch)
+    text = set_field(set_field(text, 'auto-merge', 'no'), 'dispatch-effort', dispatch)
     return set_field(text, 'review-effort', review)
 
 
@@ -221,7 +213,7 @@ def main():
     parser.add_argument('phase', nargs='?', choices=PHASES, help='phase: the phase the run enters')
     parser.add_argument('--words', help="confirm: the user's words that confirmed the card")
     parser.add_argument('--confirmed-by', help='confirm: human or relayed(agent)')
-    parser.add_argument('--auto-merge', action='store_true', help='grant merging with --merge-pr or --merge-base')
+    parser.add_argument('--auto-merge', action='store_true', help='merge authorization requires managed control')
     target = parser.add_mutually_exclusive_group()
     target.add_argument('--merge-base', help='explicit base of a planned auto-merge PR')
     target.add_argument('--merge-pr', type=int, help='open PR for an auto-merge request')
@@ -235,30 +227,69 @@ def main():
     if args.command == 'phase':
         if not args.phase:
             parser.error(f'phase takes one of {", ".join(PHASES)}')
-        managed = run_control.read(args.card)
-        text = phase(args.card, managed['card_text'] if managed else args.card.read_text(), args.phase)
-        if managed:
-            run_control.phase(args.card, text, managed['revision'])
-        else:
-            state_files.write_atomic(args.card, text)
+        with state_files.locked(args.card):
+            managed = run_control.read(args.card)
+            text = phase(args.card, managed['card_text'] if managed else args.card.read_text(), args.phase)
+            if managed is None:
+                state_files.write_atomic(args.card, text)
+                return
+        run_control.phase(args.card, text, managed['revision'])
         return
-    if run_control.read(args.card):
-        parser.error('Managed run: use run_control.py for pause or resume and grant verification')
-    text = args.card.read_text()
-    if args.command == 'confirm':
-        text = confirm(args.card, text, args.words, host_sessions(), today, args.confirmed_by)
-    else:
-        levels = (args.dispatch_effort or args.effort, args.review_effort or args.effort)
-        text = take_over(text, args.auto_merge, *levels, today, host_sessions())
-    values = state_fields(state_section(text)[0])
     try:
-        if values.get('auto-merge') == 'yes':
-            pr_safety.verify_grant(args.merge_base, args.merge_pr, confirmed_by=values.get('confirmed-by'))
-        elif args.auto_merge:
-            pr_safety.require_merge_authority(values.get('confirmed-by'))
-    except pr_safety.WaitingOnUser as error:
+        with state_files.locked(args.card):
+            if run_control.read(args.card):
+                parser.error('Managed run: use run_control.py for pause or resume and grant verification')
+            original = args.card.read_text()
+            values = state_fields(original)
+            source = args.confirmed_by or values.get('confirmed-by')
+            if source is not None:
+                state_files.validate_confirmation_source(source)
+            relayed = source is not None and source.startswith('relayed(')
+            if args.auto_merge or args.merge_pr is not None or args.merge_base is not None:
+                if relayed:
+                    raise human_intent.WaitingOnUser('relayed confirmation cannot authorize auto-merge')
+                raise human_intent.WaitingOnUser('automated merge authority requires a managed run and a verified human grant')
+            thread = os.environ.get('T3CODE_THREAD_ID')
+            bound_thread = values.get('intent-thread')
+            provider_sessions = host_sessions()
+            sessions = provider_sessions.copy()
+            if thread and thread not in sessions:
+                sessions.append(thread)
+            if any(session.splitlines() != [session] for session in sessions):
+                raise ValueError('Host session IDs must fit one line')
+            consumed = (values.get('confirmation-item'), values.get('take-over-item'))
+            if args.command == 'confirm':
+                direct = values.get('mode') == 'direct' and source is None
+                initial = re.match(r'no\b|$', values.get('confirmed', ''), re.I)
+                candidate_thread = bound_thread or (thread if initial else None)
+                proposed = confirm(args.card, original, args.words, sessions, today,
+                                   source if direct or relayed else 'human')
+                if (direct or relayed) and not sessions:
+                    sys.exit(f'no host session ID is exported here ({", ".join(SESSION_VARIABLES)}): confirm from the '
+                             'shell of the host session that runs this autopilot')
+                if relayed:
+                    proposed = run_control.fields(proposed, {'delivery': 'pr-only'})
+                elif not direct:
+                    old_source = values.get('confirmed-by', '')
+                    if old_source.startswith('relayed('):
+                        raise human_intent.WaitingOnUser('the relayed mandate stays PR-only')
+                    proof = human_intent.verify(args.card, original, 'confirmation', ' '.join(args.words.split()),
+                                                candidate_thread, provider_sessions=provider_sessions, consumed=consumed)
+                    proposed = run_control.fields(proposed, {'confirmation-item': proof['item']})
+                    candidate_thread = proof['thread']
+                if candidate_thread:
+                    proposed = run_control.fields(proposed, {'intent-thread': candidate_thread})
+                proposed = run_control.fields(proposed, {'auto-merge': 'no'})
+            else:
+                levels = (args.dispatch_effort or args.effort, args.review_effort or args.effort)
+                proposed = take_over(original, *levels, today, sessions)
+                target = {'dispatch_effort': levels[0], 'review_effort': levels[1]}
+                proof = human_intent.verify(args.card, original, 'take-over', 'autopilot --take-over', bound_thread,
+                                            target=target, provider_sessions=provider_sessions, consumed=consumed)
+                proposed = run_control.fields(proposed, {'take-over-item': proof['item']})
+            state_files.write_atomic(args.card, proposed)
+    except human_intent.WaitingOnUser as error:
         parser.exit(2, f'waiting-on-user: {error}\n')
-    state_files.write_atomic(args.card, text)
 
 
 

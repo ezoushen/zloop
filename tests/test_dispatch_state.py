@@ -17,6 +17,7 @@ import unittest
 from unittest.mock import patch
 
 import support
+from t3_intent_fixture import T3Read
 
 
 class DispatchFixture:
@@ -24,7 +25,8 @@ class DispatchFixture:
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.repo = Path(self.tmp.name)
-        self.card = support.run_card(self.repo / '.scratch/run/autopilot.md', phase='dispatch', **card_fields)
+        self.card = support.run_card(self.repo / '.scratch/run/autopilot.md', phase='dispatch',
+                                     **{'intent-thread': 'host-1', **card_fields})
         self.control = support.load_script('run_control.py')
         self.control.adopt(self.card, 'approved independent tasks; configured provider pool', allow_resume=True)
         self.dispatch = support.load_script('dispatch_state.py')
@@ -83,6 +85,12 @@ class DispatchFixture:
         return dict(kind='register', attempt=item['attempt'], assignment=name, repo=str(self.repo),
                     worktree=item['worktree'], head='head-1', execution=item['execution'], runtime='pi',
                     worker=f'worker-{name}', native_session=f'native-{name}', owned=True, packet=item['packet'])
+
+
+    def takeover(self, host, env, revision, request):
+        command = host.command(support.SCRIPTS / 'run_control.py', 'resume', self.card, '--expect', revision,
+                               '--request-id', request, '--reason', 'reconciled')
+        return subprocess.run(command, env=env, capture_output=True, text=True, timeout=10)
 
 
 class ManagedDispatch(DispatchFixture, unittest.TestCase):
@@ -261,14 +269,11 @@ class ManagedDispatch(DispatchFixture, unittest.TestCase):
         self.assertIn('re-evaluate', ' '.join(self.dispatch.gaps(self.card)))
         paused = self.control.transition(self.card, 'blocked', dict(kind='host', reference='capacity check'),
                                          'temporary failure', 1, 'block')
-        import datetime
-        native = self.repo / 'resume.jsonl'
-        native.write_text(json.dumps(dict(type='session_meta', payload=dict(id='host-1'))) + '\n' +
-            json.dumps(dict(type='response_item', timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                            payload=dict(role='user', content=[dict(type='input_text', text='autopilot --take-over')]))) + '\n')
-        user = self.control.user_source(native, 'codex', ['host-1'], 'resume', 0)
-        self.control.transition(self.card, '', user,
-                                'reconciled', paused['revision'], 'resume')
+        env = support.without_host_sessions()
+        host = T3Read(self, self.repo, env)
+        host.accept(self.takeover(host, env, paused['revision'], 'resume'), 'autopilot --take-over')
+        resumed = self.takeover(host, env, paused['revision'], 'resume')
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
         self.assertEqual(self.control.read(self.card)['dispatch_policy'], policy)
         self.assertIn('re-evaluate', ' '.join(self.dispatch.gaps(self.card)))
 
@@ -1125,14 +1130,25 @@ class ResolverReceipt(DispatchFixture, unittest.TestCase):
         saved = subprocess.run(base + ['--session', 'host-1', '--save-session', str(config)],
                                capture_output=True, text=True, env=env)
         self.assertEqual(saved.returncode, 0, saved.stdout + saved.stderr)
-        import datetime
-        native = self.repo / 'takeover.jsonl'
-        native.write_text(json.dumps(dict(type='session_meta', payload=dict(id='host-1'))) + '\n' +
-            json.dumps(dict(type='response_item', timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                            payload=dict(role='user', content=[dict(type='input_text', text='autopilot --take-over')]))) + '\n')
-        user = self.control.user_source(native, 'codex', ['host-1'], 'resume', 0)
-        self.control.transition(self.card, '', user, 'new host took over', 1, 'new-host',
-                                updates={'session': 'fresh-host, host-1'})
+        takeover_env = dict(support.without_host_sessions(), CODEX_SESSION_ID='fresh-host')
+        host = T3Read(self, self.repo, takeover_env)
+        before = self.card.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'cannot change grants, criteria or bound sessions'):
+            self.control.transition(self.card, 'blocked', {'kind': 'host', 'reference': 'gate'}, 'blocked', 1,
+                                    'change-binding', updates={'session': 'unknown-thread'})
+        host.accept(self.takeover(host, takeover_env, 1, 'new-host'), 'autopilot --take-over')
+        for changes, reason in (({'T3CODE_THREAD_ID': 'unknown-thread'}, 'no current T3 thread is bound'),
+                                ({'CODEX_SESSION_ID': 'unverified-provider'}, 'not a fresh matching human response')):
+            refused = self.takeover(host, dict(takeover_env, **changes), 1, 'new-host')
+            self.assertEqual(refused.returncode, 2, refused.stderr)
+            self.assertIn(reason, refused.stderr)
+            self.assertEqual(self.card.read_bytes(), before)
+        resumed = self.takeover(host, takeover_env, 1, 'new-host')
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        self.assertIn('session: host-1, fresh-host\n', self.card.read_text())
+        refused = self.takeover(host, dict(takeover_env, T3CODE_THREAD_ID='fresh-host'), 2, 'provider-thread')
+        self.assertEqual(refused.returncode, 2, refused.stderr)
+        self.assertIn('no current T3 thread is bound', refused.stderr)
         routed = subprocess.run(base + ['--dispatch-card', str(self.card), '--assignment-id', item['attempt'],
             '--assignment', item['packet'], '--worktree', item['worktree']], capture_output=True, text=True, env=env)
         self.assertEqual(routed.returncode, 0, routed.stdout + routed.stderr)

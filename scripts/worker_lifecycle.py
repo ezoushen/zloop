@@ -51,7 +51,7 @@ TERMINAL_STATES = ENDED + PAUSED
 SCOPE = ('permission_mode', 'sandbox', 'approval', 'filesystem', 'tools', 'permissions')
 TOP_LEVEL = ('claude', 'codex', 'opencode', 'pi')  # Runtimes whose own process the resolver gives launch controls.
 # What Claude Code, Codex, Pi and OpenCode export to the orchestrator's shell as its host session ID.
-SESSION_VARIABLES = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID', 'OPENCODE_SESSION_ID')
+SESSION_VARIABLES = run_control.SESSION_VARIABLES
 
 
 def host_sessions():
@@ -1970,54 +1970,14 @@ def t3_mcp(data, tool, arguments, timeout=LOOKUP_SECONDS):
     """(0, the tool's structured result) through the T3 MCP server for an environment-targeted thread, or
     (1, {'error': {...}}) on any failure; ValueError names the fix when the credential is missing or expired
     (ledger A2)."""
-    import os
-    import urllib.error
-    import urllib.request
+    from t3_mcp import call
+
     url, token = os.environ.get('T3_MCP_URL', ''), os.environ.get('T3_MCP_BEARER_TOKEN', '')
     if not url or not token:
         raise ValueError('a linked-environment thread needs T3_MCP_URL and T3_MCP_BEARER_TOKEN in the '
                          'environment: run `t3 pair` on that environment and approve the zloop client '
                          '(ledger A2)')
-    def mcp_post(payload, session=None):
-        headers = {'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream',
-                   'Authorization': f'Bearer {token}'}
-        if session:
-            headers['mcp-session-id'] = session
-        request = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers)
-        with urllib.request.urlopen(request, timeout=timeout) as answer:
-            session_id = answer.headers.get('mcp-session-id')
-            return json.loads(answer.read()), session_id
-
-    try:
-        # Some servers require the initialize handshake and bind the call to its session.
-        body, session = mcp_post({'jsonrpc': '2.0', 'id': 0, 'method': 'initialize',
-                                  'params': {'protocolVersion': '2025-06-18', 'capabilities': {},
-                                              'clientInfo': {'name': 'zloop', 'version': '1.0'}}})
-        # Spec-strict servers refuse calls before notifications/initialized; spec-tolerant ones ignore it.
-        try:
-            mcp_post({'jsonrpc': '2.0', 'method': 'notifications/initialized'}, session)
-        except (OSError, ValueError):
-            pass
-        payload = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
-                   'params': {'name': tool, 'arguments': dict(arguments)}}
-        body, _ = mcp_post(payload, session)
-    except urllib.error.HTTPError as error:
-        if error.code in (401, 403):
-            raise ValueError('the T3 MCP credential was refused (expired or revoked): re-run `t3 pair` on '
-                             'that environment and approve the zloop client again') from None
-        return 1, {'error': {'code': 'http', 'message': f'T3 MCP answered {error.code}'}}
-    except (OSError, ValueError):
-        return 1, {'error': {'code': 'unreachable', 'message': 'the T3 MCP server did not answer'}}
-    result = (body.get('result') or {})
-    if result.get('isError'):
-        text = (result.get('content') or [{}])[0].get('text', '')
-        return 1, {'error': {'code': 'tool', 'message': text[:200]}}
-    if isinstance(result.get('structuredContent'), dict):
-        return 0, result['structuredContent']
-    try:
-        return 0, json.loads((result.get('content') or [{}])[0].get('text', '{}'))
-    except ValueError:
-        return 1, {'error': {'code': 'shape', 'message': 'the T3 MCP answer was not a JSON tool result'}}
+    return call(url, token, tool, arguments, timeout)
 
 
 def t3_show(data, thread, budget=None):

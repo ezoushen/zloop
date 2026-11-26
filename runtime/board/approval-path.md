@@ -17,20 +17,17 @@ requirement. Recheck the path if author or branch rules change.
 
 ## Automated merge
 
-Require an explicit user grant. A card marked `relayed(...)` cannot grant or use
-auto-merge. Before recording a grant, verify that the PR's base in origin enforces
+Require an explicit user grant verified by the human intent gate on a managed
+run. A card marked `relayed(...)` cannot grant or use auto-merge. Before recording a grant, verify that the PR's base in origin enforces
 required checks. Before the PR exists, verify the explicit planned base. Submit an
-automated merge through the normal GitHub path after the check watch and approvals
-pass, with the reviewed head pinned and without an admin override. Verify the
-resulting PR state before recording a merge. Queue admission can leave the PR open.
+automated merge through the normal GitHub path via the authenticated local T3
+host after the check watch and approvals pass, with the reviewed head pinned and
+without an admin override.
 
-For a [managed run](../workers/control.md), use its control commands. Otherwise run
-`python3 "<plugin_root>/scripts/pr_safety.py" grant --pr <number>` from the target
-checkout, or use `grant --base <planned-base>` before publication. Then use
-`merge --pr <number> --head <reviewed-sha> --method <approved-method>` with the same
-script. For a legacy card, pass `--card <card>` to both commands. Submission requires
-its saved `auto-merge: yes` grant. Both paths recheck the actual base at submission.
+Use [managed run control](../workers/control.md) to record and submit the grant.
+`pr_safety.py grant` can preview required checks in the target checkout. It
+records no authority. Legacy and standalone merge requests report `waiting-on-user`.
 
-On `waiting-on-user`, preserve the grant and delivery evidence and name the missing
-or unverifiable requirement. If necessary, the maintainer can configure a required
+On `waiting-on-user`, preserve delivery evidence and name the requirement. If the
+grant was consumed, verify the submission outcome before requesting another grant. If necessary, the maintainer can configure a required
 base check before the user retries.

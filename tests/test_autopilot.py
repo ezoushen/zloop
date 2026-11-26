@@ -149,8 +149,9 @@ class Flags(unittest.TestCase):
         self.assertIn('reuses accepted decisions, tickets and reports', text)
         self.assertIn('asks only the align questions still unsettled', text)
         self.assertIn('A confirmed card whose goal, criteria and grants are unchanged is not reconfirmed', text)
-        self.assertIn('a card that ended `waiting-on-user` or `paused-allowance` resumes once its cause is gone', text)
-        self.assertIn('it moves the terminal state to `history:`, clears `terminal:`', text)
+        self.assertIn('Once the pending cause is resolved and take-over succeeds, continue the recorded phase', text)
+        control = prose(ROOT / 'runtime/workers/control.md')
+        self.assertIn('moves the terminal state to `history:`, clears `terminal:`', control)
         self.assertIn('history:', CARD.read_text().split('## State', 1)[1])
 
     def test_late_questions_are_decided_reversibly_and_reported_first(self):
@@ -272,15 +273,16 @@ class JumpIn(unittest.TestCase):
 
     def test_taking_over_a_paused_card_keeps_what_the_user_did_and_decided_in_control(self):
         start = ' '.join(SKILL.read_text().split('## Start', 1)[1].split('\n## ', 1)[0].split())
-        self.assertIn('A card that ended `paused-by-user` resumes at once, with no cause to wait for', start)
-        self.assertIn('first record each decision the user made while in control in the ledger as theirs, with their words', start)
-        self.assertIn("and re-read the branch and the board: the user's work is the current state", start)
+        self.assertIn('take-over succeeds, continue the recorded phase', start)
+        self.assertIn("After a user pause, record the user's decisions in the ledger with their words", start)
+        self.assertIn('re-read the branch and board', start)
 
     def test_an_ordinary_message_mid_run_is_an_instruction_not_a_pause(self):
         run = ' '.join(SKILL.read_text().split('## Run', 1)[1].split('\n## ', 1)[0].split())
         self.assertIn('Record instructions received during the run in the ledger with their words and source', run)
         self.assertIn('Continue the phase unless the user invokes `--pause`', run)
-        self.assertIn('Update the card with the recorded words for authorized changes to its goal, criteria or grants', run)
+        self.assertIn('Update the card with recorded words for authorized changes to its goal or criteria', run)
+        self.assertIn('Record merge grants through [run controls](../../runtime/workers/control.md)', run)
 
 
 class EffortLevels(unittest.TestCase):
@@ -304,8 +306,7 @@ class EffortLevels(unittest.TestCase):
         for flag in ('--dispatch-effort', '--review-effort'):
             self.assertEqual(hint.count(flag), 2, hint)
         start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
-        for phrase in ('records both effort levels', "keeps the card's levels unless a level flag is given"):
-            self.assertIn(phrase, start)
+        self.assertIn('records both effort levels', start)
         # Flag precedence, defaults and refusals are exercised by test_autopilot_card.py.
         self.assertIn('autopilot_card.py confirm', prose(CARD))
         self.assertIn("the levels its setup recorded", prose(ROOT / 'skills/dispatch/SKILL.md'))
@@ -318,10 +319,10 @@ class EffortLevels(unittest.TestCase):
 
     def test_a_take_over_keeps_the_levels_unless_flags_are_given(self):
         # Rule: a take-over or a timed take-over keeps the card's levels; only level flags change them.
-        start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
+        control = prose(ROOT / 'runtime/workers/control.md')
         self.assertIn('take-over <card> [--effort <level>] [--dispatch-effort <level>] '
-                      '[--review-effort <level>]', start)
-        self.assertIn("keeps the card's levels unless a level flag is given", start)
+                      '[--review-effort <level>]', control)
+        self.assertIn("keeps the card's levels unless a level flag is given", control)
         timed = SKILL.read_text().split('- **`autopilot --take-over --timed`:**', 1)[1].split('\n- **`--auto-merge`', 1)[0]
         self.assertIn("keeps the card's levels unchanged", ' '.join(timed.split()))
 
@@ -367,9 +368,11 @@ class TakeOverCommand(unittest.TestCase):
         approval = prose(ROOT / 'runtime/board/approval-path.md')
         self.assertIn('A merge gate the repository declares for a human is never met by the agent', approval)
         start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
-        self.assertIn('python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--effort <level>]', start)
-        self.assertIn('the grant of the run that ended lapses with its terminal state', start)
-        self.assertIn('`phase:` stays as recorded: a run that ends keeps the phase it stopped in', start)
+        self.assertIn('[run controls](../../runtime/workers/control.md) for take-over and merge grants', start)
+        self.assertIn('take-over succeeds, continue the recorded phase', start)
+        control = prose(ROOT / 'runtime/workers/control.md')
+        self.assertIn('python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--effort <level>]', control)
+        self.assertIn('previous merge authorization, and retains the phase', control)
         phase = next(line for line in CARD.read_text().splitlines() if line.startswith('phase:'))
         self.assertNotIn('ended', phase)
 

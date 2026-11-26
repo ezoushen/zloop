@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify effective GitHub required checks before granting or submitting a merge."""
+"""Verify a GitHub merge target and submit through the trusted local T3 host."""
 import argparse
 import json
 from pathlib import Path
@@ -8,10 +8,11 @@ import subprocess
 from urllib.parse import quote
 
 import state_files
+from human_intent import WaitingOnUser, local_mcp
 
 
-class WaitingOnUser(ValueError):
-    """Required merge evidence is absent or cannot be verified."""
+MERGE_METHODS = ('merge', 'squash', 'rebase')
+REVIEWED_HEAD = re.compile(r'[0-9a-f]{40}')
 
 
 def command(*args):
@@ -109,22 +110,21 @@ def required_checks(repo, base):
 
 
 def require_merge_authority(confirmed_by):
-    """Require human confirmation when the autopilot card records provenance."""
+    """Keep a relayed mandate PR-only even when the operator has a human item."""
     if confirmed_by is not None:
         state_files.validate_confirmation_source(confirmed_by)
         if confirmed_by != 'human':
             raise WaitingOnUser('relayed confirmation cannot authorize auto-merge')
 
 
-def verify_grant(base=None, pr=None, *, confirmed_by=None, bind_branch=False):
-    """Return the verified target and its required checks before recording a grant."""
-    require_merge_authority(confirmed_by)
+def requested_target(base=None, pr=None):
+    """Resolve the exact origin and base for an existing PR or planned workstream branch."""
     if (base is None) == (pr is None) or pr is not None and pr < 1 or base is not None and not base.strip():
         raise WaitingOnUser('the intended GitHub base branch or PR is required')
-    repo = repository()
-    base = pull_base(repo, pr) if pr is not None else base
-    target = dict(repo=repo.casefold(), base=base, pr=pr)
-    if bind_branch and pr is None:
+    target = dict(repo=repository().casefold(), base=base, pr=pr)
+    if pr is not None:
+        target['base'] = pull_base(target['repo'], pr)
+    else:
         message = 'the planned merge grant requires a checked-out workstream branch'
         try:
             ref = command('git', 'symbolic-ref', '--quiet', 'HEAD').strip()
@@ -133,30 +133,95 @@ def verify_grant(base=None, pr=None, *, confirmed_by=None, bind_branch=False):
         if not ref.startswith('refs/heads/'):
             raise WaitingOnUser(message)
         target['branch'] = ref.removeprefix('refs/heads/')
-    return target, required_checks(repo, base)
+    return target
 
 
-def submit_merge(pr, head, method, *, confirmed_by=None, grant=None):
-    """Submit a reviewed PR through GitHub's normal approval and check enforcement."""
-    require_merge_authority(confirmed_by)
-    if pr is None or pr < 1 or not re.fullmatch(r'[0-9a-f]{40}', head or ''):
+def verify_target(target):
+    """Verify required checks for the scoped destination and recheck any existing PR's base."""
+    repo, base, pr = target['repo'], target['base'], target['pr']
+    checks = required_checks(repo, base)
+    if pr is not None and pull_base(repo, pr) != base:
+        raise WaitingOnUser(f'PR {repo}#{pr} changed base during verification')
+    return target, checks
+
+
+def merge_target(pr, head, method, grant):
+    """Check origin, repository policy and the exact approved target and head."""
+    if pr is None or pr < 1 or not REVIEWED_HEAD.fullmatch(head or ''):
         raise WaitingOnUser('a GitHub PR number and reviewed head commit are required')
-    if method not in ('merge', 'squash', 'rebase'):
+    if method not in MERGE_METHODS:
         raise WaitingOnUser('the approved GitHub merge method is required')
     repo = repository()
-    if grant is not None and (repo.casefold() != grant.get('repo')
-                              or grant.get('pr') not in (None, pr)):
+    if repo.casefold() != grant['repo'] or grant['pr'] not in (None, pr):
         raise WaitingOnUser('the PR does not match the verified merge grant')
-    branch = grant.get('branch') if grant is not None else None
+    branch = grant.get('branch')
     base = pull_base(repo, pr, head, workstream_branch=branch)
-    if grant is not None and base != grant.get('base'):
+    if base != grant['base']:
         raise WaitingOnUser('the PR base does not match the verified merge grant')
     required_checks(repo, base)
-    # GitHub can condition submission on the head SHA, but has no corresponding base guard.
     if pull_base(repo, pr, head, workstream_branch=branch) != base:
         raise WaitingOnUser(f'PR {repo}#{pr} changed base during verification')
-    return command('gh', 'pr', 'merge', str(pr), '--repo', f'github.com/{repo}',
-                   '--match-head-commit', head, f'--{method}')
+    return dict(repo=grant['repo'], base=base, pr=pr, head=head, method=method)
+
+
+def merge_transport():
+    """Resolve the trusted local authenticated T3 transport or defer the merge."""
+    try:
+        return local_mcp()
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        raise WaitingOnUser('the local T3 merge transport is unavailable') from error
+
+
+def merge_tool(transport, tool, target, **arguments):
+    """Return an optional result from one T3 tool call for the intended PR."""
+    import t3_mcp
+
+    endpoint, token = transport
+    try:
+        code, answer = t3_mcp.call(endpoint, token, tool,
+                                   dict(repository=target['repo'], number=target['pr'], **arguments),
+                                   15, local=True)
+    except ValueError:
+        return None
+    return answer if code == 0 and isinstance(answer, dict) else None
+
+
+def matches_pull(answer, target):
+    """Match the host, repository and exact PR number in the native result."""
+    repo, number = target['repo'], target['pr']
+    return (answer.get('host') == 'github.com' and isinstance(answer.get('repository'), str)
+            and answer['repository'].casefold() == repo
+            and type(answer.get('number')) is int and answer['number'] == number)
+
+
+def read_merge_state(transport, target):
+    """Read the authoritative PR state, distinguishing missing proof and changed targets."""
+    answer = merge_tool(transport, 'pull_request_read', target)
+    if answer is None:
+        return 'unavailable'
+    if (not matches_pull(answer, target) or answer.get('baseBranch') != target['base']
+            or answer.get('headSha') != target['head'] or answer.get('state') not in ('open', 'merged')):
+        return 'mismatch'
+    return answer['state']
+
+
+def require_merge_state(observed, expected):
+    """Defer when the fresh host readback cannot prove the expected PR state."""
+    if observed != expected:
+        detail = {
+            'unavailable': 'fresh T3 pull request readback is unavailable',
+            'mismatch': 'readback does not match the reviewed pull request',
+            'open': 'the reviewed pull request is still open',
+            'merged': 'the reviewed pull request is already merged',
+        }[observed]
+        raise WaitingOnUser(detail)
+
+
+def submit_merge(transport, target):
+    """Make one normal host submission and return whether the host reports it still open."""
+    answer = merge_tool(transport, 'pull_request_merge', target, expectedHeadSha=target['head'],
+                        method=target['method'], auto=False, stack=False)
+    return answer is not None and matches_pull(answer, target) and answer.get('state') == 'open'
 
 
 def main():
@@ -169,24 +234,15 @@ def main():
     merge = modes.add_parser('merge')
     merge.add_argument('--pr', type=int, required=True)
     merge.add_argument('--head', required=True, help='reviewed PR head commit')
-    merge.add_argument('--method', choices=('merge', 'squash', 'rebase'), required=True)
+    merge.add_argument('--method', choices=MERGE_METHODS, required=True)
     for command in (grant, merge):
         command.add_argument('--card', type=Path, help='legacy autopilot run card')
     args = parser.parse_args()
     try:
-        confirmed_by = None
-        if args.card is not None:
-            values = state_files.state_fields(args.card.read_text())
-            if not values or values.get('control') or args.card.with_name(state_files.CONTROL_NAME).exists():
-                raise WaitingOnUser('expected a legacy run card; use run_control.py for managed runs')
-            confirmed_by = values.get('confirmed-by')
-        if args.command == 'grant':
-            _, checks = verify_grant(args.base, args.pr, confirmed_by=confirmed_by)
-            print(json.dumps({'required_checks': checks}))
-        else:
-            if args.card is not None and values.get('auto-merge') != 'yes':
-                raise WaitingOnUser('the current delivery run lacks an active merge grant')
-            print(submit_merge(args.pr, args.head, args.method, confirmed_by=confirmed_by), end='')
+        if args.command == 'merge' or args.card is not None:
+            raise WaitingOnUser('automated merge authority requires a managed run and a verified human grant')
+        _, checks = verify_target(requested_target(args.base, args.pr))
+        print(json.dumps({'required_checks': checks}))
     except (OSError, ValueError) as error:
         parser.exit(2, f'waiting-on-user: {error}\n')
 

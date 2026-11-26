@@ -6,6 +6,7 @@ import datetime
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
 import sys
@@ -13,6 +14,7 @@ import time
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import human_intent  # noqa: E402
 import pr_safety  # noqa: E402
 import state_files  # noqa: E402
 
@@ -23,6 +25,7 @@ DISPATCH_POLICY = dict(version=1, routing='configured', scheduling='independent-
                        isolation='worktree-per-writer', integration='single-owner', max_live=8)
 CARD_NAME = 'autopilot.md'
 CONTROL_NAME = state_files.CONTROL_NAME
+SESSION_VARIABLES = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID', 'OPENCODE_SESSION_ID')
 
 
 def location(card):
@@ -164,7 +167,7 @@ def restore_view(card, expected_view, reference, request_id):
         return state
 
 
-def adopt(card, reference, allow_resume=False, *, merge_base=None, merge_pr=None):
+def adopt(card, reference, allow_resume=False):
     """Explicitly adopt a confirmed card; this does not grant new actions or hook trust."""
     card = Path(card)
     if not reference.strip():
@@ -186,18 +189,15 @@ def adopt(card, reference, allow_resume=False, *, merge_base=None, merge_pr=None
         values = state_files.state_fields(text)
         if re.match(r'no\b|$', values.get('confirmed', ''), re.I):
             raise ValueError('Only a confirmed card can be adopted')
-        grant = None
         if values.get('auto-merge') == 'yes':
-            grant, _ = pr_safety.verify_grant(merge_base, merge_pr, confirmed_by=values.get('confirmed-by'),
-                                             bind_branch=True)
+            pr_safety.require_merge_authority(values.get('confirmed-by'))
+            raise human_intent.WaitingOnUser('an older run card cannot supply a verified merge grant')
         now, run = time.time(), uuid.uuid4().hex
         state = dict(schema=1, run_id=run, revision=1, created_at=now, allow_resume=bool(allow_resume),
                      dispatch_policy=dict(DISPATCH_POLICY),
                      card_text=fields(text, {'control': run}),
                      events=[dict(id='adopt', actor='host', source={'kind': 'confirmation', 'reference': reference},
                                   terminal=values.get('terminal', ''), at=now)])
-        if grant is not None:
-            state['merge_grant'] = grant
         save(card, state, before)
         return state
 
@@ -282,11 +282,11 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
         raise ValueError('Transition requires a known state, reason and request ID')
     card = Path(card)
     request = dict(terminal=terminal, source=source, reason=reason, updates=updates or {})
-    grant_merge = not terminal and '--auto-merge' in source.get('flags', [])
-    if grant_merge and (merge_base is not None or merge_pr is not None):
+    grant_merge = not terminal and (merge_base is not None or merge_pr is not None)
+    if grant_merge:
         request['merge_target'] = {'base': merge_base, 'pr': merge_pr}
-    if set(updates or {}) - {'timer', 'resume', 'phase', 'session'}:
-        raise ValueError('Control updates cannot change grants or criteria')
+    if set(updates or {}) - {'timer', 'resume', 'phase'}:
+        raise ValueError('Control updates cannot change grants, criteria or bound sessions')
     with state_files.locked(card):
         state = read(card)
         if state is None:
@@ -298,42 +298,69 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
                 raise ValueError('Transition request ID was already used for different input')
             return state
         if state['revision'] != expected:
-            raise ValueError('Control revision changed; inspect the current run before retrying')
+            raise human_intent.WaitingOnUser('Control revision changed; inspect the current run before retrying')
         values = state_files.state_fields(state['card_text'])
         old = values.get('terminal', '')
+        provider_sessions = []
         if old == 'paused-by-user' and terminal not in ('', 'paused-by-user'):
             raise ValueError('Run is paused-by-user; a new user resume is required')
         if terminal == 'delivered-local' and values.get('delivery') == 'pr-only':
             raise ValueError('PR-only delivery requires a pull request')
         if terminal == 'merged':
-            if values.get('auto-merge') != 'yes':
-                raise ValueError('Merged state requires the existing merge grant')
-            pr_safety.require_merge_authority(values.get('confirmed-by'))
+            grant = require_grant(card, state, values)
+            submission = used_merge_grant(state, grant)
+            transport = pr_safety.merge_transport()
+            pr_safety.require_merge_state(pr_safety.read_merge_state(transport, submission), 'merged')
+            state['merge_submission'] = dict(submission, outcome='merged')
         if terminal == '' and source.get('kind') == 'timer':
+            if grant_merge:
+                raise human_intent.WaitingOnUser('an allowance wake cannot authorize a merge grant')
             proof = timer_source(source['queue'], source['key'])
             event = proof['wake']
             if (source != proof or not state['allow_resume'] or old != 'paused-allowance'
                     or event['request']['run_id'] != state['run_id']
                     or event['request']['control_revision'] != state['revision']):
                 raise ValueError('Wake no longer owns this allowance pause')
-        elif terminal == 'paused-by-user' or terminal == '':
-            action = 'pause' if terminal else 'resume'
-            if source.get('kind') != 'user' or source.get('command') != action:
+        elif terminal == '':
+            if source.get('kind') != 'user' or source.get('command') != 'resume':
+                raise human_intent.WaitingOnUser('take-over requires bound T3 human intent')
+            target = None
+            words = 'autopilot --take-over'
+            if grant_merge:
+                pr_safety.require_merge_authority(values.get('confirmed-by'))
+                target = pr_safety.requested_target(merge_base, merge_pr)
+                words += ' --auto-merge'
+            if updates:
+                raise ValueError('Take-over retains the bound session, phase and pending instructions')
+            bound = sessions(state['card_text'])
+            provider_sessions = list(dict.fromkeys(session for variable in SESSION_VARIABLES
+                                                   if (session := os.environ.get(variable)) and session not in bound
+                                                   and re.fullmatch(r'[\w.-]+', session)))
+            proof = human_intent.verify(card, state['card_text'], 'take-over', words,
+                                        values.get('intent-thread'),
+                                        run_id=state['run_id'], revision=expected, target=target,
+                                        provider_sessions=provider_sessions,
+                                        after=user_boundary(state, 'resume'), consumed=used_items(state))
+            source = dict(source, intent=proof, at=proof['at'], reference=f'T3 item {proof["item"]}')
+            if target is not None:
+                grant, _ = pr_safety.verify_target(target)
+                source['merge_target'] = grant
+                state['merge_grant'] = dict(grant, authorization=request_id)
+        elif terminal == 'paused-by-user':
+            if source.get('kind') != 'user' or source.get('command') != 'pause':
                 raise ValueError('Transition requires the bound user command')
-            proof = user_source(source['native'], source['runtime'],
-                                sessions(state['card_text']),
-                                action, math.nextafter(user_boundary(state, action), math.inf))
+            proof = user_source(source['native'], source['runtime'], sessions(state['card_text']),
+                                'pause', math.nextafter(user_boundary(state, 'pause'), math.inf))
             if proof != source or any(e.get('source', {}).get('key') == source['key'] for e in state['events']):
                 raise ValueError('User command source changed or was already consumed')
         elif source.get('kind') != 'host' or not source.get('reference'):
             raise ValueError('Host transition requires its evidence reference')
         changes = dict(updates or {}, terminal=terminal, evidence=f'{source["reference"]}: {reason}')
+        if provider_sessions:
+            changes['session'] = ', '.join([*bound, *provider_sessions])
         if not terminal:
-            if grant_merge:
-                state['merge_grant'], _ = pr_safety.verify_grant(merge_base, merge_pr,
-                                                                confirmed_by=values.get('confirmed-by'),
-                                                                bind_branch=True)
-            else:
+            state.pop('merge_submission', None)
+            if not grant_merge:
                 state.pop('merge_grant', None)
             changes['auto-merge'] = 'yes' if grant_merge else 'no'
             history = values.get('history', '')
@@ -348,23 +375,85 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
         return state
 
 
+def used_items(state):
+    """Return T3 items already used to change this run's authority."""
+    values = state_files.state_fields(state['card_text'])
+    items = {values[key] for key in ('confirmation-item', 'take-over-item') if values.get(key)}
+    return items | {intent['item'] for event in state['events'] if (intent := event.get('source', {}).get('intent'))}
+
+
+def require_grant(card, state, values):
+    """Load a grant only from the matching authorization in this run's event history."""
+    pr_safety.require_merge_authority(values.get('confirmed-by'))
+    grant = state.get('merge_grant')
+    if values.get('auto-merge') != 'yes' or not isinstance(grant, dict):
+        raise human_intent.WaitingOnUser('obtain a new verified merge grant for this managed run')
+    event = next((event for event in state['events'] if event['id'] == grant.get('authorization')), {})
+    source = event.get('source', {})
+    proof = source.get('intent', {})
+    scope = proof.get('scope', {})
+    target = scope.get('target')
+    checked = source.get('merge_target')
+    bound_thread = values.get('intent-thread')
+    if (source.get('kind') != 'user' or source.get('command') != 'resume' or scope.get('action') != 'take-over'
+            or scope.get('card') != str(Path(card).resolve()) or scope.get('run_id') != state['run_id']
+            or not bound_thread or proof.get('thread') != bound_thread or scope.get('thread') != bound_thread
+            or not proof.get('item') or not proof.get('run') or proof.get('origin') not in human_intent.ORIGINS
+            or proof.get('challenge') != human_intent.canonical_hash(scope) or not isinstance(target, dict)
+            or not isinstance(checked, dict) or grant != dict(checked, authorization=event['id'])
+            or target != checked):
+        raise human_intent.WaitingOnUser('obtain a new verified merge grant for this managed run')
+    return grant
+
+
+def used_merge_grant(state, grant):
+    """Resolve an already consumed target for read-only reconciliation."""
+    submission = state.get('merge_submission')
+    scope = {key: grant[key] for key in ('repo', 'base', 'authorization')}
+    if not isinstance(submission, dict):
+        raise human_intent.WaitingOnUser('Merged state requires submission through the verified merge grant')
+    if set(submission) == {'pr', 'head', 'method'}:
+        submission = dict(submission, **scope)
+    if (any(submission.get(key) != value for key, value in scope.items())
+            or type(submission.get('pr')) is not int or submission['pr'] < 1
+            or grant['pr'] not in (None, submission['pr'])
+            or not isinstance(submission.get('head'), str) or not pr_safety.REVIEWED_HEAD.fullmatch(submission['head'])
+            or submission.get('method') not in pr_safety.MERGE_METHODS):
+        raise human_intent.WaitingOnUser('the recorded submission does not match the verified merge grant')
+    return submission
+
+
 def merge(card, expected, pr, head, method):
-    """Submit a reviewed PR while the matching managed run holds the merge grant."""
+    """Consume the matching grant under the control lock before submitting once."""
     with state_files.locked(card):
         state = read(card)
         if not state or state['revision'] != expected:
-            raise ValueError('Inspect the current managed revision before submitting a merge')
+            raise human_intent.WaitingOnUser('inspect the current managed revision before submitting a merge')
         values = state_files.state_fields(state['card_text'])
-        if (values.get('auto-merge') != 'yes' or values.get('phase') != 'pr'
-                or values.get('terminal') not in ('', 'delivered')):
-            raise pr_safety.WaitingOnUser('the current delivery run lacks an active merge grant')
-        pr_safety.require_merge_authority(values.get('confirmed-by'))
-        grant = state.get('merge_grant')
-        if isinstance(grant, dict) and all(isinstance(grant.get(key), str) and grant[key] for key in ('repo', 'base')):
-            granted_pr, branch = grant.get('pr'), grant.get('branch')
-            if (type(granted_pr) is int and granted_pr > 0) or (granted_pr is None and isinstance(branch, str) and branch):
-                return pr_safety.submit_merge(pr, head, method, grant=grant)
-        raise pr_safety.WaitingOnUser('obtain a new verified merge grant for this managed run')
+        if values.get('phase') != 'pr' or values.get('terminal') not in ('', 'delivered'):
+            raise human_intent.WaitingOnUser('the current delivery run lacks an active merge grant')
+        if 'merge_submission' in state:
+            raise human_intent.WaitingOnUser('the verified merge grant was already consumed')
+        grant = require_grant(card, state, values)
+        target = pr_safety.merge_target(pr, head, method, grant)
+        transport = pr_safety.merge_transport()
+        pr_safety.require_merge_state(pr_safety.read_merge_state(transport, target), 'open')
+        recover(card, state)
+        submission = dict(target, authorization=grant['authorization'], outcome='pending')
+        state['merge_submission'] = submission
+        state['revision'] += 1
+        state['events'].append(dict(id=uuid.uuid4().hex, actor='host', source={'kind': 'merge-submission'}, at=time.time()))
+        write_control(card, state)
+        open_result = pr_safety.submit_merge(transport, target)
+        observed = pr_safety.read_merge_state(transport, target)
+        outcome = 'queued' if open_result and observed == 'open' else {
+            'merged': 'merged', 'mismatch': 'mismatch'}.get(observed, 'uncertain')
+        submission['outcome'] = outcome
+        write_control(card, state)
+        if observed == 'open' and outcome == 'uncertain':
+            raise human_intent.WaitingOnUser('the T3 merge outcome is uncertain')
+        pr_safety.require_merge_state(observed, 'merged')
+        return json.dumps(submission) + '\n'
 
 
 def require_active(card):
@@ -444,7 +533,7 @@ def main():
     target.add_argument('--merge-base', help='explicit base of a planned auto-merge PR')
     target.add_argument('--merge-pr', type=int, help='open PR for an auto-merge request')
     parser.add_argument('--head', help='reviewed PR head commit')
-    parser.add_argument('--method', choices=('merge', 'squash', 'rebase'))
+    parser.add_argument('--method', choices=pr_safety.MERGE_METHODS)
     parser.add_argument('--expect-view', help='reviewed SHA-256 of a diverged view; restore-view only')
     args = parser.parse_args()
     try:
@@ -452,8 +541,9 @@ def main():
             print(merge(args.card, args.expect, args.merge_pr, args.head, args.method), end='')
             return
         if args.command == 'adopt':
-            state = adopt(args.card, args.source or '', args.allow_resume,
-                          merge_base=args.merge_base, merge_pr=args.merge_pr)
+            if args.merge_base is not None or args.merge_pr is not None:
+                raise human_intent.WaitingOnUser('adoption cannot record a verified merge grant; use managed take-over')
+            state = adopt(args.card, args.source or '', args.allow_resume)
         elif args.command == 'status':
             state = read(args.card)
         elif args.command == 'restore-view':
@@ -465,7 +555,9 @@ def main():
             source = {'kind': 'host', 'reference': args.source}
             if args.command == 'resume' and args.wake:
                 source = timer_source(args.wake, args.event_id)
-            elif args.command in ('pause', 'resume'):
+            elif args.command == 'resume':
+                source = {'kind': 'user', 'command': 'resume'}
+            elif args.command == 'pause':
                 if not args.native or not args.runtime:
                     raise ValueError('User transition needs --native and --runtime')
                 source = user_source(args.native, args.runtime,
@@ -481,7 +573,7 @@ def main():
             result['terminal'] = state_files.state_fields(state['card_text']).get('terminal', '')
             result['last_event'] = {key: state['events'][-1].get(key) for key in ('id', 'actor', 'at')}
         print(json.dumps(result, indent=2))
-    except pr_safety.WaitingOnUser as error:
+    except human_intent.WaitingOnUser as error:
         parser.exit(2, f'waiting-on-user: {error}\n')
     except (OSError, ValueError, KeyError) as error:
         parser.exit(2, f'{error}\n')

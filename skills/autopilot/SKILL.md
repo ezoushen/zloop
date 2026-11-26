@@ -26,17 +26,10 @@ types the command; a message that mentions it is not one. Never widens native pe
   Verify lines that tell success from failure, and what the user reserves.
 - **`autopilot --take-over`:** start from the session's current state. It reuses accepted decisions, tickets and reports,
   and asks only the align questions still unsettled; a phase already finished is not redone. With an existing card, continue from its State.
-  Managed cards use [control State and events](../../runtime/workers/control.md).
-  A confirmed card whose goal, criteria and grants are unchanged is not reconfirmed;
-  a card that ended `waiting-on-user` or `paused-allowance` resumes once its cause is gone. Take over a card with
-  `python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--effort <level>]
-  [--dispatch-effort <level>] [--review-effort <level>]`: it keeps the card's levels unless a level flag is given;
-  it moves the terminal state to `history:`,
-  clears `terminal:` so the grant of the run that ended lapses with its terminal state.
-  For a new auto-merge grant, use the [card target options](run-card.md). `phase:` stays as recorded: a run that ends keeps the phase it stopped in.
-  A card that ended `paused-by-user` resumes at once, with no cause to wait for: first record each decision the
-  user made while in control in the ledger as theirs, with their words, and re-read the branch and the board: the
-  user's work is the current state.
+  A confirmed card whose goal, criteria and grants are unchanged is not reconfirmed.
+  Follow [run controls](../../runtime/workers/control.md) for take-over and merge grants.
+  Once the pending cause is resolved and take-over succeeds, continue the recorded phase.
+  After a user pause, record the user's decisions in the ledger with their words and re-read the branch and board.
 - **`autopilot --pause`:** the user takes control of a confirmed run. Record `paused-by-user` with the user's words
   and the phase it stopped in, and answer the user as an ordinary session.
 - **`autopilot --take-over --timed`:** what a resume timer runs, as the user's own take-over, authorized on the card.
@@ -57,7 +50,8 @@ After confirmation, ask the user nothing outside the pause list. Re-read the car
 ledger before each phase and after every compaction or resume.
 Record instructions received during the run in the ledger with their words and source.
 Continue the phase unless the user invokes `--pause` or the [pause list](#decide-without-asking)
-applies. Update the card with the recorded words for authorized changes to its goal, criteria or grants.
+applies. Update the card with recorded words for authorized changes to its goal or criteria.
+Record merge grants through [run controls](../../runtime/workers/control.md).
 
 1. [refine](../refine/SKILL.md) the brief into tickets;
 2. [dispatch](../dispatch/SKILL.md) them with `--autofix` and the card's current levels, `--dispatch-effort <level>`

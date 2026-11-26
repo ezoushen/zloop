@@ -4,11 +4,10 @@ The file autopilot writes to `.scratch/<slug>/autopilot.md` before it goes hands
 It holds what the run may do and when it ends, so the stop condition survives
 compaction. Use `autopilot_card.py confirm <card> --words "<user words>"` from the
 active session and `autopilot_card.py phase <card> <phase>` for transitions.
-Record the original words and their source in the ledger. Use `--confirmed-by human` for
-direct human confirmation and `--confirmed-by 'relayed(Agent Name)'` for a named relay.
-Omitting the flag preserves a recorded source. The label records declared provenance.
-Structural validation and session binding do not attest who wrote a message. Silence
-and unrelated replies carry no confirmation.
+Record the original words and their source in the ledger. For full cards the
+[human intent gate](../../runtime/workers/control.md#verify-human-intent) verifies
+and records direct human confirmation. A named relay uses
+`--confirmed-by 'relayed(Agent Name)'` and records PR-only delivery.
 
 Size the work under [autopilot](SKILL.md). A direct run still writes `alignment.md`
 (the brief with its Crew rows) and runs refine; it skips only the interview and the
@@ -20,8 +19,8 @@ Use the skill's [pause list](SKILL.md#decide-without-asking) and
 [terminal-state rule](SKILL.md#stop). Record mandate-specific restrictions on the card.
 Set `delivery: pr-only` when the mandate requires a PR. For network restrictions,
 use the [routing policy](../../runtime/routing/choose.md#local-capacity).
-Card commands use `--merge-pr <number>` or `--merge-base <planned-base>` for a target
-authorized under the [approval path](../../runtime/board/approval-path.md).
+Request any merge grant through managed control under the
+[approval path](../../runtime/board/approval-path.md).
 
 ```markdown
 # <slug> — autopilot run card
@@ -47,8 +46,8 @@ Decisions made without the user are rows in `.scratch/<slug>/ledger.md`; open on
 
 ## State
 confirmed: no | <date> "<the user's words>"
-session: <each host session ID this shell exports, comma-separated; `confirm` and `take-over` rewrite it>
-auto-merge: no | yes
+session: <bound host session IDs, comma-separated>
+auto-merge: no
 mode: full | direct   (`direct`: one or two tickets, no interview; `confirm` records `by rule` with the goal the user typed)
 board: local | <the tracker's URL>
 dispatch-effort: medium
@@ -58,8 +57,9 @@ terminal: <state, once ended>
 history: <earlier terminal states, each with its date, kept on take-over>
 evidence: <commit, report, PR URL>
 timer: <resume time and the timer's handle, while `paused-allowance` waits on one>
-resume: `autopilot --take-over` (plus `--auto-merge` when granted), after <what the user must do>
+resume: `autopilot --take-over` after <what the user must do>
 ```
 
-`confirmed-by:` and `delivery:` are optional State fields for compatibility. Write each
-at most once.
+`confirmed-by:` and `delivery:` are optional State fields. Write each at most once.
+To request a fresh merge grant at resume, follow the
+[managed take-over procedure](../../runtime/workers/control.md#verify-human-intent).
