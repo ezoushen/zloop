@@ -33,9 +33,10 @@ receipt to the summary.
 After committing the fix, use `--phase green` and a fresh log. Green requires the
 same command arguments and output format, and a passing test on a worktree and
 index matching the checked-out commit. Both formats bind the exact claimed
-test file and all test-location files present at red. Put independent additions
-in a new test file or record a fresh red with the final test and fixture files
-on the assigned base. Review any fixtures resolved outside those test locations.
+test file and the Git-visible files in recognized test locations at red. Put
+independent additions in a new test file or record a fresh red with the final
+test and fixture files on the assigned base. Review inputs outside the snapshot,
+including ignored untracked fixtures and files outside recognized test locations.
 Keep both logs and summaries. Acceptance requires the matching red to finish
 before green starts and green to identify the exact accepted head. Record older
 receipts again if they lack this file snapshot.
