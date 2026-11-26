@@ -150,12 +150,39 @@ rules the script can't:
 
 ## Watch the required checks
 
-Watch the required checks for the pushed SHA. Confirm the PR head equals that
-SHA, then run `gh pr checks <n> --required --watch` as a background job. When the
-repository reports no required checks, the watch returns at once: watch every
-check with `gh pr checks <n> --watch` instead, and treat each as required. A
-failing required check is not "delivered". Read the failed job's log and return through `recovery` to
-`review --autofix`. The repair reproduces the full failing CI job locally before
-pushing, and the watch restarts on the new SHA. Report "ready to merge" only when
-every required check is green and the approval path is known. The same watch
-follows every later push to the PR branch.
+Watch the required checks for each pushed SHA. For a managed PR phase on the
+local T3 host, use `watch_pull_request` with the exact PR and `until="checks"` on
+the run card's bound thread. From that thread's attached feature worktree,
+record the external wait against the full pushed SHA.
+
+```sh
+python3 "<plugin_root>/scripts/pr_watch.py" arm "<card>" --pr "<number>" --head "<sha>"
+```
+
+Keep the run active and yield when the command reports `pending` and the stop
+gate accepts the wait. The gate reads the live local T3 attachment and local
+feature head. If the watch ends or is replaced, the attachment changes, the
+local head moves, or the host read fails, the hold applies again.
+
+On a wake, use the recorded watch ID to read the open PR and its commit's
+GitHub check runs. A push, retarget or failed read requires fresh verification.
+
+```sh
+python3 "<plugin_root>/scripts/pr_watch.py" refresh "<card>" --watch-id "<watch_id>"
+```
+
+If the PR is still pending and the native watch ended, arm a current watch
+and record it again on the verified head. For a different head or base, confirm
+the intended target before recording a new external wait. A check observation
+leaves delivery and merge authority to their existing checks. Verify required
+checks separately, including both `push` and `pull_request` workflow events when
+the delivery contract calls for both.
+
+For other hosts, confirm the PR head equals the pushed SHA and run
+`gh pr checks <n> --required --watch` as a background job. When GitHub reports
+no required checks, watch all checks with `gh pr checks <n> --watch`.
+
+Read the log of any failing required check and return through `recovery` to
+`review --autofix`. Reproduce the full failing CI job locally before pushing the
+repair, then verify the new SHA. Report "ready to merge" only when every required
+check is green and the approval path is known.

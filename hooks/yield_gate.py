@@ -26,7 +26,8 @@ diff-review attempt in its state settled at review_head failed, blocked or cance
 a reviewer count only where review_target.py found no reviewer route for the recorded host and the router, asked
 again, still finds none. Launch evidence is a Herdr placement, verified startup or recorded submission.
 The review, delivery and card holds do not apply while a live worker of that state holds a running
-wait that will wake the host (the lifecycle's `wake_gap`). A stop
+wait that will wake the host (the lifecycle's `wake_gap`). An active managed PR card's own hold also
+clears for a verified pending external wait on its current local feature head. A stop
 is held while its gaps stand. Managed admission gaps and owned active managed runs without a terminal or wake do
 not expire; a handwritten terminal cannot end an active canonical run. Legacy gaps hold up to three times in a row
 for an identical set (a count per session under .scratch/holds/); then the gate says it gave up. A check that cannot run is a named gap (marked `Unchecked` where it is made), never a
@@ -400,7 +401,8 @@ def unfinished_runs(root, session, named):
                 named.add(path.parent.name)
             continue
         missing += board_gaps(root, path, state)
-        if not awaited(path.with_name('reports') / 'workers.sqlite'):
+        if not (awaited(path.with_name('reports') / 'workers.sqlite')
+                or control and control.get('external_wait') and script('pr_watch').awaiting(path, control)):
             missing.append((Required if control else str)(f"{path}: this session's autopilot run has no terminal state or no evidence; record "
                            "a terminal state only when the run has actually ended. Otherwise continue its phase "
                            "or arm a wake and keep `terminal:` empty. An actual end records exactly one of "

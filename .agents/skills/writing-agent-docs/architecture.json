@@ -217,6 +217,7 @@
     "scripts/human_intent.py",
     "scripts/t3_mcp.py",
     "scripts/pr_safety.py",
+    "scripts/pr_watch.py",
     "scripts/dispatch_state.py",
     "scripts/source_identity.py",
     "scripts/state_files.py"
