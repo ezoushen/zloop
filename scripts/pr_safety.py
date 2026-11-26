@@ -15,18 +15,18 @@ MERGE_METHODS = ('merge', 'squash', 'rebase')
 REVIEWED_HEAD = re.compile(r'[0-9a-f]{40}')
 
 
-def command(*args):
+def command(*args, cwd=None, timeout=30):
     """Read a bounded Git or GitHub CLI response, without interactive prompts."""
     try:
         return subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                              timeout=30, check=True).stdout
+                              cwd=cwd, timeout=timeout, check=True).stdout
     except (OSError, UnicodeError, subprocess.SubprocessError) as error:
         raise WaitingOnUser(f'cannot verify GitHub merge evidence ({args[0]} {args[1]})') from error
 
 
-def repository():
+def repository(*, cwd=None, timeout=30):
     """Resolve the local origin, independent of the GitHub CLI's default repo."""
-    origin = command('git', 'remote', 'get-url', 'origin').strip()
+    origin = command('git', 'remote', 'get-url', 'origin', cwd=cwd, timeout=timeout).strip()
     match = re.fullmatch(r'(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)'
                          r'([\w.-]+/[\w.-]+?)(?:\.git)?/?', origin, re.ASCII)
     if not match:

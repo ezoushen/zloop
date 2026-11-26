@@ -68,11 +68,8 @@ def listener_owned_by(pid, address, port):
     return owners == {str(pid)}
 
 
-def local_mcp():
-    """Give the host's local MCP endpoint and inherited credential, or refuse the transport."""
-    token = os.environ.get('T3_MCP_BEARER_TOKEN')
-    if not token:
-        raise ValueError('the local T3 read credential is unavailable')
+def local_runtime():
+    """Verify the OS account's loopback runtime and its listening process."""
     runtime = runtime_record()
     origin, pid, port = runtime['origin'], runtime['pid'], runtime['port']
     parsed = urlsplit(origin)
@@ -81,11 +78,19 @@ def local_mcp():
             or parsed.port != port or parsed.username is not None or parsed.password is not None
             or parsed.path not in ('', '/') or parsed.query or parsed.fragment):
         raise ValueError('the T3 runtime endpoint is not loopback')
-    endpoint = origin.rstrip('/') + '/mcp'
+    if not listener_owned_by(pid, parsed.hostname, port):
+        raise ValueError('the local T3 listener does not belong to the T3 runtime')
+    return origin.rstrip('/')
+
+
+def local_mcp():
+    """Give the host's local MCP endpoint and inherited credential, or refuse the transport."""
+    token = os.environ.get('T3_MCP_BEARER_TOKEN')
+    if not token:
+        raise ValueError('the local T3 read credential is unavailable')
+    endpoint = local_runtime() + '/mcp'
     if os.environ.get('T3_MCP_URL') != endpoint:
         raise ValueError('the MCP endpoint does not match the local T3 runtime')
-    if not listener_owned_by(pid, parsed.hostname, port):
-        raise ValueError('the local MCP listener does not belong to the T3 runtime')
     return endpoint, token
 
 

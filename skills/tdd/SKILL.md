@@ -55,6 +55,6 @@ Show them as they happen, or keep them in the workstream's report when one is un
 
 Report each rule with the test that protects it, its recorded failing, passing and break
 runs, the refactors made after green, and any rule left without a test and why. Run the
-affected tests before calling the work done, then the project's full gate once on the
-finished head unless an orchestrator integrates it ([check tiers](../../runtime/checks/accept.md)). Report no coverage figure as
+affected tests before calling the work done, and the full gate where the
+[check tiers](../../runtime/checks/accept.md) place it. Report no coverage figure as
 proof; coverage means every rule has a test that fails when the rule breaks.

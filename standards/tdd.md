@@ -15,9 +15,8 @@ framework or test runner is assumed.
 - **Refactor after green.** Once the test passes, refactor the ticket's own code
   within the ticket's scope, keeping the tests green; a wider refactor goes to review.
 - **Run what the question needs.** Each cycle runs the tests of the rule it works; the suites
-  covering the changed code run before the work is handed back, and the full gate once on
-  the integrated head, by whoever integrates (the orchestrator in a workstream), not per cycle
-  ([check tiers](../runtime/checks/accept.md)).
+  covering the changed code run before the work is handed back, and the full gate where the
+  [check tiers](../runtime/checks/accept.md) place it.
 - **Record the failing run before the passing one:** the command, its exit status and
   the failure it showed, then the passing run of the same command. A test never seen
   failing proves nothing. For registered managed local ticket attempts, use

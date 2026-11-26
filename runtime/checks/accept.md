@@ -6,16 +6,18 @@ check a tier in the assignment:
 - **focused:** the tests for the behavior being changed, run while editing;
 - **affected:** the suites covering the changed code, run before the worker
   returns and again after each repair; `low` skips them;
-- **full gate:** the project's complete required gate, run once on the workstream's
-  integrated head before review and E2E (not per ticket) and once after the
-  last repair, by the orchestrator or by an E2E run that already includes it;
-  `high` and higher run it after every ticket is landed or committed inline, too.
+- **full gate:** the project's complete required gate, run once per PR candidate, on
+  its final integrated head before delivery, by its integrator (the orchestrator in
+  a workstream) or by an E2E run that already includes it.
 
-Workers run the full gate only when the project requires it per change; name that
-requirement and its source in the assignment. E2E adds only what CI and the full
-gate do not cover; `xhigh` and higher add E2E for every criterion with an observable
-path. Acceptance reuses a worker's recorded checks at the same commit
-rather than running them again. Repetitions, traces and negative controls follow
+Ticket iteration and review repairs run the focused and affected tiers plus the
+project's fast doc and lint checks; a repair that touches shared infrastructure (the
+test runner, hooks, shared fixtures or support modules, CI configuration) reruns the
+full gate. Workers run the full gate only for such a repair or when the project
+requires it per change; name that reason and its source in the assignment. E2E adds
+only what CI and the full gate do not cover and runs once per PR candidate with it;
+`xhigh` and higher add E2E for every criterion with an observable path. Acceptance
+reuses a worker's recorded checks at the same commit rather than running them again. Repetitions, traces and negative controls follow
 the accepted measurement contract or a concrete validity gap, rather than adding
 another batch for confidence alone; `max` runs each E2E check and flaky-prone suite three times when
 the user asked for it. Each tier rule above names the effort levels that relax it,
@@ -67,14 +69,14 @@ criterion visible alongside any human-approved narrowing or follow-up.
 
 A dispatch verifies at one effort level: the thoroughness of its checks, not the
 model's reasoning effort. Every level runs the project's required checks — the full
-gate once on the workstream's integrated head before review, and required E2E — and
-the level scales only the checks beyond the ones the project requires, never those.
+gate and required E2E — and the level scales only the checks beyond the ones the
+project requires, never those.
 
 | Level | Beyond the required checks |
 | --- | --- |
 | low | each ticket's focused tests only |
 | medium (default) | + each ticket's affected suites before it returns |
-| high | + the full gate after every ticket is landed or committed inline, and one verifier per ticket re-runs that ticket's acceptance on the integrated head |
+| high | + one verifier per ticket re-runs that ticket's acceptance on the integrated head |
 | xhigh | + E2E for every acceptance criterion with an observable path, even where CI covers it |
 | max (only when the user asks) | + each E2E check and flaky-prone suite run three times |
 

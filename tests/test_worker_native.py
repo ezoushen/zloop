@@ -175,8 +175,11 @@ class NativeProof(WorkerLifecycleCase):
     def test_registration_refuses_a_session_record_path_that_names_no_session(self):
         empty = self.root / 'empty.jsonl'
         empty.write_text('')
-        for runtime, path in (('claude', empty), ('claude', self.root / 'absent.jsonl'), ('pi', empty),
-                              ('codex', empty)):
+        locked = self.root / 'locked'
+        locked.mkdir(mode=0)
+        self.addCleanup(locked.chmod, 0o700)
+        for runtime, path in (('claude', empty), ('claude', self.root / 'absent.jsonl'),
+                              ('claude', locked / 'session.jsonl'), ('pi', empty), ('codex', empty)):
             with self.subTest(runtime=runtime, path=path.name):
                 self.execution.write_text(json.dumps({'host': runtime, 'native_dispatch': True,
                     'agent': 'builder', 'job': 'ticket', 'settings': {}}))

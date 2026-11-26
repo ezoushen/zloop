@@ -1107,7 +1107,7 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30, a
                     or skill.rpartition(':')[2] == 'herdr' or 'herdr' in data)
         session = data.get('native_session')
         if (data.get('runtime') in ('claude', 'codex', 'pi') and text(session) and Path(session).is_absolute()
-                and (Path(session).is_file() or not (data['runtime'] == 'codex' and session.startswith('/root/')
+                and (os.path.isfile(session) or not (data['runtime'] == 'codex' and session.startswith('/root/')
                                                      or in_herdr))):
             # An existing file is a session record, and stands for the session it names; a Codex child's agent_path
             # (/root/<task>) is no file. Herdr is asked about the session, so this comes first.

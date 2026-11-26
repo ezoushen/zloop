@@ -158,6 +158,7 @@ else:
                                     'orchestrator': {'pane': 'orchestrator-pane', 'session': 'opencode-host'}}])
 
 
+@unittest.skipUnless(sys.platform == 'darwin', 'Seatbelt is macOS-only')
 class OpenCodeStart(unittest.TestCase):
     # The OpenCode launcher allows 30 seconds for readiness after setting up the pane.
     start_timeout = 45
