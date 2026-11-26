@@ -919,7 +919,7 @@ def unmet_needs(saved, evidence):
 @contextmanager
 def registration_retirement_lock(db, registering=False):
     """Share registrations; exclude them during retirement. Process exit releases the lock."""
-    with open(capacity.registration_lock_path(state_path(db)), 'a') as lock:
+    with open(state_path(db) + '.lifecycle.lock', 'a') as lock:
         try:
             fcntl.flock(lock, (fcntl.LOCK_SH if registering else fcntl.LOCK_EX) | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -931,7 +931,9 @@ def registration_retirement_lock(db, registering=False):
 def record(db, data, refuse_changes=False, submitting=False, waiting=30):
     """Validate and persist an event, excluding native retirement while registering."""
     if data.get('kind') == 'register':
-        with registration_retirement_lock(db, registering=True):
+        with (registration_retirement_lock(db, registering=True),
+              open(capacity.registration_lock_path(state_path(db)), 'a') as registration):
+            fcntl.flock(registration, fcntl.LOCK_SH)
             return record_event(db, data, refuse_changes, submitting, waiting)
     return record_event(db, data, refuse_changes, submitting, waiting)
 

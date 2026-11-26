@@ -159,6 +159,26 @@ worker_lifecycle.record(db, json.loads(sys.argv[3]))
         capacity.acquire('other', {'slots': 1}, state, 't1/1', now=160)
         self.assertEqual((0, 1), (capacity.in_use('lane', now=160), capacity.in_use('other', now=160)))
 
+    def test_an_expired_reservation_probe_does_not_block_retirement(self):
+        state = (self.root / 'workers.sqlite').resolve()
+        self.register('t1/1', state)
+        capacity.acquire('lane', {'slots': 2}, str(state), 't2/1', now=100)
+        flock = capacity.fcntl.flock
+        checked_retirement = False
+
+        with closing(worker_lifecycle.connect(state)) as db:
+            def probe_flock(lock, operation):
+                nonlocal checked_retirement
+                flock(lock, operation)
+                if not checked_retirement:
+                    checked_retirement = True
+                    with worker_lifecycle.registration_retirement_lock(db):
+                        pass
+
+            with patch.object(capacity.fcntl, 'flock', side_effect=probe_flock):
+                self.assertEqual(1, capacity.in_use('lane', now=161))
+        self.assertTrue(checked_retirement)
+
     def test_lifecycle_reclaims_a_local_worker_only_after_its_owner_dies_and_the_lease_expires(self):
         state = (self.root / 'workers.sqlite').resolve()
         with subprocess.Popen([sys.executable, '-B', '-c', 'import sys; sys.stdin.read()'],

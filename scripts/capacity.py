@@ -62,12 +62,12 @@ def owner_alive(owner):
 
 
 def registration_lock_path(state):
-    """The shared lock path for writers of a lifecycle state."""
-    return f'{state}.lifecycle.lock'
+    """The lock shared by registrations and probed before reclaiming an orphan reservation."""
+    return f'{state}.registration.lock'
 
 
 def registration_active(state):
-    """Whether a lifecycle operation might still be recording the attempt."""
+    """Whether a registration might still be recording the attempt."""
     try:
         with open(registration_lock_path(state), 'rb') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

@@ -19,11 +19,13 @@ view left by an interrupted publication. Inspection is read-only. Retrying the
 control command republishes the Markdown and finishes the original decision.
 
 The control record owns the run's grants and phase. For other mismatches, inspect
-the saved record and the observed edits before reconciliation.
+the saved record and the observed edits before reconciliation. Keep the control
+record in place. Removing it to return the run to legacy mode is prohibited.
 After deciding to restore the canonical view, use `restore-view <card>
 --expect-view <reviewed-card-sha256> --source <review-reference> --request-id <id>`.
 Supply the SHA-256 of the exact bytes reviewed. The command checks that hash before
 it replaces the view and retains the displaced bytes in the private control record.
+Supervisors must leave divergent views for explicit reconciliation.
 
 For an actual user pause, use the bound host's native conversation record:
 
