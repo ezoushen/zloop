@@ -187,6 +187,24 @@ print(json.dumps(reply))
         self.assertEqual(card.read_text(), draft)
         self.assertFalse(self.calls.exists())
 
+    def test_legacy_submission_requires_an_active_saved_grant(self):
+        self.replies[f'api --hostname github.com {BRANCH}'] = {
+            'name': BASE, 'protected': True, 'protection': {'enabled': True,
+                'required_status_checks': {'enforcement_level': 'everyone', 'contexts': ['docs']}}}
+        merge = 'pr merge 12 --repo github.com/fixture/zloop --match-head-commit ' + SHA + ' --squash'
+        self.replies[merge] = 'submitted to GitHub'
+        card = support.run_card(self.root / 'autopilot.md', phase='pr')
+        card.write_text(card.read_text() + 'confirmed-by: human\n')
+        args = ('merge', '--card', str(card), '--pr', '12', '--head', SHA, '--method', 'squash')
+        result = self.run_cli('pr_safety.py', *args)
+        self.assertEqual((result.returncode, result.stderr.strip()),
+                         (2, 'waiting-on-user: the current delivery run lacks an active merge grant'))
+        self.assertFalse(self.calls.exists())
+        card.write_text(card.read_text().replace('auto-merge: no', 'auto-merge: yes')
+                       .replace('confirmed-by: human\n', ''))
+        result = self.run_cli('pr_safety.py', *args)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, '"submitted to GitHub"'), result.stderr)
+
     def test_existing_relayed_grant_cannot_submit_or_record_a_merge(self):
         self.replies[f'api --hostname github.com {BRANCH}'] = {
             'name': BASE, 'protected': True, 'protection': {'enabled': True,
@@ -217,7 +235,6 @@ print(json.dumps(reply))
         result = self.run_cli('run_control.py', *merge_args)
         self.assertEqual((result.returncode, result.stdout.strip()), (0, '"submitted to GitHub"'), result.stderr)
 
-        # Seed a canonical record with a relay grant that predates the guard.
         record = card.with_name('autopilot-control.json')
         state = json.loads(record.read_text())
         state['card_text'] = state['card_text'].replace('confirmed-by: human', 'confirmed-by: relayed(Grok Bot)')
@@ -233,6 +250,107 @@ print(json.dumps(reply))
                                  (2, 'waiting-on-user: relayed confirmation cannot authorize auto-merge'))
                 self.assertEqual((card.read_bytes(), record.read_bytes()), before)
                 self.assertEqual(self.calls.read_text(), '')
+
+    def test_managed_exact_grant_refuses_another_pr_or_origin(self):
+        self.replies[f'api --hostname github.com {BRANCH}'] = {
+            'name': BASE, 'protected': True, 'protection': {'enabled': True,
+                'required_status_checks': {'enforcement_level': 'everyone', 'contexts': ['docs']}}}
+        card = support.run_card(self.root / 'autopilot.md', phase='pr')
+        card.write_text(card.read_text().replace('auto-merge: no', 'auto-merge: yes'))
+        adopted = self.run_cli('run_control.py', 'adopt', str(card), '--source', 'confirmed grant', '--merge-pr', '12')
+        self.assertEqual(adopted.returncode, 0, adopted.stderr)
+        merge = ('merge', str(card), '--head', SHA, '--method', 'squash', '--expect', '1', '--merge-pr')
+        for repo, pr in ((REPO, 13), ('other/zloop', 12)):
+            with self.subTest(repo=repo, pr=pr):
+                subprocess.run(['git', 'remote', 'set-url', 'origin', f'git@github.com:{repo}.git'],
+                               cwd=self.root, check=True)
+                self.replies[f'api --hostname github.com repos/{repo}/pulls/{pr}'] = {
+                    'number': pr, 'state': 'open', 'base': {'ref': BASE, 'repo': {'full_name': repo}},
+                    'head': {'sha': SHA}}
+                self.replies[f'api --hostname github.com repos/{repo}/branches/release%2Fnext'] = (
+                    self.replies[f'api --hostname github.com {BRANCH}'])
+                self.replies[f'api --hostname github.com --paginate --slurp repos/{repo}/rules/branches/release%2Fnext'] = [[]]
+                self.replies[f'pr merge {pr} --repo github.com/{repo} --match-head-commit {SHA} --squash'] = 'submitted'
+                self.calls.write_text('')
+                result = self.run_cli('run_control.py', *merge, str(pr))
+                self.assertEqual((result.returncode, result.stderr.strip()),
+                                 (2, 'waiting-on-user: the PR does not match the verified merge grant'))
+                self.assertEqual(self.calls.read_text(), '')
+
+    def test_planned_grant_requires_the_approved_base_and_workstream_branch(self):
+        branch = 'feat/workstream'
+        subprocess.run(['git', 'symbolic-ref', 'HEAD', f'refs/heads/{branch}'], cwd=self.root, check=True)
+        self.replies[f'api --hostname github.com {BRANCH}'] = {
+            'name': BASE, 'protected': True, 'protection': {'enabled': True,
+                'required_status_checks': {'enforcement_level': 'everyone', 'contexts': ['docs']}}}
+        self.replies['api --hostname github.com repos/fixture/zloop/branches/main'] = dict(
+            self.replies[f'api --hostname github.com {BRANCH}'], name='main')
+        self.replies['api --hostname github.com --paginate --slurp repos/fixture/zloop/rules/branches/main'] = [[]]
+        merge = ['pr', 'merge', '12', '--repo', 'github.com/fixture/zloop', '--match-head-commit', SHA, '--squash']
+        self.replies[' '.join(merge)] = 'submitted to GitHub'
+        card = support.run_card(self.root / 'autopilot.md', phase='pr')
+        card.write_text(card.read_text().replace('auto-merge: no', 'auto-merge: yes'))
+        adopted = self.run_cli('run_control.py', 'adopt', str(card), '--source', 'planned grant', '--merge-base', BASE)
+        self.assertEqual(adopted.returncode, 0, adopted.stderr)
+        args = ('merge', str(card), '--merge-pr', '12', '--head', SHA, '--method', 'squash', '--expect', '1')
+        for base, head_repo, head_ref, reason in (
+                ('main', REPO, branch, 'the PR base does not match the verified merge grant'),
+                (BASE, REPO, 'feat/other', 'the PR head does not match the verified workstream branch'),
+                (BASE, 'fork/zloop', branch, 'the PR head does not match the verified workstream branch'),
+                (BASE, REPO, branch, None)):
+            with self.subTest(base=base, head_repo=head_repo, head_ref=head_ref):
+                self.replies[f'api --hostname github.com {PULL}'] = {
+                    'number': 12, 'state': 'open', 'base': {'ref': base, 'repo': {'full_name': REPO}},
+                    'head': {'sha': SHA, 'ref': head_ref, 'repo': {'full_name': head_repo}}}
+                self.calls.write_text('')
+                result = self.run_cli('run_control.py', *args)
+                calls = [json.loads(row) for row in self.calls.read_text().splitlines()]
+                read = ['api', '--hostname', 'github.com', PULL]
+                if reason:
+                    self.assertEqual((result.returncode, result.stderr.strip()), (2, f'waiting-on-user: {reason}'))
+                    self.assertEqual(calls, [read])
+                else:
+                    self.assertEqual((result.returncode, result.stdout.strip()), (0, '"submitted to GitHub"'),
+                                     result.stderr)
+                    self.assertEqual(calls, [read, ['api', '--hostname', 'github.com', BRANCH],
+                                             ['api', '--hostname', 'github.com', '--paginate', '--slurp', RULES],
+                                             read, merge])
+
+    def test_unscoped_managed_record_requires_a_fresh_verified_grant(self):
+        self.replies[f'api --hostname github.com {BRANCH}'] = {
+            'name': BASE, 'protected': True, 'protection': {'enabled': True,
+                'required_status_checks': {'enforcement_level': 'everyone', 'contexts': ['docs']}}}
+        self.replies[f'pr merge 12 --repo github.com/{REPO} --match-head-commit {SHA} --squash'] = 'submitted'
+        card = support.run_card(self.root / 'autopilot.md', phase='pr')
+        card.write_text(card.read_text().replace('auto-merge: no', 'auto-merge: yes'))
+        adopted = self.run_cli('run_control.py', 'adopt', str(card), '--source', 'existing grant', '--merge-pr', '12')
+        self.assertEqual(adopted.returncode, 0, adopted.stderr)
+        record = card.with_name('autopilot-control.json')
+        state = json.loads(record.read_text())
+        state.pop('merge_grant')
+        record.write_text(json.dumps(state))
+        before = (card.read_bytes(), record.read_bytes())
+        self.calls.write_text('')
+        merge = ('merge', str(card), '--merge-pr', '12', '--head', SHA, '--method', 'squash', '--expect')
+        result = self.run_cli('run_control.py', *merge, '1')
+        self.assertEqual((result.returncode, result.stderr.strip()), (
+            2, 'waiting-on-user: obtain a new verified merge grant for this managed run'))
+        self.assertEqual(self.calls.read_text(), '')
+        self.assertEqual((card.read_bytes(), record.read_bytes()), before)
+
+        native = self.root / 'native.jsonl'
+        stamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        native.write_text('\n'.join(map(json.dumps, [
+            {'type': 'session_meta', 'payload': {'id': 'host-1'}},
+            {'type': 'response_item', 'timestamp': stamp, 'payload': {
+                'role': 'user', 'content': 'autopilot --take-over --auto-merge'}},
+        ])))
+        resumed = self.run_cli('run_control.py', 'resume', str(card), '--native', str(native), '--runtime', 'codex',
+                               '--expect', '1', '--request-id', 'resume', '--reason', 'user decision',
+                               '--merge-pr', '12')
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        result = self.run_cli('run_control.py', *merge, '2')
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, '"submitted"'), result.stderr)
 
     def test_managed_submission_rechecks_required_checks_after_a_verified_grant(self):
         card = support.run_card(self.root / 'autopilot.md', phase='pr')

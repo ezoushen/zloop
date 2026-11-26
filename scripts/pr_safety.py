@@ -41,8 +41,8 @@ def api(path, *flags):
         raise WaitingOnUser(f'cannot verify GitHub response for {path}') from error
 
 
-def pull_base(repo, pr, head=None):
-    """Return the named open PR's base after verifying repository and optional reviewed head."""
+def pull_base(repo, pr, head=None, *, workstream_branch=None):
+    """Return the open PR's base and verify any expected head commit and source branch."""
     pull = api(f'repos/{repo}/pulls/{pr}')
     try:
         base = pull['base']
@@ -51,9 +51,17 @@ def pull_base(repo, pr, head=None):
                 or not isinstance(base['ref'], str) or not base['ref'].strip()
                 or head is not None and pull['head']['sha'] != head):
             raise ValueError('mismatch')
-        return base['ref']
     except (AttributeError, KeyError, TypeError, ValueError) as error:
         raise WaitingOnUser(f'cannot verify open PR {repo}#{pr}, its base, or its reviewed head') from error
+    if workstream_branch is not None:
+        try:
+            matches = (pull['head']['ref'] == workstream_branch
+                       and pull['head']['repo']['full_name'].casefold() == repo.casefold())
+        except (AttributeError, KeyError, TypeError):
+            matches = False
+        if not matches:
+            raise WaitingOnUser('the PR head does not match the verified workstream branch')
+    return base['ref']
 
 
 def required_checks(repo, base):
@@ -108,16 +116,27 @@ def require_merge_authority(confirmed_by):
             raise WaitingOnUser('relayed confirmation cannot authorize auto-merge')
 
 
-def verify_grant(base=None, pr=None, *, confirmed_by=None):
-    """Verify an explicit planned base or an existing PR before recording a grant."""
+def verify_grant(base=None, pr=None, *, confirmed_by=None, bind_branch=False):
+    """Return the verified target and its required checks before recording a grant."""
     require_merge_authority(confirmed_by)
     if (base is None) == (pr is None) or pr is not None and pr < 1 or base is not None and not base.strip():
         raise WaitingOnUser('the intended GitHub base branch or PR is required')
     repo = repository()
-    return required_checks(repo, pull_base(repo, pr) if pr is not None else base)
+    base = pull_base(repo, pr) if pr is not None else base
+    target = dict(repo=repo.casefold(), base=base, pr=pr)
+    if bind_branch and pr is None:
+        message = 'the planned merge grant requires a checked-out workstream branch'
+        try:
+            ref = command('git', 'symbolic-ref', '--quiet', 'HEAD').strip()
+        except WaitingOnUser as error:
+            raise WaitingOnUser(message) from error
+        if not ref.startswith('refs/heads/'):
+            raise WaitingOnUser(message)
+        target['branch'] = ref.removeprefix('refs/heads/')
+    return target, required_checks(repo, base)
 
 
-def submit_merge(pr, head, method, *, confirmed_by=None):
+def submit_merge(pr, head, method, *, confirmed_by=None, grant=None):
     """Submit a reviewed PR through GitHub's normal approval and check enforcement."""
     require_merge_authority(confirmed_by)
     if pr is None or pr < 1 or not re.fullmatch(r'[0-9a-f]{40}', head or ''):
@@ -125,10 +144,16 @@ def submit_merge(pr, head, method, *, confirmed_by=None):
     if method not in ('merge', 'squash', 'rebase'):
         raise WaitingOnUser('the approved GitHub merge method is required')
     repo = repository()
-    base = pull_base(repo, pr, head)
+    if grant is not None and (repo.casefold() != grant.get('repo')
+                              or grant.get('pr') not in (None, pr)):
+        raise WaitingOnUser('the PR does not match the verified merge grant')
+    branch = grant.get('branch') if grant is not None else None
+    base = pull_base(repo, pr, head, workstream_branch=branch)
+    if grant is not None and base != grant.get('base'):
+        raise WaitingOnUser('the PR base does not match the verified merge grant')
     required_checks(repo, base)
     # GitHub can condition submission on the head SHA, but has no corresponding base guard.
-    if pull_base(repo, pr, head) != base:
+    if pull_base(repo, pr, head, workstream_branch=branch) != base:
         raise WaitingOnUser(f'PR {repo}#{pr} changed base during verification')
     return command('gh', 'pr', 'merge', str(pr), '--repo', f'github.com/{repo}',
                    '--match-head-commit', head, f'--{method}')
@@ -156,8 +181,11 @@ def main():
                 raise WaitingOnUser('expected a legacy run card; use run_control.py for managed runs')
             confirmed_by = values.get('confirmed-by')
         if args.command == 'grant':
-            print(json.dumps({'required_checks': verify_grant(args.base, args.pr, confirmed_by=confirmed_by)}))
+            _, checks = verify_grant(args.base, args.pr, confirmed_by=confirmed_by)
+            print(json.dumps({'required_checks': checks}))
         else:
+            if args.card is not None and values.get('auto-merge') != 'yes':
+                raise WaitingOnUser('the current delivery run lacks an active merge grant')
             print(submit_merge(args.pr, args.head, args.method, confirmed_by=confirmed_by), end='')
     except (OSError, ValueError) as error:
         parser.exit(2, f'waiting-on-user: {error}\n')

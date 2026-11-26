@@ -186,14 +186,18 @@ def adopt(card, reference, allow_resume=False, *, merge_base=None, merge_pr=None
         values = state_files.state_fields(text)
         if re.match(r'no\b|$', values.get('confirmed', ''), re.I):
             raise ValueError('Only a confirmed card can be adopted')
+        grant = None
         if values.get('auto-merge') == 'yes':
-            pr_safety.verify_grant(merge_base, merge_pr, confirmed_by=values.get('confirmed-by'))
+            grant, _ = pr_safety.verify_grant(merge_base, merge_pr, confirmed_by=values.get('confirmed-by'),
+                                             bind_branch=True)
         now, run = time.time(), uuid.uuid4().hex
         state = dict(schema=1, run_id=run, revision=1, created_at=now, allow_resume=bool(allow_resume),
                      dispatch_policy=dict(DISPATCH_POLICY),
                      card_text=fields(text, {'control': run}),
                      events=[dict(id='adopt', actor='host', source={'kind': 'confirmation', 'reference': reference},
                                   terminal=values.get('terminal', ''), at=now)])
+        if grant is not None:
+            state['merge_grant'] = grant
         save(card, state, before)
         return state
 
@@ -324,9 +328,13 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
         elif source.get('kind') != 'host' or not source.get('reference'):
             raise ValueError('Host transition requires its evidence reference')
         changes = dict(updates or {}, terminal=terminal, evidence=f'{source["reference"]}: {reason}')
-        if grant_merge:
-            pr_safety.verify_grant(merge_base, merge_pr, confirmed_by=values.get('confirmed-by'))
         if not terminal:
+            if grant_merge:
+                state['merge_grant'], _ = pr_safety.verify_grant(merge_base, merge_pr,
+                                                                confirmed_by=values.get('confirmed-by'),
+                                                                bind_branch=True)
+            else:
+                state.pop('merge_grant', None)
             changes['auto-merge'] = 'yes' if grant_merge else 'no'
             history = values.get('history', '')
             changes['history'] = '; '.join(filter(None, [history, f'{old} {datetime.date.today().isoformat()}']))
@@ -350,7 +358,13 @@ def merge(card, expected, pr, head, method):
         if (values.get('auto-merge') != 'yes' or values.get('phase') != 'pr'
                 or values.get('terminal') not in ('', 'delivered')):
             raise pr_safety.WaitingOnUser('the current delivery run lacks an active merge grant')
-        return pr_safety.submit_merge(pr, head, method, confirmed_by=values.get('confirmed-by'))
+        pr_safety.require_merge_authority(values.get('confirmed-by'))
+        grant = state.get('merge_grant')
+        if isinstance(grant, dict) and all(isinstance(grant.get(key), str) and grant[key] for key in ('repo', 'base')):
+            granted_pr, branch = grant.get('pr'), grant.get('branch')
+            if (type(granted_pr) is int and granted_pr > 0) or (granted_pr is None and isinstance(branch, str) and branch):
+                return pr_safety.submit_merge(pr, head, method, grant=grant)
+        raise pr_safety.WaitingOnUser('obtain a new verified merge grant for this managed run')
 
 
 def require_active(card):

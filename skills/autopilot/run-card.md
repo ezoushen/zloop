@@ -77,4 +77,6 @@ base's required checks can be verified.
 
 For merge submission, use the [approval path](../../runtime/board/approval-path.md)
 for a legacy card or the [managed merge command](../../runtime/workers/control.md)
-for a managed card. Both verify the PR's actual base again before submitting.
+for a managed card. The legacy path requires `auto-merge: yes` in the card.
+Managed submissions also match the target recorded in the grant. Both verify
+the PR's actual base again before submitting.
