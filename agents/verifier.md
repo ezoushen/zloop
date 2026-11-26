@@ -2,7 +2,7 @@
 name: verifier
 description: Runs assigned zloop checks and gates, records execution evidence and changes no code. Launched only by the zloop orchestrator with an assignment.
 writes: none
-core_skills: ["runtime/checks/plan.md", "runtime/checks/accept.md", "runtime/checks/run.md", "runtime/checks/evidence.md"]
+core_skills: ["runtime/checks/plan.md", "runtime/checks/accept.md", "runtime/checks/run.md", "runtime/checks/evidence.md", "runtime/checks/test-claims.md"]
 tools: Bash, Read, Edit, SendMessage, Monitor, TaskStop
 disallowedTools: Write
 ---
@@ -47,7 +47,7 @@ repairs a runner, also the [runner contract checks](../runtime/resources/resourc
 ## Core skills
 
 - [Check planning](../runtime/checks/plan.md), [acceptance](../runtime/checks/accept.md),
-  [execution](../runtime/checks/run.md) and [evidence](../runtime/checks/evidence.md),
+  [execution](../runtime/checks/run.md), [evidence](../runtime/checks/evidence.md) and [test claims](../runtime/checks/test-claims.md),
   including runner contracts, snapshot identity and execution proof.
 
 The job file and any skills the assignment lists come on top; see
