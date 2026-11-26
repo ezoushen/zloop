@@ -227,7 +227,7 @@ class Confirm(unittest.TestCase):
         self.assertEqual(result.returncode, code, result.stderr)
         return path.read_text(), result.stderr
 
-    def test_confirming_writes_the_users_words_and_each_host_session_exported_here_and_nothing_else(self):
+    def test_full_confirmation_records_the_verified_provenance_words_and_host_sessions(self):
         # Live (jose, Pi): a hand-written card named no session, so neither the panel nor the stop hold found its run.
         today = datetime.date.today().isoformat()
         confirmed = DRAFT.replace('confirmed: no', f'confirmed: {today} "go ahead, inline"\nconfirmed-by: human')

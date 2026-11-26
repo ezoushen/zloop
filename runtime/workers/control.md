@@ -62,8 +62,8 @@ where the run card permits them.
 Full confirmation records the verified conversation in `intent-thread:` and
 adoption preserves it. Relay and by-rule setup can record the current T3
 conversation for future verification. The `session:` list routes execution.
-An older card without a conversation binding can still perform ordinary PR-only
-work. A human take-over or grant requires the bound conversation.
+For an older card without a conversation binding, continue ordinary PR-only work.
+Confirm a fresh run card in T3 before requesting a human take-over or grant.
 
 For legacy take-over, run `python3 "<plugin_root>/scripts/autopilot_card.py"
 take-over <card> [--effort <level>] [--dispatch-effort <level>]
