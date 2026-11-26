@@ -19,7 +19,8 @@ The target supplies three bounded driver commands in a JSON configuration:
 ```
 
 Each literal argv has exactly one whole `{receipt}` argument, replaced with JSON:
-event ID, queue path, card, run ID, expected control revision and due epoch.
+event ID, queue path, card, run ID, expected control revision and due epoch, plus
+the workstream branch and expected head when the wake has one.
 No shell expansion happens. Successful drivers print one JSON object; `notify`
 may instead print nothing. Put diagnostics on stderr. Supply commands for the real, identified host:
 
@@ -46,6 +47,14 @@ python3 <plugin_root>/scripts/supervisor.py schedule <queue.json> --card <card> 
   --due <UTC-epoch-seconds> --config <drivers.json> --event-id <unique-safe-id>
 python3 <plugin_root>/scripts/supervisor.py run <queue.json> --interval 5
 ```
+
+Add `--expect-head <full-sha>` when the continuation is only valid at a known head.
+`schedule` records the workstream branch (the reviewed `workstream_branch`, else
+`feat/<workstream>`) with that SHA and refuses when the branch does not point at it
+now. Before the target resumes it, a tick cancels the wake as stale, naming the
+branch and both SHAs, once the branch points elsewhere or no longer exists; nothing
+is sent. A resumed run may move the branch. A wake without `--expect-head` checks
+no head.
 
 Start `run` through an already authorized external terminal/service; do not claim
 it survives host loss without exercising that arrangement. `tick` processes one

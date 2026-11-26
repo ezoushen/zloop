@@ -94,20 +94,26 @@ def working_entry(root, name, expected, algorithm):
     return mode, blob
 
 
-def source_snapshot(root, phase, claim, base, test_file):
-    """Check the index and worktree and identify the test run at that snapshot."""
+def source_snapshot(root, phase, claim, base, test_file, revert=()):
+    """Check the index and worktree and identify the test run at that snapshot. The revert paths, each a product path
+    changed between the base and the checked-out commit, must hold their base content instead."""
     head = git(root, 'rev-parse', '--verify', 'HEAD').decode().strip()
     if phase == 'red' and head != base:
         raise ValueError('red must run at the assigned base')
     tracked, index = tree_entries(root, head), index_entries(root)
+    reverted = {os.fsencode(path) for path in revert}
+    original = tree_entries(root, base) if reverted else {}
+    for path in sorted(reverted):
+        if valid_test_file(os.fsdecode(path)) or original.get(path) == tracked.get(path):
+            raise ValueError(f'revert path {os.fsdecode(path)} is not a product path changed since {base}')
     untracked = set(entries(git(root, 'ls-files', '--others', '--exclude-standard', '-z')))
     algorithm = git(root, 'rev-parse', '--show-object-format').decode().strip()
     module = claim.rsplit('.', 2)[0].replace('.', '/') + '.py' if test_file is None else None
     test_module = os.fsencode(module) if module and valid_test_file(module) else None
     declared = os.fsencode(test_file) if test_file else None
     changed_test, test_sources, test_context = {}, {}, {}
-    for path in sorted(tracked.keys() | index.keys() | untracked):
-        expected = tracked.get(path)
+    for path in sorted(tracked.keys() | index.keys() | untracked | reverted):
+        expected = original.get(path) if path in reverted else tracked.get(path)
         actual = working_entry(root, path, expected, algorithm)
         name = os.fsdecode(path)
         regular = actual and actual[0] in (b'100644', b'100755')
@@ -122,19 +128,20 @@ def source_snapshot(root, phase, claim, base, test_file):
         if phase == 'red' and regular and is_test_file:
             changed_test[name] = actual[1].decode()
             continue
-        raise ValueError(f'{phase} source differs from {head}: {name}')
+        raise ValueError(f'{phase} source differs from {base if path in reverted else head}: {name}')
     if len(test_sources) != 1:
         raise ValueError(f'{claim}: expected one test source file')
     path, identity = next(iter(test_sources.items()))
     return {'head': head, 'tree': git(root, 'rev-parse', f'{head}^{{tree}}').decode().strip(),
-            'test_changes': changed_test, 'test': {'path': path, 'identity': identity, 'context': test_context}}
+            'test_changes': changed_test, 'reverted': sorted(map(os.fsdecode, reverted)),
+            'test': {'path': path, 'identity': identity, 'context': test_context}}
 
 
 def observed_claim(log, phase, claim, output_format):
-    """Read a test's result in the selected output format."""
+    """Read a test's result in the selected output format: passing for green, failing for red and revert."""
     lines = log.read_text(errors='replace').splitlines()
     if output_format == 'marker':
-        verdict = 'FAIL' if phase == 'red' else 'PASS'
+        verdict = 'PASS' if phase == 'green' else 'FAIL'
         outcomes = {f'{status}: {claim}' for status in ('FAIL', 'PASS', 'ERROR', 'SKIP')}
         return outcomes.intersection(lines) == {f'{verdict}: {claim}'}
     return unittest_claim(lines, phase, claim)
@@ -143,7 +150,7 @@ def observed_claim(log, phase, claim, output_format):
 def unittest_claim(lines, phase, claim):
     """Read an exact verbose unittest result and its matching run footer."""
     test = f'{claim.rsplit(".", 1)[1]} ({claim})'
-    status = 'FAIL' if phase == 'red' else 'ok'
+    status = 'ok' if phase == 'green' else 'FAIL'
     separator = '=' * 70
     boundary = next((i for i, line in enumerate(lines)
                      if line in (separator, '-' * 70)), len(lines))
@@ -237,10 +244,10 @@ def retained_receipt(path, digest, saved, collected_ns):
         source_head = proof['source']['head']
         if (not isinstance(source_head, str) or proof['attempt'] != saved['attempt']
                 or proof['identity'] != saved['check_receipts']['identity']
-                or proof['base'] != saved['head'] or phase not in ('red', 'green')
+                or proof['base'] != saved['head'] or phase not in ('red', 'green', 'revert')
                 or claim not in saved['check_receipts']['claims']
                 or not 0 < proof['started_ns'] < proof['finished_ns'] <= collected_ns
-                or summary['exit_code'] != (1 if phase == 'red' else 0)
+                or summary['exit_code'] != (0 if phase == 'green' else 1)
                 or (phase == 'red' and source_head != saved['head'])):
             return None
         return proof
@@ -264,7 +271,8 @@ def same_test_run(red, green):
 
 
 def problems(saved, head, *, ticket=None, base=None):
-    """Report missing, moved or out-of-order proof for a managed ticket result."""
+    """Report missing, moved or out-of-order proof for a managed ticket result: per claim, a red at the base, then a
+    green at head, then a revert at head, all of the same test run."""
     assigned = saved.get('check_receipts')
     if not assigned:
         if ticket is not None and saved.get('result', {}).get('checks_collected_ns'):
@@ -289,14 +297,20 @@ def problems(saved, head, *, ticket=None, base=None):
         red = [proof for proof in proofs if proof['phase'] == 'red' and proof['claim'] == claim]
         green = [proof for proof in proofs if proof['phase'] == 'green' and proof['claim'] == claim
                  and proof['source']['head'] == head]
+        revert = [proof for proof in proofs if proof['phase'] == 'revert' and proof['claim'] == claim
+                  and proof['source']['head'] == head]
         if not red:
             missing.append(f'{claim}: missing red receipt at the assigned base')
         elif not green:
             missing.append(f'{claim}: missing green receipt at accepted head {head}')
         else:
             matches = [(before, after) for before in red for after in green if same_test_run(before, after)]
+            ordered = [after for before, after in matches if before['finished_ns'] < after['started_ns']]
             if not matches:
                 missing.append(f'{claim}: red and green must run the same test, command and format')
-            elif all(before['finished_ns'] >= after['started_ns'] for before, after in matches):
+            elif not ordered:
                 missing.append(f'{claim}: red must finish before green begins')
+            elif not any(same_test_run(after, control) and after['finished_ns'] < control['finished_ns']
+                         for after in ordered for control in revert):
+                missing.append(f'{claim}: missing revert receipt after green at accepted head {head}')
     return missing

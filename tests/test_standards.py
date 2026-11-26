@@ -90,6 +90,13 @@ class Standards(unittest.TestCase):
         signal = kind[kind.index('## Signal'):kind.index('## Proof')]
         self.assertIn('Numbers, counts and absolute words (all, every, only, never) go stale first', signal)
 
+    def test_a_failing_hosted_check_is_reproduced_where_it_fails_before_product_changes(self):
+        # Rule: a repair for a hosted-only failure starts from that runner's environment or its log, not a local guess.
+        text = support.prose('standards/pr.md').lower()
+        self.assertIn('reproduce it where it fails, in an environment matching that runner or with the job\'s own '
+                      'commands, or confirm its cause from the job\'s log, before changing product code', text)
+        self.assertNotIn('reproduce the full failing ci job locally', text)
+
     def test_the_three_standards_exist(self):
         for name in ('code-comments.md', 'documentation.md', 'pr.md'):
             self.assertTrue((STANDARDS / name).is_file(), name)

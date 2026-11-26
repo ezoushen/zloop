@@ -31,8 +31,25 @@ def save(queue, data):
     state_files.write_atomic(Path(queue), json.dumps(data, indent=2) + '\n', mode=0o600)
 
 
-def schedule(queue, card, due, config, event_id):
-    """Arm an explicit existing resume grant, bound to the exact managed revision."""
+def branch_head(card, branch):
+    """Return the full SHA the local branch points at, or '' when it does not exist."""
+    result = subprocess.run(['git', '-C', str(Path(card).parent), 'rev-parse', '--verify', '--quiet',
+                             f'refs/heads/{branch}^{{commit}}'], capture_output=True, text=True)
+    return result.stdout.strip()
+
+
+def moved_branch(card, branch, expected):
+    """Name the branch and both SHAs when it no longer points at the expected head."""
+    actual = branch_head(card, branch)
+    if actual != expected:
+        return f'Branch {branch} points at {actual or "nothing"}, not the expected {expected}'
+
+
+def schedule(queue, card, due, config, event_id, expect_head=None):
+    """Arm an explicit existing resume grant, bound to the exact managed revision.
+
+    With `expect_head` (a full SHA), the wake also lapses once the workstream branch no
+    longer points at it, and scheduling is refused when the branch does not now."""
     queue, card = Path(queue).resolve(), Path(card).resolve()
     control = run_control.read(card)
     if not control or not control['allow_resume']:
@@ -50,6 +67,12 @@ def schedule(queue, card, due, config, event_id):
         raise ValueError('Require an event ID, due epoch and a timeout in (0, 45] seconds')
     request = dict(card=str(card), run_id=control['run_id'], control_revision=control['revision'],
                    due=due, config=config)
+    if expect_head is not None:
+        if not re.fullmatch(r'[0-9a-f]{40}', expect_head):
+            raise ValueError(f'The expected head must be a full SHA, not {expect_head!r}')
+        request.update(branch=run_control.workstream_branch(card.parent), expect_head=expect_head)
+        if problem := moved_branch(card, request['branch'], expect_head):
+            raise ValueError(problem)
     queue.parent.mkdir(parents=True, exist_ok=True)
     with state_files.locked(queue):
         data = read(queue) if queue.exists() else {'schema': 1, 'wakes': {}}
@@ -105,6 +128,9 @@ def current(entry):
         raise ValueError('Run no longer waits on this allowance pause')
     if not resumed and control['revision'] != entry['request']['control_revision']:
         raise ValueError('Control revision changed')
+    if not resumed and (head := entry['request'].get('expect_head')) is not None:
+        if problem := moved_branch(entry['request']['card'], entry['request']['branch'], head):
+            raise ValueError(problem)
     return control
 
 
@@ -195,13 +221,15 @@ def main():
     parser.add_argument('--config', type=Path)
     parser.add_argument('--due', type=float)
     parser.add_argument('--event-id')
+    parser.add_argument('--expect-head', help='full SHA the workstream branch must keep pointing at')
     parser.add_argument('--interval', type=float, default=5)
     args = parser.parse_args()
     try:
         if args.command == 'schedule':
             if not args.card or not args.config or args.due is None:
                 raise ValueError('Schedule needs --card, --config and --due')
-            result = schedule(args.queue, args.card, args.due, json.loads(args.config.read_text()), args.event_id)
+            result = schedule(args.queue, args.card, args.due, json.loads(args.config.read_text()),
+                              args.event_id, args.expect_head)
         elif args.command == 'reconcile':
             result = reconcile(args.queue, args.event_id)
         else:

@@ -444,13 +444,22 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         check = [sys.executable, str(support.script('run_check.py')), '--timeout', '5',
                  '--log', str(log), '--phase', phase, '--claim', claim, '--state', str(state),
                  '--attempt', item['attempt'], '--format', output_format]
+        if phase == 'revert':
+            check += ['--revert', 'product.py']
         if command is None:
             command = [sys.executable, '-B', '-m', 'unittest', '-v', claim]
         result = subprocess.run([*check, '--', *command],
                                 cwd=item['worktree'], capture_output=True, text=True, timeout=10)
-        self.assertEqual(result.returncode, 1 if phase == 'red' else 0, result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 0 if phase == 'green' else 1, result.stdout + result.stderr)
         self.assertEqual(json.loads(result.stdout)['tdd']['claim'], claim)
         return str(log)
+
+    def revert_check(self, item, claim, base, **options):
+        """Record a revert of the fix (product.py back at the base) at the worktree's head, then restore the head."""
+        self.worktree_git(item, 'checkout', base, '--', 'product.py')
+        log = self.phase_check(item, claim, 'revert', **options)
+        self.worktree_git(item, 'checkout', 'HEAD', '--', 'product.py')
+        return log
 
     def fixed_result(self, item, test_file='test_value.py'):
         (Path(item['worktree']) / 'product.py').write_text('value = 2\n')
@@ -486,7 +495,7 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         self.assert_claim_refused(item, ticket, request, f'{claim}: missing red receipt')
 
     def test_managed_acceptance_pairs_an_unchanged_unittest_after_a_new_test_file_is_added(self):
-        ticket, item, claim, _ = self.claimed_ticket()
+        ticket, item, claim, base = self.claimed_ticket()
         self.write_claimed_test(item)
         test = Path(item['worktree']) / 'test_value.py'
         test.write_text(test.read_text() + '\nclass Settings:\n'
@@ -502,7 +511,7 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         self.worktree_git(item, 'add', added.name)
         request = self.fixed_result(item)
         green = self.phase_check(item, claim, 'green')
-        request['evidence'] += [red, green]
+        request['evidence'] += [red, green, self.revert_check(item, claim, base)]
         accepted = self.collected_board(item, request)
         self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
         self.assertIn(f"accepted: {request['head']}", ticket.read_text())
@@ -697,7 +706,8 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
 
     def test_managed_acceptance_accepts_exact_markers_from_a_shell_test(self):
         test_file = 'tests/value-check.sh'
-        ticket, item, claim, _ = self.claimed_ticket(claim='shell::value matches expected result', test_file=test_file)
+        ticket, item, claim, base = self.claimed_ticket(claim='shell::value matches expected result',
+                                                        test_file=test_file)
         self.write_marker_test(item, test_file)
         command = ['sh', test_file, claim]
         red = self.phase_check(item, claim, 'red', command=command, output_format='marker')
@@ -705,7 +715,8 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         request = self.fixed_result(item, test_file=test_file)
         green = self.phase_check(item, claim, 'green', command=command, output_format='marker')
         self.assertEqual(Path(green).read_text(), f'PASS: {claim}\n')
-        request['evidence'] += [red, green]
+        revert = self.revert_check(item, claim, base, command=command, output_format='marker')
+        request['evidence'] += [red, green, revert]
         accepted = self.collected_board(item, request)
         self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
         self.assertIn(f"accepted: {request['head']}", ticket.read_text())

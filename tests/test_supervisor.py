@@ -42,6 +42,29 @@ class Supervisor(unittest.TestCase):
     def schedule(self):
         return self.supervisor.schedule(self.queue, self.card, 0, self.config, 'wake-1')
 
+    def schedule_expecting(self, head):
+        """Schedule wake-1 through the command line, as an operator would, expecting the branch at `head`."""
+        config = self.root / 'drivers.json'
+        config.write_text(json.dumps(self.config))
+        return subprocess.run([sys.executable, '-B', str(support.SCRIPTS / 'supervisor.py'), 'schedule', str(self.queue),
+                               '--card', str(self.card), '--config', str(config), '--due', '0',
+                               '--event-id', 'wake-1', '--expect-head', head], capture_output=True, text=True)
+
+    def git(self, *args):
+        return subprocess.run(['git', '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false',
+                               '-C', str(self.root), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+    def workstream_head(self):
+        """Create the workstream's branch with one commit, as the reviewed branch override names it, and return its head."""
+        (self.root / 'reports').mkdir()
+        (self.root / 'reports' / 'spec-review.md').write_text('---\nworkstream_branch: feat/wake\n---\n')
+        self.git('init', '-q', '-b', 'feat/wake')
+        return self.advance_branch()
+
+    def advance_branch(self):
+        self.git('commit', '-q', '--allow-empty', '-m', 'work')
+        return self.git('rev-parse', 'refs/heads/feat/wake')
+
     def test_another_process_resumes_persisted_work_and_duplicates_do_not_resend(self):
         self.schedule()
         result = subprocess.run([sys.executable, '-B', str(support.SCRIPTS / 'supervisor.py'),
@@ -135,6 +158,59 @@ class Supervisor(unittest.TestCase):
         self.assertFalse(self.output.exists())
         with self.assertRaisesRegex(ValueError, 'does not prove'):
             self.supervisor.reconcile(self.queue, 'wake-1')
+
+    def test_a_wake_expecting_a_head_is_cancelled_as_stale_when_the_branch_moves(self):
+        expected = self.workstream_head()
+        scheduled = self.schedule_expecting(expected)
+        self.assertEqual(scheduled.returncode, 0, scheduled.stderr)
+        moved = self.advance_branch()
+        with patch.object(self.supervisor, 'invoke', wraps=self.supervisor.invoke) as invoke:
+            result = self.supervisor.tick(self.queue)
+        self.assertEqual(result['state'], 'cancelled')
+        self.assertIn(expected, result['reason'])
+        self.assertIn(moved, result['reason'])
+        invoke.assert_not_called()
+        self.assertFalse(self.output.exists())
+
+    def test_a_wake_expecting_the_branchs_current_head_proceeds(self):
+        scheduled = self.schedule_expecting(self.workstream_head())
+        self.assertEqual(scheduled.returncode, 0, scheduled.stderr)
+        self.assertEqual(self.supervisor.tick(self.queue)['state'], 'progressed')
+        self.assertTrue(self.output.exists())
+
+    def test_work_the_resumed_run_commits_does_not_cancel_its_sent_wake(self):
+        flag = self.root / 'target-progressed'
+        self.config['progress'] = [sys.executable, '-c',
+            'import json,pathlib,sys; r=json.loads(sys.argv[1]); '
+            f'print(json.dumps(dict(event_id=r["event_id"], progressed=pathlib.Path({str(flag)!r}).exists())))',
+            '{receipt}']
+        scheduled = self.schedule_expecting(self.workstream_head())
+        self.assertEqual(scheduled.returncode, 0, scheduled.stderr)
+        self.assertEqual(self.supervisor.tick(self.queue)['state'], 'sent')
+        self.advance_branch()
+        flag.touch()
+        self.assertEqual(self.supervisor.tick(self.queue)['state'], 'progressed')
+
+    def test_scheduling_refuses_an_expected_head_the_branch_does_not_point_at(self):
+        actual = self.workstream_head()
+        expected = self.advance_branch()
+        self.git('reset', '-q', '--hard', actual)
+        refused = self.schedule_expecting(expected)
+        self.assertEqual(refused.returncode, 2)
+        self.assertRegex(refused.stderr, f'feat/wake.*{actual}.*{expected}')
+        self.assertFalse(self.queue.exists())
+
+    def test_scheduling_refuses_an_expected_head_that_is_not_a_full_sha(self):
+        (self.root / 'reports').mkdir()
+        (self.root / 'reports' / 'spec-review.md').write_text('---\nworkstream_branch: feat/wake\n---\n')
+        self.git('init', '-q', '-b', 'main')
+        self.git('commit', '-q', '--allow-empty', '-m', 'base')
+        for head in ('', self.git('rev-parse', '--short', 'HEAD')):
+            with self.subTest(head=head):
+                refused = self.schedule_expecting(head)
+                self.assertEqual(refused.returncode, 2)
+                self.assertIn('full SHA', refused.stderr)
+                self.assertFalse(self.queue.exists())
 
 
 if __name__ == '__main__':

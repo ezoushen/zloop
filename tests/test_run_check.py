@@ -13,10 +13,15 @@ import time
 import unittest
 
 import support
+import check_receipts
 
 
 RUNNER = support.script('run_check.py')
 LOCK = support.script('resource_lock.py')
+# The claimed test alone: it fails at the base (value 1) and passes once the fix sets value 2.
+CLAIMED_TEST = ('import unittest\nfrom product import value\n'
+                'class ValueTest(unittest.TestCase):\n'
+                '    def test_wanted(self): self.assertEqual(value, 2)\n')
 
 
 class RunCheckTests(unittest.TestCase):
@@ -27,7 +32,9 @@ class RunCheckTests(unittest.TestCase):
         repo = root / 'repo'
         subprocess.run(['git', 'init', '-q', str(repo)], check=True)
         (repo / 'product.py').write_text('value = 1\n')
-        subprocess.run(['git', '-C', str(repo), 'add', 'product.py'], check=True)
+        (repo / 'legacy.py').write_text('retired = True\n')
+        (repo / 'stable.py').write_text('kept = True\n')
+        subprocess.run(['git', '-C', str(repo), 'add', 'product.py', 'legacy.py', 'stable.py'], check=True)
         subprocess.run(['git', '-C', str(repo), '-c', 'user.name=t', '-c', 'user.email=t@t',
                         'commit', '-qm', 'base'], check=True)
         base = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
@@ -40,20 +47,54 @@ class RunCheckTests(unittest.TestCase):
                             'test_files': {claim: test_file} if test_file else {}})])
         return repo, base, claim
 
+    def claim_check(self, repo, claim, name, *phase, verbose='-v'):
+        """Run the value test module as a check of claim with the phase options; its log is name.log beside repo."""
+        log = repo.parent / f'{name}.log'
+        result = subprocess.run(
+            [sys.executable, str(RUNNER), '--timeout', '5', '--log', str(log), *phase,
+             '--format', 'unittest', '--claim', claim, '--state', str(repo.parent / 'workers.sqlite'),
+             '--attempt', 'value-1', '--', sys.executable, '-B', '-m', 'unittest', verbose, 'test_value'],
+            cwd=repo, capture_output=True, text=True, timeout=10)
+        return log, result
+
+    def revert_check(self, repo, base, claim, name, **options):
+        """Record a revert of the fix (product.py back at the base) at the checked-out head, then restore the head."""
+        subprocess.run(['git', '-C', str(repo), 'checkout', base, '--', 'product.py'], check=True)
+        log, result = self.claim_check(repo, claim, name, '--phase', 'revert', '--revert', 'product.py', **options)
+        subprocess.run(['git', '-C', str(repo), 'checkout', 'HEAD', '--', 'product.py'], check=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        return log
+
+    def acceptance(self, repo, base, claim, head, *logs):
+        """What acceptance at head reports for the fixture attempt, whose ticket declares claim, given the summaries
+        of logs collected now."""
+        ticket = repo.parent / 'ticket.md'
+        ticket.write_text('## Acceptance criteria\n- [ ] The product holds the wanted value.\n'
+                          f'      Verify (code): run the value test.\n      Test claim: {claim}\n')
+        assigned = dict(check_receipts.criteria(ticket), ticket=str(ticket), identity='value-run')
+        result = dict(check_receipts=check_receipts.sealed_receipts([str(log) for log in logs]),
+                      checks_collected_ns=time.time_ns())
+        return check_receipts.problems(dict(attempt='value-1', head=base, check_receipts=assigned, result=result), head)
+
     def red_check(self, repo, claim, name, wanted):
         (repo / 'test_value.py').write_text(
             'import unittest\nfrom product import value\n'
             'class ValueTest(unittest.TestCase):\n'
             f'{wanted}'
             '    def test_other(self): self.fail("test_value.ValueTest.test_wanted")\n')
-        log = repo.parent / f'{name}.log'
-        result = subprocess.run(
-            [sys.executable, str(RUNNER), '--timeout', '5', '--log', str(log),
-             '--phase', 'red', '--format', 'unittest', '--claim', claim,
-             '--state', str(repo.parent / 'workers.sqlite'),
-             '--attempt', 'value-1', '--', sys.executable, '-B', '-m', 'unittest', '-v', 'test_value'],
-            cwd=repo, capture_output=True, text=True, timeout=10)
-        return log, result
+        return self.claim_check(repo, claim, name, '--phase', 'red')
+
+    def committed_fix(self, repo):
+        """Commit the claimed test, its fix (value 2) and two product changes the test does not depend on (helper.py
+        added, legacy.py removed); return the new head."""
+        (repo / 'test_value.py').write_text(CLAIMED_TEST)
+        (repo / 'product.py').write_text('value = 2\n')
+        (repo / 'helper.py').write_text('unused = True\n')
+        (repo / 'legacy.py').unlink()
+        subprocess.run(['git', '-C', str(repo), 'add', '-A'], check=True)
+        subprocess.run(['git', '-C', str(repo), '-c', 'user.name=t', '-c', 'user.email=t@t',
+                        'commit', '-qm', 'fix'], check=True)
+        return subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
 
     def test_red_records_the_claimed_unittest_failure_on_base_source(self):
         repo, base, claim = self.claim_fixture()
@@ -122,6 +163,68 @@ class RunCheckTests(unittest.TestCase):
                 summary = json.loads(result.stdout)
                 self.assertNotIn('tdd', summary)
                 self.assertIn(f'{claim} did not fail as a marker result', summary['test_claim_error'])
+
+    def test_revert_records_a_receipt_only_when_restoring_the_fix_turns_the_claim_red(self):
+        repo, base, claim = self.claim_fixture()
+        head = self.committed_fix(repo)
+        log = self.revert_check(repo, base, claim, 'revert')
+        self.assertIn(f'FAIL: test_wanted ({claim})', log.read_text())
+        proof = json.loads(Path(f'{log}.summary.json').read_text())['tdd']
+        git = ['git', '-C', str(repo)]
+        tree = subprocess.check_output([*git, 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+        self.assertEqual((proof['phase'], proof['claim'], proof['base'], proof['attempt']),
+                         ('revert', claim, base, 'value-1'))
+        self.assertEqual((proof['source']['head'], proof['source']['tree'], proof['source']['reverted']),
+                         (head, tree, ['product.py']))
+
+        def refused(name, paths, reason, code=125):
+            with self.subTest(refusal=name):
+                _, result = self.claim_check(repo, claim, name, '--phase', 'revert',
+                                             *(['--revert', *paths] if paths else []))
+                self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                self.assertIn(reason, result.stdout + result.stderr)
+                self.assertNotIn('"tdd"', result.stdout)
+            subprocess.run([*git, 'reset', '-q', '--hard', head], check=True)
+
+        refused('no path', [], '--phase revert requires --revert', code=2)
+        subprocess.run([*git, 'rm', '-q', 'helper.py'], check=True)
+        refused('stays green', ['helper.py'], f'{claim} did not fail as a unittest result')
+        refused('test path', ['test_value.py'], f'revert path test_value.py is not a product path changed since {base}')
+        subprocess.run([*git, 'checkout', base, '--', 'product.py'], check=True)
+        refused('unchanged path', ['product.py', 'stable.py'],
+                f'revert path stable.py is not a product path changed since {base}')
+        subprocess.run([*git, 'checkout', base, '--', 'product.py'], check=True)
+        refused('removed path left removed', ['product.py', 'legacy.py'],
+                f'revert source differs from {base}: legacy.py')
+        (repo / 'product.py').write_text('value = 3\n')
+        refused('other bytes', ['product.py'], f'revert source differs from {base}: product.py')
+
+    def test_acceptance_requires_a_revert_receipt_after_green_at_the_accepted_head(self):
+        repo, base, claim = self.claim_fixture()
+        (repo / 'test_value.py').write_text(CLAIMED_TEST)
+        red, _ = self.claim_check(repo, claim, 'red', '--phase', 'red')
+        head = self.committed_fix(repo)
+        green, _ = self.claim_check(repo, claim, 'green', '--phase', 'green')
+        missing = f'{claim}: missing revert receipt after green at accepted head {head}'
+        self.assertEqual(self.acceptance(repo, base, claim, head, red, green), [missing])
+        revert = self.revert_check(repo, base, claim, 'revert')
+        later_green, _ = self.claim_check(repo, claim, 'later-green', '--phase', 'green')
+        self.assertEqual(self.acceptance(repo, base, claim, head, red, later_green, revert), [missing],
+                         'a revert that ended before green')
+        other_command = self.revert_check(repo, base, claim, 'other-command', verbose='--verbose')
+        self.assertEqual(self.acceptance(repo, base, claim, head, red, later_green, other_command), [missing],
+                         'a revert of another command')
+        git = ['git', '-C', str(repo)]
+        subprocess.run([*git, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty',
+                        '-m', 'moved'], check=True)
+        moved = subprocess.check_output([*git, 'rev-parse', 'HEAD'], text=True).strip()
+        moved_green, _ = self.claim_check(repo, claim, 'moved-green', '--phase', 'green')
+        subprocess.run([*git, 'checkout', '-q', '--detach', head], check=True)
+        earlier_head = self.revert_check(repo, base, claim, 'earlier-head')
+        self.assertEqual(self.acceptance(repo, base, claim, moved, red, moved_green, earlier_head),
+                         [f'{claim}: missing revert receipt after green at accepted head {moved}'],
+                         'a revert at another head')
+        self.assertEqual(self.acceptance(repo, base, claim, head, red, green, revert), [])
 
     def test_check_cannot_wait_on_the_host_input_stream(self):
         with tempfile.TemporaryDirectory() as tmp:
