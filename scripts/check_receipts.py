@@ -111,16 +111,25 @@ def unittest_context(path, claim):
         raise ValueError(f'{claim}: expected one directly defined unittest method')
     test_class, claimed = methods[0]
     context = []
+    neighbors = {}
     for node in module.body:
         if isinstance(node, ast.ClassDef):
-            node.body = [member for member in node.body if member is claimed or not isinstance(member, functions)
-                         or not member.name.startswith('test')]
+            members = []
+            for member in node.body:
+                if member is not claimed and isinstance(member, functions) and member.name.startswith('test'):
+                    neighbors[f'{node.name}.{member.name}'] = hashlib.sha256(ast.dump(member).encode()).hexdigest()
+                else:
+                    members.append(member)
+            node.body = members
             if (node is not test_class and not node.body and not node.decorator_list and not node.keywords
-                    and [ast.unparse(base) for base in node.bases] in (['TestCase'], ['unittest.TestCase'])):
+                    and len(node.bases) == 1
+                    and (isinstance(node.bases[0], ast.Name) or (isinstance(node.bases[0], ast.Attribute)
+                         and isinstance(node.bases[0].value, ast.Name)))):
                 continue
         context.append(node)
     module.body = context
-    return UNITTEST_CONTEXT_PREFIX + hashlib.sha256(ast.dump(module).encode()).hexdigest()
+    return {'context': UNITTEST_CONTEXT_PREFIX + hashlib.sha256(ast.dump(module).encode()).hexdigest(),
+            'neighbors': neighbors}
 
 
 def source_snapshot(root, phase, claim, base, test_file, output_format):
@@ -277,13 +286,22 @@ def retained_receipt(path, digest, saved, collected_ns):
 
 def same_test_run(red, green):
     """Match the command and current source identity for the same test format."""
-    test = red['source'].get('test')
-    identity = test.get('identity') if isinstance(test, dict) else None
-    return (red.get('format') in ('marker', 'unittest') and red['format'] == green.get('format')
-            and red.get('command_sha256') and red['command_sha256'] == green.get('command_sha256')
-            and test and test == green['source'].get('test')
-            and (red['format'] == 'marker' or
-                 (isinstance(identity, str) and identity.startswith(UNITTEST_CONTEXT_PREFIX))))
+    if (red.get('format') not in ('marker', 'unittest') or red['format'] != green.get('format')
+            or not red.get('command_sha256') or red['command_sha256'] != green.get('command_sha256')):
+        return False
+    before, after = red['source'].get('test'), green['source'].get('test')
+    if not isinstance(before, dict) or not isinstance(after, dict) or before.get('path') != after.get('path'):
+        return False
+    if red['format'] == 'marker':
+        return bool(before.get('identity')) and before == after
+    original, result = before.get('identity'), after.get('identity')
+    if not isinstance(original, dict) or not isinstance(result, dict):
+        return False
+    context = original.get('context')
+    earlier, later = original.get('neighbors'), result.get('neighbors')
+    return (isinstance(context, str) and context.startswith(UNITTEST_CONTEXT_PREFIX)
+            and context == result.get('context') and isinstance(earlier, dict) and isinstance(later, dict)
+            and all(later.get(name) == digest for name, digest in earlier.items()))
 
 
 def problems(saved, head, *, ticket=None, base=None):

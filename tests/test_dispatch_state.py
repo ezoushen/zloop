@@ -484,7 +484,8 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         ticket, item, claim, _ = self.claimed_ticket()
         self.write_claimed_test(item)
         test = Path(item['worktree']) / 'test_value.py'
-        test.write_text(test.read_text() + '\nclass ExistingTest(unittest.TestCase):\n'
+        test.write_text(test.read_text().replace('import unittest\n', 'import unittest\nimport unittest as ut\n', 1)
+                        + '\nclass ExistingTest(unittest.TestCase):\n'
                         '    def setUp(self): self.expected = 2\n'
                         '    def test_existing(self): self.assertEqual(value, self.expected)\n')
         red = self.phase_check(item, claim, 'red')
@@ -492,7 +493,7 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
                                                 '    def test_other(self): self.assertEqual(value, 2)\n'
                                                 '    def test_wanted')
                         + '    def test_added(self): self.assertEqual(value, self.expected)\n'
-                        + '\nclass NewTest(unittest.TestCase):\n'
+                        + '\nclass NewTest(ut.TestCase):\n'
                         + '    def test_new(self): self.assertEqual(value, 2)\n')
         request = self.fixed_result(item)
         green = self.phase_check(item, claim, 'green')
@@ -535,6 +536,22 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         red = self.phase_check(item, claim, 'red')
         self.assertIn('AssertionError: 1 != 2', Path(red).read_text())
         test.write_text(test.read_text().replace('EXPECTED_VALUE = 2', 'EXPECTED_VALUE = 1'))
+        self.worktree_git(item, 'add', test.name)
+        request = self.completion(item)
+        green = self.phase_check(item, claim, 'green')
+        request['evidence'] += [red, green]
+        self.assert_claim_refused(item, ticket, request, f'{claim}: red and green must run the same test')
+
+    def test_managed_acceptance_refuses_a_changed_original_test_named_helper(self):
+        ticket, item, claim, _ = self.claimed_ticket()
+        test = Path(item['worktree']) / 'test_value.py'
+        test.write_text('import unittest\nfrom product import value\n'
+                        'class ValueTest(unittest.TestCase):\n'
+                        '    def test_expected(self): return 2\n'
+                        '    def test_wanted(self): self.assertEqual(value, self.test_expected())\n')
+        red = self.phase_check(item, claim, 'red')
+        self.assertIn('AssertionError: 1 != 2', Path(red).read_text())
+        test.write_text(test.read_text().replace('return 2', 'return 1'))
         self.worktree_git(item, 'add', test.name)
         request = self.completion(item)
         green = self.phase_check(item, claim, 'green')
