@@ -433,14 +433,13 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
             'class ValueTest(unittest.TestCase):\n'
             '    def test_wanted(self): self.assertEqual(value, 2)\n')
 
-    def phase_check(self, item, claim, phase, state=None, name=None, command=None):
+    def phase_check(self, item, claim, phase, state=None, name=None, command=None, output_format='unittest'):
         log = self.card.parent / 'reports' / f'{name or phase}.log'
         state = state or self.card.parent / 'reports/workers.sqlite'
         check = [sys.executable, str(support.script('run_check.py')), '--timeout', '5',
                  '--log', str(log), '--phase', phase, '--claim', claim, '--state', str(state),
-                 '--attempt', item['attempt']]
+                 '--attempt', item['attempt'], '--format', output_format]
         if command is None:
-            check += ['--format', 'unittest']
             command = [sys.executable, '-B', '-m', 'unittest', '-v', claim]
         result = subprocess.run([*check, '--', *command],
                                 cwd=item['worktree'], capture_output=True, text=True, timeout=10)
@@ -481,10 +480,14 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         request = self.completion(item)
         self.assert_claim_refused(item, ticket, request, f'{claim}: missing red receipt')
 
-    def test_managed_acceptance_uses_actual_red_and_green_at_the_returned_head(self):
+    def test_managed_acceptance_pairs_an_unchanged_unittest_method_after_a_neighbor_is_added(self):
         ticket, item, claim, _ = self.claimed_ticket()
         self.write_claimed_test(item)
         red = self.phase_check(item, claim, 'red')
+        test = Path(item['worktree']) / 'test_value.py'
+        test.write_text(test.read_text().replace('    def test_wanted',
+                                                 '    def test_other(self): self.assertEqual(value, 2)\n'
+                                                 '    def test_wanted'))
         request = self.fixed_result(item)
         green = self.phase_check(item, claim, 'green')
         request['evidence'] += [red, green]
@@ -503,9 +506,43 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         self.assertEqual(invalidated.returncode, 1, invalidated.stdout + invalidated.stderr)
         self.assertIn(f'{claim}: missing green receipt at accepted head', invalidated.stderr)
 
-    def test_managed_acceptance_accepts_exact_markers_from_a_shell_test(self):
-        test_file = 'tests/value-check.sh'
-        ticket, item, claim, _ = self.claimed_ticket(claim='shell::value matches expected result', test_file=test_file)
+    def test_managed_acceptance_refuses_a_rewritten_unittest_method_with_the_same_id(self):
+        ticket, item, claim, _ = self.claimed_ticket()
+        self.write_claimed_test(item)
+        red = self.phase_check(item, claim, 'red')
+        test = Path(item['worktree']) / 'test_value.py'
+        test.write_text(test.read_text().replace('self.assertEqual(value, 2)', 'self.assertEqual(value, 1)'))
+        self.worktree_git(item, 'add', test.name)
+        request = self.completion(item)
+        green = self.phase_check(item, claim, 'green')
+        request['evidence'] += [red, green]
+        self.assert_claim_refused(item, ticket, request, f'{claim}: red and green must run the same test')
+
+    def test_managed_acceptance_refuses_a_different_command_for_the_same_test(self):
+        ticket, item, claim, _ = self.claimed_ticket()
+        self.write_claimed_test(item)
+        red = self.phase_check(item, claim, 'red')
+        request = self.fixed_result(item)
+        green = self.phase_check(item, claim, 'green',
+                                 command=[sys.executable, '-B', '-m', 'unittest', '--verbose', claim])
+        request['evidence'] += [red, green]
+        self.assert_claim_refused(item, ticket, request, f'{claim}: red and green must run the same test')
+
+    def test_managed_acceptance_refuses_a_different_output_format_for_the_same_command(self):
+        ticket, item, claim, _ = self.claimed_ticket(test_file='test_value.py')
+        self.write_claimed_test(item)
+        command = [sys.executable, '-B', '-c',
+                   'import subprocess, sys; '
+                   'code = subprocess.run([sys.executable, "-B", "-m", "unittest", "-v", sys.argv[1]]).returncode; '
+                   'print(("PASS" if code == 0 else "FAIL") + ": " + sys.argv[1]); sys.exit(code)',
+                   claim]
+        red = self.phase_check(item, claim, 'red', command=command)
+        request = self.fixed_result(item)
+        green = self.phase_check(item, claim, 'green', command=command, output_format='marker')
+        request['evidence'] += [red, green]
+        self.assert_claim_refused(item, ticket, request, f'{claim}: red and green must run the same test')
+
+    def write_marker_test(self, item, test_file):
         script = Path(item['worktree']) / test_file
         script.parent.mkdir()
         script.write_text('IFS= read -r actual < product.py || exit 2\n'
@@ -515,11 +552,30 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
                           'fi\n'
                           'printf "FAIL: %s\\n" "$1"\n'
                           'exit 1\n')
+        return script
+
+    def test_managed_acceptance_refuses_a_rewritten_marker_test_with_the_same_id(self):
+        test_file = 'tests/value-check.sh'
+        ticket, item, claim, _ = self.claimed_ticket(claim='shell::value matches expected result', test_file=test_file)
+        script = self.write_marker_test(item, test_file)
         command = ['sh', test_file, claim]
-        red = self.phase_check(item, claim, 'red', command=command)
+        red = self.phase_check(item, claim, 'red', command=command, output_format='marker')
+        script.write_text(script.read_text().replace('value = 2', 'value = 1'))
+        self.worktree_git(item, 'add', test_file)
+        request = self.completion(item)
+        green = self.phase_check(item, claim, 'green', command=command, output_format='marker')
+        request['evidence'] += [red, green]
+        self.assert_claim_refused(item, ticket, request, f'{claim}: red and green must run the same test')
+
+    def test_managed_acceptance_accepts_exact_markers_from_a_shell_test(self):
+        test_file = 'tests/value-check.sh'
+        ticket, item, claim, _ = self.claimed_ticket(claim='shell::value matches expected result', test_file=test_file)
+        self.write_marker_test(item, test_file)
+        command = ['sh', test_file, claim]
+        red = self.phase_check(item, claim, 'red', command=command, output_format='marker')
         self.assertEqual(Path(red).read_text(), f'FAIL: {claim}\n')
         request = self.fixed_result(item, test_file=test_file)
-        green = self.phase_check(item, claim, 'green', command=command)
+        green = self.phase_check(item, claim, 'green', command=command, output_format='marker')
         self.assertEqual(Path(green).read_text(), f'PASS: {claim}\n')
         request['evidence'] += [red, green]
         accepted = self.collected_board(item, request)
@@ -549,6 +605,8 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
     def test_managed_acceptance_refuses_red_recorded_after_green(self):
         ticket, item, claim, base = self.claimed_ticket()
         self.write_claimed_test(item)
+        unrelated_red = self.phase_check(item, claim, 'red', name='unrelated-red',
+                                         command=[sys.executable, '-B', '-m', 'unittest', '--verbose', claim])
         request = self.fixed_result(item)
         green = self.phase_check(item, claim, 'green')
         self.worktree_git(item, 'checkout', '--detach', base)
@@ -556,7 +614,7 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         red = self.phase_check(item, claim, 'red')
         (Path(item['worktree']) / 'test_value.py').rename(self.card.parent / 'late-test.py')
         self.worktree_git(item, 'checkout', '--detach', request['head'])
-        request['evidence'] += [green, red]
+        request['evidence'] += [unrelated_red, green, red]
         self.assert_claim_refused(item, ticket, request, f'{claim}: red must finish before green begins')
 
     def test_managed_acceptance_refuses_a_code_criterion_without_a_declared_test_claim(self):

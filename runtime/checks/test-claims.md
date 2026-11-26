@@ -31,6 +31,10 @@ the base. Keep the logs outside the worktree. A valid red preserves exit 1 and
 adds a `tdd` receipt to the summary.
 
 After committing the fix, use `--phase green` and a fresh log. Green requires the
-same test to pass on a worktree and index matching the checked-out commit. Keep
-both logs and summaries. Acceptance requires red to finish before green starts
-and green to identify the exact accepted head.
+same command arguments and output format, and a passing test on a worktree and
+index matching the checked-out commit. The named unittest method must be
+defined directly in the matching test file and retain its syntax tree. Other
+tests can be added to the file. A marker claim must retain the exact declared
+test file. Keep both logs and summaries. Acceptance requires the matching red
+to finish before green starts and green to identify the exact accepted head.
+Older receipts that lack these identities need to be recorded again.

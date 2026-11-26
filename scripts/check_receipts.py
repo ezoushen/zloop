@@ -1,4 +1,5 @@
 """Identify and validate test-first check receipts for an assigned ticket."""
+import ast
 from contextlib import closing
 import hashlib
 import json
@@ -94,8 +95,23 @@ def working_entry(root, name, expected, algorithm):
     return mode, blob
 
 
-def source_snapshot(root, phase, claim, base, test_file):
-    """Verify staged and actual source against the commit and identify any red test module."""
+def unittest_method(path, claim):
+    """Identify a named method independently of source lines and neighboring tests."""
+    _, class_name, method_name = claim.rsplit('.', 2)
+    try:
+        module = ast.parse(path.read_bytes())
+    except SyntaxError as error:
+        raise ValueError(f'{claim}: cannot parse the unittest module') from error
+    methods = [method for node in module.body if isinstance(node, ast.ClassDef) and node.name == class_name
+               for method in node.body if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
+               and method.name == method_name]
+    if len(methods) != 1:
+        raise ValueError(f'{claim}: expected one directly defined unittest method')
+    return hashlib.sha256(ast.dump(methods[0]).encode()).hexdigest()
+
+
+def source_snapshot(root, phase, claim, base, test_file, output_format):
+    """Check the index and worktree and identify the test run at that snapshot."""
     head = git(root, 'rev-parse', '--verify', 'HEAD').decode().strip()
     if phase == 'red' and head != base:
         raise ValueError('red must run at the assigned base')
@@ -105,22 +121,27 @@ def source_snapshot(root, phase, claim, base, test_file):
     module = claim.rsplit('.', 2)[0].replace('.', '/') + '.py' if test_file is None else None
     test_module = os.fsencode(module) if module and valid_test_file(module) else None
     declared = os.fsencode(test_file) if test_file else None
-    changed_test = {}
+    changed_test, test_sources = {}, {}
     for path in sorted(tracked.keys() | index.keys() | untracked):
         expected = tracked.get(path)
         actual = working_entry(root, path, expected, algorithm)
+        is_test = path == declared or (test_module and (path == test_module or path.endswith(b'/' + test_module)))
+        if is_test and actual and actual[0] in (b'100644', b'100755'):
+            test_sources[path] = actual
         if path not in untracked and actual == expected and index.get(path) == expected:
             continue
-        if (phase == 'red' and actual and actual[0] in (b'100644', b'100755')
-                and (path == declared or test_module and
-                     (path == test_module or path.endswith(b'/' + test_module)))):
+        if phase == 'red' and path in test_sources:
             changed_test[os.fsdecode(path)] = actual[1].decode()
             continue
         raise ValueError(f'{phase} source differs from {head}: {os.fsdecode(path)}')
-    if len(changed_test) > 1:
-        raise ValueError(f'red test module is ambiguous for {claim}')
+    if len(test_sources) != 1:
+        raise ValueError(f'{claim}: expected one test source file')
+    path_bytes, (mode, blob) = next(iter(test_sources.items()))
+    path = os.fsdecode(path_bytes)
+    identity = (unittest_method(root / path, claim) if output_format == 'unittest'
+                else f'{mode.decode()}:{blob.decode()}')
     return {'head': head, 'tree': git(root, 'rev-parse', f'{head}^{{tree}}').decode().strip(),
-            'test_changes': changed_test}
+            'test_changes': changed_test, 'test': {'path': path, 'identity': identity}}
 
 
 def observed_claim(log, phase, claim, output_format):
@@ -156,11 +177,12 @@ def unittest_claim(lines, phase, claim):
                     for i, line in enumerate(lines[:-1])))
 
 
-def receipt(saved, phase, claim, snapshot, started_ns, finished_ns, log, output_format):
+def receipt(saved, phase, claim, snapshot, started_ns, finished_ns, log, output_format, command):
     """Describe a completed claim and its retained output at the verified source."""
     return dict(attempt=saved['attempt'], identity=saved['check_receipts']['identity'], phase=phase,
                 claim=claim, format=output_format, base=saved['head'], source=snapshot,
                 started_ns=started_ns, finished_ns=finished_ns,
+                command_sha256=hashlib.sha256(json.dumps(command).encode()).hexdigest(),
                 log_sha256=hashlib.sha256(log.read_bytes()).hexdigest())
 
 
@@ -240,6 +262,13 @@ def retained_receipt(path, digest, saved, collected_ns):
         return None
 
 
+def same_test_run(red, green):
+    """Require positive identities so pre-binding receipts cannot match each other."""
+    return (red.get('format') in ('marker', 'unittest') and red['format'] == green.get('format')
+            and red.get('command_sha256') and red['command_sha256'] == green.get('command_sha256')
+            and red['source'].get('test') and red['source']['test'] == green['source'].get('test'))
+
+
 def problems(saved, head, *, ticket=None, base=None):
     """Report missing, moved or out-of-order proof for a managed ticket result."""
     assigned = saved.get('check_receipts')
@@ -270,6 +299,10 @@ def problems(saved, head, *, ticket=None, base=None):
             missing.append(f'{claim}: missing red receipt at the assigned base')
         elif not green:
             missing.append(f'{claim}: missing green receipt at accepted head {head}')
-        elif min(proof['finished_ns'] for proof in red) >= max(proof['started_ns'] for proof in green):
-            missing.append(f'{claim}: red must finish before green begins')
+        else:
+            matches = [(before, after) for before in red for after in green if same_test_run(before, after)]
+            if not matches:
+                missing.append(f'{claim}: red and green must run the same test, command and format')
+            elif all(before['finished_ns'] >= after['started_ns'] for before, after in matches):
+                missing.append(f'{claim}: red must finish before green begins')
     return missing

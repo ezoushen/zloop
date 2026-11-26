@@ -70,7 +70,8 @@ def main():
         if output_format == 'marker' and not test_file:
             raise ValueError(f'{args.claim}: marker format requires a declared Test file')
         root = Path(saved['worktree'])
-        phase_source = check_receipts.source_snapshot(root, args.phase, args.claim, saved['head'], test_file)
+        phase_source = check_receipts.source_snapshot(root, args.phase, args.claim, saved['head'],
+                                                      test_file, output_format)
         phase_started = time.time_ns()
     elif args.claim or args.state or args.attempt or args.format:
         parser.error('--claim, --state, --attempt and --format require --phase')
@@ -147,7 +148,7 @@ def main():
     if args.phase:
         log_path = Path(summary['log'])
         try:
-            after = check_receipts.source_snapshot(root, args.phase, args.claim, saved['head'], test_file)
+            after = check_receipts.source_snapshot(root, args.phase, args.claim, saved['head'], test_file, output_format)
             if after != phase_source:
                 raise ValueError('source changed while the claim ran')
             expected_code = 1 if args.phase == 'red' else 0
@@ -156,7 +157,7 @@ def main():
                 expected = 'fail' if args.phase == 'red' else 'pass'
                 raise ValueError(f'{args.claim} did not {expected} as a {output_format} result')
             summary['tdd'] = check_receipts.receipt(saved, args.phase, args.claim, phase_source,
-                                                    phase_started, time.time_ns(), log_path, output_format)
+                                                    phase_started, time.time_ns(), log_path, output_format, command)
         except (OSError, ValueError, subprocess.SubprocessError) as error:
             code = 125
             summary.update(exit_code=code, exit_source='test-claim', test_claim_error=str(error))
