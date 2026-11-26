@@ -133,7 +133,8 @@ def board_problem(card, state):
 
 
 def publish_problem(card, state):
-    """Why the run of `card` cannot enter pr yet, or None: its `publish-probe:` line is missing or does not say `ok`."""
+    """Why the run of `card` cannot enter dispatch or pr yet, or None: its `publish-probe:` line is missing or does not
+    say `ok`."""
     if state_fields(state).get('publish-probe', '').split(' ')[0] == 'ok':
         return None
     probe = shlex.join(['python3', str(PUBLISH_PROBE), str(card)])
@@ -150,11 +151,11 @@ def lag_problem(card):
 
 def phase(card, text, value):
     """The card's text with `phase:` set to `value`; exits naming the problem when dispatch or pr has a board it cannot
-    work (`board_problem`) or a plugin root behind the repository's main (`lag_problem`), or when pr has no passing
-    publish probe (`publish_problem`)."""
+    work (`board_problem`), a plugin root behind the repository's main (`lag_problem`) or no passing publish probe
+    (`publish_problem`)."""
     state = state_section(text)
-    problem = (value in ('dispatch', 'pr') and (board_problem(card, state[0]) or lag_problem(card))
-               or value == 'pr' and publish_problem(card, state[0]))
+    problem = value in ('dispatch', 'pr') and (board_problem(card, state[0]) or lag_problem(card)
+                                               or publish_problem(card, state[0]))
     if problem:
         sys.exit(problem)
     lines = state[0]

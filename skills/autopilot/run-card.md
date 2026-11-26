@@ -62,8 +62,10 @@ resume: `autopilot --take-over` after <what the user must do>
 ```
 
 `confirmed-by:` and `delivery:` are optional State fields. Write each at most once.
+<!-- rule-ref: pr.publish-probe-before-dispatch -->
 `publish-probe:` is an optional State field that `publish_probe.py <card>` writes, as
-`<ok|failed> <UTC time> <remote or reason>`; `autopilot_card.py phase <card> pr` refuses a card whose
-line is missing or not `ok`.
+`<ok|failed> <UTC time> <remote or reason>`; `autopilot_card.py phase` enforces the
+[PR standard's rule](../../standards/pr.md#probe-the-publish-route-first) on it.
+
 To request a fresh merge grant at resume, follow the
 [managed take-over procedure](../../runtime/workers/control.md#verify-human-intent).

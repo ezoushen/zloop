@@ -204,4 +204,7 @@ python3 "<plugin_root>/scripts/publish_probe.py" "<card>"
 
 It dry-runs the push of the workstream branch to `origin`, checks write permission on
 the GitHub repository, records `publish-probe:` on the card and exits 1 when it fails.
-Fix what it reports before dispatching; `phase <card> pr` refuses a missing or failed probe.
+Fix what it reports before dispatching.
+
+<!-- rule: pr.publish-probe-before-dispatch -->
+`phase <card> dispatch` and `phase <card> pr` refuse a card whose `publish-probe:` line is missing or not `ok`.

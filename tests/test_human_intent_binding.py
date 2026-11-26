@@ -76,7 +76,8 @@ class ConversationBinding(unittest.TestCase):
         self.assertIn(f'intent-thread: {self.THREAD}\n', card.read_text())
 
         old = self.card('old', session=f'{self.PROVIDER}, {self.THREAD}',
-                        **{'confirmed-by': 'human', 'confirmation-item': 'prior-confirmation'})
+                        **{'confirmed-by': 'human', 'confirmation-item': 'prior-confirmation',
+                           'publish-probe': 'ok 2026-11-27T09:00:00Z acme/widgets'})
         before = old.read_bytes()
         legacy = self.cli('autopilot_card.py', 'take-over', str(old))
         self.assertEqual(legacy.returncode, 2, legacy.stderr)

@@ -454,7 +454,8 @@ class Phase(unittest.TestCase):
         after, and stderr."""
         text = DRAFT.replace('confirmed: no', 'confirmed: 2026-11-06 "go"').replace(UNNAMED, 'session: host-1')
         text = text.replace('board: local\n', f'board: {board}\n' if board is not None else '')
-        text = text if phase_line else text.replace('phase: refine\n', '')
+        # A card that lost its phase line has no probe line either; dispatch and pr need a probe that says ok.
+        text = text.replace('phase: refine\n', f'phase: refine\n{OK_PROBE}\n' if phase_line else '')
         self.card.write_text(text)
         result = subprocess.run([sys.executable, '-B', str(COMMAND), 'phase', str(self.card), phase],
                                 capture_output=True, text=True, timeout=30)
@@ -517,8 +518,9 @@ class Phase(unittest.TestCase):
                 self.assertEqual(error.strip(), refusal)
                 self.assertIn('\nphase: refine\n', text)
 
-    def test_the_pr_phase_refuses_a_missing_or_failed_publish_probe(self):
-        # Rule: a run that cannot publish never enters pr; the refusal names the probe and leaves the card unchanged.
+    def test_dispatch_refuses_a_missing_or_failed_publish_probe(self):
+        # Rule: a run that cannot publish enters neither dispatch nor pr; the refusal names the probe and leaves the card
+        # unchanged. A run probes before its work, so the dispatch phase is where the probe is first demanded.
         self.ticket('01')
         probe = shlex.join(['python3', str(COMMAND.resolve().parent / 'publish_probe.py'), str(self.card)])
         refusal = (f'the publish probe of run is missing or failed: run `{probe}` and fix what it reports, then set the '
@@ -530,25 +532,26 @@ class Phase(unittest.TestCase):
 
         run_control = support.load_script('run_control.py')
 
-        def phase(text, managed=False):
+        def phase(value, text, managed=False):
             run_control.location(self.card).unlink(missing_ok=True)
             self.card.write_text(text)
             if managed:
                 run_control.adopt(self.card, 'confirmed run')
             before = self.card.read_text()
-            result = subprocess.run([sys.executable, '-B', str(COMMAND), 'phase', str(self.card), 'pr'],
+            result = subprocess.run([sys.executable, '-B', str(COMMAND), 'phase', str(self.card), value],
                                     capture_output=True, text=True, timeout=30)
             return result, before
 
-        for managed in (False, True):
-            for line in ('', 'publish-probe: failed 2026-11-27T09:00:00Z gh reports no write permission on acme/widgets',
-                         'publish-probe:'):
-                result, before = phase(card_with(line), managed)
-                self.assertEqual((result.returncode, result.stderr.strip()), (1, refusal))
-                self.assertEqual(self.card.read_text(), before)
-            result, before = phase(card_with(OK_PROBE), managed)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(self.card.read_text(), before.replace('phase: refine\n', 'phase: pr\n'))
+        for value in ('dispatch', 'pr'):
+            for managed in (False, True):
+                for line in ('', 'publish-probe: failed 2026-11-27T09:00:00Z gh reports no write permission on acme/widgets',
+                             'publish-probe:'):
+                    result, before = phase(value, card_with(line), managed)
+                    self.assertEqual((result.returncode, result.stderr.strip()), (1, refusal))
+                    self.assertEqual(self.card.read_text(), before)
+                result, before = phase(value, card_with(OK_PROBE), managed)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.card.read_text(), before.replace('phase: refine\n', f'phase: {value}\n'))
 
     def test_a_direct_card_moves_to_dispatch_with_two_local_tickets_and_is_refused_with_three(self):
         # Rule (outcome B): above two tickets the work is the full path, with the user's confirmation.
@@ -556,7 +559,7 @@ class Phase(unittest.TestCase):
 
         def direct(phase):
             text = DRAFT.replace('mode: full', 'mode: direct').replace('confirmed: no', 'confirmed: 2026-11-06 by rule "go"')
-            self.card.write_text(text.replace(UNNAMED, 'session: host-1'))
+            self.card.write_text(text.replace(UNNAMED, f'session: host-1\n{OK_PROBE}'))
             return subprocess.run([sys.executable, '-B', str(COMMAND), 'phase', str(self.card), phase],
                                   capture_output=True, text=True, timeout=30)
         for number in ('01', '02'):
@@ -568,7 +571,7 @@ class Phase(unittest.TestCase):
         self.assertIn('full path', result.stderr)
         self.assertIn('\nphase: refine\n', self.card.read_text())
         # A full card takes three tickets.
-        self.card.write_text(DRAFT.replace('confirmed: no', 'confirmed: 2026-11-06 "go"'))
+        self.card.write_text(DRAFT.replace('confirmed: no', 'confirmed: 2026-11-06 "go"').replace('resume:', f'{OK_PROBE}\nresume:'))
         self.assertEqual(subprocess.run([sys.executable, '-B', str(COMMAND), 'phase', str(self.card), 'dispatch'],
                                         capture_output=True, text=True, timeout=30).returncode, 0)
 
@@ -607,7 +610,7 @@ class Phase(unittest.TestCase):
         # are recorded verbatim and may contain the phrase.
         self.card.parent.mkdir(exist_ok=True)
         self.ticket('01')
-        self.card.write_text(DRAFT.replace(UNNAMED, 'session: host-1'))
+        self.card.write_text(DRAFT.replace(UNNAMED, f'session: host-1\n{OK_PROBE}'))
         self.human_confirm('yes, go by rule of thumb')
         result = subprocess.run([sys.executable, '-B', str(COMMAND), 'phase', str(self.card), 'dispatch'],
                                 capture_output=True, text=True, timeout=30)

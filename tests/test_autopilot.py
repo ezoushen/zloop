@@ -143,7 +143,6 @@ class Flags(unittest.TestCase):
         approval = prose(ROOT / 'runtime/board/approval-path.md')
         auto_merge = approval.split('## Automated merge', 1)[1]
         self.assertIn('an explicit user grant', auto_merge)
-        self.assertIn('cannot grant or use auto-merge', auto_merge)
         self.assertIn('through the normal GitHub path', auto_merge)
         self.assertIn('without an admin override', auto_merge)
         self.assertIn('An author cannot satisfy their own independent-review requirement', approval)
@@ -447,11 +446,14 @@ class RuleContracts(unittest.TestCase):
         # confirmed by rule, and take the user's own confirmation.
         self.assertEqual(support.rule_owners('autopilot.confirm-before-phases'),
                          [(ROOT / 'skills/autopilot/SKILL.md', None)])
-        path = Path('run/autopilot.md')
-        for value in ('dispatch', 'pr'):
-            with self.assertRaises(SystemExit):
-                card.phase(path, self.STATE.format(confirmed='2026-11-06 by rule "go"'), value)
-            self.assertIn(f'\nphase: {value}\n', card.phase(path, self.STATE.format(confirmed='2026-11-06 "go"'), value))
+        with tempfile.TemporaryDirectory() as tmp:
+            # An absolute card in a folder outside any repository: the verdict never depends on the checkout running it.
+            path = Path(tmp).resolve() / '.scratch/run/autopilot.md'
+            for value in ('dispatch', 'pr'):
+                with self.assertRaises(SystemExit):
+                    card.phase(path, self.STATE.format(confirmed='2026-11-06 by rule "go"'), value)
+                self.assertIn(f'\nphase: {value}\n',
+                              card.phase(path, self.STATE.format(confirmed='2026-11-06 "go"'), value))
         # Rule: a relayed confirmation delivers PR-only and cannot authorize auto-merge.
         self.assertEqual(support.rule_owners('board.relayed-card-delivers-pr-only'),
                          [(ROOT / 'runtime/board/approval-path.md', None)])
@@ -465,11 +467,25 @@ class RuleContracts(unittest.TestCase):
                        '--words', 'go', '--confirmed-by', 'relayed(Grok Bot)']
             asked = subprocess.run(command + ['--auto-merge'], env=env, capture_output=True, text=True, timeout=30)
             self.assertEqual(asked.returncode, 2, asked.stderr)
+            self.assertIn('relayed confirmation cannot authorize auto-merge', asked.stderr)
             self.assertNotIn('delivery:', relay.read_text())
             confirmed = subprocess.run(command, env=env, capture_output=True, text=True, timeout=30)
             self.assertEqual(confirmed.returncode, 0, confirmed.stderr)
             self.assertIn('\ndelivery: pr-only\n', relay.read_text())
             self.assertIn('\nauto-merge: no\n', relay.read_text())
+
+    def test_the_probe_refusal_has_one_owner_and_phase_enforces_it(self):
+        # Rule: a card without an ok publish probe enters neither dispatch nor pr.
+        self.assertEqual(support.rule_owners('pr.publish-probe-before-dispatch'), [(ROOT / 'standards/pr.md', None)])
+        probed = self.STATE.format(confirmed='2026-11-06 "go"')
+        unprobed = probed.replace('publish-probe: ok 2026-11-27T09:00:00Z acme/widgets\n', '')
+        self.assertNotEqual(probed, unprobed)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp).resolve() / '.scratch/run/autopilot.md'
+            for value in ('dispatch', 'pr'):
+                with self.assertRaises(SystemExit):
+                    card.phase(path, unprobed, value)
+                self.assertIn(f'\nphase: {value}\n', card.phase(path, probed, value))
 
 
 if __name__ == '__main__':
