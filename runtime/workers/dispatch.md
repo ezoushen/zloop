@@ -37,18 +37,15 @@ python3 <plugin_root>/scripts/dispatch_state.py plan --card <card> \
   --expected-revision <revision> --input <batch.json>
 ```
 
-Launch every selected sibling through the active adapter without waiting for earlier
-siblings to finish, then arm the normal completion wake. Follow inspection gaps after
-collection or resume. Use [managed controls](control.md) for phase changes, pause and
-completion; editing the card view cannot authorize or end managed work.
-
-A managed launcher records a claim for the selected assignment and packet digest before
-starting the worker. Registration keeps the matching claim from that launch. A missing or
-mismatched claim records `unclaimed-launch` in the workstream's lifecycle ledger and holds
-the owning session's stop until the attempt is reconciled or the exception is recorded under
-[acceptance](collect.md#accept-and-record-outcomes). A claim records admission, so verify
-startup and the worker's reply separately. Older claims carrying only a call ID can still
-prevent duplicate launches but supply no packet digest for a new registration.
+Launch selected siblings through the active adapter without waiting for one another.
+The launcher records a claim for each assignment and packet digest before starting it.
+Registration keeps the matching claim; a missing or mismatched claim records
+`unclaimed-launch` and holds the owner's stop pending [reconciliation](collect.md#accept-and-record-outcomes).
+Older call-ID-only claims prevent duplicate launches but cannot prove the packet in a
+new registration. Verify startup, arm the completion wake after delivering the assignment,
+and verify the returned result separately. Follow inspection gaps after collection or
+resume. Use [managed controls](control.md)
+for phase changes, pause and completion.
 
 A failed launch can leave a claim. Prove that the child did not start, or stop it and
 reconcile its owned work, before `dispatch_state.py release --card <card> --attempt

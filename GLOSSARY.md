@@ -302,7 +302,7 @@ An assignment's durable return recording its result, decisions, checked inputs a
 _Avoid_: none
 
 **Evidence**:
-Retained observations or artifacts tying report claims to checked inputs and test receipts.
+Retained observations and artifacts tied to the inputs checked, supporting a report's claims.
 _Avoid_: none
 
 **Check tier**:

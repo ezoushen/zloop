@@ -3,10 +3,10 @@
 Read with [plan checks](plan.md) when running a required check.
 
 To keep a check's evidence, read [retain evidence](evidence.md).
+For managed ticket criteria, use [test claims](test-claims.md).
 
 Contents:
 - [Run a bounded check](#run-a-bounded-check)
-- [Record a test claim](test-claims.md)
 - [Prove the failure path](#prove-the-failure-path)
 
 ## Run a bounded check

@@ -1,8 +1,7 @@
 # Local Markdown ticket template
 
 The title follows the [titles standard](../../standards/titles.md).
-Add a distinct [test claim](../../runtime/checks/test-claims.md) to each
-code criterion before managed dispatch. Agent and user criteria omit that line.
+Use the [test-claim format](../../runtime/checks/test-claims.md) for managed code criteria.
 
 ```markdown
 ---

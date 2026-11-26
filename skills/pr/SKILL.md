@@ -18,10 +18,7 @@ that artefact in the report or ledger, and inline the figure in the PR body.
 
 ## Repository approval path
 
-Follow the [approval path](../../runtime/board/approval-path.md), including its
-guarded submission for an explicit `--auto-merge` request. Verify the open PR
-or the approved publication base before recording the grant. Report an unverified
-base or absent required checks as `waiting-on-user`.
+Follow the [approval path](../../runtime/board/approval-path.md) before publication.
 
 ## Steps
 
@@ -30,8 +27,8 @@ to the workstream worktree if it has not covered the current task state. If it c
 tracked content, return that delta to review and refresh required delivery evidence
 before proceeding. Preserve artifacts used by the PR's claims.
 
-A workstream the user ran directly on `main` has no branch to publish: report the PR as
-not applicable, with the review and E2E evidence, and stop.
+A workstream the user ran directly on `main` has no branch to publish. Report the
+review and E2E evidence and follow any delivery restrictions on its run card.
 
 1. **Confirm delivery evidence**, from the main checkout, using the selected
    [board's delivery gate](../../runtime/board/board.md). Remote issues are checked
@@ -64,9 +61,7 @@ not applicable, with the review and E2E evidence, and stop.
    established by the accepted compatibility obligations and final diff. Report the URL.
 5. **Watch the required checks** for the pushed SHA, as [watch the required checks](../../standards/pr.md#watch-the-required-checks)
    describes.
-6. **Submit an authorized auto-merge** after required checks and repository approvals
-   pass. A managed run uses the [managed merge command](../../runtime/workers/control.md).
-   Other runs use the approval path's guarded command with the run card when present.
+6. **Submit an authorized auto-merge** through the [approval path](../../runtime/board/approval-path.md#automated-merge).
 7. **After the merge, on request:** apply the
    [worktree retirement checks](../../runtime/resources/retire-worktree.md), then
    delete `feat/<slug>` and its recorded ticket branches only after downstream

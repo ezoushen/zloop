@@ -42,28 +42,27 @@ types the command; a message that mentions it is not one. Never widens native pe
 - **`autopilot --take-over --timed`:** what a resume timer runs, as the user's own take-over, authorized on the card.
   It resumes only a card that still ended `paused-allowance` with `timer:` set; for any other state it reports the
   card's state and changes nothing. It keeps the card's levels unchanged.
-- **`--auto-merge`:** follow [guarded merge](run-card.md#guarded-merge).
+- **`--auto-merge`:** follow the [approval path](../../runtime/board/approval-path.md).
 
 Then autopilot writes the [run card](run-card.md) to `.scratch/<slug>/autopilot.md`, records both effort levels,
 and the full path asks the user to confirm it once.
 The card, ledger and reports are workflow state: a principle about the project's files never keeps them out of `.scratch/`.
-No phase after align starts before that confirmation. Record the confirmation on the card with `confirm`.
-Waiting for it is not a terminal state: `terminal:` stays empty.
+No phase after align starts before that confirmation. Record the confirmation on the card
+as the [card procedure](run-card.md) specifies. Keep `terminal:` empty while waiting for it.
 The confirmed card authorizes every action it grants, and stands for the user's check of newly cut and split tickets.
 
 ## Run
 
-After confirmation, ask the user nothing. Re-read the card and ledger before each phase and after every compaction or resume.
-A message from the user during the run is an instruction, not a pause: follow it, record it in the ledger as the
-user's decision with their words, and ask nothing. One that changes the goal, a criterion or a grant also updates
-the card with the user's words.
+After confirmation, ask the user nothing outside the pause list. Re-read the card and
+ledger before each phase and after every compaction or resume.
+Record instructions received during the run in the ledger with their words and source.
+Continue the phase unless the user invokes `--pause` or the [pause list](#decide-without-asking)
+applies. Update the card with the recorded words for authorized changes to its goal, criteria or grants.
 
 1. [refine](../refine/SKILL.md) the brief into tickets;
 2. [dispatch](../dispatch/SKILL.md) them with `--autofix` and the card's current levels, `--dispatch-effort <level>`
    and `--review-effort <level>` (review, repairs, applicable E2E);
 3. [pr](../pr/SKILL.md): write the description, push the workstream branch and open the PR, then watch the required checks.
-   In a repository with no PR host, publish nothing. For PR-only delivery, end `waiting-on-user`.
-   Otherwise pass the delivery gate, write the delivery report and end `delivered-local`.
 
 At each phase boundary and before each worker launch, run `python3 "<plugin_root>/scripts/allowance.py" status`.
 Routing leaves out the candidates of a `critical` provider unless a configuration layer sets `include_critical_allowance`,
@@ -90,9 +89,11 @@ option fits the principles and criteria, or when its split tickets also fail twi
 
 The pause list is never decided: a login or permission prompt, credentials, spending
 money, deleting data, a production change, merging without `--auto-merge`, a missing
-approval the repository's approval path requires, weakening an acceptance criterion's
-Verify, or narrowing a decision the user made. Reaching one ends `waiting-on-user` instead of deciding it;
-leave the native prompt pending and record on the card what is needed and the resume command.
+approval under the [approval path](../../runtime/board/approval-path.md),
+weakening an acceptance criterion's Verify, narrowing a decision the user made, and any other
+action the card leaves ungranted. A relayed mandate reserves expansion of its goal, scope, criteria
+or grants for direct human confirmation. End `waiting-on-user`, leave the native prompt pending and
+record what is needed and the resume command on the card.
 
 ## While paused
 
@@ -107,11 +108,10 @@ Record exactly one terminal state, with its evidence, in the card's State:
 
 - `delivered`: PR open, required checks pass, review and E2E evidence current for its head.
   Never record `delivered` while any acceptance criterion lacks passing evidence.
-- `delivered-local`: the same without a PR (no PR host, or a workstream the user ran directly on `main`): branch
-  and delivery report ready.
-- `merged`: only with `--auto-merge`. It merges only through the repository's normal path, once required checks
-  and the [approval path](../../runtime/board/approval-path.md) are satisfied, never by admin override or self-approval.
-- `waiting-on-user`: a pause-list action is needed.
+- `delivered-local`: delivery evidence and report ready when the repository has no PR host or the user ran
+  directly on `main`, and the card permits local delivery.
+- `merged`: GitHub shows the exact PR merged through the [approval path](../../runtime/board/approval-path.md).
+- `waiting-on-user`: a pause-list action is needed or a PR-only card has no authorized publication path.
 - `paused-allowance`: a needed job has no eligible candidate because its providers' allowance is `critical`.
 - `paused-by-user`: the user took control with `--pause`.
 - `blocked`: no option fits the principles, or split tickets failed again.

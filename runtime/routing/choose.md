@@ -10,10 +10,9 @@ within configured bounds. Session overrides are under [session scope](../config/
 retain their existing behavior. The orchestrator chooses; the resolver validates;
 the selected executor applies settings and confirms what actually ran.
 
-1. Inspect with `--list-candidates` and filter by task fit, actual tools, context,
-   permissions and availability. `candidate_routes` shows worker runtimes and
-   caller routes. Inspection makes no network requests and reports
-   `availability: unchecked`. Preserve a fixed instance.
+1. Inspect with `--list-candidates` under [local capacity](#local-capacity). Use
+   `candidate_routes` for worker runtimes and caller routes. Filter by task fit,
+   tools, context, permissions and known availability. Preserve a fixed instance.
 2. Resolve with the filtered `--eligible-candidates` and, when preflight restricts
    efforts, `--eligible-thinking '{"opus":["medium"]}'`. With the decision-model
    router, each configured candidate left out needs a reason in
@@ -143,9 +142,10 @@ The `backend` and `capacity` settings are in
 
 Resolution applies the candidate pin, eligibility, runtime and local capacity limits
 before health requests. Unavailable backends are reported in `unavailable_candidates`.
-`--offline` or `ZLOOP_NO_NETWORK=1` skips network checks and marks
-`availability: unchecked`. The resolver uses the configured recovery policy when
-offline decision routing needs inference. T3 routes require live environment preflight.
+`--list-candidates` is read-only and offline. It reports `availability: unchecked`,
+as does resolution with `--offline` or `ZLOOP_NO_NETWORK=1`. The resolver uses the
+configured recovery policy when offline decision routing needs inference.
+T3 launches still require live environment preflight.
 
 With `--dispatch-card`, the resolver reads the managed card's State section.
 List literal DNS names or IPs in `deny-hosts: [host.example, other.example:8443]`.

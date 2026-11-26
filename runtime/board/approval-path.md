@@ -17,22 +17,20 @@ requirement. Recheck the path if author or branch rules change.
 
 ## Automated merge
 
-Before recording a user-authorized auto-merge grant, verify the open PR with
-`python3 "<plugin_root>/scripts/pr_safety.py" grant --pr <number>`. Before the
-PR exists, use `grant --base <planned-base>` with the explicit publication
-target. Run from the target checkout. The script reads classic protection and
-active rules for the exact GitHub base in the checkout's origin repository.
-For a legacy autopilot run, pass `--card <card>` on grant verification and merge
-submission so both commands reject relay-based authority. Submission with a
-legacy card requires its saved `auto-merge: yes` grant.
+Require an explicit user grant. A card marked `relayed(...)` cannot grant or use
+auto-merge. Before recording a grant, verify that the PR's base in origin enforces
+required checks. Before the PR exists, verify the explicit planned base. Submit an
+automated merge through the normal GitHub path after the check watch and approvals
+pass, with the reviewed head pinned and without an admin override. Verify the
+resulting PR state before recording a merge. Queue admission can leave the PR open.
 
-Keep the approval and required-check watch steps. After they pass, submit an
-authorized merge with `python3 "<plugin_root>/scripts/pr_safety.py" merge --pr <number>
---head <reviewed-sha> --method <approved-method>`. It rechecks required settings
-on the PR's actual base and submits through GitHub with the reviewed head pinned.
-GitHub still enforces checks, approvals and queue rules. A successful command can
-mean queue admission; verify the PR and its base and head before recording a merge.
+For a [managed run](../workers/control.md), use its control commands. Otherwise run
+`python3 "<plugin_root>/scripts/pr_safety.py" grant --pr <number>` from the target
+checkout, or use `grant --base <planned-base>` before publication. Then use
+`merge --pr <number> --head <reviewed-sha> --method <approved-method>` with the same
+script. For a legacy card, pass `--card <card>` to both commands. Submission requires
+its saved `auto-merge: yes` grant. Both paths recheck the actual base at submission.
 
-A `waiting-on-user` exit identifies absent or unverifiable requirements. Preserve
-the grant and delivery evidence and report the specific blocker. A repository
-maintainer can make the base enforce a named check, then the user can retry.
+On `waiting-on-user`, preserve the grant and delivery evidence and name the missing
+or unverifiable requirement. If necessary, the maintainer can configure a required
+base check before the user retries.

@@ -46,9 +46,8 @@ repairs a runner, also the [runner contract checks](../runtime/resources/resourc
 
 ## Core skills
 
-- [Check planning](../runtime/checks/plan.md), [acceptance](../runtime/checks/accept.md),
-  [execution](../runtime/checks/run.md), [evidence](../runtime/checks/evidence.md) and [test claims](../runtime/checks/test-claims.md),
-  including runner contracts, snapshot identity and execution proof.
+- [Required checks](../runtime/checks/README.md), including runner contracts, snapshot
+  identity and execution proof.
 
 The job file and any skills the assignment lists come on top; see
 [assignment skills](../runtime/workers/skills.md).

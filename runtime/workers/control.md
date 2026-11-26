@@ -12,12 +12,10 @@ python3 <plugin_root>/scripts/run_control.py adopt <card> --source <confirmation
 
 Add `--allow-resume` only when its confirmed grants already permit unattended
 allowance recovery. Adoption grants no extra permissions or merge authority.
-To adopt or explicitly resume with an auto-merge grant, supply `--merge-pr <number>`
-or `--merge-base <planned-base>`. For a planned base, run from the checked-out
-workstream branch in the target repository. The control record binds the grant
-to the origin repository and either the PR number and its verified base or the
-planned base and workstream branch. If required checks cannot be verified, the
-command reports `waiting-on-user` and leaves the grant and delivery state intact.
+To bind an explicit auto-merge grant at adoption or resume, supply `--merge-pr <number>`
+or `--merge-base <planned-base>` from the checked-out workstream branch. The control
+record binds the origin repository and either the PR and its base or the planned base
+and branch. A `waiting-on-user` exit leaves the grant and delivery state intact.
 Inspect managed state with `run_control.py status <card>`. Before launch and after
 completion or resume, follow [dispatch inspection](dispatch.md). Both inspections
 use the control record when its Markdown projection is missing or matches the exact
@@ -55,16 +53,12 @@ with the same expected revision, request ID and reason. A user pause still requi
 the native command; the host cannot label a diagnostic as user intent. Use existing delivery gates to establish delivery; a terminal label alone is insufficient.
 A card with `delivery: pr-only` refuses the `delivered-local` transition.
 
-After the required-check watch and repository approvals pass, use
+To submit through managed control, use
 `run_control.py merge <card> --expect <revision> --merge-pr <number>
 --head <reviewed-sha> --method <approved-method>` to submit a managed merge.
-It requires a current human-authorized delivery grant that matches the PR. For
-a planned-base grant, the PR head must come from the recorded workstream branch
-in the origin repository. An older saved grant without a verified target requires
-an explicit `resume` with a new verified auto-merge grant before submitting.
-The merge command rechecks the PR's base requirements. Verify
-GitHub's resulting PR state before recording `merged` because an admitted queue
-entry may still be waiting.
+The saved grant must match the PR. For a planned-base grant, the head must come
+from the recorded branch in the origin repository. An older grant without a verified
+target requires explicit `resume` with a verified grant before submitting.
 
 While paused, collect already running work and preserve its evidence. Productive
 continuation and acceptance wait for authorized resume.
