@@ -4,10 +4,14 @@ import argparse
 import json
 import math
 import os
+from pathlib import Path
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
+
+import check_receipts
 
 
 def stop_group(process):
@@ -37,6 +41,12 @@ def main():
                         help='absolute decisions journal: journal a hidden failure-cause label when the check fails')
     parser.add_argument('--assignment-id', help='with --classify-failure: stable assignment/check identity')
     parser.add_argument('--repo', help='with --classify-failure: canonical project checkout')
+    parser.add_argument('--phase', choices=('red', 'green'), help='verify a claimed test for a managed ticket')
+    parser.add_argument('--claim', help='declared test ID')
+    parser.add_argument('--format', choices=('marker', 'unittest'),
+                        help='phase output format, default: exact FAIL/PASS marker')
+    parser.add_argument('--state', type=Path, help='absolute worker lifecycle state for a phase check')
+    parser.add_argument('--attempt', help='worker attempt for a phase check')
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if bool(args.classify_failure) != bool(args.assignment_id and args.repo) or (
@@ -49,6 +59,21 @@ def main():
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     if not command:
         parser.error('a command is required after --')
+    if args.phase:
+        if not (check_receipts.valid_claim(args.claim) and args.state and args.attempt):
+            parser.error('--phase requires --claim TEST_ID, --state and --attempt')
+        output_format = args.format or 'marker'
+        if output_format == 'unittest' and not check_receipts.UNITTEST_CLAIM.fullmatch(args.claim):
+            parser.error('--format unittest requires a fully qualified unittest test ID')
+        saved = check_receipts.assigned_attempt(args.state, args.attempt, args.claim)
+        test_file = saved['check_receipts'].get('test_files', {}).get(args.claim)
+        if output_format == 'marker' and not test_file:
+            raise ValueError(f'{args.claim}: marker format requires a declared Test file')
+        root = Path(saved['worktree'])
+        phase_source = check_receipts.source_snapshot(root, args.phase, args.claim, saved['head'], test_file)
+        phase_started = time.time_ns()
+    elif args.claim or args.state or args.attempt or args.format:
+        parser.error('--claim, --state, --attempt and --format require --phase')
     timed_out = False
     interrupted = None
     cleanup_required = False
@@ -119,6 +144,22 @@ def main():
     finished = current_head()
     if started and finished == started:
         summary['head'] = started
+    if args.phase:
+        log_path = Path(summary['log'])
+        try:
+            after = check_receipts.source_snapshot(root, args.phase, args.claim, saved['head'], test_file)
+            if after != phase_source:
+                raise ValueError('source changed while the claim ran')
+            expected_code = 1 if args.phase == 'red' else 0
+            if (code != expected_code or source != 'command' or cleanup_required or missing
+                    or not check_receipts.observed_claim(log_path, args.phase, args.claim, output_format)):
+                expected = 'fail' if args.phase == 'red' else 'pass'
+                raise ValueError(f'{args.claim} did not {expected} as a {output_format} result')
+            summary['tdd'] = check_receipts.receipt(saved, args.phase, args.claim, phase_source,
+                                                    phase_started, time.time_ns(), log_path, output_format, command)
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            code = 125
+            summary.update(exit_code=code, exit_source='test-claim', test_claim_error=str(error))
     keep(summary)
     if code and args.classify_failure:
         summary['failure_cause'] = classify(summary, args)
@@ -169,6 +210,6 @@ def classify(summary, args):
 if __name__ == '__main__':
     try:
         raise SystemExit(main())
-    except OSError as exc:
+    except (OSError, ValueError, sqlite3.Error, subprocess.SubprocessError) as exc:
         print(f'run-check: {exc}', file=sys.stderr)
         raise SystemExit(125)

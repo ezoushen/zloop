@@ -3,11 +3,14 @@
 import argparse
 from contextlib import closing
 import hashlib
+from ipaddress import ip_address
 import json
 from pathlib import Path
+import re
 import sqlite3
 import subprocess
 import sys
+from urllib.parse import urlsplit
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -70,9 +73,32 @@ def save(card, state):
     state_files.write_atomic(location(card), json.dumps(state, indent=2) + '\n', mode=0o600)
 
 
-def routing_session(card, requested=None):
+def claim_receipt(saved, attempt, item, execution, call_id):
+    """Prepare a claim for a checked launch, accepting a replay only for the same native call and packet."""
+    claim = dict(call_id=call_id, assignment=item['assignment'], packet_hash=execution['dispatch']['packet_hash'])
+    previous = saved['claims'].get(attempt, claim)
+    require(previous in (claim, call_id),
+            'Attempt already launched; reconcile the existing child before releasing its launch claim')
+    return previous
+
+
+def claim_matches(claim, assignment, execution):
+    """Check a claim against the assignment and the resolved packet digest."""
+    return (isinstance(claim, dict) and bool(claim.get('call_id')) and claim.get('assignment') == assignment
+            and claim.get('packet_hash') == execution['dispatch']['packet_hash'])
+
+
+def matching_claim(card, attempt, item, execution):
+    """Find the prelaunch claim bound to the registered assignment and packet."""
+    saved = read(card, managed(card))
+    claim = saved['claims'].get(attempt)
+    if claim_matches(claim, item['assignment'], execution):
+        return claim
+
+
+def routing_session(card, requested=None, *, control=None):
     """Keep the run's routing configuration scope when a fresh host resumes it."""
-    control = managed(card)
+    control = control if control is not None else managed(card)
     require(control, 'Managed routing requires an adopted card')
     saved = read(card, control)
     bound = saved.get('routing_session')
@@ -83,11 +109,53 @@ def routing_session(card, requested=None):
     return chosen
 
 
-def issue_route(card, repo, attempt, packet, worktree, execution, configuration):
+def routing_context(card, requested=None):
+    """Read the routing session, denied hosts and revision from the managed card."""
+    control = managed(card)
+    session = routing_session(card, requested, control=control)
+    raw = state_files.state_fields(control['card_text']).get('deny-hosts', '')
+    require(not raw or raw.startswith('[') and raw.endswith(']'), 'deny-hosts requires a bracketed list')
+    return session, front_matter.bracketed(raw) if raw else [], control['revision']
+
+
+def host_key(host):
+    """Canonical DNS or IP spelling, without resolving the name."""
+    host = host.rstrip('.').lower()
+    try:
+        return ip_address(host).compressed
+    except ValueError:
+        return host.encode('idna').decode('ascii')
+
+
+def destination_check(deny_hosts):
+    """Return a validator for HTTP destinations, or None when the card denies no hosts."""
+    denied = set()
+    for entry in deny_hosts:
+        if re.fullmatch(r'(?:[\w.-]+|\[[0-9A-Fa-f:.]+\])(?::[0-9]+)?', entry):
+            address = urlsplit('//' + entry)
+            denied.add((host_key(address.hostname), address.port))
+    if not denied:
+        return None
+
+    def require_url(url):
+        address = urlsplit(url)
+        if address.scheme not in ('http', 'https') or not address.hostname:
+            raise ValueError('Network check requires an HTTP(S) URL with a hostname')
+        host = host_key(address.hostname)
+        port = address.port if address.port is not None else (443 if address.scheme == 'https' else 80)
+        if (host, None) in denied or (host, port) in denied:
+            raise ValueError('excluded-by-mandate')
+
+    return require_url
+
+
+def issue_route(card, repo, attempt, packet, worktree, execution, configuration, *, expected_revision=None):
     """Called only on the resolver's completed result, after overrides and launch controls are validated."""
     with state_files.locked(card):
         control = managed(card)
         require(control, 'Route receipts require an explicitly adopted managed card')
+        require(expected_revision is None or expected_revision == control['revision'],
+                'Managed routing policy changed during resolution; resolve routing again')
         require(execution.get('status') != 'selection_required',
                 'selection_required: complete routing before issuing a managed route receipt')
         require(execution.get('job') and isinstance(execution.get('settings'), dict), 'Incomplete resolved route')
@@ -102,7 +170,7 @@ def issue_route(card, repo, attempt, packet, worktree, execution, configuration)
                        configuration=files(configuration), execution_hash=digest(execution))
         saved = read(card, control)
         session = (execution.get('session') or {}).get('id')
-        saved['routing_session'] = routing_session(card, session)
+        saved['routing_session'] = routing_session(card, session, control=control)
         previous = saved['routes'].get(attempt)
         if previous and {k: v for k, v in previous.items() if k != 'token'} == {
                 k: v for k, v in receipt.items() if k != 'token'}:
@@ -320,9 +388,7 @@ def checked(card, attempt, execution, packet, worktree, *, call_id=None, db=None
             and str(Path(worktree).resolve()) == str(Path(item['worktree']).resolve()), 'Launch differs from batch assignment')
     if call_id:
         require(attempt not in {row['attempt'] for row in now['rows']}, 'Attempt already registered; reconcile rather than relaunch')
-        require(saved['claims'].get(attempt, call_id) == call_id,
-                'Attempt already launched; reconcile the existing child before releasing its launch claim')
-        saved['claims'][attempt] = call_id
+        saved['claims'][attempt] = claim_receipt(saved, attempt, item, execution, call_id)
         save(card, saved)
     return item
 
@@ -423,8 +489,9 @@ def main():
                 saved, now = read(args.card, control), snapshot(args.card)
                 require(args.attempt in saved['claims'] and args.attempt not in {r['attempt'] for r in now['rows']},
                         'Only an unregistered, reconciled failed launch claim can be released')
+                claim = saved['claims'].pop(args.attempt)
                 saved.setdefault('released', []).append(dict(attempt=args.attempt,
-                    call_id=saved['claims'].pop(args.attempt), evidence=evidence(args.evidence)))
+                    call_id=claim['call_id'] if isinstance(claim, dict) else claim, evidence=evidence(args.evidence)))
                 save(args.card, saved)
                 result = {'released': args.attempt}
         else:

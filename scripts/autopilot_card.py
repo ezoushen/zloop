@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Confirm an autopilot run card, set its phase or take it over: `autopilot_card.py confirm <card> --words "<the user's
 words>"`, `autopilot_card.py phase <card> <align|refine|dispatch|pr>`, or `autopilot_card.py take-over <card>
-[--auto-merge] [--effort <level>] [--dispatch-effort <level>] [--review-effort <level>]`.
+[--effort <level>] [--dispatch-effort <level>] [--review-effort <level>]`.
 
 A phase of dispatch or pr needs the tickets of the board the card names on `board:`: a tracker's URL holds its own; a
 `local` board needs ticket files that pass `next_tickets.py --check`.
 
-A confirmation records the date and the user's words on `confirmed:` (on a `mode: direct` card, as `by rule` with
+A confirmation records the supplied `--confirmed-by` source and the date and user's words on `confirmed:`
+(on a `mode: direct` card, as `by rule` with
 the goal the user typed, since a direct run asks nothing), and on `session:` each host session ID this shell exports,
 as the stop hook counts them, so the panel and the stop hold find the run. A direct card whose local board holds more
 than two tickets is refused its dispatch: it takes the full path, and a `mode: full` card still confirmed `by rule` is
@@ -33,6 +34,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_matter  # noqa: E402
+import pr_safety  # noqa: E402
 import state_files  # noqa: E402
 import next_tickets  # noqa: E402
 import run_control  # noqa: E402
@@ -164,9 +166,8 @@ def crew_problem(card):
             "write its `From` line (align's Crew template), then confirm")
 
 
-def confirm(card, text, words, sessions, today):
-    """The card's text once the user confirmed it; only `confirmed:` and `session:` of its State change. Exits on a
-    State missing a line of the format, on no words, on no host session and on a brief that skips the crew profile."""
+def confirm(card, text, words, sessions, today, confirmed_by=None):
+    """Record the confirmation words, supplied provenance and active host sessions in State."""
     state = state_section(text)
     missing = [key for key in STATE_LINES if not re.search(rf'^{re.escape(key)}:', state[0], re.M)]
     if missing:
@@ -183,6 +184,13 @@ def confirm(card, text, words, sessions, today):
         sys.exit(problem)
     by_rule = ' by rule' if mode == 'direct' else ''
     lines = set_field(set_field(state[0], 'confirmed', f'{today}{by_rule} "{words}"'), 'session', session_line(sessions, 'confirm'))
+    if confirmed_by is not None:
+        state_files.validate_confirmation_source(confirmed_by)
+        if 'confirmed-by' in state_fields(lines):
+            lines = set_field(lines, 'confirmed-by', confirmed_by)
+        else:
+            lines = re.sub(r'^confirmed:.*$', lambda match: f'{match[0]}\nconfirmed-by: {confirmed_by}',
+                           lines, count=1, flags=re.M)
     return text[:state.start()] + lines + text[state.end():]
 
 
@@ -212,11 +220,17 @@ def main():
     parser.add_argument('card', type=Path)
     parser.add_argument('phase', nargs='?', choices=PHASES, help='phase: the phase the run enters')
     parser.add_argument('--words', help="confirm: the user's words that confirmed the card")
-    parser.add_argument('--auto-merge', action='store_true', help='grant merging to the new run')
+    parser.add_argument('--confirmed-by', help='confirm: human or relayed(agent)')
+    parser.add_argument('--auto-merge', action='store_true', help='grant merging with --merge-pr or --merge-base')
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument('--merge-base', help='explicit base of a planned auto-merge PR')
+    target.add_argument('--merge-pr', type=int, help='open PR for an auto-merge request')
     parser.add_argument('--effort', choices=LEVELS, help='set both steps to this level')
     parser.add_argument('--dispatch-effort', choices=LEVELS, help="set the dispatch's verification level")
     parser.add_argument('--review-effort', choices=LEVELS, help="set the review's level")
     args = parser.parse_args()
+    if args.confirmed_by is not None and args.command != 'confirm':
+        parser.error('--confirmed-by is only supported by confirm')
     today = datetime.date.today().isoformat()
     if args.command == 'phase':
         if not args.phase:
@@ -229,14 +243,27 @@ def main():
             state_files.write_atomic(args.card, text)
         return
     if run_control.read(args.card):
-        parser.error('Managed run: use run_control.py for pause/resume; changing its grant needs a new confirmed run')
+        parser.error('Managed run: use run_control.py for pause or resume and grant verification')
+    text = args.card.read_text()
     if args.command == 'confirm':
-        state_files.write_atomic(args.card, confirm(args.card, args.card.read_text(), args.words, host_sessions(), today))
-        return
-    levels = (args.dispatch_effort or args.effort, args.review_effort or args.effort)
-    state_files.write_atomic(args.card, take_over(args.card.read_text(), args.auto_merge, *levels, today,
-                                                  host_sessions()))
+        text = confirm(args.card, text, args.words, host_sessions(), today, args.confirmed_by)
+    else:
+        levels = (args.dispatch_effort or args.effort, args.review_effort or args.effort)
+        text = take_over(text, args.auto_merge, *levels, today, host_sessions())
+    values = state_fields(state_section(text)[0])
+    try:
+        if values.get('auto-merge') == 'yes':
+            pr_safety.verify_grant(args.merge_base, args.merge_pr, confirmed_by=values.get('confirmed-by'))
+        elif args.auto_merge:
+            pr_safety.require_merge_authority(values.get('confirmed-by'))
+    except pr_safety.WaitingOnUser as error:
+        parser.exit(2, f'waiting-on-user: {error}\n')
+    state_files.write_atomic(args.card, text)
+
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except ValueError as error:
+        sys.exit(str(error))

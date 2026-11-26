@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Run the full suite with only a minimal tool path and the nested slot marker."""
+import os
+from pathlib import Path
+import shutil
+import sys
+
+
+def main():
+    """Replace this process with the default suite using a clean shell environment."""
+    runner = Path(__file__).resolve().with_name('run_all.py')
+    selected = {str(Path(binary).absolute().parent) for name in ('git', 'claude', 'node')
+                if (binary := shutil.which(name))}
+    directories = [directory for item in os.get_exec_path()
+                   if (directory := str(Path(item).absolute())) in selected]
+    directories.extend(os.defpath.split(os.pathsep))
+    environment = ['PATH=' + os.pathsep.join(dict.fromkeys(directories))]
+    if os.environ.get('ZLOOP_TEST_SLOT_HELD'):
+        environment.append('ZLOOP_TEST_SLOT_HELD=1')
+    os.execv('/usr/bin/env', ['env', '-i', *environment, sys.executable, str(runner)])
+
+
+if __name__ == '__main__':
+    main()

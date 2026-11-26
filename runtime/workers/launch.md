@@ -54,8 +54,8 @@ Before every worker launch, the orchestrator runs:
 "<python>" "<plugin_root>/scripts/agent_models.py" --repo "<canonical-main-checkout>" --host <host> --job <job> --route
 ```
 
-The job selects its agent; a route without `--job` is refused, and `--agent <agent>` is
-only for inspecting or editing settings (`--list-candidates`). The assignment text
+The job selects its agent. Supply `--job` for a launch route and `--agent <agent>`
+for candidate inspection or settings edits. The assignment text
 carries `adapter`, `agent_file`, `job_file`, `plugin_root`, `repo` and every input in the
 job's frontmatter, each as `name: value`; registration refuses a `packet` missing one,
 and on Claude the launch hook checks the prompt the same way. Use the plugin's
@@ -64,10 +64,9 @@ configuration is present.
 
 A `selection_required` result has no launch settings: finish
 [selection](../routing/choose.md) first. Then read the returned `executor_guide` and the
-active host adapter. Resolution never launches a worker. Inspection is offline and
-read-only; only an explicit `--assignment` (compact routing text) may call the decision
-backend and update calibration monitoring, and only explicit session save or reset
-changes the session configuration.
+active host adapter. Resolution never launches a worker. Only an explicit
+`--assignment` (compact routing text) may call the decision backend and update
+calibration monitoring. Only explicit session save or reset changes the session configuration.
 
 Agent precedence: **one-run choice → session → project → user → existing native**.
 Agent entries replace in full. A top-level `jobs.<job>` entry has the same shape and,

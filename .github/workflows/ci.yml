@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Hermetic tests and docs
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare test tools
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt
+          npm install --global @anthropic-ai/claude-code@2.1.330
+      - name: Run the clean-shell suite
+        run: .venv/bin/python tests/run_clean.py
+      - name: Check the whole repository's agent docs
+        if: ${{ !cancelled() }}
+        run: .venv/bin/python .agents/skills/writing-agent-docs/check_docs.py

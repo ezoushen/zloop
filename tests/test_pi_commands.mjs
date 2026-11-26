@@ -98,7 +98,7 @@ assert.deepEqual(await labels("setup", "why calibration "), ["--scope", "--route
 const START = {
   align: ["--interactive"], autopilot: ["--effort", "--dispatch-effort", "--review-effort", "--take-over", "--pause"],
   brief: ["map"], diagnose: null,
-  dispatch: ["--effort", "--dispatch-effort", "--review-effort", "--autofix"], explain: null, huh: null, pr: null, prototype: null, refine: null,
+  dispatch: ["--effort", "--dispatch-effort", "--review-effort", "--autofix"], explain: null, huh: null, pr: ["--auto-merge"], prototype: null, refine: null,
   remediate: ["tautological-tests", "misleading-comments", "--base", "--project"], research: null,
   review: ["walkthrough", "--effort", "--autofix", "--comments", "--base"],
   setup: ["show", "set", "reset", "calibrate", "calibration", "check", "retro", "replay", "--scope", "--route",

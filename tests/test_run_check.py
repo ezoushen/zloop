@@ -20,6 +20,109 @@ LOCK = support.script('resource_lock.py')
 
 
 class RunCheckTests(unittest.TestCase):
+    def claim_fixture(self, test_file=None):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        repo = root / 'repo'
+        subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+        (repo / 'product.py').write_text('value = 1\n')
+        subprocess.run(['git', '-C', str(repo), 'add', 'product.py'], check=True)
+        subprocess.run(['git', '-C', str(repo), '-c', 'user.name=t', '-c', 'user.email=t@t',
+                        'commit', '-qm', 'base'], check=True)
+        base = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
+        state = root / 'workers.sqlite'
+        claim = 'test_value.ValueTest.test_wanted'
+        support.write_attempts(state, [support.attempt_row(
+            repo, attempt='value-1', worktree=str(repo), head=base, job='ticket',
+            dispatch_assignment={'assignment': 'ticket-1'},
+            check_receipts={'claims': [claim], 'identity': 'value-run',
+                            'test_files': {claim: test_file} if test_file else {}})])
+        return repo, base, claim
+
+    def red_check(self, repo, claim, name, wanted):
+        (repo / 'test_value.py').write_text(
+            'import unittest\nfrom product import value\n'
+            'class ValueTest(unittest.TestCase):\n'
+            f'{wanted}'
+            '    def test_other(self): self.fail("test_value.ValueTest.test_wanted")\n')
+        log = repo.parent / f'{name}.log'
+        result = subprocess.run(
+            [sys.executable, str(RUNNER), '--timeout', '5', '--log', str(log),
+             '--phase', 'red', '--format', 'unittest', '--claim', claim,
+             '--state', str(repo.parent / 'workers.sqlite'),
+             '--attempt', 'value-1', '--', sys.executable, '-B', '-m', 'unittest', '-v', 'test_value'],
+            cwd=repo, capture_output=True, text=True, timeout=10)
+        return log, result
+
+    def test_red_records_the_claimed_unittest_failure_on_base_source(self):
+        repo, base, claim = self.claim_fixture()
+        log, result = self.red_check(repo, claim, 'red',
+                                     '    def test_wanted(self): self.assertEqual(value, 2)\n')
+        self.assertIn(f'FAIL: test_wanted ({claim})', log.read_text() if log.exists() else result.stderr)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        proof = json.loads(result.stdout)['tdd']
+        self.assertEqual((proof['phase'], proof['claim'], proof['base'], proof['attempt']),
+                         ('red', claim, base, 'value-1'))
+        tree = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+        self.assertEqual((proof['source']['head'], proof['source']['tree']), (base, tree))
+        self.assertEqual(list(proof['source']['test_changes']), ['test_value.py'])
+        self.assertLess(proof['started_ns'], proof['finished_ns'])
+
+    def test_red_refuses_a_skipped_passing_or_erroring_claim_when_another_test_fails(self):
+        repo, _, claim = self.claim_fixture()
+        for name, wanted, outcome in (
+            ('passes', '    def test_wanted(self): pass\n', 'ok'),
+            ('skips', '    @unittest.skip("scenario unavailable")\n    def test_wanted(self): pass\n',
+             "skipped 'scenario unavailable'"),
+            ('errors', '    def test_wanted(self): raise RuntimeError("broken setup")\n', 'ERROR'),
+        ):
+            with self.subTest(outcome=name):
+                log, result = self.red_check(repo, claim, name, wanted)
+                self.assertEqual(result.returncode, 125, result.stdout + result.stderr)
+                self.assertIn(f'test_wanted ({claim}) ... {outcome}', log.read_text())
+                self.assertIn('FAIL: test_other (test_value.ValueTest.test_other)', log.read_text())
+                summary = json.loads(result.stdout)
+                self.assertNotIn('tdd', summary)
+                self.assertIn(f'{claim} did not fail as a unittest result', summary['test_claim_error'])
+
+    def test_red_refuses_staged_unstaged_and_untracked_product_changes(self):
+        wanted = '    def test_wanted(self): self.assertEqual(value, 2)\n'
+        for name in ('staged', 'unstaged', 'untracked'):
+            with self.subTest(source=name):
+                repo, _, claim = self.claim_fixture()
+                source = 'extra.py' if name == 'untracked' else 'product.py'
+                (repo / source).write_text('value = 3\n')
+                if name == 'staged':
+                    subprocess.run(['git', '-C', str(repo), 'add', source], check=True)
+                    (repo / source).write_text('value = 1\n')
+                log, result = self.red_check(repo, claim, name, wanted)
+                self.assertEqual(result.returncode, 125, result.stdout + result.stderr)
+                self.assertRegex(result.stderr, rf'red source differs from [0-9a-f]+: {source}')
+                self.assertFalse(log.exists(), 'the check ran on changed product bytes')
+
+    def test_red_marker_requires_an_exact_unambiguous_claimed_failure(self):
+        repo, _, claim = self.claim_fixture(test_file='test_value.sh')
+        script = repo / 'test_value.sh'
+        cases = {
+            'mention': f'FAIL: some other test\nreason: FAIL: {claim}',
+            'error': f'FAIL: some other test\nERROR: {claim}',
+            'contradiction': f'PASS: {claim}\nFAIL: {claim}',
+        }
+        for name, output in cases.items():
+            with self.subTest(name=name):
+                script.write_text(f"printf '%s\\n' {shlex.quote(output)}\nexit 1\n")
+                log = repo.parent / f'{name}.log'
+                result = subprocess.run(
+                    [sys.executable, str(RUNNER), '--timeout', '5', '--log', str(log), '--phase', 'red',
+                     '--claim', claim, '--state', str(repo.parent / 'workers.sqlite'), '--attempt', 'value-1',
+                     '--', 'sh', 'test_value.sh'], cwd=repo, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 125, result.stdout + result.stderr)
+                self.assertEqual(log.read_text(), output + '\n')
+                summary = json.loads(result.stdout)
+                self.assertNotIn('tdd', summary)
+                self.assertIn(f'{claim} did not fail as a marker result', summary['test_claim_error'])
+
     def test_check_cannot_wait_on_the_host_input_stream(self):
         with tempfile.TemporaryDirectory() as tmp:
             runner = subprocess.Popen(

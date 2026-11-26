@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """The suite runner runs every regression script, reports each failure's output tail and exits 1 on any failure."""
+import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import signal
 import subprocess
@@ -14,6 +16,7 @@ import support
 import run_all
 
 RUNNER = support.ROOT / 'tests/run_all.py'
+CLEAN = support.ROOT / 'tests/run_clean.py'
 
 
 class RunAll(unittest.TestCase):
@@ -33,19 +36,25 @@ class RunAll(unittest.TestCase):
             pass
         runner.wait()
 
-    def suite(self, scripts, env=None, args=()):
+    def suite(self, scripts, env=None, args=(), *, clean=False):
         directory = tempfile.TemporaryDirectory(prefix='run all ')
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
         (root / 'tests').mkdir()
         shutil.copy(RUNNER, root / 'tests/run_all.py')
+        launcher = Path('tests/run_all.py')
+        if clean:
+            launcher = Path('tests/run_clean.py')
+            shutil.copy(CLEAN, root / launcher)
         for name, body in scripts.items():
             (root / 'tests' / name).write_text(body)
         subprocess.run(['git', 'init', '-q', str(root)], check=True)
         # A Git hook exports GIT_DIR; the runner must not pass it to the scripts.
         env = self.outermost(dict(PYTHON=sys.executable, GIT_DIR=str(root / '.git'), **(env or {})))
+        if clean:
+            env['ZLOOP_TEST_SLOT_HELD'] = '1'
         self.root = root
-        return subprocess.run([sys.executable, str(root / 'tests/run_all.py'), *args], env=env, cwd=root,
+        return subprocess.run([sys.executable, str(root / launcher), *args], env=env, cwd=root,
                               capture_output=True, text=True, timeout=60)
 
     def test_every_script_passing_exits_zero_and_counts_them(self):
@@ -53,12 +62,54 @@ class RunAll(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(f'2 regression scripts passed ({sys.executable})', result.stdout)
 
+    def test_clean_shell_runs_the_full_suite_without_caller_opt_ins(self):
+        caller_only = 'zloop-caller-path'
+        env = {'ZLOOP_NATIVE': '1', 'PROBE_CALLER_ONLY': 'keep out',
+               'PATH': os.pathsep.join((caller_only, os.environ['PATH']))}
+        script = ('import os\n'
+                  'from pathlib import Path\n'
+                  'assert "PROBE_CALLER_ONLY" not in os.environ, "caller environment leaked"\n'
+                  'assert "ZLOOP_NATIVE" not in os.environ, "caller native opt-in leaked"\n'
+                  'assert "zloop-caller-path" not in os.environ["PATH"], "caller PATH leaked"\n'
+                  'pool = Path(os.environ["TMPDIR"]).parents[1] / "slots"\n'
+                  'assert pool.is_dir(), "clean fixture used the outer slot pool"\n')
+        result = self.suite({'test_first.py': script, 'test_second.py': script}, env, clean=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('2 scripts passed, 0 failed; 2 scheduled units passed, 0 failed', result.stdout)
+
+    def test_clean_shell_keeps_the_callers_git_and_node(self):
+        git = shutil.which('git')
+        tools = tempfile.TemporaryDirectory(prefix='suite tools ')
+        self.addCleanup(tools.cleanup)
+        git_dir = Path(tools.name) / 'git tools'
+        node_dir = Path(tools.name) / 'node tools'
+        git_dir.mkdir()
+        node_dir.mkdir()
+        executable = git_dir / 'git'
+        executable.write_text('#!/bin/sh\n'
+                              'if [ "$1" = --version ]; then printf "%s\\n" "fixture git"; exit 0; fi\n'
+                              f'exec {shlex.quote(git)} "$@"\n')
+        executable.chmod(0o755)
+        for directory, version in ((git_dir, 'shadow node'), (node_dir, 'selected node')):
+            node = directory / 'node'
+            node.write_text(f'#!/bin/sh\nprintf "%s\\n" "{version}"\n')
+            node.chmod(0o755)
+        env = {'PATH': os.pathsep.join((str(node_dir), str(git_dir), os.environ['PATH']))}
+        script = ('import subprocess\n'
+                  'git = subprocess.check_output(["git", "--version"], text=True).strip()\n'
+                  'node = subprocess.check_output(["node", "--version"], text=True).strip()\n'
+                  'assert git == "fixture git", git\n'
+                  'assert node == "selected node", node\n')
+        result = self.suite({'test_tools.py': script}, env, clean=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_named_scripts_run_alone_and_are_the_ones_counted(self):
         # Rule: a focused run names its scripts; the others, a failing one among them, do not run.
         result = self.suite({'test_one.py': 'pass\n', 'test_two.py': 'pass\n', 'test_bad.py': 'raise SystemExit(1)\n'},
                             args=['tests/test_one.py', str(Path('tests/test_two.py'))])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(result.stdout, f'2 regression scripts passed ({sys.executable})\n')
+        self.assertEqual(result.stdout, f'2 regression scripts passed ({sys.executable})\n'
+                         '2 scripts passed, 0 failed; 2 scheduled units passed, 0 failed\n')
 
     def test_a_path_that_is_no_test_script_here_is_refused_and_nothing_runs(self):
         # Rule: a mistyped or foreign path must not pass as a green run of fewer scripts.
@@ -83,7 +134,8 @@ class RunAll(unittest.TestCase):
         self.assertIn('FAIL test_bad', result.stdout)
         self.assertIn('why it broke', result.stdout)
         self.assertNotIn('FAIL test_good', result.stdout)
-        self.assertNotIn('passed', result.stdout)
+        self.assertNotIn('regression scripts passed (', result.stdout)
+        self.assertIn('1 scripts passed, 1 failed; 1 scheduled units passed, 1 failed', result.stdout)
 
     def test_without_python_set_a_worktree_uses_the_main_checkout_environment(self):
         main = Path(tempfile.mkdtemp(prefix='run all main '))
@@ -117,37 +169,61 @@ class RunAll(unittest.TestCase):
         root = Path(tempfile.mkdtemp(prefix='run all tmpdir '))
         self.addCleanup(shutil.rmtree, root)
         (root / 'tests').mkdir()
-        (root / 'tmp').mkdir()
+        tmp = tempfile.TemporaryDirectory(prefix='run all temp ')
+        self.addCleanup(tmp.cleanup)
+        temp = Path(tmp.name)
         shutil.copy(RUNNER, root / 'tests/run_all.py')
         (root / 'tests/test_one.py').write_text('pass\n')
         subprocess.run(['git', 'init', '-q', str(root)], check=True)
         env = {key: value for key, value in os.environ.items() if not key.startswith('ZLOOP_TEST_SLOT')}
         result = subprocess.run([sys.executable, str(root / 'tests/run_all.py')], cwd=root, capture_output=True,
-                                text=True, timeout=60, env={**env, 'PYTHON': sys.executable, 'TMPDIR': str(root / 'tmp')})
+                                text=True, timeout=60, env={**env, 'PYTHON': sys.executable, 'TMPDIR': str(temp)})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertTrue((root / 'tmp' / f'zloop-test-slots-{os.getuid()}' / 'slot-0').exists())
+        self.assertTrue((temp / f'zloop-test-slots-{os.getuid()}' / 'slot-0').exists())
+
+
+    def test_tmpdir_in_another_worktree_is_refused_even_through_a_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            outside = Path(tmp)
+            other = outside / 'another-repo'
+            subprocess.run(['git', 'init', '-q', str(other)], check=True)
+            inside = other / 'temp'
+            inside.mkdir()
+            link = outside / 'symlink'
+            link.symlink_to(inside, target_is_directory=True)
+            ran = outside / 'ran'
+            for path in (inside, link):
+                with self.subTest(path=path):
+                    result = self.suite({'test_probe.py': f'from pathlib import Path\nPath({str(ran)!r}).touch()\n'},
+                                        {'TMPDIR': str(path)})
+                    self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                    self.assertIn(f'TMPDIR resolves inside a Git worktree: {inside.resolve()}', result.stderr)
+                    self.assertFalse(ran.exists())
+                    self.assertEqual(list(inside.iterdir()), [])
 
     def test_a_terminated_run_removes_its_logs(self):
         root = Path(tempfile.mkdtemp(prefix='run all term '))
         self.addCleanup(shutil.rmtree, root)
         (root / 'tests').mkdir()
-        (root / 'tmp').mkdir()
+        tmp = tempfile.TemporaryDirectory(prefix='run all temp ')
+        self.addCleanup(tmp.cleanup)
+        temp = Path(tmp.name)
         shutil.copy(RUNNER, root / 'tests/run_all.py')
         started = root / 'started'
         (root / 'tests/test_slow.py').write_text(f'import time\nopen({str(started)!r}, "w").close()\ntime.sleep(30)\n')
         subprocess.run(['git', 'init', '-q', str(root)], check=True)
         runner = subprocess.Popen([sys.executable, str(root / 'tests/run_all.py')], start_new_session=True,
-                                  env=self.outermost(dict(PYTHON=sys.executable, TMPDIR=str(root / 'tmp'))))
+                                  env=self.outermost(dict(PYTHON=sys.executable, TMPDIR=str(temp))))
         self.addCleanup(self.stop_group, runner)
         deadline = time.monotonic() + 10
         # The runner opens a unit's log before starting it; wait for the script itself, which killpg then stops.
-        while not (started.exists() and list((root / 'tmp').glob('*/*.log'))):
+        while not (started.exists() and list(temp.glob('*/*.log'))):
             self.assertLess(time.monotonic(), deadline, 'the run never started')
             time.sleep(0.05)
         runner.send_signal(signal.SIGTERM)
         self.assertEqual(runner.wait(timeout=10), 128 + signal.SIGTERM)
         self.stop_group(runner)  # the sleeping test, as a hook's teardown would
-        self.assertEqual(list((root / 'tmp').iterdir()), [])
+        self.assertEqual(list(temp.iterdir()), [])
 
     def test_no_more_scripts_run_at_once_than_the_machine_has_cpus(self):
         # Rule: starting every script at once starves the timing-sensitive ones, so at most one per CPU runs.
@@ -256,6 +332,64 @@ class RunAll(unittest.TestCase):
         result = self.suite({'test_env.py': 'import os\nraise SystemExit(1 if "GIT_DIR" in os.environ else 0)\n'})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_collection_and_each_test_unit_get_a_fresh_environment(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            markers = Path(scratch)
+            body = f"MARKERS = {str(markers)!r}\n" + '''import json, os, subprocess, tempfile, unittest
+from pathlib import Path
+
+names = ('HOME', 'CODEX_HOME', 'XDG_STATE_HOME', 'TMPDIR', 'GIT_CEILING_DIRECTORIES',
+         'ZLOOP_NATIVE', 'CODEX_SESSION_ID', 'OTHER_SESSION_ID', 'HERDR_ENV', 'T3_SAMPLE',
+         'ZLOOP_SESSION', 'CODEX_THREAD_ID')
+private = Path(os.environ['TMPDIR']).parent
+if Path(os.environ['HOME']) == private / 'home':
+    subprocess.run(['git', 'init', '-q', private], check=True)
+with tempfile.TemporaryDirectory() as tmp:
+    ok = subprocess.run(['git', '-C', tmp, 'rev-parse', '--show-toplevel'], capture_output=True).returncode
+    subprocess.run(['git', 'init', '-q', tmp], check=True)
+    root = subprocess.check_output(['git', '-C', tmp, 'rev-parse', '--show-toplevel'], text=True).strip()
+    assert Path(root) == Path(tmp).resolve(), root
+(Path(MARKERS) / str(os.getpid())).write_text(json.dumps({
+    'values': {name: os.environ.get(name) for name in names},
+    'empty': [name for name in names[:3] if os.environ.get(name) and Path(os.environ[name]).is_dir()
+              and not any(Path(os.environ[name]).iterdir())],
+    'temporary': tmp, 'outside_git': ok != 0,
+}))
+
+class Left(unittest.TestCase):
+    def test_left(self):
+        pass
+
+class Right(unittest.TestCase):
+    def test_right(self):
+        pass
+
+if __name__ == '__main__':
+    unittest.main()
+'''
+            host = {key: scratch for key in ('HOME', 'CODEX_HOME', 'XDG_STATE_HOME', 'TMPDIR',
+                                             'CODEX_SESSION_ID', 'OTHER_SESSION_ID', 'HERDR_ENV', 'T3_SAMPLE',
+                                             'ZLOOP_SESSION', 'CODEX_THREAD_ID')}
+            result = self.suite({'test_isolation.py': body}, dict(host, ZLOOP_NATIVE='1'))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            rows = [json.loads(path.read_text()) for path in markers.iterdir()]
+            self.assertEqual(len(rows), 3, result.stdout + result.stderr)
+            for row in rows:
+                with self.subTest(row=row):
+                    self.assertEqual(row['empty'], ['HOME', 'CODEX_HOME', 'XDG_STATE_HOME'])
+                    self.assertTrue(row['outside_git'], 'Git discovered a repository beyond the unit ceiling')
+                    values = row['values']
+                    tmp = Path(values['TMPDIR'])
+                    self.assertEqual(Path(row['temporary']).parent, tmp)
+                    self.assertEqual(values['GIT_CEILING_DIRECTORIES'], str(tmp.parent))
+                    self.assertEqual(values['ZLOOP_NATIVE'], '1')
+                    for key in ('CODEX_SESSION_ID', 'OTHER_SESSION_ID', 'HERDR_ENV', 'T3_SAMPLE',
+                                'ZLOOP_SESSION', 'CODEX_THREAD_ID'):
+                        self.assertIsNone(values[key], key)
+                    self.assertFalse(tmp.parent.exists())
+            for key in ('HOME', 'CODEX_HOME', 'XDG_STATE_HOME', 'TMPDIR'):
+                self.assertEqual(len({row['values'][key] for row in rows}), 3, key)
+
     def test_the_classes_of_one_script_run_as_separate_units_in_the_shared_budget(self):
         # Rule: a script's test classes are scheduled separately, so a script with two classes keeps two slots busy.
         scratch = Path(tempfile.mkdtemp(prefix='run all classes '))
@@ -310,7 +444,8 @@ class RunAll(unittest.TestCase):
         self.assertIn('FAIL test_mixed.Broken', result.stdout)
         self.assertIn('why it broke', result.stdout)
         self.assertNotIn('FAIL test_mixed.Fine', result.stdout)
-        self.assertNotIn('passed', result.stdout)
+        self.assertNotIn('regression scripts passed (', result.stdout)
+        self.assertIn('0 scripts passed, 1 failed; 1 scheduled units passed, 1 failed', result.stdout)
 
     def test_a_finished_unit_frees_its_slot_while_a_longer_one_still_runs(self):
         # Rule: once every unit has started, each slot is released when its unit ends, so a concurrent run can use it

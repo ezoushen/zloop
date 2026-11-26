@@ -4,13 +4,24 @@ The file autopilot writes to `.scratch/<slug>/autopilot.md` before it goes hands
 It holds what the run may do and when it ends, so the stop condition survives
 compaction. Use `autopilot_card.py confirm <card> --words "<user words>"` from the
 active session and `autopilot_card.py phase <card> <phase>` for transitions.
-The script owns flag/default handling, session binding and structural checks.
+Record the original words and their source in the ledger. Use `--confirmed-by human` for
+direct human confirmation and `--confirmed-by 'relayed(Agent Name)'` for a named relay.
+Omitting the flag preserves a recorded source. The label records declared provenance.
+Structural validation and session binding do not attest who wrote a message. Silence
+and unrelated replies carry no confirmation.
 
 Size the work under [autopilot](SKILL.md). A direct run still writes `alignment.md`
 (the brief with its Crew rows) and runs refine; it skips only the interview and the
 confirmation round, keeping required checks and independent review.
-Record the original goal with `confirm`; a material question or pause-list
-action requires the full path. Never treat structural validity as user consent.
+Record the original goal with `confirm`; a material question or pause-list action
+requires the full path.
+
+Use the skill's [pause list](SKILL.md#decide-without-asking) and
+[terminal-state rule](SKILL.md#stop). Record mandate-specific restrictions on the card.
+Set `delivery: pr-only` when the mandate requires a PR. For network restrictions,
+use the [routing policy](../../runtime/routing/choose.md#local-capacity).
+Card commands use `--merge-pr <number>` or `--merge-base <planned-base>` for a target
+authorized under the [approval path](../../runtime/board/approval-path.md).
 
 ```markdown
 # <slug> — autopilot run card
@@ -23,18 +34,13 @@ The user's goal, in their words, with its ledger IDs.
       Verify (code|agent|user): <command, test or the user's check>
 
 ## Stop condition
-Ends in exactly one of: `delivered` (PR open, required checks pass, every criterion
-has passing evidence), `delivered-local` (no PR host: branch and delivery report
-ready), `merged` (only with `--auto-merge`), `waiting-on-user`, `paused-allowance`, `paused-by-user` (the user's `--pause`), `blocked`.
+The applicable autopilot terminal state and its evidence.
 
 ## Granted actions
-refine; dispatch with autofix (review, repairs, applicable E2E); push the workstream branch;
-open the PR and watch its checks; resume itself on `paused-allowance` with one timer; merging through the normal path only when `auto-merge: yes`.
+The phases and external actions granted for this run, including any authorized resume timer or merge.
 
 ## Pause list
-Login or permission prompts, credentials, spending money, deleting data, production
-changes, merging without `--auto-merge`, a missing approval, weakening a Verify,
-narrowing a user decision, and anything not granted.
+The applicable autopilot pause list and this mandate's reserved actions.
 
 ## Assumptions
 Decisions made without the user are rows in `.scratch/<slug>/ledger.md`; open ones listed here.
@@ -54,3 +60,6 @@ evidence: <commit, report, PR URL>
 timer: <resume time and the timer's handle, while `paused-allowance` waits on one>
 resume: `autopilot --take-over` (plus `--auto-merge` when granted), after <what the user must do>
 ```
+
+`confirmed-by:` and `delivery:` are optional State fields for compatibility. Write each
+at most once.

@@ -134,7 +134,9 @@ def gaps(cwd, session=None):
         orchestrated = lambda saved: owns(saved, pane, session)
         db = sqlite3.connect(f'{state.as_uri()}?mode=ro', uri=True, timeout=5)
         try:
-            missing += [f'{state}: {gap}' for gap in module.yield_gaps(db, orchestrated, saved_attempts)]
+            for gap in module.yield_gaps(db, orchestrated, saved_attempts):
+                message = f'{state}: {gap}'
+                missing.append(Required(message) if isinstance(gap, module.UnclaimedLaunch) else message)
         except Exception as error:
             if any(orchestrated(saved) for saved in saved_attempts) or unreadable_holds(state, pane, session, bound):
                 missing.append(Unchecked(f'{state}: cannot be read ({error}); fix or remove it'))
@@ -371,7 +373,7 @@ def unfinished_runs(root, session, named):
             control = control_api.read(path)
         except (OSError, ValueError) as error:
             try:
-                view = state_fields(control_api.observed(path, errors='replace') or '')
+                view = state_fields(control_api.observed(path, errors='replace') or '', validate_authority=False)
             except OSError:
                 view = {}
             try:

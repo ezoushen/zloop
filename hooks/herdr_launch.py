@@ -22,6 +22,7 @@ its own launches of that pane or agent name logged before it, such as one that f
 holds the stop until it is closed, unless dismissed with `--keep`, which records why it stays open on purpose.
 """
 import argparse
+from http.client import HTTPConnection
 import json
 import os
 from pathlib import Path
@@ -35,8 +36,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from urllib.error import HTTPError, URLError
-from urllib.request import urlopen
 
 import pr_body
 import yield_gate
@@ -180,6 +179,17 @@ def start(argv):
     root = yield_gate.main_checkout(os.getcwd())
     if root is None:
         parser.error('run start inside the checkout whose launches the stop check tracks')
+    receipt = route.get('dispatch')
+    if receipt is not None:
+        dispatch = yield_gate.script('dispatch_state')
+        try:
+            dispatch.require(Path(receipt['repo']).resolve() == root.resolve(),
+                             'Managed Herdr route belongs to a different checkout')
+            dispatch.require(dispatch.check(Path(receipt['card']), receipt['attempt'], route, receipt['packet'],
+                                           args.worktree, call_id=f'herdr-{secrets.token_hex(16)}'),
+                             'Managed Herdr launch requires an adopted dispatch card')
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            parser.error(str(error))
     private = keeper = error_control = None
     connection = None
     extra_env = []
@@ -330,19 +340,21 @@ def opencode(argv):
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         step = 'server readiness'
         deadline = time.monotonic() + 20
+        connection = HTTPConnection('127.0.0.1', port, timeout=.5)
         while True:
             if server.poll() is not None:
                 step = 'serve'
                 raise ValueError(f'server exited {server.returncode}')
             try:
-                with urlopen(url, timeout=.5):
-                    break
-            except HTTPError:
+                connection.request('GET', '/')
+                connection.getresponse().close()
                 break
-            except (URLError, TimeoutError):
+            except OSError as error:
                 if time.monotonic() >= deadline:
-                    raise ValueError('server did not answer within 20 seconds')
-                time.sleep(.05)
+                    raise ValueError(f'server did not answer within 20 seconds: {error}') from error
+            finally:
+                connection.close()
+            time.sleep(.05)
         step = 'session POST'
         api = launch['api']
         body = dict(api['body'], location={'directory': args.worktree})

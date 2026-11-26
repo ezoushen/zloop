@@ -1,6 +1,7 @@
 # Local Markdown ticket template
 
 The title follows the [titles standard](../../standards/titles.md).
+Use the [test-claim format](../../runtime/checks/test-claims.md) for criteria that need receipts.
 
 ```markdown
 ---
@@ -29,6 +30,8 @@ worker:
 ## Acceptance criteria
 - [ ] Given <state>, when <action>, then <observable outcome>.
       Verify (code|agent|user): <command, test name or user check>
+      Test claim: <test ID for a code criterion>
+      Test file: <repo-relative test file for a marker-based check>
 - [ ] …
 
 ## Comments

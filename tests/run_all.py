@@ -44,7 +44,36 @@ def walk(suite):
 print(*walk(unittest.defaultTestLoader.loadTestsFromModule(module)), sep='\\n')
 """
 # A Git hook exports these; the tests' temporary repositories must not inherit them.
-GIT_VARIABLES = ('GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_PREFIX', 'GIT_OBJECT_DIRECTORY', 'GIT_COMMON_DIR')
+GIT_VARIABLES = ('GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_PREFIX', 'GIT_OBJECT_DIRECTORY', 'GIT_COMMON_DIR',
+                 'GIT_CEILING_DIRECTORIES')
+
+
+def worktree_temp(path, env):
+    """Return the resolved temporary path if it is inside a Git worktree."""
+    path = Path(path).resolve()
+    for parent in (path, *path.parents):
+        if (parent / '.git').exists():
+            result = subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], cwd=parent, env=env,
+                                    capture_output=True, text=True)
+            if result.stdout.strip() == 'true':
+                return path
+    return None
+
+
+def unit_environment(env, logs):
+    """Own a fresh temporary directory and homes for a collector or unit until the run exits."""
+    root = Path(tempfile.mkdtemp(prefix='p', dir=logs)).resolve()
+    unit = {key: value for key, value in env.items()
+            if key not in ('ZLOOP_SESSION', 'CODEX_THREAD_ID')
+            and not (key.endswith('_SESSION_ID') or key.startswith(('HERDR_', 'T3')))}
+    for name, directory in (('HOME', 'home'), ('CODEX_HOME', 'codex'), ('XDG_STATE_HOME', 'state'),
+                            ('XDG_CONFIG_HOME', 'config'), ('XDG_CACHE_HOME', 'cache'), ('XDG_DATA_HOME', 'data'),
+                            ('TMPDIR', 'tmp')):
+        path = root / directory
+        path.mkdir()
+        unit[name] = str(path)
+    unit.update(TEMP=unit['TMPDIR'], TMP=unit['TMPDIR'], GIT_CEILING_DIRECTORIES=str(root))
+    return unit
 
 
 def interpreter(env):
@@ -110,6 +139,14 @@ def main(paths=()):
     for number in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(number, lambda number, frame: sys.exit(128 + number))
     env = {key: value for key, value in os.environ.items() if key not in GIT_VARIABLES}
+    for key in ('TMPDIR', 'TEMP', 'TMP'):
+        if env.get(key) and (inside := worktree_temp(env[key], env)):
+            print(f'run_all: {key} resolves inside a Git worktree: {inside}', file=sys.stderr)
+            return 2
+    temp = tempfile.gettempdir()
+    if inside := worktree_temp(temp, env):
+        print(f'run_all: temporary directory resolves inside a Git worktree: {inside}', file=sys.stderr)
+        return 2
     python = interpreter(env)
     # Units run with -B, which writes no bytecode: compile the checkout's Python once, so no process a test starts in a
     # fresh checkout compiles what it imports. A file that does not compile fails in its own test instead.
@@ -119,7 +156,7 @@ def main(paths=()):
     if sources:  # compileall given no file compiles the interpreter's whole sys.path instead.
         subprocess.run([python, '-m', 'compileall', '-q', '-i', '-'], cwd=ROOT, env=env, input='\n'.join(sources),
                        text=True, errors='surrogateescape', stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    with tempfile.TemporaryDirectory() as logs:
+    with tempfile.TemporaryDirectory(dir=temp) as logs:
         slots = int(os.environ.get('ZLOOP_TEST_SLOTS') or os.cpu_count() or 1)
         if os.environ.get('ZLOOP_TEST_SLOT_HELD'):
             directory = Path(logs) / 'slots'
@@ -143,7 +180,8 @@ def main(paths=()):
                 if slot:
                     break
                 time.sleep(0.05)
-            process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, env=env)
+            process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                                       env=unit_environment(env, logs))
             held.append((slot, process))
             return process
 
@@ -172,17 +210,21 @@ def main(paths=()):
         while held:
             release()
             time.sleep(0.05)
-        failed = False
+        failed_scripts = set()
+        failed_units = 0
         for name, log, process in jobs:
             if process.wait():
-                failed = True
+                failed_scripts.add(name.partition('.')[0])
+                failed_units += 1
                 log.seek(0)
                 print(f'FAIL {name}')
                 print(''.join(log.readlines()[-20:]), end='')
             log.close()
-    if not failed:
+    if not failed_units:
         print(f'{len(scripts)} regression scripts passed ({python})')
-    return 1 if failed else 0
+    print(f'{len(scripts) - len(failed_scripts)} scripts passed, {len(failed_scripts)} failed; '
+          f'{len(jobs) - failed_units} scheduled units passed, {failed_units} failed')
+    return 1 if failed_units else 0
 
 
 if __name__ == '__main__':

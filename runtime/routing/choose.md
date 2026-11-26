@@ -10,9 +10,9 @@ within configured bounds. Session overrides are under [session scope](../config/
 retain their existing behavior. The orchestrator chooses; the resolver validates;
 the selected executor applies settings and confirms what actually ran.
 
-1. Inspect with `--list-candidates` and filter by task fit, actual tools, context,
-   permissions and availability. `candidate_routes` shows worker runtimes and
-   caller routes; it does not prove live support. Preserve a fixed instance.
+1. Inspect with `--list-candidates` under [local capacity](#local-capacity). Use
+   `candidate_routes` for worker runtimes and caller routes. Filter by task fit,
+   tools, context, permissions and known availability. Preserve a fixed instance.
 2. Resolve with the filtered `--eligible-candidates` and, when preflight restricts
    efforts, `--eligible-thinking '{"opus":["medium"]}'`. With the decision-model
    router, each configured candidate left out needs a reason in
@@ -140,11 +140,20 @@ changing them.
 The `backend` and `capacity` settings are in
 [the catalog](../config/catalog.md#allowance-and-local-capacity).
 
-Slots are shared by every workstream on the machine: the worker lifecycle takes a lease
-when it registers an attempt on that backend, after the health and free-memory
-checks, and refuses registration when the backend is full or unhealthy; the lease
-ends when the attempt's result is collected or it closes. Routes list the candidates
-of a backend that is full, fails its health check or lacks free memory in
-`unavailable_candidates`, and a route to such a backend
-carries `backend` and `capacity` for the lifecycle. Route to the next candidate
-rather than waiting.
+Resolution applies the candidate pin, eligibility, runtime and local capacity limits
+before health requests. Unavailable backends are reported in `unavailable_candidates`.
+`--list-candidates` is read-only and offline. It reports `availability: unchecked`,
+as does resolution with `--offline` or `ZLOOP_NO_NETWORK=1`. The resolver uses the
+configured recovery policy when offline decision routing needs inference.
+T3 launches still require live environment preflight.
+
+With `--dispatch-card`, the resolver reads the managed card's State section.
+List literal DNS names or IPs in `deny-hosts: [host.example, other.example:8443]`.
+A bare host covers all ports. DNS names match without case or a trailing dot.
+Denied destinations are `excluded-by-mandate`, including during offline inspection,
+and health redirects to denied hosts are refused. Combining `--dispatch-card`
+with `--list-candidates` inspects the run's pool without recording a route receipt.
+
+Routes carry `backend` and `capacity` for the lifecycle. Registration checks backend
+availability and takes a shared lease. The lease ends when the attempt's result is
+collected or the attempt closes.

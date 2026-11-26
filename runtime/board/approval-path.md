@@ -14,3 +14,23 @@ waives required verification. Without an authorized path, name the exact approva
 blocker for merging and its resume event. Pending approval does not block authorized
 PR creation. Continue independent authorized work instead of polling an unchanged
 requirement. Recheck the path if author or branch rules change.
+
+## Automated merge
+
+Require an explicit user grant. A card marked `relayed(...)` cannot grant or use
+auto-merge. Before recording a grant, verify that the PR's base in origin enforces
+required checks. Before the PR exists, verify the explicit planned base. Submit an
+automated merge through the normal GitHub path after the check watch and approvals
+pass, with the reviewed head pinned and without an admin override. Verify the
+resulting PR state before recording a merge. Queue admission can leave the PR open.
+
+For a [managed run](../workers/control.md), use its control commands. Otherwise run
+`python3 "<plugin_root>/scripts/pr_safety.py" grant --pr <number>` from the target
+checkout, or use `grant --base <planned-base>` before publication. Then use
+`merge --pr <number> --head <reviewed-sha> --method <approved-method>` with the same
+script. For a legacy card, pass `--card <card>` to both commands. Submission requires
+its saved `auto-merge: yes` grant. Both paths recheck the actual base at submission.
+
+On `waiting-on-user`, preserve the grant and delivery evidence and name the missing
+or unverifiable requirement. If necessary, the maintainer can configure a required
+base check before the user retries.

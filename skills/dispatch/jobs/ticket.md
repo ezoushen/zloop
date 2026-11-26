@@ -36,8 +36,9 @@ silently followed.
 On initial implementation, write `base: <git rev-parse HEAD>` as the first line of
 `report` before any change. On resume, preserve the existing base and evidence.
 
-Read the [TDD standard](../../../standards/tdd.md) in full before the first test, then
-implement the accepted behavior test-first under it, at the ticket's seams. Documentation-only work uses code-comments' checks.
+Read the [TDD standard](../../../standards/tdd.md) in full before the first test. Apply it at
+the ticket's seams and follow [collection](../../../runtime/workers/collect.md) for
+result evidence. Documentation-only work uses code-comments' checks.
 Choose the smallest sufficient verification: the focused and affected checks the
 assignment tiers for you, and the full gate only when the assignment names you for
 it. Use the assignment's explicit E2E owner under

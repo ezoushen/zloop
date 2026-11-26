@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import agent_defs  # noqa: E402
 import capability_probe  # noqa: E402
 import capacity  # noqa: E402
+import check_receipts  # noqa: E402
 from capacity import process_stamp  # noqa: E402
 import decisions  # noqa: E402
 import dispatch_state  # noqa: E402
@@ -332,6 +333,8 @@ def gaps(db, data, stage, revision=None):
     if stage == 'work' and ((data['runtime'], data['native_session']) in closed_sessions(db) or data.get('result')):
         missing.append('unfinished worker attempt')
     if stage == 'accept':
+        if unclaimed_launch(data):
+            missing.append('unclaimed-launch')
         result = data.get('result', {})
         if result.get('status') != 'completed':
             missing.append('completed assignment report')
@@ -343,7 +346,39 @@ def gaps(db, data, stage, revision=None):
             missing.append('job report sections ' + ', '.join(result['missing_returns']))
         if result.get('read_only_changes'):
             missing.append(f'unchanged worktree for a read-only agent ({result["read_only_changes"]})')
+        if result.get('status') == 'completed':
+            missing.extend(check_receipts.problems(data, revision))
     return missing
+
+
+class UnclaimedLaunch(str):
+    """A managed launch gap that cannot expire through repeated stops."""
+
+
+def unclaimed_launch(saved):
+    """Whether a managed admission still needs matching launch evidence or a recorded exception."""
+    if not saved.get('dispatch_assignment') or saved.get('accept_unclaimed') or saved.get('accepted'):
+        return False
+    return not dispatch_state.claim_matches(saved.get('launch_claim'), saved['assignment'], saved['execution_snapshot'])
+
+
+def unresolved_launch_claim(saved):
+    return (unclaimed_launch(saved) and not saved.get('declined')
+            and saved.get('result', {}).get('status') in (None, 'completed'))
+
+
+def require_launch_claim(saved):
+    require(not unclaimed_launch(saved), f"{saved['attempt']}: unclaimed-launch; accept with --accept-unclaimed <reason>")
+
+
+def audit_unclaimed(db, saved, reason):
+    """Persist the explicit exception with the completed report it permits accepting."""
+    if unclaimed_launch(saved) and text(reason):
+        result = saved['result']
+        saved['accept_unclaimed'] = reason.strip()
+        event(db, saved['attempt'], 'accept-unclaimed', dict(reason=reason.strip(), head=result['head'],
+              report_sha256=result['report_sha256']))
+    require_launch_claim(saved)
 
 
 def yield_gaps(db, include=None, rows=None):
@@ -357,6 +392,9 @@ def yield_gaps(db, include=None, rows=None):
     unconsumed = [row for row in pending(db) if row['attempt'] in names]
     receipts = [row for row in unconsumed if row['kind'] in ('wait-finished', 'hold')]
     for saved in included:
+        if unresolved_launch_claim(saved):
+            missing.append(UnclaimedLaunch(f"{saved['attempt']}: unclaimed-launch; reconcile the attempt or "
+                                           'accept with --accept-unclaimed <reason>'))
         monitor = saved.get('monitor', {})
         submitted = saved.get('submitted') or saved.get('submission_requested')
         if saved.get('result') or (saved['runtime'], saved['native_session']) in closed:
@@ -668,6 +706,31 @@ def checkout_root(path):
     return str(Path(found.stdout.strip()).resolve()) if found.returncode == 0 else None
 
 
+def main_checkout_status(path):
+    """Read Git's branch, HEAD, index and worktree status without refreshing the index."""
+    status = subprocess.run(['git', '--no-optional-locks', '-C', path, 'status', '--porcelain=v2', '--branch',
+                             '--no-ahead-behind', '--untracked-files=all', '--ignore-submodules=none', '-z'],
+                            capture_output=True, timeout=10)
+    require(status.returncode == 0, f'Main checkout Git status unavailable: {os.fsdecode(status.stderr).strip()}')
+    return os.fsdecode(status.stdout)
+
+
+def main_checkout_baseline(repo):
+    worktrees = subprocess.run(['git', '-C', repo, 'worktree', 'list', '--porcelain', '-z'],
+                               capture_output=True, timeout=10)
+    first = os.fsdecode(worktrees.stdout).split('\0', 1)[0]
+    require(worktrees.returncode == 0 and first.startswith('worktree '), 'Main Git checkout unavailable at registration')
+    path = first.removeprefix('worktree ')
+    return dict(path=path, status=main_checkout_status(path))
+
+
+def require_unchanged_main_checkout(saved):
+    baseline = saved.get('main_checkout_baseline')
+    if baseline:
+        require(baseline['status'] == main_checkout_status(baseline['path']),
+                f"Main checkout Git status changed since registration: {baseline['path']}; reconcile it before collection")
+
+
 def read_only_change(saved, now):
     """How a read-only agent's worktree, or another checkout its native record put it in, differs from when it was
     recorded, as (reason, restorable), or None when each is as it was."""
@@ -830,6 +893,8 @@ def require_returned(saved):
             'decline it or collect a new attempt')
     require(not result.get('read_only_changes'),
             'Acceptance requires an unchanged worktree for a read-only agent; decline it')
+    missing = check_receipts.problems(saved, result.get('head'))
+    require(not missing, '; '.join(missing))
 
 
 def settle(saved, acceptance):
@@ -842,6 +907,7 @@ def settle(saved, acceptance):
     require(isinstance(acceptance, dict), message)
     decision = acceptance.get('decision')
     if decision == 'accepted':
+        require_launch_claim(saved)
         require(text(acceptance.get('commit')) and isinstance(acceptance.get('evidence'), list)
                 and acceptance['evidence'] and all(text(x) for x in acceptance['evidence']), message)
         require_returned(saved)
@@ -893,6 +959,22 @@ def needs_problems(assignment):
     return '; '.join(f'needs {need!r} is not one of {allowed}' for need in needs if need not in capability_probe.NEEDS)
 
 
+def assign_test_claims(saved, card):
+    """Pin a managed local ticket's canonical criteria to this attempt."""
+    if not saved.get('dispatch_assignment') or saved['job'] != 'ticket':
+        return
+    ticket = saved['ticket']
+    issues = card.parent / 'issues'
+    if Path(ticket).is_absolute():
+        canonical = Path(ticket) if Path(ticket).is_file() else None
+    else:
+        canonical = next((path for path in sorted(issues.glob('*.md'))
+                          if (front_matter.parse(path.read_text()) or {}).get('ticket') == ticket), None)
+    if canonical is not None:
+        assigned = check_receipts.criteria(canonical)
+        saved['check_receipts'] = dict(assigned, ticket=str(canonical.resolve()), identity=uuid.uuid4().hex)
+
+
 def unmet_needs(saved, evidence):
     """Why a completed ticket attempt's evidence does not show its ticket's needs available, else None.
 
@@ -928,21 +1010,23 @@ def registration_retirement_lock(db, registering=False):
         yield
 
 
-def record(db, data, refuse_changes=False, submitting=False, waiting=30):
+def record(db, data, refuse_changes=False, submitting=False, waiting=30, accept_unclaimed=None):
     """Validate and persist an event, excluding native retirement while registering."""
     if data.get('kind') == 'register':
         with (registration_retirement_lock(db, registering=True),
               open(capacity.registration_lock_path(state_path(db)), 'a') as registration):
             fcntl.flock(registration, fcntl.LOCK_SH)
             return record_event(db, data, refuse_changes, submitting, waiting)
-    return record_event(db, data, refuse_changes, submitting, waiting)
+    return record_event(db, data, refuse_changes, submitting, waiting, accept_unclaimed)
 
 
-def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
+def record_event(db, data, refuse_changes=False, submitting=False, waiting=30, accept_unclaimed=None):
     kind, attempt = data.get('kind'), data.get('attempt')
     require(text(attempt), 'Event requires attempt')
     if kind in ('register', 'submitted', 'accepted'):
         run_control.require_active(Path(state_path(db)).parent.parent / 'autopilot.md')
+    if kind == 'result':
+        require_unchanged_main_checkout(get(db, attempt))
     # A read-only worktree is read before the write lock is taken; the result check and any refusal use that one read.
     now = observed_state(get(db, attempt)) if kind == 'result' and data.get('status') == 'completed' else None
     located = elsewhere = observation = weighed = None
@@ -1057,7 +1141,8 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                 data[key] = str(Path(data[key]).resolve())
             require(type(data.get('owned')) is bool, 'Registration requires explicit owned boolean')
             require(execution, 'Registration requires execution, the resolved execution file')
-            dispatch_assignment = dispatch_state.check(Path(state_path(db)).parent.parent / 'autopilot.md',
+            card = Path(state_path(db)).parent.parent / 'autopilot.md'
+            dispatch_assignment = dispatch_state.check(card,
                 attempt, execution, data.get('packet') or '', data['worktree'], db=db)
             if dispatch_assignment:
                 require(dispatch_assignment['assignment'] == data['assignment']
@@ -1145,12 +1230,20 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                          requested=dict(scope, **settings, runtime=data['runtime']), verified=False)
             if dispatch_assignment:
                 saved['dispatch_assignment'] = dispatch_assignment
+                saved['main_checkout_baseline'] = main_checkout_baseline(saved['repo'])
+                claim = dispatch_state.matching_claim(card, attempt, dispatch_assignment, execution)
+                if claim:
+                    saved['launch_claim'] = claim
+                else:
+                    event(db, attempt, 'unclaimed-launch', {'assignment': saved['assignment'],
+                          'packet_hash': execution['dispatch']['packet_hash']})
             identity = source_identity.snapshot()
             saved['runtime_source'] = {key: identity[key] for key in ('root', 'digest', 'scope')}
             if needs is not None:
                 saved['needs'] = needs
             if ticket is not None:
                 saved['ticket'] = ticket
+                assign_test_claims(saved, card)
             if placed:
                 # A Herdr placement names the tab the worker occupies; a T3 placement names the thread and its state.
                 # The thread is the worker's session, so the session rules above decide who may register on it.
@@ -1191,8 +1284,12 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                             + json.dumps(weighed))
             if execution.get('backend'):
                 # A local backend's slot is shared by every workstream on this machine.
+                require_url = None
+                if dispatch_assignment:
+                    _, deny_hosts, _ = dispatch_state.routing_context(card)
+                    require_url = dispatch_state.destination_check(deny_hosts)
                 capacity.acquire(execution['backend'], execution.get('capacity') or {},
-                                 state_path(db), attempt, registering=True)
+                                 state_path(db), attempt, registering=True, require_url=require_url)
             if not named:
                 packet.write_bytes(f'attempt: {attempt}\n'.encode() + packet.read_bytes())
         else:
@@ -1252,6 +1349,12 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                 if saved.get('findings'):
                     require_settled(saved['findings'], data.get('findings'), saved.get('startup_evidence'))
                 saved['result'] = dict(data, report_sha256=hashlib.sha256(report.read_bytes()).hexdigest())
+                if data['status'] == 'completed':
+                    if not saved.get('check_receipts'):
+                        assign_test_claims(saved, Path(state_path(db)).parent.parent / 'autopilot.md')
+                    if saved.get('dispatch_assignment') and saved['job'] == 'ticket':
+                        saved['result'].update(check_receipts=check_receipts.sealed_receipts(data.get('evidence', [])),
+                                               checks_collected_ns=time.time_ns())
                 verdict = report_verdict(report)
                 for key, allowed in (('review_status', ('clean', 'findings', 'incomplete')),
                                      ('documentation_status', ('passed', 'findings', 'incomplete'))):
@@ -1279,6 +1382,9 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
                         'The report changed after collection, so the attempt cannot be accepted; record declined, '
                         'or collect a new attempt')
                 require_returned(saved)
+                audit_unclaimed(db, saved, accept_unclaimed)
+                if saved.get('accept_unclaimed'):
+                    data = dict(data, accept_unclaimed=saved['accept_unclaimed'])
                 saved['accepted'] = data
             elif kind == 'declined':
                 require(saved.get('result', {}).get('status') == 'completed',
@@ -2425,6 +2531,7 @@ def collect(db, state, attempt, request):
                 and all(text(x) for x in disposition['evidence']), 'Retention requires reason, next_use and evidence')
     previous = saved.get('result')
     if previous:
+        require_unchanged_main_checkout(saved)
         require(all(previous.get(key) == request.get(key) for key in ('status', 'head', 'report'))
                 and report_owed(saved), 'Resume collection with the same checked result and, for a completed one, '
                 'its intact report')
@@ -2473,13 +2580,15 @@ def status(db, attempt=None):
                 attention.append('close owned worker or record same-assignment retention')
         if saved.get('acceptance_deferred') and unsettled(saved):
             attention.append('record acceptance or decline')
+        if unresolved_launch_claim(saved):
+            attention.append('unclaimed-launch')
         if any(row['payload'].get('notify') and row['payload'].get('delivery', {}).get('state') != 'sent'
                for row in pending(db, saved['attempt'])):
             attention.append('inspect parent and recover pending notification')
         summary = {key: saved[key] for key in ('attempt', 'assignment', 'agent', 'job', 'worker', 'native_session',
                    'herdr', 't3', 'head', 'requested', 'observed', 'observed_cwd', 'verified', 'monitor', 'result',
                    'accepted', 'declined', 'acceptance_deferred', 'retained', 'closed',
-                   'premise', 'findings') if key in saved}
+                   'premise', 'findings', 'launch_claim', 'accept_unclaimed') if key in saved}
         if saved.get('observed_cwd') and native_settings.outside(saved['observed_cwd'], saved['worktree'],
                                                                  saved['runtime']):
             summary['warnings'] = [f"the native record puts the worker in {saved['observed_cwd']}, outside its "
@@ -2508,6 +2617,7 @@ def main():
     parser.add_argument('--criteria')
     parser.add_argument('--brief')
     parser.add_argument('--reason')
+    parser.add_argument('--accept-unclaimed', metavar='REASON', help='record accepted: audit acceptance without a launch claim')
     parser.add_argument('--evidence', action='append', default=[])
     parser.add_argument('--kind', choices=tuple(ATTRIBUTIONS), help='attribute: the quality signal')
     parser.add_argument('--count', type=int, default=1, help='attribute: how many of that signal')
@@ -2523,6 +2633,8 @@ def main():
     parser.add_argument('--replace', action='store_true', help='plan: the assignments or findings are the whole plan')
     parser.add_argument('--session', help='reap: only the attempts this host session registered')
     args = parser.parse_args()
+    if args.accept_unclaimed is not None and (args.action != 'record' or not text(args.accept_unclaimed)):
+        parser.error('--accept-unclaimed requires record accepted and a nonblank reason')
     try:
         with connect(args.state) as db:
             code = 0
@@ -2534,9 +2646,11 @@ def main():
                     require(args.input, 'This operation requires --input')
                     data = read_object(args.input)
                 if args.action == 'record':
+                    require(args.accept_unclaimed is None or data.get('kind') == 'accepted',
+                            '--accept-unclaimed requires record accepted and a nonblank reason')
                     if data.get('kind') == 'closed' and text(data.get('attempt')):
                         require_ended(db, data['attempt'], data.get('acceptance'))
-                    result = record(db, data)
+                    result = record(db, data, accept_unclaimed=args.accept_unclaimed)
                 elif args.action == 'deliver':
                     require(args.event_id is not None, 'Delivery requires --event-id')
                     result = deliver(db, args.state, args.event_id, data)

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Saved routes reach Herdr as argument lists, with no shell serialization."""
+import hashlib
 import json
 import os
 import signal
 import shlex
 import shutil
+import socket
 from pathlib import Path
 import subprocess
 import sys
@@ -17,6 +19,8 @@ import support
 
 
 class HerdrStart(unittest.TestCase):
+    start_timeout = 10
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='zloop start ')
         self.addCleanup(self.tmp.cleanup)
@@ -60,7 +64,8 @@ else:
         return subprocess.run([sys.executable, str(support.HOOKS / 'herdr_launch.py'), 'start',
                                '--route', str(self.route), '--worktree', worktree or str(self.worktree),
                                '--assignment', 'workstream/05', '--role', 'builder', '--name', name],
-                              cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=10)
+                              cwd=self.repo, env=self.env, capture_output=True, text=True,
+                              timeout=self.start_timeout)
 
     def test_saved_route_preserves_spaces_and_toml_through_tab_and_agent_start(self):
         result = self.start()
@@ -74,6 +79,43 @@ else:
         filesystem = tomllib.loads(calls[1][calls[1].index('--') + 4])['permissions']['zloop_worktree']['filesystem']
         self.assertEqual(filesystem, {':root': 'read', ':tmpdir': 'write', str(self.worktree): 'write'})
         self.assertEqual(json.loads(result.stdout)['result']['agent']['pane_id'], 'root-pane')
+
+    def test_managed_route_is_claimed_before_herdr_starts(self):
+        card = support.run_card(self.repo / '.scratch/workstream/autopilot.md', phase='dispatch', session='opencode-host')
+        support.load_script('run_control.py').adopt(card, 'approved Herdr runner', allow_resume=True)
+        dispatch = support.load_script('dispatch_state.py')
+        packet = support.assignment_file(self.root, 'ticket', attempt='workstream/05/1')
+        execution = dict(json.loads(self.route.read_text()), agent='builder', job='ticket', settings={},
+                         native_dispatch=False, executor_type='herdr')
+        routed = dispatch.issue_route(card, self.repo, 'workstream/05/1', packet, self.worktree, execution, [])
+        self.route.write_text(json.dumps(routed))
+        proof = self.root / 'capacity.txt'
+        proof.write_text('one free fixture slot')
+        item = dict(assignment='05', attempt='workstream/05/1', job='ticket', packet=str(packet),
+                    execution=str(self.route), worktree=str(self.worktree), depends_on=[], touches=['app'])
+        dispatch.plan(card, dict(assignments=[item], launch=[item['attempt']], deferred={},
+                                capacity=dict(limit=1, evidence=[str(proof)]), decomposition='fixture ticket',
+                                integration_owner='opencode-host'), expected_revision=1)
+        observed = self.root / 'claim-at-agent-start.json'
+        self.env.update(DISPATCH_STATE=str(card.with_name('dispatch-state.json')), OBSERVED=str(observed))
+        stub = self.bin / 'herdr'
+        stub.write_text(stub.read_text().replace("elif args[:2] == ['agent', 'start']:\n",
+            "elif args[:2] == ['agent', 'start']:\n"
+            "    state = json.loads(Path(os.environ['DISPATCH_STATE']).read_text())\n"
+            "    Path(os.environ['OBSERVED']).write_text(json.dumps(state['claims']))\n"))
+        result = self.start()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        status = subprocess.check_output([sys.executable, str(support.script('dispatch_state.py')), 'status',
+                                          '--card', str(card)], text=True)
+        claim = json.loads(status)['claims'].get(item['attempt'])
+        self.assertIsNotNone(claim, 'The managed Herdr launch must leave a claim')
+        self.assertEqual((claim['assignment'], claim['packet_hash']),
+                         ('05', {str(packet): hashlib.sha256(packet.read_bytes()).hexdigest()}))
+        self.assertEqual(json.loads(observed.read_text()), {item['attempt']: claim})
+        duplicate = self.start()
+        self.assertEqual(duplicate.returncode, 2, duplicate.stdout + duplicate.stderr)
+        self.assertIn('Attempt already launched', duplicate.stderr)
+        self.assertEqual(len(self.calls.read_text().splitlines()), 2)
 
     def test_a_name_herdr_would_refuse_is_refused_before_any_tab_opens(self):
         # Herdr refuses such a name only at agent start, after the tab exists; start checks it first.
@@ -117,7 +159,17 @@ else:
 
 
 class OpenCodeStart(unittest.TestCase):
-    start = HerdrStart.start
+    # The OpenCode launcher allows 30 seconds for readiness after setting up the pane.
+    start_timeout = 45
+
+    def start(self, worktree=None, name='builder-05'):
+        self.readiness_trace.write_text('')
+        result = HerdrStart.start(self, worktree, name)
+        if result.returncode:
+            stages = self.readiness_trace.read_text().splitlines()
+            result.stderr += 'OpenCode fixture HTTP stages: ' + (' '.join(stages[-8:]) or 'none') + '\n'
+        return result
+
     def setUp(self):
         HerdrStart.setUp(self)
         self.body = {'agent': 'build', 'model': {'providerID': 'openai', 'id': 'fixture', 'variant': 'high'},
@@ -134,10 +186,12 @@ class OpenCodeStart(unittest.TestCase):
         (self.integration / 'herdr-opencode/tui.js').write_text('v2 entrypoint')
         (self.integration / 'opencode.json').write_text('private user configuration')
         self.events = self.root / 'opencode.jsonl'
+        self.readiness_trace = self.root / 'opencode-readiness.txt'
         self.owned_events = {}
         self.release = self.root / 'release-tui'
         self.env.update(XDG_CONFIG_HOME=str(self.config), XDG_DATA_HOME=str(self.root / 'user data'),
-                        EVENTS=str(self.events), RELEASE=str(self.release))
+                        EVENTS=str(self.events), RELEASE=str(self.release), FIXTURE_SERVE_DELAY='0',
+                        READINESS_TRACE=str(self.readiness_trace))
         self.tab_env = self.root / 'tab-env.json'
         self.env['TAB_ENV'] = str(self.tab_env)
         stub = self.bin / 'herdr'
@@ -180,6 +234,7 @@ else:
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import signal
+from socketserver import TCPServer
 args = sys.argv[1:]
 config = Path(os.environ['XDG_CONFIG_HOME'])
 record = {'args': args, 'pid': os.getpid(), 'config': str(config),
@@ -193,15 +248,36 @@ record = {'args': args, 'pid': os.getpid(), 'config': str(config),
 with Path(os.environ['EVENTS']).open('a') as stream:
     stream.write(json.dumps(record) + '\\n')
 if args[0] == 'serve':
+    def trace(stage):
+        with Path(os.environ['READINESS_TRACE']).open('a') as stream:
+            stream.write(stage + '\\n')
+    trace('serve')
     if os.environ.get('FAIL_STEP') == 'serve': sys.exit(9)
+    time.sleep(float(os.environ['FIXTURE_SERVE_DELAY']))
     if os.environ.get('HERDR_FAIL'):
         def stop(*args): time.sleep(.3); sys.exit(0)
         signal.signal(signal.SIGTERM, stop)
+    class NumericHTTPServer(HTTPServer):
+        def server_bind(self):
+            TCPServer.server_bind(self)
+            self.server_name, self.server_port = self.server_address
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            trace('GET')
+            if os.environ.get('RECORD_READINESS'):
+                with Path(os.environ['EVENTS']).open('a') as stream:
+                    stream.write(json.dumps(dict(record, args=['GET', self.path])) + '\\n')
             self.send_response(200); self.end_headers(); self.wfile.write(b'{}')
+            trace('response')
         def log_message(self, *args): pass
-    HTTPServer(('127.0.0.1', int(args[args.index('--port') + 1])), Handler).serve_forever()
+    with NumericHTTPServer(('127.0.0.1', int(args[args.index('--port') + 1])), Handler,
+                           bind_and_activate=False) as server:
+        trace('bind')
+        server.server_bind()
+        trace('listen')
+        server.server_activate()
+        trace('ready')
+        server.serve_forever()
 elif args[0] == 'api':
     if os.environ.get('FAIL_STEP') == 'session POST': sys.exit(9)
     print(json.dumps({'data': {'id': 'private-session'}}))
@@ -262,6 +338,44 @@ os.execvp(command[0], command)
                 return events
             time.sleep(.02)
         self.fail(f'expected {count} OpenCode operations; got {events}')
+
+    def test_start_allows_slow_readiness_within_the_launcher_deadline(self):
+        self.env['FIXTURE_SERVE_DELAY'] = '11'
+        result = self.start()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(json.loads(result.stdout)['opencode']['session'], 'private-session')
+        _, _, attached = self.wait_events(3)
+        self.assertEqual(attached['args'][0], '--server')
+
+    def test_private_server_readiness_ignores_http_proxy(self):
+        with socket.socket() as proxy:
+            proxy.bind(('127.0.0.1', 0))
+            self.env.update(http_proxy=f'http://127.0.0.1:{proxy.getsockname()[1]}', no_proxy='',
+                            RECORD_READINESS='1')
+            result = self.start()
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(json.loads(result.stdout)['opencode']['session'], 'private-session')
+            serve, readiness, api, attached = self.wait_events(4)
+            self.assertEqual(serve['args'][0], 'serve')
+            self.assertEqual(readiness['args'], ['GET', '/'])
+            self.assertEqual(api['args'][:3], ['api', 'POST', '/api/session'])
+            self.assertEqual(attached['args'][0], '--server')
+
+    def test_numeric_readiness_fixture_does_not_resolve_hosts(self):
+        hook = self.root / 'python-hook'
+        hook.mkdir()
+        (hook / 'sitecustomize.py').write_text("""import socket
+import sys
+if sys.argv[0].endswith('/opencode') and sys.argv[1:2] == ['serve']:
+    def refuse_lookup(*args):
+        raise RuntimeError('fixture name lookup is unavailable')
+    socket.getfqdn = refuse_lookup
+""")
+        self.env['PYTHONPATH'] = str(hook)
+        result = self.start()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)['opencode']['session'], 'private-session')
+        self.wait_events(3)
 
     def test_api_route_runs_private_server_session_and_tui_in_worker_pane(self):
         result = self.start()

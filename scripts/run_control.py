@@ -13,6 +13,7 @@ import time
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pr_safety  # noqa: E402
 import state_files  # noqa: E402
 
 ENDED = ('delivered', 'delivered-local', 'merged')
@@ -21,7 +22,7 @@ TERMINAL_STATES = ENDED + PAUSED
 DISPATCH_POLICY = dict(version=1, routing='configured', scheduling='independent-ready',
                        isolation='worktree-per-writer', integration='single-owner', max_live=8)
 CARD_NAME = 'autopilot.md'
-CONTROL_NAME = 'autopilot-control.json'
+CONTROL_NAME = state_files.CONTROL_NAME
 
 
 def location(card):
@@ -163,7 +164,7 @@ def restore_view(card, expected_view, reference, request_id):
         return state
 
 
-def adopt(card, reference, allow_resume=False):
+def adopt(card, reference, allow_resume=False, *, merge_base=None, merge_pr=None):
     """Explicitly adopt a confirmed card; this does not grant new actions or hook trust."""
     card = Path(card)
     if not reference.strip():
@@ -185,12 +186,18 @@ def adopt(card, reference, allow_resume=False):
         values = state_files.state_fields(text)
         if re.match(r'no\b|$', values.get('confirmed', ''), re.I):
             raise ValueError('Only a confirmed card can be adopted')
+        grant = None
+        if values.get('auto-merge') == 'yes':
+            grant, _ = pr_safety.verify_grant(merge_base, merge_pr, confirmed_by=values.get('confirmed-by'),
+                                             bind_branch=True)
         now, run = time.time(), uuid.uuid4().hex
         state = dict(schema=1, run_id=run, revision=1, created_at=now, allow_resume=bool(allow_resume),
                      dispatch_policy=dict(DISPATCH_POLICY),
                      card_text=fields(text, {'control': run}),
                      events=[dict(id='adopt', actor='host', source={'kind': 'confirmation', 'reference': reference},
                                   terminal=values.get('terminal', ''), at=now)])
+        if grant is not None:
+            state['merge_grant'] = grant
         save(card, state, before)
         return state
 
@@ -269,12 +276,15 @@ def user_boundary(state, action):
     return max([state['created_at']] + [event.get('source', {}).get('at', event['at']) for event in events])
 
 
-def transition(card, terminal, source, reason, expected, request_id, updates=None):
+def transition(card, terminal, source, reason, expected, request_id, updates=None, *, merge_base=None, merge_pr=None):
     """Commit an idempotent transition at an expected revision, then update its card view."""
     if terminal not in ('', *TERMINAL_STATES) or not reason.strip() or not request_id:
         raise ValueError('Transition requires a known state, reason and request ID')
     card = Path(card)
     request = dict(terminal=terminal, source=source, reason=reason, updates=updates or {})
+    grant_merge = not terminal and '--auto-merge' in source.get('flags', [])
+    if grant_merge and (merge_base is not None or merge_pr is not None):
+        request['merge_target'] = {'base': merge_base, 'pr': merge_pr}
     if set(updates or {}) - {'timer', 'resume', 'phase', 'session'}:
         raise ValueError('Control updates cannot change grants or criteria')
     with state_files.locked(card):
@@ -289,11 +299,16 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
             return state
         if state['revision'] != expected:
             raise ValueError('Control revision changed; inspect the current run before retrying')
-        old = state_files.state_fields(state['card_text']).get('terminal', '')
+        values = state_files.state_fields(state['card_text'])
+        old = values.get('terminal', '')
         if old == 'paused-by-user' and terminal not in ('', 'paused-by-user'):
             raise ValueError('Run is paused-by-user; a new user resume is required')
-        if terminal == 'merged' and state_files.state_fields(state['card_text']).get('auto-merge') != 'yes':
-            raise ValueError('Merged state requires the existing merge grant')
+        if terminal == 'delivered-local' and values.get('delivery') == 'pr-only':
+            raise ValueError('PR-only delivery requires a pull request')
+        if terminal == 'merged':
+            if values.get('auto-merge') != 'yes':
+                raise ValueError('Merged state requires the existing merge grant')
+            pr_safety.require_merge_authority(values.get('confirmed-by'))
         if terminal == '' and source.get('kind') == 'timer':
             proof = timer_source(source['queue'], source['key'])
             event = proof['wake']
@@ -314,8 +329,14 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
             raise ValueError('Host transition requires its evidence reference')
         changes = dict(updates or {}, terminal=terminal, evidence=f'{source["reference"]}: {reason}')
         if not terminal:
-            changes['auto-merge'] = 'yes' if '--auto-merge' in source.get('flags', []) else 'no'
-            history = state_files.state_fields(state['card_text']).get('history', '')
+            if grant_merge:
+                state['merge_grant'], _ = pr_safety.verify_grant(merge_base, merge_pr,
+                                                                confirmed_by=values.get('confirmed-by'),
+                                                                bind_branch=True)
+            else:
+                state.pop('merge_grant', None)
+            changes['auto-merge'] = 'yes' if grant_merge else 'no'
+            history = values.get('history', '')
             changes['history'] = '; '.join(filter(None, [history, f'{old} {datetime.date.today().isoformat()}']))
             changes['timer'] = ''
         before = state['card_text']
@@ -325,6 +346,25 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
                                     terminal=terminal, previous=old, reason=reason, at=time.time(), request=request))
         save(card, state, before)
         return state
+
+
+def merge(card, expected, pr, head, method):
+    """Submit a reviewed PR while the matching managed run holds the merge grant."""
+    with state_files.locked(card):
+        state = read(card)
+        if not state or state['revision'] != expected:
+            raise ValueError('Inspect the current managed revision before submitting a merge')
+        values = state_files.state_fields(state['card_text'])
+        if (values.get('auto-merge') != 'yes' or values.get('phase') != 'pr'
+                or values.get('terminal') not in ('', 'delivered')):
+            raise pr_safety.WaitingOnUser('the current delivery run lacks an active merge grant')
+        pr_safety.require_merge_authority(values.get('confirmed-by'))
+        grant = state.get('merge_grant')
+        if isinstance(grant, dict) and all(isinstance(grant.get(key), str) and grant[key] for key in ('repo', 'base')):
+            granted_pr, branch = grant.get('pr'), grant.get('branch')
+            if (type(granted_pr) is int and granted_pr > 0) or (granted_pr is None and isinstance(branch, str) and branch):
+                return pr_safety.submit_merge(pr, head, method, grant=grant)
+        raise pr_safety.WaitingOnUser('obtain a new verified merge grant for this managed run')
 
 
 def require_active(card):
@@ -388,7 +428,7 @@ def phase(card, text, expected):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['adopt', 'status', 'pause', 'resume', 'end', 'restore-view'])
+    parser.add_argument('command', choices=['adopt', 'status', 'pause', 'resume', 'end', 'restore-view', 'merge'])
     parser.add_argument('card', type=Path)
     parser.add_argument('--source', help='confirmation or host evidence reference')
     parser.add_argument('--allow-resume', action='store_true', help='record an existing unattended-resume grant')
@@ -400,11 +440,20 @@ def main():
     parser.add_argument('--terminal', choices=TERMINAL_STATES)
     parser.add_argument('--wake', type=Path)
     parser.add_argument('--event-id')
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument('--merge-base', help='explicit base of a planned auto-merge PR')
+    target.add_argument('--merge-pr', type=int, help='open PR for an auto-merge request')
+    parser.add_argument('--head', help='reviewed PR head commit')
+    parser.add_argument('--method', choices=('merge', 'squash', 'rebase'))
     parser.add_argument('--expect-view', help='reviewed SHA-256 of a diverged view; restore-view only')
     args = parser.parse_args()
     try:
+        if args.command == 'merge':
+            print(merge(args.card, args.expect, args.merge_pr, args.head, args.method), end='')
+            return
         if args.command == 'adopt':
-            state = adopt(args.card, args.source or '', args.allow_resume)
+            state = adopt(args.card, args.source or '', args.allow_resume,
+                          merge_base=args.merge_base, merge_pr=args.merge_pr)
         elif args.command == 'status':
             state = read(args.card)
         elif args.command == 'restore-view':
@@ -423,7 +472,8 @@ def main():
                                      sessions(state['card_text']),
                                      args.command, state['created_at'])
             terminal = {'pause': 'paused-by-user', 'resume': ''}.get(args.command, args.terminal)
-            state = transition(args.card, terminal, source, args.reason or '', args.expect, args.request_id)
+            state = transition(args.card, terminal, source, args.reason or '', args.expect, args.request_id,
+                               merge_base=args.merge_base, merge_pr=args.merge_pr)
         result = {'managed': state is not None}
         if state:
             result.update({key: state[key] for key in ('run_id', 'revision', 'allow_resume')})
@@ -431,6 +481,8 @@ def main():
             result['terminal'] = state_files.state_fields(state['card_text']).get('terminal', '')
             result['last_event'] = {key: state['events'][-1].get(key) for key in ('id', 'actor', 'at')}
         print(json.dumps(result, indent=2))
+    except pr_safety.WaitingOnUser as error:
+        parser.exit(2, f'waiting-on-user: {error}\n')
     except (OSError, ValueError, KeyError) as error:
         parser.exit(2, f'{error}\n')
 

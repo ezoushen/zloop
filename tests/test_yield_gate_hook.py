@@ -2333,6 +2333,12 @@ class AutopilotCardHold(GateRepo):
         return [f"{path}: this session's autopilot run records `terminal: merged` while its workstream is not "
                 f"delivered: it cannot be checked: {problem}; finish what it names, or record the terminal state that fits"]
 
+    def test_malformed_authority_holds_the_owning_sessions_stop(self):
+        path = self.card(**{'confirmed-by': 'relayed()'})
+        self.assertEqual(self.check(session='host-1'),
+                         [f'{path}: Invalid confirmed-by: expected human or relayed(agent)'])
+        self.assertEqual(self.check(session='another-host'), [])
+
     def test_a_run_in_no_known_phase_or_working_without_its_boards_tickets_holds_the_stop(self):
         # Live (jose, Pi): the card said `phase: dispatch (inline)`, set by hand with no ticket on any board, so the
         # panel had nothing to count; a phase written by hand is held to what `autopilot_card.py phase` checks.

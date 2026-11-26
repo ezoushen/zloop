@@ -54,7 +54,7 @@ class RunCard(unittest.TestCase):
         self.assertIn('After confirmation, ask the user nothing', text)
         self.assertIn('Record the confirmation on the card', text)
         # Seen live on Codex: an unconfirmed card was marked `waiting-on-user`, which hides it from the bootstrap trigger.
-        self.assertIn('Waiting for it is not a terminal state: `terminal:` stays empty', text)
+        self.assertIn('Keep `terminal:` empty while waiting for it', text)
 
     def test_the_card_is_re_read_after_compaction(self):
         bootstrap = prose(ROOT / 'bootstrap.md')
@@ -77,16 +77,21 @@ class ComposedPhases(unittest.TestCase):
         self.assertRegex(run, r'\[dispatch\]\(\.\./dispatch/SKILL\.md\)[^\n]*`--autofix`')
         self.assertRegex(' '.join(run.split()), r'\[pr\]\(\.\./pr/SKILL\.md\).*push the workstream branch and open the PR')
 
-    def test_without_a_pr_host_the_run_ends_at_local_delivery_instead_of_publishing(self):
-        run = ' '.join(SKILL.read_text().split('## Run', 1)[1].split('\n## ', 1)[0].split())
-        self.assertIn('In a repository with no PR host, publish nothing', run)
-        self.assertIn('end `delivered-local`', run)
+    def test_local_delivery_requires_permission_when_there_is_no_pr_host(self):
+        stop = prose(SKILL).split('## Stop', 1)[1]
+        local = stop.split('- `delivered-local`:', 1)[1].split(' - ', 1)[0]
+        self.assertIn('no PR host', local)
+        self.assertIn('the card permits local delivery', local)
+        waiting = stop.split('- `waiting-on-user`:', 1)[1].split(' - ', 1)[0]
+        self.assertIn('a PR-only card has no authorized publication path', waiting)
+        publication = prose(ROOT / 'skills/pr/SKILL.md').split('### Delivery without a PR', 1)[1]
+        self.assertIn('confirm delivery evidence as in step 1 and retain the local delivery report', publication)
+        self.assertIn('Skip push, PR creation and the check watch', publication)
 
-    def test_the_card_lists_every_pause(self):
-        pauses = ' '.join(CARD.read_text().split('## Pause list', 1)[1].split('\n## ', 1)[0].split()).lower()
-        for pause in ('login or permission prompts', 'credentials', 'spending money', 'deleting data',
-                      'production changes', 'merging without `--auto-merge`', 'a missing approval',
-                      'weakening a verify', 'narrowing a user decision'):
+    def test_the_card_links_to_the_canonical_pause_list(self):
+        self.assertIn('[pause list](SKILL.md#decide-without-asking)', prose(CARD))
+        pauses = prose(SKILL).split('## Decide without asking', 1)[1].split('## While paused', 1)[0]
+        for pause in PAUSES:
             self.assertIn(pause, pauses)
 
     def test_a_workstream_run_directly_on_main_ends_at_local_delivery(self):
@@ -114,7 +119,8 @@ class StopCondition(unittest.TestCase):
         text = prose(SKILL)
         for pause in PAUSES:
             self.assertIn(pause, text)
-        self.assertIn('ends `waiting-on-user` instead of deciding it', text)
+        pauses = text.split('## Decide without asking', 1)[1].split('## While paused', 1)[0]
+        self.assertIn('End `waiting-on-user`', pauses)
 
     def test_low_allowance_pauses_after_the_step_in_progress(self):
         text = prose(SKILL)
@@ -127,11 +133,15 @@ class StopCondition(unittest.TestCase):
 
 class Flags(unittest.TestCase):
     def test_auto_merge_merges_only_through_the_normal_path(self):
-        text = prose(SKILL)
         merged = next(line for line in SKILL.read_text().splitlines() if line.startswith('- `merged`'))
-        self.assertIn('only with `--auto-merge`', merged)
-        self.assertIn("merges only through the repository's normal path", text)
-        self.assertIn('never by admin override or self-approval', text)
+        self.assertIn('[approval path](../../runtime/board/approval-path.md)', merged)
+        approval = prose(ROOT / 'runtime/board/approval-path.md')
+        auto_merge = approval.split('## Automated merge', 1)[1]
+        self.assertIn('an explicit user grant', auto_merge)
+        self.assertIn('cannot grant or use auto-merge', auto_merge)
+        self.assertIn('through the normal GitHub path', auto_merge)
+        self.assertIn('without an admin override', auto_merge)
+        self.assertIn('An author cannot satisfy their own independent-review requirement', approval)
 
     def test_take_over_reuses_the_session_and_asks_only_what_is_unsettled(self):
         text = prose(SKILL)
@@ -162,7 +172,7 @@ class AllowanceResume(unittest.TestCase):
         self.assertIn("record the time and the timer's handle on the card", run)
         # The confirmed card is what authorizes the timer, so the card's grants name it (ADR 0012).
         self.assertIn('The confirmed run card is the authorization', run)
-        self.assertIn('resume itself on `paused-allowance` with one timer', CARD.read_text().split('## Granted actions', 1)[1].split('\n## ', 1)[0])
+        self.assertIn('authorized resume timer', CARD.read_text().split('## Granted actions', 1)[1].split('\n## ', 1)[0])
         self.assertIn("A host whose timer needs the user's approval keeps that prompt pending", run)
         self.assertIn('one with no scheduler gets the resume command in the report', run)
 
@@ -268,9 +278,9 @@ class JumpIn(unittest.TestCase):
 
     def test_an_ordinary_message_mid_run_is_an_instruction_not_a_pause(self):
         run = ' '.join(SKILL.read_text().split('## Run', 1)[1].split('\n## ', 1)[0].split())
-        self.assertIn('A message from the user during the run is an instruction, not a pause', run)
-        self.assertIn("follow it, record it in the ledger as the user's decision with their words, and ask nothing", run)
-        self.assertIn("One that changes the goal, a criterion or a grant also updates the card with the user's words", run)
+        self.assertIn('Record instructions received during the run in the ledger with their words and source', run)
+        self.assertIn('Continue the phase unless the user invokes `--pause`', run)
+        self.assertIn('Update the card with the recorded words for authorized changes to its goal, criteria or grants', run)
 
 
 class EffortLevels(unittest.TestCase):
@@ -309,7 +319,7 @@ class EffortLevels(unittest.TestCase):
     def test_a_take_over_keeps_the_levels_unless_flags_are_given(self):
         # Rule: a take-over or a timed take-over keeps the card's levels; only level flags change them.
         start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
-        self.assertIn('take-over <card> [--auto-merge] [--effort <level>] [--dispatch-effort <level>] '
+        self.assertIn('take-over <card> [--effort <level>] [--dispatch-effort <level>] '
                       '[--review-effort <level>]', start)
         self.assertIn("keeps the card's levels unless a level flag is given", start)
         timed = SKILL.read_text().split('- **`autopilot --take-over --timed`:**', 1)[1].split('\n- **`--auto-merge`', 1)[0]
@@ -338,7 +348,7 @@ class Registration(unittest.TestCase):
         self.assertIn('`--pause` to take control', readme)
         self.assertIn('`--effort` for both steps', readme)
         self.assertIn('`--dispatch-effort` and `--review-effort` per step', readme)
-        self.assertIn('`paused-by-user`', CARD.read_text().split('## Stop condition', 1)[1].split('\n## ', 1)[0])
+        self.assertIn('[terminal-state rule](SKILL.md#stop)', prose(CARD))
 
     def test_the_command_is_listed_where_users_and_the_doc_checker_look(self):
         self.assertRegex((ROOT / 'README.md').read_text(), r'(?m)^\| `autopilot` \|')
@@ -357,7 +367,7 @@ class TakeOverCommand(unittest.TestCase):
         approval = prose(ROOT / 'runtime/board/approval-path.md')
         self.assertIn('A merge gate the repository declares for a human is never met by the agent', approval)
         start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
-        self.assertIn('python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--auto-merge]', start)
+        self.assertIn('python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--effort <level>]', start)
         self.assertIn('the grant of the run that ended lapses with its terminal state', start)
         self.assertIn('`phase:` stays as recorded: a run that ends keeps the phase it stopped in', start)
         phase = next(line for line in CARD.read_text().splitlines() if line.startswith('phase:'))
