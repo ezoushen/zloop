@@ -36,6 +36,11 @@ Other hosts rely on the Git hooks: enable them once per clone with
 [config.json](config.json) says which files are agent docs, which files' links
 count, where code names doc paths, the byte budget, the recorded debt and the `glossary` whose
 `_Avoid_` phrases agent docs must not use.
+
+A rule an agent doc owns carries `<!-- rule: <id> -->`, or `<!-- rule: <id> = <value> -->`, on the line
+before its paragraph or list item; the ID is `module.kebab-name`, unique repo-wide. Another agent doc that
+restates the rule puts `<!-- rule-ref: <id> -->`, with the same optional value, before a paragraph that links
+the owner's file. These rule checks run repo-wide, like links.
 [architecture.json](architecture.json) holds the module architecture: ordered levels
 (top may depend on lower ones and on itself, never on a sibling or a higher level),
 which files each module owns, the first-read budget and the debt for that contract.
@@ -75,6 +80,11 @@ differs from the base; list deliberate edits in a JSON file passed with `--allow
 | `shared-section` | A section, other than a file's title or only section, linked from 3+ files in other modules | Make it its own file, or link the whole file |
 | `unmapped` | No module in architecture.json owns the doc | Add its path to the owning module |
 | `unowned` | An agent doc links or names a Markdown file no module owns, such as one in `docs/` | Move that file into the module that owns its subject |
+| `rule-duplicate` | Two markers own one rule ID | Keep one owner; mark the others `rule-ref` |
+| `rule-unowned` | A `rule-ref` names an ID no doc owns | Correct the ID, or mark the rule's owner |
+| `rule-conflict` | A `rule-ref` value differs from its owner's | Restate the owner's value, or change the owner |
+| `rule-unlinked` | The paragraph a `rule-ref` marks does not link the owner's file | Link the owner there |
+| `rule-restated` | Another agent doc copies an owned rule of 40+ characters, compared without case, whitespace and Markdown, outside a `rule-ref` paragraph | Link the owner instead, or mark that paragraph `rule-ref` |
 | `positional` | `above` or `below` that may point at moved text | Link or name the target instead |
 | `stale-name` | Text names a `.md` file that exists nowhere | Link the doc that now holds it, or add a generic project name to `known_names` |
 | `avoided-word` | An agent doc uses a phrase the glossary lists under `_Avoid_`, as a whole phrase in any case, plural or line wrap, in frontmatter and link titles too | Write the term the error names; quote a phrase you must name in backticks or a fenced block (a link target is not a use, a link title is). A phrase that is also a glossary term (`effort`) is not matched alone: the glossary lists the longer phrase to avoid (`effort branch`) |

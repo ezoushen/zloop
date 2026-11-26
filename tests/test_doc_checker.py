@@ -444,5 +444,61 @@ class AvoidedWords(Fixture):
         self.assertIn('MISSING.md', result.stderr)
 
 
+POLICY = """# Policy
+
+<!-- rule: policy.review-level = high -->
+A missing review level is **high**, and the reviewer reads every changed file before it answers.
+
+<!-- rule: policy.one-owner -->
+- Each rule has one owner doc, and every other doc that restates it links that owner.
+
+<!-- rule: policy.has-tests -->
+Every change ships with a test that fails without it.
+"""
+
+
+class RuleOwnership(Fixture):
+    """Rule: each marked rule has one owner doc; a doc that restates it marks a reference that links the owner,
+    with the owner's value, and no agent doc copies an owned rule's text without one."""
+
+    def setUp(self):
+        super().setUp()
+        self.write('shared/policy.md', POLICY)
+        self.write('shared/drift.md', '# Drift\n')
+        self.write('shared/guide.md', GUIDE + '\nSee [drift](drift.md).\n\n<!-- rule-ref: policy.review-level = high -->\n'
+                   + 'The [review level](policy.md) defaults to high.\n')
+
+    def test_each_rule_problem_is_reported_and_a_linked_owner_passes(self):
+        self.assertEqual(self.check(), set())
+        self.write('shared/drift.md', '# Drift\n\n'
+                   '<!-- rule: policy.has-tests -->\n'               # 3: a second owner
+                   'Every change has a test.\n\n'
+                   '<!-- rule-ref: policy.missing -->\n'             # 6: nobody owns it
+                   'See the [policy](policy.md).\n\n'
+                   '<!-- rule-ref: policy.review-level = low -->\n'  # 9: the owner says high
+                   'The [policy](policy.md) sets the level.\n\n'
+                   '<!-- rule-ref: policy.one-owner -->\n'           # 12: links another file, not the owner
+                   'Every rule has one owner, as the [guide](guide.md) says.\n\n'
+                   'In short, each rule has ONE owner doc, and every other doc that\n'  # 15: copies policy.one-owner
+                   'restates it links _that_ owner.\n')
+        self.assertEqual(self.check(), {('shared/drift.md', 3, 'rule-duplicate', 'error'),
+                                        ('shared/policy.md', 9, 'rule-duplicate', 'error'),
+                                        ('shared/drift.md', 6, 'rule-unowned', 'error'),
+                                        ('shared/drift.md', 9, 'rule-conflict', 'error'),
+                                        ('shared/drift.md', 12, 'rule-unlinked', 'error'),
+                                        ('shared/drift.md', 15, 'rule-restated', 'error')})
+
+    def test_a_copy_is_sought_past_link_targets_but_not_for_a_short_rule_or_in_a_marked_restatement(self):
+        # Rule: a copy is the text a person reads, so a link to another path still copies; an owned rule under
+        # 40 plain characters reads like a common phrase, and a block marked rule-ref for the rule may restate it.
+        self.write('shared/policy.md', POLICY + '\n<!-- rule: policy.short -->\nA missing level is high.\n\n'
+                   '<!-- rule: policy.read-first -->\nRead [the guide](guide.md) before any change to a policy doc.\n')
+        self.write('shared/drift.md', '# Drift\n\nA missing level is high.\n\n'
+                   '<!-- rule-ref: policy.read-first -->\n'
+                   '> Read [the guide](guide.md) before any change to a [policy](policy.md) doc.\n\n'
+                   'Read [the guide](../shared/guide.md) before any change to a policy doc.\n')  # 8
+        self.assertEqual(self.check(), {('shared/drift.md', 8, 'rule-restated', 'error')})
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Find smells in agent-facing Markdown: docs too big for one read, broken links and
-anchors, orphans, stale names, words the glossary avoids and skill frontmatter outside
-the published format.
+anchors, orphans, stale names, words the glossary avoids, skill frontmatter outside
+the published format and marked rules without one linked owner.
 
 usage: check_docs.py [--root DIR] [--config FILE] [--changed BASE] [--json]
 
 Exit 0: no errors; 1: errors found; 2: invalid input (bad config, base or repository).
 Warnings are smells to judge. --changed limits per-file rules to files changed since
 BASE (plus untracked files) and flags positional references on added lines; links,
-anchors, orphans and code paths stay repo-wide, because a move breaks other files.
+anchors, orphans, code paths and rule markers stay repo-wide, because a move breaks other files.
 """
 import argparse
 from bisect import bisect_right
@@ -40,6 +40,10 @@ POSITIONAL = re.compile(r'\b(?:above|below)\b', re.I)
 POSITIONAL_REFERENCE = re.compile(r'\b(?:the|this|these|those|see|as)\b[^.;:]{0,40}?\b(?:above|below)\b', re.I)
 MD_NAME = re.compile(r'(?<![\w/.-])([\w.-]+(?:/[\w.-]+)*\.md)\b')
 PERSON = re.compile(r"^(?:I|I'm|I'll|We|We'll|You|You'll)\b")
+RULE_MARKER = re.compile(r'\s*<!--\s*(rule|rule-ref):\s*([a-z][a-z0-9-]*\.[a-z0-9]+(?:-[a-z0-9]+)*)'
+                         r'(?:\s*=\s*(.*?))?\s*-->\s*$')
+LIST_ITEM = re.compile(r'\s*(?:>\s*)*(?:[-*+]|\d+\.)\s')
+RULE_TEXT_MIN = 40  # plain characters; a shorter owned rule reads like a common phrase, so copies are not sought
 
 
 class Finding(dict):
@@ -145,6 +149,16 @@ def links(text):
     if match := REFERENCE.match(text):
         found.append((match.group(1), match.group(2)))
     return [(label, target.strip('<>')) for label, target in found]
+
+
+def link_target(path, link):
+    """(resolved file, anchor) a link in the doc at path points to, the doc itself for a bare anchor; None for a
+    URL scheme such as https: or mailto:."""
+    if re.match(r'[a-z][\w+.-]*:', link, re.I):
+        return None
+    target, _, anchor = link.partition('#')
+    target = unquote(target.split('?', 1)[0])
+    return ((path.parent / target).resolve() if target else path.resolve()), unquote(anchor)
 
 
 def slug(heading):
@@ -331,6 +345,97 @@ def host_shape(root, architecture):
     return findings
 
 
+def blocks(path):
+    """The paragraphs and list items of a doc's prose, each a list of (line number, text). A blank line or a gap
+    left by fenced code ends one, a list item starts one, and a heading or a rule marker is a block of its own."""
+    found, block = [], []
+    for number, line in prose(path):
+        if block and (not line.strip() or block[-1][0] != number - 1 or ATX.match(line) or LIST_ITEM.match(line)
+                      or RULE_MARKER.match(line) or RULE_MARKER.match(block[-1][1]) or ATX.match(block[-1][1])):
+            found.append(block)
+            block = []
+        if line.strip():
+            block.append((number, line))
+    return found + [block] if block else found
+
+
+def marked_blocks(path):
+    """(block, markers) for each paragraph or list item of a doc, with the rule markers stacked on the lines
+    before it, each (kind, id, value, line) and the value None when the marker carries none. Markers at the end of
+    the doc mark an empty block."""
+    found, pending = [], []
+    for block in blocks(path):
+        if match := RULE_MARKER.match(block[0][1]):
+            pending.append((match.group(1), match.group(2), match.group(3), block[0][0]))
+        else:
+            found.append((block, pending))
+            pending = []
+    return found + [([], pending)] if pending else found
+
+
+def plain(block):
+    """A block's text as copies of it are compared, with (offset, line number) where each line starts in it: what a
+    person reads, casefolded, without quote, list or heading markers or emphasis, its whitespace collapsed."""
+    text, starts = '', []
+    for index, (number, line) in enumerate(block):
+        line = re.sub(r'^\s*(?:>\s*)*', '', read_text(line))
+        if index == 0:
+            line = re.sub(r'^(?:[-*+]|\d+\.|#{1,6})\s+', '', line)
+        if line := ' '.join(re.sub(r'[*_~]', '', line).casefold().split()):
+            text += ' ' if text else ''
+            starts.append((len(text), number))
+            text += line
+    return text, starts
+
+
+def rule_findings(docs, rel):
+    """Findings for rules that do not have one owner: an ID owned twice, at each owner, and a reference to an
+    ID nobody owns. A reference to an ID with one owner must carry no value or the owner's value, and its block
+    must link the owner's file; another doc's block that copies the owned text, compared as `plain` text of at
+    least RULE_TEXT_MIN characters, needs a reference to it."""
+    findings, owners, references = [], {}, []
+    marked = {path: marked_blocks(path) for path in docs}
+    for path, items in marked.items():
+        for block, markers in items:
+            for kind, rule, value, number in markers:
+                if kind == 'rule':
+                    owners.setdefault(rule, []).append((path, number, value, block))
+                else:
+                    references.append((path, rule, value, number, block))
+    for rule, places in owners.items():
+        for path, number, _, _ in places if len(places) > 1 else []:
+            others = ', '.join(f'{rel(p)}:{n}' for p, n, _, _ in places if (p, n) != (path, number))
+            findings.append(Finding(rel(path), number, 'error', 'rule-duplicate',
+                                    f'{rule} is also owned at {others}; keep one owner and mark the others rule-ref'))
+    for path, rule, value, number, block in references:
+        if rule not in owners:
+            findings.append(Finding(rel(path), number, 'error', 'rule-unowned',
+                                    f'no doc owns {rule}; mark its owner with rule: {rule}'))
+        elif len(owners[rule]) == 1:
+            owner, line, owned, _ = owners[rule][0]
+            if value is not None and value != owned:
+                findings.append(Finding(rel(path), number, 'error', 'rule-conflict',
+                                        f'{rule} = {value} here, but its owner {rel(owner)}:{line} says '
+                                        f'{owned if owned is not None else "no value"}'))
+            targets = {link_target(path, link) for _, text in block for _, link in links(text)} - {None}
+            if owner.resolve() not in {target for target, _ in targets}:
+                findings.append(Finding(rel(path), number, 'error', 'rule-unlinked',
+                                        f'link {rel(owner)}, the owner of {rule}, in the paragraph this marks'))
+    owned = [(rule, *places[0][:2], text) for rule, places in owners.items()
+             if len(places) == 1 and len(text := plain(places[0][3])[0]) >= RULE_TEXT_MIN]
+    texts = {path: [(plain(block), {r for k, r, _, _ in markers if k == 'rule-ref'}) for block, markers in items]
+             for path, items in marked.items()} if owned else {}
+    for rule, owner, line, text in owned:
+        for path, items in texts.items():
+            for (body, starts), refs in items if path != owner else []:
+                if rule not in refs and (at := body.find(text)) >= 0:
+                    number = starts[bisect_right([offset for offset, _ in starts], at) - 1][1]
+                    findings.append(Finding(rel(path), number, 'error', 'rule-restated',
+                                            f'copies {rule}, owned at {rel(owner)}:{line}; mark it rule-ref: {rule} '
+                                            'and link the owner, or reword it'))
+    return findings
+
+
 def check(root, config, changed=None, architecture=None):
     findings = []
     rel = lambda path: str(path.relative_to(root))
@@ -439,12 +544,9 @@ def check(root, config, changed=None, architecture=None):
     for path in linking:
         for number, line in prose(path):
             for _, link in links(line):
-                if re.match(r'[a-z][\w+.-]*:', link, re.I):
+                if not (found := link_target(path, link)):
                     continue  # URL schemes: https:, mailto: and the like.
-                target, _, anchor = link.partition('#')
-                anchor = unquote(anchor)
-                target = unquote(target.split('?', 1)[0])
-                resolved = (path.parent / target).resolve() if target else path.resolve()
+                resolved, anchor = found
                 if not exists_exactly(resolved):
                     findings.append(Finding(rel(path), number, 'error', 'link', f'{link} does not exist'))
                     continue
@@ -486,6 +588,7 @@ def check(root, config, changed=None, architecture=None):
                 else:
                     findings.append(Finding(rel(path), number, 'error', 'code-path', f'{doc} does not exist'))
 
+    findings.extend(rule_findings(docs, rel))
     for path in docs:
         if path not in entry and path.resolve() not in reached:
             findings.append(Finding(rel(path), 1, 'error', 'orphan', 'no doc or code links it, so no agent reaches it'))
