@@ -820,11 +820,11 @@ runpy.run_path(script, run_name='__main__')
             assert path.read_text() == recorded
 
     def git(self, *args):
-        return subprocess.run(['git', '-C', str(self.root), *args], check=True,
-                              capture_output=True, text=True).stdout.strip()
+        return subprocess.run(['git', '-C', str(self.root), '-c', 'user.name=t', '-c', 'user.email=t@t', *args],
+                              check=True, capture_output=True, text=True).stdout.strip()
 
     def commit(self, message):
-        self.git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', message)
+        self.git('commit', '-q', '--allow-empty', '-m', message)
         return self.git('rev-parse', 'HEAD')
 
     def write_report(self, base, branch=None, commits=(), body='', number='01', returned=None):
