@@ -313,6 +313,8 @@ os.execvp(command[0], command)
         result = self.start()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(json.loads(result.stdout)['opencode']['session'], 'private-session')
+        _, _, attached = self.wait_events(3)
+        self.assertEqual(attached['args'][0], '--server')
 
     def test_api_route_runs_private_server_session_and_tui_in_worker_pane(self):
         result = self.start()
