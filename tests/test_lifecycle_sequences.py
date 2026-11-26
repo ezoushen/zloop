@@ -15,15 +15,18 @@ from unittest.mock import patch
 import support
 import run_control
 import worker_lifecycle as life
+from t3_intent_fixture import T3Read
 
 
 def exercise(operations):
+    fixture = unittest.TestCase()
     with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, XDG_STATE_HOME=tmp):
         root = Path(tmp)
         state = root / '.scratch/trace/reports/workers.sqlite'
         state.parent.mkdir(parents=True)
         card = support.run_card(state.parent.parent / 'autopilot.md', phase='align')
         control = run_control.adopt(card, 'trace grant')
+        host = None
         native = root / 'native.jsonl'
         native.write_text(json.dumps({'type': 'session_meta', 'payload': {'id': 'host-1'}}) + '\n')
         report = root / 'report.md'
@@ -42,16 +45,27 @@ def exercise(operations):
             db.commit()
             active, intact, accepted, declined = True, True, False, False
             for number, operation in enumerate(operations):
-                if operation in ('pause', 'resume'):
-                    text = 'autopilot --pause' if operation == 'pause' else 'autopilot --take-over'
+                if operation == 'pause':
+                    text = 'autopilot --pause'
                     row = {'type': 'response_item', 'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat(),
                            'payload': {'type': 'message', 'role': 'user', 'content': [{'type': 'input_text', 'text': text}]}}
                     with native.open('a') as out:
                         out.write(json.dumps(row) + '\n')
                     source = run_control.user_source(native, 'codex', ['host-1'], operation, control['created_at'])
-                    run_control.transition(card, 'paused-by-user' if operation == 'pause' else '', source,
+                    run_control.transition(card, 'paused-by-user', source,
                                            operation, run_control.read(card)['revision'], f'{operation}-{number}')
-                    active = operation == 'resume'
+                    active = False
+                elif operation == 'resume':
+                    if host is None:
+                        host = T3Read(fixture, root, os.environ)
+                    revision = run_control.read(card)['revision']
+                    command = [sys.executable, '-B', str(support.script('run_control.py')), 'resume', str(card),
+                               '--expect', str(revision), '--request-id', f'resume-{number}', '--reason', 'trace']
+                    preview = subprocess.run(command, capture_output=True, text=True)
+                    host.accept(preview, 'autopilot --take-over')
+                    result = subprocess.run(command, capture_output=True, text=True)
+                    assert result.returncode == 0, result.stderr
+                    active = True
                 elif operation in ('damage', 'restore'):
                     intact = operation == 'restore'
                     report.write_text(original if intact else 'Changed after collection\n')
@@ -76,6 +90,7 @@ def exercise(operations):
                 assert bool(actual.get('declined')) == declined, operations[:number + 1]
         finally:
             db.close()
+            fixture.doCleanups()
 
 
 class LifecycleSequences(unittest.TestCase):

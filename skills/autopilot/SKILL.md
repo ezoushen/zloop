@@ -33,7 +33,8 @@ types the command; a message that mentions it is not one. Never widens native pe
   [--dispatch-effort <level>] [--review-effort <level>]`: it keeps the card's levels unless a level flag is given;
   it moves the terminal state to `history:`,
   clears `terminal:` so the grant of the run that ended lapses with its terminal state.
-  For a new auto-merge grant, use the [card target options](run-card.md). `phase:` stays as recorded: a run that ends keeps the phase it stopped in.
+  A take-over verifies [human intent](../../runtime/workers/control.md#verify-human-intent).
+  Request auto-merge grants through managed control. `phase:` stays as recorded: a run that ends keeps the phase it stopped in.
   A card that ended `paused-by-user` resumes at once, with no cause to wait for: first record each decision the
   user made while in control in the ledger as theirs, with their words, and re-read the branch and the board: the
   user's work is the current state.

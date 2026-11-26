@@ -1,7 +1,7 @@
 # Managed run controls
 
-Use managed controls when a run needs explicit pause provenance or an external
-continuation supervisor. Existing cards remain legacy until explicitly adopted;
+Use managed controls for a verified merge grant, explicit pause provenance or an
+external continuation supervisor. Existing cards remain legacy until explicitly adopted;
 their declarations do not authorize automated recovery.
 
 After the existing card is confirmed, adopt its current decisions:
@@ -10,12 +10,10 @@ After the existing card is confirmed, adopt its current decisions:
 python3 <plugin_root>/scripts/run_control.py adopt <card> --source <confirmation-reference>
 ```
 
-Add `--allow-resume` only when its confirmed grants already permit unattended
-allowance recovery. Adoption grants no extra permissions or merge authority.
-To bind an explicit auto-merge grant at adoption or resume, supply `--merge-pr <number>`
-or `--merge-base <planned-base>` from the checked-out workstream branch. The control
-record binds the origin repository and either the PR and its base or the planned base
-and branch. A `waiting-on-user` exit leaves the grant and delivery state intact.
+Add `--allow-resume` only when the card already permits unattended allowance
+recovery. Adoption records existing decisions. Open a new managed take-over to
+request an automated merge grant. A `waiting-on-user` exit leaves the pending
+transition and delivery evidence intact.
 Inspect managed state with `run_control.py status <card>`. Before launch and after
 completion or resume, follow [dispatch inspection](dispatch.md). Both inspections
 use the control record when its Markdown projection is missing or matches the exact
@@ -43,22 +41,40 @@ Use the actual user command from the bound host's native record. A stop-hook
 diagnostic is not user intent. The script checks provenance and ordering; unrestricted
 filesystem access still prevents that record being a cryptographic authority.
 
-`resume` uses the same arguments and an actual `autopilot --take-over` user command.
-Host decisions cannot override a user pause. Grant/criteria changes require the
-existing explicit authorization path; a receipt cannot grant merging.
-`autopilot_card.py phase` records validated phase changes through the control record.
+## Verify human intent
+
+For full-card confirmation or a take-over, run the gate with the intended card
+and action. When it returns a scoped request, show the card, action, revision
+and any merge target to the user. Ask them to send the exact text from the gate,
+including the `zloop-intent:` line, in the bound T3 conversation. Retry the same
+gate in the turn that handles their reply.
+
+The gate reads the active item from the local T3 runtime using its MCP read
+credential. It requires a fresh item authored by a user from the web or mobile
+app and binds the text to the card, thread, action, revision and target. Copied
+transcripts and CLI projections lack this authority. The gate reports
+`waiting-on-user` when the runtime or its credential is unavailable. The PR-only
+relay and confirmation by rule remain available where the run card permits them.
+
+For managed take-over use `resume <card> --expect <revision> --request-id <id>
+--reason <reason>`. Add `--merge-pr <number>` to request a grant for an existing PR,
+or `--merge-base <planned-base>` from the checked-out workstream branch. Required
+checks must apply to the exact target before the grant is recorded. Host decisions
+cannot override a user pause. `autopilot_card.py phase` records validated phase
+changes through the control record.
 
 Host decisions use `end <card> --terminal <state> --source <evidence-reference>`
 with the same expected revision, request ID and reason. A user pause still requires
-the native command; the host cannot label a diagnostic as user intent. Use existing delivery gates to establish delivery; a terminal label alone is insufficient.
-A card with `delivery: pr-only` refuses the `delivered-local` transition.
+the native command. Use existing delivery gates to establish delivery. A card with
+`delivery: pr-only` refuses the `delivered-local` transition.
 
-To submit through managed control, use
-`run_control.py merge <card> --expect <revision> --merge-pr <number>
---head <reviewed-sha> --method <approved-method>` to submit a managed merge.
-The saved grant must match the PR. For a planned-base grant, the head must come
-from the recorded branch in the origin repository. An older grant without a verified
-target requires explicit `resume` with a verified grant before submitting.
+Submit through `merge <card> --expect <revision> --merge-pr <number>
+--head <reviewed-sha> --method <approved-method>`. The verified grant binds the
+origin repository, base, and PR or planned workstream branch. The command
+rechecks the target and required checks, then consumes the grant under the
+control lock before submitting. Read the current revision before recording
+`merged` and verify the GitHub result even if submission failed or its outcome is
+uncertain. A new submission requires a fresh grant.
 
 While paused, collect already running work and preserve its evidence. Productive
 continuation and acceptance wait for authorized resume.

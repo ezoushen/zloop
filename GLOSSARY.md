@@ -58,16 +58,20 @@ _Avoid_: none
 The outcome the user wants a workstream or command to achieve.
 _Avoid_: none
 
+**Human intent**:
+A host-attested user decision for a specific pending action and scope.
+_Avoid_: none
+
 **Principle**:
 A user-owned priority for choosing among ways to achieve the goal.
 _Avoid_: none
 
 **Constraint**:
-A boundary that work toward the goal must respect under the mandate.
+A boundary set by the mandate.
 _Avoid_: none
 
 **Scope**:
-The agreed boundary of work or change being implemented, reviewed or repaired under the mandate.
+The agreed boundary of implementation, review or repair.
 _Avoid_: none
 
 **Mandate**:
@@ -75,7 +79,7 @@ The user's goal, principles, constraints and reserved decisions that bound the a
 _Avoid_: none
 
 **Interview**:
-The conversation that settles the mandate and material choices needed for alignment.
+The conversation that settles the mandate and material choices.
 _Avoid_: none
 
 **Alignment**:
@@ -99,7 +103,7 @@ The user's rejection or revision of an agent decision recorded in the ledger.
 _Avoid_: none
 
 **Standing directive**:
-A continuing user instruction recorded in the ledger that governs later decisions and work.
+A user instruction in the ledger governing later work and decisions.
 _Avoid_: none
 
 **Autopilot**:

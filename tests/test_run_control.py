@@ -13,6 +13,7 @@ import unittest
 from unittest import mock
 
 import support
+from t3_intent_fixture import T3Read
 
 
 class RunControl(unittest.TestCase):
@@ -177,7 +178,7 @@ class RunControl(unittest.TestCase):
         restored = self.control.restore_view(self.card, hashlib.sha256(current).hexdigest(), 'fresh review', 'r1')
         self.assertEqual(restored['events'][-1]['displaced_view'].encode(), current)
         self.assertEqual(self.card.read_bytes(), canonical)
-        with self.assertRaisesRegex(ValueError, 'existing merge grant'):
+        with self.assertRaisesRegex(ValueError, 'verified merge grant'):
             self.control.transition(*request[:4], 2, request[-1])
 
     def test_restore_cli_preserves_reviewed_malformed_utf8_bytes(self):
@@ -296,13 +297,24 @@ class RunControl(unittest.TestCase):
         append('autopilot --pause')
         pause = self.control.user_source(native, 'codex', ['host-1'], 'pause', 0)
         self.control.transition(self.card, 'paused-by-user', pause, 'actual pause', 1, 'pause')
-        with self.assertRaisesRegex(ValueError, 'recent explicit user command'):
-            self.control.transition(self.card, '', old, 'stale takeover', 2, 'old-resume')
+        env = os.environ.copy()
+        host = T3Read(self, self.root, env)
+        command = [sys.executable, '-B', str(support.SCRIPTS / 'run_control.py'), 'resume', str(self.card),
+                   '--expect', '2', '--request-id', 'resume', '--reason', 'requested take-over']
+        def run():
+            return subprocess.run(command, env=env, capture_output=True, text=True)
+        host.accept(run(), 'autopilot --take-over')
+        turn = host.answer['recentRuns'][0]
+        fresh = turn['requestedAt']
+        turn['requestedAt'] = datetime.datetime.fromtimestamp(old['at'], datetime.timezone.utc).isoformat()
+        stale = run()
+        self.assertEqual(stale.returncode, 2, stale.stderr)
+        self.assertIn('not a fresh matching human response', stale.stderr)
         with self.assertRaisesRegex(ValueError, 'paused-by-user'):
             self.control.require_active(self.card)
-        append('autopilot --take-over')
-        fresh = self.control.user_source(native, 'codex', ['host-1'], 'resume', 0)
-        self.control.transition(self.card, '', fresh, 'new takeover', 2, 'new-resume')
+        turn['requestedAt'] = fresh
+        result = run()
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.control.require_active(self.card)
 
     def test_a_host_decision_cannot_replace_an_explicit_user_pause(self):
