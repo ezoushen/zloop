@@ -4,6 +4,7 @@ import os
 import re
 import shlex
 import sqlite3
+import subprocess
 from pathlib import Path
 import sys
 from native_records import assistant_turn, session_record, user_message
@@ -144,6 +145,31 @@ def stub_router_plugin(root, exit_status, refusal=''):
     stub.write_text(f'#!/bin/sh\necho "$@" >> {shlex.quote(str(Path(root) / "stub.log"))}\necho {shlex.quote(refusal)} >&2\nexit {exit_status}\n')
     stub.chmod(0o755)
     return plugin
+
+
+def git(repo, *args):
+    """Stdout of `git -C repo args`, with a fixed identity and no user or system Git configuration."""
+    env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
+    return subprocess.run(['git', '-C', str(repo), '-c', 'user.name=t', '-c', 'user.email=t@example.com',
+                           '-c', 'commit.gpgsign=false', *args],
+                          check=True, capture_output=True, text=True, env=env, timeout=30).stdout.strip()
+
+
+def plugin_repository(base, name, ahead=2):
+    """A repository `name` under base that holds a copy of the plugin's hooks and scripts, and a detached worktree of
+    it, `name-plugin`, at the commit before `ahead` further empty commits; returns (repository, worktree). No
+    `origin/main` ref exists: the caller sets one with `git update-ref refs/remotes/origin/main`."""
+    import shutil
+    repo, plugin = Path(base) / name, Path(base) / f'{name}-plugin'
+    git(base, 'init', '-q', '-b', 'main', str(repo))
+    for folder in ('hooks', 'scripts'):
+        shutil.copytree(ROOT / folder, repo / folder, ignore=shutil.ignore_patterns('__pycache__'))
+    git(repo, 'add', '.')
+    git(repo, 'commit', '-q', '-m', 'plugin')
+    git(repo, 'worktree', 'add', '-q', '--detach', str(plugin))
+    for number in range(ahead):
+        git(repo, 'commit', '-q', '--allow-empty', '-m', f'later {number}')
+    return repo, plugin
 
 
 def assignment_file(root, job, text='', *, attempt='ticket-1/1'):

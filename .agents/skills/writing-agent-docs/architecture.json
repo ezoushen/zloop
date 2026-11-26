@@ -218,6 +218,7 @@
     "scripts/t3_mcp.py",
     "scripts/pr_safety.py",
     "scripts/publish_probe.py",
+    "scripts/plugin_lag.py",
     "scripts/pr_watch.py",
     "scripts/dispatch_state.py",
     "scripts/source_identity.py",

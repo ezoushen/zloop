@@ -37,6 +37,7 @@ import front_matter  # noqa: E402
 import human_intent  # noqa: E402
 import state_files  # noqa: E402
 import next_tickets  # noqa: E402
+import plugin_lag  # noqa: E402
 import run_control  # noqa: E402
 from worker_lifecycle import SESSION_VARIABLES, host_sessions, state_fields  # noqa: E402
 
@@ -140,11 +141,19 @@ def publish_problem(card, state):
             'then set the phase')
 
 
+def lag_problem(card):
+    """Why the run of `card` cannot enter dispatch or pr yet, or None: the plugin root lags `origin/main` of the
+    repository holding the card's `.scratch/<slug>/` folder, so its hooks are older than that repository's rules."""
+    lag = plugin_lag.lagging(card.resolve().parents[2])
+    return f'{lag} Then set the phase.' if lag else None
+
+
 def phase(card, text, value):
-    """The card's text with `phase:` set to `value`; exits naming the problem when dispatch or pr cannot work its board
-    (`board_problem`) or pr has no passing publish probe (`publish_problem`)."""
+    """The card's text with `phase:` set to `value`; exits naming the problem when dispatch or pr has a board it cannot
+    work (`board_problem`) or a plugin root behind the repository's main (`lag_problem`), or when pr has no passing
+    publish probe (`publish_problem`)."""
     state = state_section(text)
-    problem = (value in ('dispatch', 'pr') and board_problem(card, state[0])
+    problem = (value in ('dispatch', 'pr') and (board_problem(card, state[0]) or lag_problem(card))
                or value == 'pr' and publish_problem(card, state[0]))
     if problem:
         sys.exit(problem)

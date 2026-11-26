@@ -25,6 +25,16 @@ new cache directory; relink that entry when changing the installed version. Afte
 changing the Claude manifest, check `claude plugin list` for loading errors before
 reloading zloop.
 
+## Plugin lag
+
+When the plugin root and the repository a session works on share a Git directory (you develop zloop with the
+plugin loaded from a checkout or worktree of the same repository), the session-start hook adds one line if the plugin
+root's `HEAD` is behind `origin/main`, and `autopilot_card.py phase <card> dispatch` and `... pr` refuse. Both name the
+refresh: `git -C <plugin root> pull --ff-only`, then a new session (or `/reload-plugins` on Claude). The check reads
+local refs only (`scripts/plugin_lag.py`) and never fetches, so it trusts the last fetch of `origin/main`: a stale
+`origin/main` reads as up to date. A plugin root that is not a Git checkout and a repository
+without an `origin/main` ref are not judged.
+
 ## Codex
 
 Codex's local catalog is `.agents/plugins/marketplace.json`:
