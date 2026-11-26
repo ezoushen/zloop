@@ -8,8 +8,7 @@ import support
 
 # A test script that branches on the platform or drives the macOS sandbox.
 MACOS_ONLY = re.compile(r'''(?i)['"]darwin['"]|sandbox[-]exec''')
-# Scripts that reach the real macOS sandbox through the bash executor's Seatbelt wrap, which their own text cannot show;
-# found by counting sandbox calls on macOS.
+# Scripts that reach the real macOS sandbox through the bash executor's Seatbelt wrap, which their own text cannot show.
 INDIRECT_SANDBOX = ('test_agent_pools.py', 'test_executors.py')
 
 
