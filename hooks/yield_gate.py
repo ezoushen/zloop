@@ -363,10 +363,7 @@ def delivery_gap(root, slug, lead, tail):
 
 
 def unfinished_runs(root, session, named):
-    """Name each confirmed autopilot run card of this host session that lacks one terminal state or its evidence,
-    unless a live worker of the card's workstream holds a running wait that will wake the host, and in such a run
-    what `autopilot_card.py phase` would refuse; and each that records a delivered state its local board refuses, whose
-    workstream is added to `named`."""
+    """Check this session's run cards for active waits, board gaps and delivery evidence."""
     missing = []
     life, control_api, state_fields = lifecycle(), script('run_control'), script('state_files').state_fields
     for path in control_api.cards(root):

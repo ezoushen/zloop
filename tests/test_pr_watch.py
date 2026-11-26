@@ -162,6 +162,12 @@ class PRWatch(unittest.TestCase):
         control_path = self.card.with_name('autopilot-control.json')
         for case, after, runs, expected in cases:
             with self.subTest(case=case):
+                self.github.replies[pr_key] = self.pull
+                self.checks(passing)
+                previous = self.refresh(receipt)
+                self.assertEqual(previous.returncode, 0, previous.stderr)
+                self.assertEqual(json.loads(previous.stdout)['check_runs'], [passing])
+
                 self.github.replies[pr_key] = {'sequence': [self.pull, after]}
                 self.github.replies[check_key] = None if runs is None else [dict(total_count=len(runs), check_runs=runs)]
                 result = self.refresh(receipt)

@@ -150,10 +150,13 @@ rules the script can't:
 
 ## Watch the required checks
 
-Watch the required checks for each pushed SHA. For a managed PR phase on the
-local T3 host, use `watch_pull_request` with the exact PR and `until="checks"` on
-the run card's bound thread. From the workstream's attached feature checkout,
-record the external wait against the full pushed SHA.
+Watch the required checks for each pushed SHA. When the repository configures
+none, treat every check as required for delivery.
+
+For a managed PR phase on the local T3 host, use `watch_pull_request` with the
+exact PR and `until="checks"` on the run card's bound thread. From the
+workstream's attached feature checkout, record the external wait against the
+full pushed SHA.
 
 ```sh
 python3 "<plugin_root>/scripts/pr_watch.py" arm "<card>" --pr "<number>" --head "<sha>"
@@ -179,7 +182,7 @@ leaves delivery and merge authority to their existing checks. Verify required
 checks separately, including both `push` and `pull_request` workflow events when
 the delivery contract calls for both.
 
-For other hosts, confirm the PR head equals the pushed SHA and run
+For all other PR invocations, confirm the PR head equals the pushed SHA and run
 `gh pr checks <n> --required --watch` as a background job. When GitHub reports
 no required checks, watch all checks with `gh pr checks <n> --watch`.
 
