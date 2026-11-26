@@ -26,7 +26,7 @@ types the command; a message that mentions it is not one. Never widens native pe
   Verify lines that tell success from failure, and what the user reserves.
 - **`autopilot --take-over`:** start from the session's current state. It reuses accepted decisions, tickets and reports,
   and asks only the align questions still unsettled; a phase already finished is not redone. With an existing card, continue from its State.
-  Managed cards use [control events](../../runtime/workers/control.md).
+  Managed cards use [control State and events](../../runtime/workers/control.md).
   A confirmed card whose goal, criteria and grants are unchanged is not reconfirmed;
   a card that ended `waiting-on-user` or `paused-allowance` resumes once its cause is gone. Take over a card with
   `python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--auto-merge] [--effort <level>]
