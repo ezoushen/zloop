@@ -41,6 +41,7 @@ A rule an agent doc owns carries `<!-- rule: <id> -->`, or `<!-- rule: <id> = <v
 before its paragraph or list item; the ID is `module.kebab-name`, unique repo-wide. Another agent doc that
 restates the rule puts `<!-- rule-ref: <id> -->`, with the same optional value, before a paragraph that links
 the owner's file. These rule checks run repo-wide, like links.
+
 [architecture.json](architecture.json) holds the module architecture: ordered levels
 (top may depend on lower ones and on itself, never on a sibling or a higher level),
 which files each module owns, the first-read budget and the debt for that contract.
