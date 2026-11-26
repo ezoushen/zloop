@@ -150,8 +150,7 @@ def verify(card, text, action, words, bound_thread, *, run_id=None, revision=0, 
            provider_sessions=(), after=0, consumed=()):
     """Attest a fresh exact response for this card state and action, or request scoped human input."""
     if not bound_thread:
-        remedy = ('Run full confirmation in a T3 conversation.' if action == 'confirmation'
-                  else 'Continue PR-only work or confirm a fresh run card in T3.')
+        remedy = 'Continue PR-only work or confirm a fresh run card in T3.'
         raise WaitingOnUser(f'human intent for {action}: no current T3 thread is bound to this card. {remedy}')
     thread = os.environ.get('T3CODE_THREAD_ID')
     scope = {'card': str(card.resolve()), 'view': canonical_hash(text), 'action': action,

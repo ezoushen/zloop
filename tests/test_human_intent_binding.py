@@ -84,6 +84,13 @@ class ConversationBinding(unittest.TestCase):
         self.assertIn('no current T3 thread is bound', legacy.stderr)
         self.assertIn('confirm a fresh run card in T3', legacy.stderr)
         self.assertNotIn('zloop-intent:', legacy.stderr)
+        reads = list(self.host.reads)
+        old_confirmation = self.cli('autopilot_card.py', 'confirm', str(old), '--confirmed-by', 'human',
+                                    '--words', 'Confirm the historical card')
+        self.assertEqual(old_confirmation.returncode, 2, old_confirmation.stdout + old_confirmation.stderr)
+        self.assertIn('confirm a fresh run card in T3', old_confirmation.stderr)
+        self.assertNotIn('zloop-intent:', old_confirmation.stderr)
+        self.assertEqual(self.host.reads, reads)
         self.assertEqual(old.read_bytes(), before)
         phase = self.cli('autopilot_card.py', 'phase', str(old), 'dispatch')
         self.assertEqual(phase.returncode, 0, phase.stderr)
