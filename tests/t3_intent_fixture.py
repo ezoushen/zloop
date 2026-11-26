@@ -1,4 +1,4 @@
-"""Loopback stand-in for T3's authenticated thread-read endpoint."""
+"""Loopback stand-in for authenticated T3 thread and pull request tools."""
 import datetime
 from contextlib import ExitStack, contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -33,6 +33,9 @@ class T3Read:
         self.malformed = False
         self.on_read = None
         self.reads = []
+        self.pr_calls = []
+        self.pull = None
+        self.on_merge = None
         fixture = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -46,14 +49,32 @@ class T3Read:
                     self.wfile.write(b'not an HTTP status\r\n')
                     return
                 if method == 'tools/call':
-                    fixture.reads.append(request['params'])
-                    if request['params']['name'] != 't3_thread_read':
+                    params = request['params']
+                    if params['name'] == 't3_thread_read':
+                        fixture.reads.append(params)
+                        if fixture.on_read:
+                            fixture.on_read()
+                        cursor = params['arguments'].get('beforePosition')
+                        answer = fixture.answer if cursor is None else fixture.pages.get(cursor, {})
+                    elif params['name'] in ('pull_request_read', 'pull_request_merge'):
+                        fixture.pr_calls.append(params)
+                        if params['name'] == 'pull_request_read':
+                            answer = fixture.pull
+                        elif fixture.on_merge:
+                            status, answer = fixture.on_merge()
+                            if status != 200:
+                                self.send_error(status)
+                                return
+                        else:
+                            fixture.pull = dict(fixture.pull, state='merged')
+                            answer = {key: fixture.pull[key] for key in ('host', 'repository', 'number', 'url', 'state')}
+                        if answer is None:
+                            self.send_error(503)
+                            return
+                    else:
                         self.send_error(400)
                         return
-                    if fixture.on_read:
-                        fixture.on_read()
-                    cursor = request['params']['arguments'].get('beforePosition')
-                    result = {'structuredContent': fixture.answer if cursor is None else fixture.pages.get(cursor, {})}
+                    result = {'structuredContent': answer}
                 elif method == 'initialize':
                     result = {'protocolVersion': '2025-06-18', 'capabilities': {}, 'serverInfo': {'name': 'Fixture'}}
                 else:
@@ -116,6 +137,11 @@ with fixture_trust(home, int(pid), int(port)):
                        'hasMore': False, 'earlierPosition': None,
                        'recentRuns': [{'runId': run, 'status': 'running',
                                        'requestedAt': datetime.datetime.now(datetime.timezone.utc).isoformat()}]}
+
+    def pr_readback(self, repo, number, head, base, state='open'):
+        self.pull = {'host': 'github.com', 'repository': repo, 'number': number,
+                     'url': f'https://github.com/{repo}/pull/{number}', 'state': state,
+                     'headSha': head, 'baseBranch': base}
 
     def accept(self, preview, words):
         match = re.search(rf'(?m)^{re.escape(words)}\nzloop-intent: [0-9a-f]{{64}}$', preview.stderr)

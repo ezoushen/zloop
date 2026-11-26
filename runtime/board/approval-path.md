@@ -20,9 +20,9 @@ requirement. Recheck the path if author or branch rules change.
 Require an explicit user grant verified by the human intent gate on a managed
 run. A card marked `relayed(...)` cannot grant or use auto-merge. Before recording a grant, verify that the PR's base in origin enforces
 required checks. Before the PR exists, verify the explicit planned base. Submit an
-automated merge through the normal GitHub path after the check watch and approvals
-pass, with the reviewed head pinned and without an admin override. Verify the
-resulting PR state before recording a merge. Queue admission can leave the PR open.
+automated merge through the normal GitHub path via the authenticated local T3
+host after the check watch and approvals pass, with the reviewed head pinned and
+without an admin override.
 
 Use [managed run control](../workers/control.md) to record and submit the grant.
 `pr_safety.py grant` can preview required checks in the target checkout. It

@@ -100,8 +100,6 @@ print(json.dumps(reply))
                           ['api', '--hostname', 'github.com', '--paginate', '--slurp', RULES]])
 
     def test_merge_submits_only_after_verified_classic_or_applicable_ruleset_checks(self):
-        merge = ['pr', 'merge', '12', '--repo', 'github.com/fixture/zloop', '--match-head-commit', SHA, '--squash']
-        self.replies[' '.join(merge)] = 'submitted to GitHub'
         classic = {'name': BASE, 'protected': True, 'protection': {'enabled': True,
                    'required_status_checks': {'enforcement_level': 'non_admins', 'contexts': ['test']}}}
         active = {'type': 'required_status_checks', 'ruleset_id': 7, 'ruleset_source_type': 'Repository',
@@ -117,14 +115,16 @@ print(json.dumps(reply))
                 self.assertEqual(json.loads(grant.stdout), {'required_checks': [check]})
                 card = support.run_card(self.root / check / 'autopilot.md', phase='pr')
                 self.grant(card)
+                self.t3.pr_readback(REPO, 12, SHA, BASE)
                 result = self.run_cli('run_control.py', 'merge', str(card), '--merge-pr', '12', '--head', SHA,
                                       '--method', 'squash', '--expect', '2')
-                self.assertEqual((result.returncode, result.stdout.strip()), (0, '"submitted to GitHub"'), result.stderr)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout)['outcome'], 'merged')
                 reads = [['api', '--hostname', 'github.com', PULL],
                          ['api', '--hostname', 'github.com', BRANCH],
                          ['api', '--hostname', 'github.com', '--paginate', '--slurp', RULES]]
                 self.assertEqual([json.loads(row) for row in self.calls.read_text().splitlines()],
-                                 [*reads, reads[0], reads[0], *reads, reads[0], *reads, reads[0], merge])
+                                 [*reads, reads[0], reads[0], *reads, reads[0], *reads, reads[0]])
 
     def test_preflight_refuses_malformed_unavailable_or_out_of_scope_github_responses(self):
         pull = f'api --hostname github.com {PULL}'
@@ -229,10 +229,9 @@ print(json.dumps(reply))
         self.replies['api --hostname github.com repos/fixture/zloop/branches/main'] = dict(
             self.replies[f'api --hostname github.com {BRANCH}'], name='main')
         self.replies['api --hostname github.com --paginate --slurp repos/fixture/zloop/rules/branches/main'] = [[]]
-        merge = ['pr', 'merge', '12', '--repo', 'github.com/fixture/zloop', '--match-head-commit', SHA, '--squash']
-        self.replies[' '.join(merge)] = 'submitted to GitHub'
         card = support.run_card(self.root / 'autopilot.md', phase='pr')
         self.grant(card, ('--merge-base', BASE))
+        self.t3.pr_readback(REPO, 12, SHA, BASE)
         args = ('merge', str(card), '--merge-pr', '12', '--head', SHA, '--method', 'squash', '--expect', '2')
         for base, head_repo, head_ref, reason in (
                 ('main', REPO, branch, 'the PR base does not match the verified merge grant'),
@@ -251,17 +250,16 @@ print(json.dumps(reply))
                     self.assertEqual((result.returncode, result.stderr.strip()), (2, f'waiting-on-user: {reason}'))
                     self.assertEqual(calls, [read])
                 else:
-                    self.assertEqual((result.returncode, result.stdout.strip()), (0, '"submitted to GitHub"'),
-                                     result.stderr)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(json.loads(result.stdout)['outcome'], 'merged')
                     self.assertEqual(calls, [read, ['api', '--hostname', 'github.com', BRANCH],
                                              ['api', '--hostname', 'github.com', '--paginate', '--slurp', RULES],
-                                             read, merge])
+                                             read])
 
     def test_unscoped_managed_record_requires_a_fresh_verified_grant(self):
         self.replies[f'api --hostname github.com {BRANCH}'] = {
             'name': BASE, 'protected': True, 'protection': {'enabled': True,
                 'required_status_checks': {'enforcement_level': 'everyone', 'contexts': ['docs']}}}
-        self.replies[f'pr merge 12 --repo github.com/{REPO} --match-head-commit {SHA} --squash'] = 'submitted'
         card = support.run_card(self.root / 'autopilot.md', phase='pr')
         self.grant(card)
         record = card.with_name('autopilot-control.json')
@@ -279,8 +277,10 @@ print(json.dumps(reply))
 
         resumed = self.approve_resume(card, 2)
         self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        self.t3.pr_readback(REPO, 12, SHA, BASE)
         result = self.run_cli('run_control.py', *merge, '3')
-        self.assertEqual((result.returncode, result.stdout.strip()), (0, '"submitted"'), result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['outcome'], 'merged')
 
     def test_managed_submission_rechecks_required_checks_after_a_verified_grant(self):
         card = support.run_card(self.root / 'autopilot.md', phase='pr')

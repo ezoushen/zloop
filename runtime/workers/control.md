@@ -83,10 +83,18 @@ the native command. Use existing delivery gates to establish delivery. A card wi
 Submit through `merge <card> --expect <revision> --merge-pr <number>
 --head <reviewed-sha> --method <approved-method>`. The verified grant binds the
 origin repository, base, and PR or planned workstream branch. The command
-rechecks the target and required checks, then consumes the grant under the
-control lock before submitting. Read the current revision before recording
-`merged` and verify the GitHub result even if submission failed or its outcome is
-uncertain. A new submission requires a fresh grant.
+rechecks the target and required checks, then verifies the open PR through the
+authenticated local T3 host. It records the one-use submission under the control
+lock before making one normal T3 merge call with the reviewed SHA and approved
+method. The T3 call disables automatic and stacked merges.
+
+The submission records a fresh T3 readback. To record terminal `merged`, read the
+current revision and use `end --terminal merged`. The gate reads the PR again and
+requires matching repository, number, base, head and merged state. A queue can
+leave the PR open. The native call can enforce the head at submission, while the
+base is verified by readbacks on either side of the call. On an uncertain result,
+use readback to reconcile the existing submission. A new submission requires a
+fresh grant.
 
 While paused, collect already running work and preserve its evidence. Productive
 continuation and acceptance wait for authorized resume.

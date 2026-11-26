@@ -307,9 +307,11 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
         if terminal == 'delivered-local' and values.get('delivery') == 'pr-only':
             raise ValueError('PR-only delivery requires a pull request')
         if terminal == 'merged':
-            require_grant(card, state, values)
-            if 'merge_submission' not in state:
-                raise human_intent.WaitingOnUser('Merged state requires submission through the verified merge grant')
+            grant = require_grant(card, state, values)
+            submission = used_merge_grant(state, grant)
+            transport = pr_safety.merge_transport()
+            pr_safety.require_merge_state(pr_safety.read_merge_state(transport, submission), 'merged')
+            state['merge_submission'] = dict(submission, outcome='merged')
         if terminal == '' and source.get('kind') == 'timer':
             if grant_merge:
                 raise human_intent.WaitingOnUser('an allowance wake cannot authorize a merge grant')
@@ -403,6 +405,23 @@ def require_grant(card, state, values):
     return grant
 
 
+def used_merge_grant(state, grant):
+    """Resolve an already consumed target for read-only reconciliation."""
+    submission = state.get('merge_submission')
+    scope = {key: grant[key] for key in ('repo', 'base', 'authorization')}
+    if not isinstance(submission, dict):
+        raise human_intent.WaitingOnUser('Merged state requires submission through the verified merge grant')
+    if set(submission) == {'pr', 'head', 'method'}:
+        submission = dict(submission, **scope)
+    if (any(submission.get(key) != value for key, value in scope.items())
+            or type(submission.get('pr')) is not int or submission['pr'] < 1
+            or grant['pr'] not in (None, submission['pr'])
+            or not isinstance(submission.get('head'), str) or not pr_safety.REVIEWED_HEAD.fullmatch(submission['head'])
+            or submission.get('method') not in pr_safety.MERGE_METHODS):
+        raise human_intent.WaitingOnUser('the recorded submission does not match the verified merge grant')
+    return submission
+
+
 def merge(card, expected, pr, head, method):
     """Consume the matching grant under the control lock before submitting once."""
     with state_files.locked(card):
@@ -415,13 +434,25 @@ def merge(card, expected, pr, head, method):
         if 'merge_submission' in state:
             raise human_intent.WaitingOnUser('the verified merge grant was already consumed')
         grant = require_grant(card, state, values)
-        command = pr_safety.merge_command(pr, head, method, grant)
+        target = pr_safety.merge_target(pr, head, method, grant)
+        transport = pr_safety.merge_transport()
+        pr_safety.require_merge_state(pr_safety.read_merge_state(transport, target), 'open')
         recover(card, state)
-        state['merge_submission'] = dict(pr=pr, head=head, method=method)
+        submission = dict(target, authorization=grant['authorization'], outcome='pending')
+        state['merge_submission'] = submission
         state['revision'] += 1
         state['events'].append(dict(id=uuid.uuid4().hex, actor='host', source={'kind': 'merge-submission'}, at=time.time()))
         write_control(card, state)
-        return pr_safety.command(*command)
+        open_result = pr_safety.submit_merge(transport, target)
+        observed = pr_safety.read_merge_state(transport, target)
+        outcome = 'queued' if open_result and observed == 'open' else {
+            'merged': 'merged', 'mismatch': 'mismatch'}.get(observed, 'uncertain')
+        submission['outcome'] = outcome
+        write_control(card, state)
+        if observed == 'open' and outcome == 'uncertain':
+            raise human_intent.WaitingOnUser('the T3 merge outcome is uncertain')
+        pr_safety.require_merge_state(observed, 'merged')
+        return json.dumps(submission) + '\n'
 
 
 def require_active(card):
@@ -501,7 +532,7 @@ def main():
     target.add_argument('--merge-base', help='explicit base of a planned auto-merge PR')
     target.add_argument('--merge-pr', type=int, help='open PR for an auto-merge request')
     parser.add_argument('--head', help='reviewed PR head commit')
-    parser.add_argument('--method', choices=('merge', 'squash', 'rebase'))
+    parser.add_argument('--method', choices=pr_safety.MERGE_METHODS)
     parser.add_argument('--expect-view', help='reviewed SHA-256 of a diverged view; restore-view only')
     args = parser.parse_args()
     try:

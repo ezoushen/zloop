@@ -29,8 +29,6 @@ class HumanIntent(unittest.TestCase):
         self.github.replies[f'api --hostname github.com {BRANCH}'] = {
             'name': BASE, 'protected': True, 'protection': {'enabled': True,
                 'required_status_checks': {'enforcement_level': 'everyone', 'contexts': ['tests']}}}
-        self.merge_call = ['pr', 'merge', '12', '--repo', f'github.com/{REPO}', '--match-head-commit', SHA, '--squash']
-        self.github.replies[' '.join(self.merge_call)] = 'submitted'
 
     def host(self):
         self.github.t3 = T3Read(self, self.root, self.env, self.THREAD)
@@ -155,10 +153,14 @@ class HumanIntent(unittest.TestCase):
         self.control(copied).write_bytes(self.control(card).read_bytes())
         self.assert_waiting(self.merge(copied, 2), 'verified merge grant')
         self.assertEqual(self.merge_calls(), [])
+        host.pr_readback(REPO, 12, SHA, BASE)
         submitted = self.merge(card, 2)
-        self.assertEqual((submitted.returncode, submitted.stdout.strip()), (0, '"submitted"'), submitted.stderr)
+        self.assertEqual(submitted.returncode, 0, submitted.stderr)
+        self.assertEqual(json.loads(submitted.stdout)['outcome'], 'merged')
         self.assert_waiting(self.merge(card, 3), 'consumed')
-        self.assertEqual(self.merge_calls(), [self.merge_call])
+        self.assertEqual([call['name'] for call in host.pr_calls],
+                         ['pull_request_read', 'pull_request_merge', 'pull_request_read'])
+        self.assertEqual(self.merge_calls(), [])
 
     def test_relay_and_unattested_grants_cannot_merge(self):
         card = self.card(confirmed='no')
