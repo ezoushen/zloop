@@ -113,21 +113,33 @@ def unittest_context(path, claim):
     context = []
     neighbors = {}
     for node in module.body:
-        if isinstance(node, ast.ClassDef):
-            members = []
-            for member in node.body:
-                if member is claimed or (isinstance(member, functions) and member.name.startswith('test')):
-                    neighbors[f'{node.name}.{member.name}'] = hashlib.sha256(ast.dump(member).encode()).hexdigest()
-                    if member is not claimed:
-                        continue
-                members.append(member)
-            node.body = members
-            if (node is not test_class and not node.body and not node.decorator_list and not node.keywords
-                    and len(node.bases) == 1
-                    and (isinstance(node.bases[0], ast.Name) or (isinstance(node.bases[0], ast.Attribute)
-                         and isinstance(node.bases[0].value, ast.Name)))):
-                neighbors[f'class:{node.name}'] = hashlib.sha256(ast.dump(node).encode()).hexdigest()
-                continue
+        if not isinstance(node, ast.ClassDef):
+            neighbors[f'module:{len(context)}'] = None
+            context.append(node)
+            continue
+        class_key = f'class:{node.name}'
+        if class_key in neighbors:
+            raise ValueError(f'{claim}: duplicate class definition {node.name}')
+        neighbors[class_key] = None
+        members = []
+        for member in node.body:
+            if member is claimed or (isinstance(member, functions) and member.name.startswith('test')):
+                key = f'{node.name}.{member.name}'
+                if key in neighbors:
+                    raise ValueError(f'{claim}: duplicate test definition {key}')
+                neighbors[key] = hashlib.sha256(ast.dump(member).encode()).hexdigest()
+                if member is not claimed:
+                    continue
+            else:
+                neighbors[f'fixture:{node.name}:{len(members)}'] = None
+            members.append(member)
+        node.body = members
+        neighbors[class_key] = hashlib.sha256(ast.dump(node).encode()).hexdigest()
+        if (node is not test_class and not node.body and not node.decorator_list and not node.keywords
+                and len(node.bases) == 1
+                and (isinstance(node.bases[0], ast.Name) or (isinstance(node.bases[0], ast.Attribute)
+                     and isinstance(node.bases[0].value, ast.Name)))):
+            continue
         context.append(node)
     module.body = context
     return {'context': UNITTEST_CONTEXT_PREFIX + hashlib.sha256(ast.dump(module).encode()).hexdigest(),

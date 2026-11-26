@@ -611,6 +611,29 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         request['evidence'] += [red, green]
         self.assert_claim_refused(item, ticket, request, f'{claim}: red and green must run the same test')
 
+    def test_managed_acceptance_refuses_moving_setup_past_an_original_test_method(self):
+        ticket, item, claim, _ = self.claimed_ticket()
+        test = Path(item['worktree']) / 'test_value.py'
+        module = ('import unittest\nfrom product import value\n'
+                  'expected = 1\n'
+                  'def raise_expected(method):\n'
+                  '    global expected\n'
+                  '    expected = 2\n'
+                  '    return method\n'
+                  'class ValueTest(unittest.TestCase):\n')
+        neighbor = '    @raise_expected\n    def test_other(self): pass\n'
+        setup = '    def setUp(self, target=expected): self.target = target\n'
+        claim_source = '    def test_wanted(self): self.assertEqual(value, self.target)\n'
+        test.write_text(module + neighbor + setup + claim_source)
+        red = self.phase_check(item, claim, 'red')
+        self.assertIn('AssertionError: 1 != 2', Path(red).read_text())
+        test.write_text(module + setup + neighbor + claim_source)
+        self.worktree_git(item, 'add', test.name)
+        request = self.completion(item)
+        green = self.phase_check(item, claim, 'green')
+        request['evidence'] += [red, green]
+        self.assert_claim_refused(item, ticket, request, f'{claim}: red and green must run the same test')
+
     def test_managed_acceptance_refuses_a_different_output_format_for_the_same_command(self):
         ticket, item, claim, _ = self.claimed_ticket(test_file='test_value.py')
         self.write_claimed_test(item)

@@ -37,7 +37,8 @@ defined directly in the matching test file. The pair binds the module's syntax
 tree, including the claimed method and same-file fixtures, constants and
 helpers. Other methods starting with `test` are recorded by class and method name.
 Green may add these methods and plain test-only classes with a simple named base.
-Earlier methods and class declarations must retain their definitions and relative order.
+Earlier methods and class declarations must retain their definitions and positions
+relative to each other and to the fixed module and fixture code.
 A marker claim must retain the exact
 declared test file. Keep both logs and summaries. Acceptance requires the
 matching red to finish before green starts and green to identify the exact
