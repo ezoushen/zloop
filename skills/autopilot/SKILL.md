@@ -60,8 +60,8 @@ Continue the phase unless the user invokes `--pause` or the [pause list](#decide
 applies. Update the card with the recorded words for authorized changes to its goal, criteria or grants.
 
 1. [refine](../refine/SKILL.md) the brief into tickets;
-2. [dispatch](../dispatch/SKILL.md) them with `--autofix`, `--dispatch-effort <level>`
-   and `--review-effort <level>` from the card;
+2. [dispatch](../dispatch/SKILL.md) them with `--autofix` and the card's current levels, `--dispatch-effort <level>`
+   and `--review-effort <level>`;
 3. [pr](../pr/SKILL.md): push the workstream branch and open the PR, or follow
    [delivery without a PR](../pr/SKILL.md#delivery-without-a-pr).
 

@@ -30,8 +30,8 @@ before proceeding. Preserve artifacts used by the PR's claims.
 ### Delivery without a PR
 
 When the repository has no PR host, confirm delivery evidence as in step 1 and retain the
-local delivery report. Skip push, PR creation and the check watch. When the user ran a
-workstream directly on `main`, report its review and E2E evidence without publishing.
+local delivery report. Skip push, PR creation and the check watch. A workstream the user
+ran directly on `main` has no branch to publish. Report its review and E2E evidence.
 Honor the delivery restriction on any governing run card.
 
 1. **Confirm delivery evidence**, from the main checkout, using the selected
