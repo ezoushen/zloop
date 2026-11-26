@@ -40,7 +40,8 @@ def present(card):
 
 
 def digest(text):
-    return hashlib.sha256(text.encode()).hexdigest()
+    """Hash UTF-8 text, including any original bytes preserved by surrogateescape."""
+    return hashlib.sha256(text.encode(errors='surrogateescape')).hexdigest()
 
 
 def sessions(text):
@@ -104,9 +105,9 @@ def read(card):
         if state_files.state_fields(text).get('control'):
             raise ValueError('Managed control record is missing; reconcile it before continuing')
         return None
-    if not projects(state, observed(card)):
+    if not projects(state, observed(card, errors='surrogateescape')):
         state = canonical(card)
-        if projects(state, observed(card)):
+        if projects(state, observed(card, errors='surrogateescape')):
             return state
         raise ValueError('Run card and control record diverged; reconcile the saved transition and manual edits')
     return state
@@ -118,7 +119,7 @@ def write_control(card, state):
 
 def recover(card, state):
     """Finish publishing a known projection while holding the card's lock."""
-    text = observed(card)
+    text = observed(card, errors='surrogateescape')
     if not projects(state, text):
         raise ValueError('Run card and control record diverged; reconcile the saved transition and manual edits')
     if text != state['card_text']:
@@ -143,7 +144,7 @@ def restore_view(card, expected_view, reference, request_id):
         raise ValueError('View reconciliation requires its review reference and request ID')
     with state_files.locked(card):
         state = canonical(card)
-        text = observed(card)
+        text = observed(card, errors='surrogateescape')
         previous = next((e for e in state['events'] if e['id'] == request_id), None)
         if previous and (previous.get('view_hash'), previous.get('reference')) != (expected_view, reference):
             raise ValueError('Reconciliation request ID already names different input')

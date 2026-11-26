@@ -616,7 +616,6 @@ class BoardCLI(unittest.TestCase):
         assert 'missing ticket' in cli('active', '--board', code=1).stderr
 
     def test_cli_enforces_local_status_edges(self):
-        # The board lifecycle, retry paths, accepted closures and device sentinel cycle.
         allowed = {
             'ready': 'ready implementing blocked done',
             'blocked': 'blocked ready implementing done',

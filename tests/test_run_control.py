@@ -151,10 +151,40 @@ class RunControl(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'existing merge grant'):
             self.control.transition(*request[:4], 2, request[-1])
 
+    def test_restore_cli_preserves_reviewed_malformed_utf8_bytes(self):
+        self.control.adopt(self.card, 'confirmed run')
+        canonical = self.card.read_bytes()
+        manual = canonical + b'\r\nReviewed edit: \xff\x80\xe2\x82\r\n'
+        self.card.write_bytes(manual)
+        reviewed = hashlib.sha256(manual).hexdigest()
+        record = self.card.with_name('autopilot-control.json')
+        command = [sys.executable, '-B', str(support.SCRIPTS / 'run_control.py')]
+        restore = command + ['restore-view', str(self.card), '--source', 'reviewed bytes',
+                             '--request-id', 'restore-1', '--expect-view', reviewed]
+
+        result = subprocess.run(restore, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        event = json.loads(record.read_bytes())['events'][-1]
+        self.assertEqual(event['view_hash'], reviewed)
+        self.assertEqual(event['displaced_view'].encode('utf-8', errors='surrogateescape'), manual)
+        self.assertEqual(self.card.read_bytes(), canonical)
+
+        changed = manual.replace(b'\xff', b'\xfe')
+        self.card.write_bytes(changed)
+        saved = record.read_bytes()
+        result = subprocess.run(command + ['status', str(self.card)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('diverged', result.stderr)
+        result = subprocess.run(restore, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('Manual view changed', result.stderr)
+        self.assertEqual(self.card.read_bytes(), changed)
+        self.assertEqual(record.read_bytes(), saved)
+
     def test_interrupted_reconciliation_archives_manual_edit_only_once(self):
         self.control.adopt(self.card, 'confirmed run')
         canonical = self.card.read_bytes()
-        manual = canonical + b'\nUnrelated edit.\n'
+        manual = canonical + b'\nUnrelated edit: \xff\x80\n'
         self.card.write_bytes(manual)
         record = self.card.with_name('autopilot-control.json')
         replace = os.replace
@@ -174,9 +204,14 @@ class RunControl(unittest.TestCase):
                 with mock.patch('os.replace', side_effect=interrupt):
                     with self.assertRaisesRegex(OSError, 'interrupted reconciliation'):
                         self.control.restore_view(*request)
-                result = self.control.read(self.card)
+                self.assertEqual(self.card.read_bytes(), manual if step == 'publish view' else canonical)
+                try:
+                    result = self.control.read(self.card)
+                except ValueError as error:
+                    self.fail(f'Reading the interrupted reconciliation should accept the reviewed predecessor: {error}')
                 self.assertEqual(len(result['events']), events_before + 1)
-                self.assertEqual(result['events'][-1]['displaced_view'].encode(), manual)
+                displaced = result['events'][-1]['displaced_view']
+                self.assertEqual(displaced.encode('utf-8', errors='surrogateescape'), manual)
                 self.assertEqual(result['revision'], events_before + 1)
                 recovered = self.control.restore_view(*request)
                 self.assertEqual(recovered['events'], result['events'])
