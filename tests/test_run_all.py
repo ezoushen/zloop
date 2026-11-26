@@ -51,6 +51,8 @@ class RunAll(unittest.TestCase):
         subprocess.run(['git', 'init', '-q', str(root)], check=True)
         # A Git hook exports GIT_DIR; the runner must not pass it to the scripts.
         env = self.outermost(dict(PYTHON=sys.executable, GIT_DIR=str(root / '.git'), **(env or {})))
+        if clean:
+            env['ZLOOP_TEST_SLOT_HELD'] = '1'
         self.root = root
         return subprocess.run([sys.executable, str(root / launcher), *args], env=env, cwd=root,
                               capture_output=True, text=True, timeout=60)
@@ -62,12 +64,15 @@ class RunAll(unittest.TestCase):
 
     def test_clean_shell_runs_the_full_suite_without_caller_opt_ins(self):
         caller_only = 'zloop-caller-path'
-        env = {'ZLOOP_NATIVE': '1', 'PROBE_CALLER_ONLY': 'keep out', 'ZLOOP_TEST_SLOT_HELD': '1',
+        env = {'ZLOOP_NATIVE': '1', 'PROBE_CALLER_ONLY': 'keep out',
                'PATH': os.pathsep.join((caller_only, os.environ['PATH']))}
         script = ('import os\n'
+                  'from pathlib import Path\n'
                   'assert "PROBE_CALLER_ONLY" not in os.environ, "caller environment leaked"\n'
                   'assert "ZLOOP_NATIVE" not in os.environ, "caller native opt-in leaked"\n'
-                  'assert "zloop-caller-path" not in os.environ["PATH"], "caller PATH leaked"\n')
+                  'assert "zloop-caller-path" not in os.environ["PATH"], "caller PATH leaked"\n'
+                  'pool = Path(os.environ["TMPDIR"]).parents[1] / "slots"\n'
+                  'assert pool.is_dir(), "clean fixture used the outer slot pool"\n')
         result = self.suite({'test_first.py': script, 'test_second.py': script}, env, clean=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('2 scripts passed, 0 failed; 2 scheduled units passed, 0 failed', result.stdout)
