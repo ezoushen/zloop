@@ -70,6 +70,29 @@ def save(card, state):
     state_files.write_atomic(location(card), json.dumps(state, indent=2) + '\n', mode=0o600)
 
 
+def claim_receipt(saved, attempt, item, execution, call_id):
+    """Prepare a claim for a checked launch, accepting a replay only for the same native call and packet."""
+    claim = dict(call_id=call_id, assignment=item['assignment'], packet_hash=execution['dispatch']['packet_hash'])
+    previous = saved['claims'].get(attempt, claim)
+    require(previous in (claim, call_id),
+            'Attempt already launched; reconcile the existing child before releasing its launch claim')
+    return previous
+
+
+def claim_matches(claim, assignment, execution):
+    """Check a claim against the assignment and the resolved packet digest."""
+    return (isinstance(claim, dict) and bool(claim.get('call_id')) and claim.get('assignment') == assignment
+            and claim.get('packet_hash') == execution['dispatch']['packet_hash'])
+
+
+def matching_claim(card, attempt, item, execution):
+    """Find the prelaunch claim bound to the registered assignment and packet."""
+    saved = read(card, managed(card))
+    claim = saved['claims'].get(attempt)
+    if claim_matches(claim, item['assignment'], execution):
+        return claim
+
+
 def routing_session(card, requested=None):
     """Keep the run's routing configuration scope when a fresh host resumes it."""
     control = managed(card)
@@ -320,9 +343,7 @@ def checked(card, attempt, execution, packet, worktree, *, call_id=None, db=None
             and str(Path(worktree).resolve()) == str(Path(item['worktree']).resolve()), 'Launch differs from batch assignment')
     if call_id:
         require(attempt not in {row['attempt'] for row in now['rows']}, 'Attempt already registered; reconcile rather than relaunch')
-        require(saved['claims'].get(attempt, call_id) == call_id,
-                'Attempt already launched; reconcile the existing child before releasing its launch claim')
-        saved['claims'][attempt] = call_id
+        saved['claims'][attempt] = claim_receipt(saved, attempt, item, execution, call_id)
         save(card, saved)
     return item
 
@@ -423,8 +444,9 @@ def main():
                 saved, now = read(args.card, control), snapshot(args.card)
                 require(args.attempt in saved['claims'] and args.attempt not in {r['attempt'] for r in now['rows']},
                         'Only an unregistered, reconciled failed launch claim can be released')
+                claim = saved['claims'].pop(args.attempt)
                 saved.setdefault('released', []).append(dict(attempt=args.attempt,
-                    call_id=saved['claims'].pop(args.attempt), evidence=evidence(args.evidence)))
+                    call_id=claim['call_id'] if isinstance(claim, dict) else claim, evidence=evidence(args.evidence)))
                 save(args.card, saved)
                 result = {'released': args.attempt}
         else:

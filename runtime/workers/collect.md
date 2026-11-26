@@ -10,6 +10,14 @@ the report digest and requires the checked revision at `gate --stage accept
 immutable; snapshot a canonical report before its next authorized append. Later
 attempts retain their own report snapshots. Other evidence links and live runtime
 gates remain under the shared acceptance contract.
+
+Managed registration snapshots the main checkout's Git status. Collection and a direct
+`result` record refuse when that status differs. Reconcile the checkout before retrying,
+including when a prior collection stored its result but still owes a disposition. The
+comparison covers branch, HEAD, staging and Git's visible worktree status. It can miss
+edits that preserve status, changes reverted between observations, and ignored files. It
+does not identify who made a change.
+
 A `completed` result also owes its job's `returns` report sections (real headings,
 outside code blocks) and, for a `writes: none` agent, the same HEAD, tracked changes
 and untracked files (their content too) it was registered with, in the worktree and,
@@ -93,6 +101,13 @@ When the orchestrator accepts a completed result and integrates it, record
 after the worker's session closed, once per attempt. Acceptance is the
 orchestrator's judgement, not the worker's `completed` claim; the
 [workstream spend report](workstream-spend.md) counts accepted tickets from it.
+
+`unclaimed-launch` fails `gate --stage accept` and blocks routine acceptance. After
+checking the worker and exact completed report, use `next_tickets.py --accept <ticket>
+--accept-unclaimed <reason>` for local board acceptance or add `--accept-unclaimed
+<reason>` to `worker_lifecycle.py record` for an `accepted` event. The lifecycle ledger
+keeps the reason, checked head and report digest. A reconciled cancellation, failed or
+blocked result, or a declined completion clears the stop gap without accepting it.
 
 Closing or retiring a completed `acceptance: true` attempt that is neither accepted nor
 declined settles it with an `acceptance` decision, whose shapes are in

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Saved routes reach Herdr as argument lists, with no shell serialization."""
+import hashlib
 import json
 import os
 import signal
@@ -74,6 +75,43 @@ else:
         filesystem = tomllib.loads(calls[1][calls[1].index('--') + 4])['permissions']['zloop_worktree']['filesystem']
         self.assertEqual(filesystem, {':root': 'read', ':tmpdir': 'write', str(self.worktree): 'write'})
         self.assertEqual(json.loads(result.stdout)['result']['agent']['pane_id'], 'root-pane')
+
+    def test_managed_route_is_claimed_before_herdr_starts(self):
+        card = support.run_card(self.repo / '.scratch/workstream/autopilot.md', phase='dispatch', session='opencode-host')
+        support.load_script('run_control.py').adopt(card, 'approved Herdr runner', allow_resume=True)
+        dispatch = support.load_script('dispatch_state.py')
+        packet = support.assignment_file(self.root, 'ticket', attempt='workstream/05/1')
+        execution = dict(json.loads(self.route.read_text()), agent='builder', job='ticket', settings={},
+                         native_dispatch=False, executor_type='herdr')
+        routed = dispatch.issue_route(card, self.repo, 'workstream/05/1', packet, self.worktree, execution, [])
+        self.route.write_text(json.dumps(routed))
+        proof = self.root / 'capacity.txt'
+        proof.write_text('one free fixture slot')
+        item = dict(assignment='05', attempt='workstream/05/1', job='ticket', packet=str(packet),
+                    execution=str(self.route), worktree=str(self.worktree), depends_on=[], touches=['app'])
+        dispatch.plan(card, dict(assignments=[item], launch=[item['attempt']], deferred={},
+                                capacity=dict(limit=1, evidence=[str(proof)]), decomposition='fixture ticket',
+                                integration_owner='opencode-host'), expected_revision=1)
+        observed = self.root / 'claim-at-agent-start.json'
+        self.env.update(DISPATCH_STATE=str(card.with_name('dispatch-state.json')), OBSERVED=str(observed))
+        stub = self.bin / 'herdr'
+        stub.write_text(stub.read_text().replace("elif args[:2] == ['agent', 'start']:\n",
+            "elif args[:2] == ['agent', 'start']:\n"
+            "    state = json.loads(Path(os.environ['DISPATCH_STATE']).read_text())\n"
+            "    Path(os.environ['OBSERVED']).write_text(json.dumps(state['claims']))\n"))
+        result = self.start()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        status = subprocess.check_output([sys.executable, str(support.script('dispatch_state.py')), 'status',
+                                          '--card', str(card)], text=True)
+        claim = json.loads(status)['claims'].get(item['attempt'])
+        self.assertIsNotNone(claim, 'The managed Herdr launch must leave a claim')
+        self.assertEqual((claim['assignment'], claim['packet_hash']),
+                         ('05', {str(packet): hashlib.sha256(packet.read_bytes()).hexdigest()}))
+        self.assertEqual(json.loads(observed.read_text()), {item['attempt']: claim})
+        duplicate = self.start()
+        self.assertEqual(duplicate.returncode, 2, duplicate.stdout + duplicate.stderr)
+        self.assertIn('Attempt already launched', duplicate.stderr)
+        self.assertEqual(len(self.calls.read_text().splitlines()), 2)
 
     def test_a_name_herdr_would_refuse_is_refused_before_any_tab_opens(self):
         # Herdr refuses such a name only at agent start, after the tab exists; start checks it first.

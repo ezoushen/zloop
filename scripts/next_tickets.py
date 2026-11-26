@@ -39,6 +39,7 @@ import sys
 import sqlite3
 import subprocess
 from collections import namedtuple
+from contextlib import closing, nullcontext
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -632,15 +633,15 @@ def ticket_branch(slug, path):
     return f"{slug}/{path.stem.partition('-')[2] or path.stem}"
 
 
-def accept(tickets, name):
+def accept(tickets, name, accept_unclaimed=None):
     """Accept local report and branch evidence, withdrawing earlier local acceptance on failure."""
     run_control.require_active(ISSUES / spec_of(name) / 'autopilot.md')
     fm = tickets[name]
     with state_files.locked(ROOT / fm["path"]):
         snapshot, fm = read_ticket(fm)
-    fields = verify(fm)
+    fields, exception = verify(fm, accept_unclaimed)
     if fields is not None:
-        publish_acceptance(fm, snapshot, fields)
+        publish_acceptance(fm, snapshot, fields, exception)
         print(f"{name}: report and branch carry the evidence; judge the content now")
         return True
     withdrawn = {"accepted": None, "accepted_report": None} if fm.get("accepted") else {}
@@ -651,25 +652,39 @@ def accept(tickets, name):
     return False
 
 
-def publish_acceptance(fm, snapshot, fields):
+def publish_acceptance(fm, snapshot, fields, exception=None):
     """Commit acceptance against the ticket the checks used, while the managed run is active."""
     name = fm["ticket"]
     card = ISSUES / spec_of(name) / 'autopilot.md'
-    with run_control.active_guard(card), state_files.locked(ROOT / fm["path"]):
-        text, current = read_ticket(fm)
-        if text != snapshot:
-            sys.exit(f"{name}: ticket changed during --accept; reload and retry")
-        write_fields(current, fields, text)
+    state = card.parent / 'reports/workers.sqlite'
+    connection = closing(worker_lifecycle.connect(state)) if exception else nullcontext()
+    with connection as db:
+        if db is not None:
+            db.execute('BEGIN IMMEDIATE')
+        with run_control.active_guard(card), state_files.locked(ROOT / fm["path"]):
+            text, current = read_ticket(fm)
+            if text != snapshot:
+                sys.exit(f"{name}: ticket changed during --accept; reload and retry")
+            if exception:
+                attempt, reason = exception
+                saved = worker_lifecycle.get(db, attempt)
+                if (saved['result'].get('report_sha256') != fields['accepted_report'] or saved.get('declined')
+                        or commit_of(saved['result']['head']) != fields['accepted']):
+                    sys.exit(f'{attempt}: collected report changed during --accept; reload and retry')
+                worker_lifecycle.audit_unclaimed(db, saved, reason)
+                worker_lifecycle.save(db, saved)
+                db.commit()
+            write_fields(current, fields, text)
 
 
-def verify(fm):
+def verify(fm, accept_unclaimed):
     """Return the accepted report and branch fields when the evidence and measurements pass."""
     name = fm["ticket"]
     slug, nn = name.split("/")
     report = ISSUES / slug / "reports" / f"{nn}.md"
     if not report.exists():
         print(f"{name}: no report at {report}", file=sys.stderr)
-        return None
+        return None, None
     text = report.read_text()
     problems = report_problems(text)
     base = re.search(r"^base:\s*`?([0-9a-f]{40})", text, re.M)
@@ -691,18 +706,19 @@ def verify(fm):
             problems.append(f"no commit past base on {branch}")
         elif recorded and not listed_commit_on(text, base.group(1), ref):
             problems.append(f"no listed commit under ## Implemented is past base on {branch}")
-    notes = []
+    notes, exception = [], None
     if not problems:
-        problems = returned_problems(slug, report, ref, branch, delegated=ref != branch_ref(workstream_branch(slug)))
+        problems, exception = returned_problems(slug, report, ref, branch,
+            delegated=ref != branch_ref(workstream_branch(slug)), accept_unclaimed=accept_unclaimed)
     if not problems:
         problems, notes = measurement_results(fm, ref, text)
     for p in problems:
         print(f"{name}: {p}", file=sys.stderr)
     if problems:
-        return None
+        return None, None
     for note in notes:
         print(f"{name}: {note}")
-    return {"accepted": commit_of(ref), "accepted_report": report_digest(report)}
+    return {"accepted": commit_of(ref), "accepted_report": report_digest(report)}, exception
 
 
 def workstream_attempts(slug):
@@ -722,7 +738,7 @@ def report_digest(report):
     return hashlib.sha256(report.read_bytes()).hexdigest() if report.is_file() else None
 
 
-def returned_problems(slug, report, ref, branch, delegated):
+def returned_problems(slug, report, ref, branch, delegated, accept_unclaimed):
     """A delegated ticket's report, and any report a worker returned, must be one a collected worker attempt of the
     workstream returned completed, unchanged since and at the ticket head: the orchestrator judges a worker's evidence,
     it never writes it."""
@@ -734,17 +750,23 @@ def returned_problems(slug, report, ref, branch, delegated):
     if not returned:
         here = [saved for saved in collected if Path(saved["result"].get("report", "")).resolve() == report.resolve()]
         if here:
-            return [f"{shown} changed after {here[-1]['attempt']} returned it"]
-        return [f"no collected worker attempt returned {shown}"] if delegated else []
+            return [f"{shown} changed after {here[-1]['attempt']} returned it"], None
+        return ([f"no collected worker attempt returned {shown}"] if delegated else []), None
     completed = [saved for saved in returned if saved["result"]["status"] == "completed"]
     if not completed:
-        return [f"{returned[-1]['attempt']} returned {returned[-1]['result']['status']}, not a completed ticket"]
+        return [f"{returned[-1]['attempt']} returned {returned[-1]['result']['status']}, not a completed ticket"], None
     head = commit_of(ref)
-    if not any(re.fullmatch("[0-9a-f]{7,40}", saved["result"]["head"]) and commit_of(saved["result"]["head"]) == head
-               for saved in completed):
+    same_head = [saved for saved in completed if re.fullmatch("[0-9a-f]{7,40}", saved["result"]["head"])
+                 and commit_of(saved["result"]["head"]) == head]
+    if not same_head:
         return [f"{completed[-1]['attempt']} returned its report at {completed[-1]['result']['head']}, not at "
-                f"{branch} head {head}"]
-    return []
+                f"{branch} head {head}"], None
+    if any(not worker_lifecycle.unclaimed_launch(saved) for saved in same_head):
+        return [], None
+    attempt = same_head[-1]['attempt']
+    if accept_unclaimed:
+        return [], (attempt, accept_unclaimed)
+    return [f'{attempt}: unclaimed-launch; accept with --accept-unclaimed <reason>'], None
 
 
 def measurement_results(fm, ref, report):
@@ -1317,6 +1339,7 @@ def main(argv):
     parser.add_argument("--blocked-by", action="append", default=[], metavar="TICKET", help="with --new")
     parser.add_argument("--delivered-by", action="append", default=[], metavar="URL",
                         help="with --accept: a PR gh reports merged or a CI run gh reports successful")
+    parser.add_argument('--accept-unclaimed', metavar='REASON', help='with local --accept: audit a missing launch claim')
     parser.add_argument("--touches", action="append", default=[], metavar="AREA", help="with --new")
     parser.add_argument("--counts", action="store_true")
     parser.add_argument("--autofix", action="store_true", help="with --orchestrate: repairs are authorized")
@@ -1325,6 +1348,8 @@ def main(argv):
         parser.error("--counts may only be combined with --set")
     if args.delivered_by and not args.accept:
         parser.error("--delivered-by goes with --accept")
+    if args.accept_unclaimed is not None and (not args.accept or args.delivered_by or not args.accept_unclaimed.strip()):
+        parser.error('--accept-unclaimed requires local --accept and a nonblank reason')
     if not all(PR_URL.fullmatch(url) or RUN_URL.fullmatch(url) for url in args.delivered_by):
         parser.error("--delivered-by takes a pull request's or a CI run's URL: "
                      "https://<host>/<owner>/<repo>/pull/<number> or "
@@ -1414,9 +1439,10 @@ def main(argv):
         return
     if args.accept and args.delivered_by:
         sys.exit(0 if accept_delivered(tickets, args.accept, args.delivered_by) else 1)
-    for name, fn in ((args.accept, accept), (args.can_verify, can_verify)):
-        if name:
-            sys.exit(0 if fn(tickets, name) else 1)
+    if args.accept:
+        sys.exit(0 if accept(tickets, args.accept, args.accept_unclaimed) else 1)
+    if args.can_verify:
+        sys.exit(0 if can_verify(tickets, args.can_verify) else 1)
     if args.counts:
         print(counts(selected))
         return

@@ -2,9 +2,13 @@
 """Managed dispatch checks routing provenance, known work and justified serialization."""
 import copy
 from contextlib import closing
+import hashlib
 import json
 from pathlib import Path
+import re
+import sqlite3
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -22,6 +26,8 @@ class DispatchFixture:
         self.control.adopt(self.card, 'approved independent tasks; configured provider pool', allow_resume=True)
         self.dispatch = support.load_script('dispatch_state.py')
         self.git('init', '-q')
+        with (self.repo / '.git/info/exclude').open('a') as excludes:
+            excludes.write('\n.scratch/\n.worktrees/\n')
         self.git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'base', '--allow-empty')
         self.items = [self.item('a'), self.item('b')]
         self.proof = self.repo / 'capacity.txt'
@@ -261,6 +267,210 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
                  for item in self.items if item['assignment'] in names]
         return dict(tool_name='subagent', tool_input=dict(tasks=tasks), session_id='host-1',
                     cwd=str(self.repo), tool_call_id=call)
+
+    def lifecycle(self, action, data=None, *args):
+        state = self.card.parent / 'reports/workers.sqlite'
+        command = [sys.executable, str(support.script('worker_lifecycle.py')), action, '--state', str(state), *args]
+        if data is not None:
+            request = self.card.parent / 'request.json'
+            request.write_text(json.dumps(data))
+            command += ['--input', str(request)]
+        return subprocess.run(command, capture_output=True, text=True,
+                              env=dict(support.without_host_sessions(), CODEX_SESSION_ID=getattr(self, 'registering_host', 'host-1'),
+                                       XDG_STATE_HOME=str(self.repo / '.scratch/state')))
+
+    def registration(self, item):
+        name = item['assignment']
+        return dict(kind='register', attempt=item['attempt'], assignment=name, repo=str(self.repo),
+                    worktree=item['worktree'], head='head-1', execution=item['execution'], runtime='pi',
+                    worker=f'worker-{name}', native_session=f'native-{name}', owned=True, packet=item['packet'])
+
+    def test_managed_registration_with_no_launch_claim_records_a_gap(self):
+        self.plan()
+        result = self.lifecycle('record', self.registration(self.items[0]))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        status = self.lifecycle('status', None, '--attempt', 'a/1')
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn('unclaimed-launch', json.loads(status.stdout)['attempts'][0]['attention'])
+        with closing(sqlite3.connect(self.card.parent / 'reports/workers.sqlite')) as db:
+            self.assertEqual(db.execute("SELECT attempt FROM events WHERE kind = 'unclaimed-launch'").fetchall(),
+                             [('a/1',)])
+
+    def completion(self, item):
+        attempt = item['attempt']
+        registration = self.registration(item)
+        native = support.session_record(self.card.parent / 'native.jsonl', 'pi', registration['native_session'],
+                                        item['worktree'], model='fixture/model')
+        support.user_message(native, 'pi', Path(item['packet']).read_text())
+        support.assistant_turn(native, 'pi')
+        startup = self.lifecycle('record', dict(kind='startup', attempt=attempt, native=str(native)))
+        self.assertEqual(startup.returncode, 0, startup.stderr)
+        self.assertTrue(json.loads(startup.stdout)['verified'])
+        report = self.card.parent / 'reports/01.md'
+        base = self.git('rev-parse', 'HEAD')
+        worktree = item['worktree']
+        subprocess.run(['git', '-C', worktree, '-c', 'user.name=t', '-c', 'user.email=t@t',
+                        'commit', '-qm', 'work', '--allow-empty'], check=True, capture_output=True)
+        head = subprocess.check_output(['git', '-C', worktree, 'rev-parse', 'HEAD'], text=True).strip()
+        self.git('branch', 'run/build', head)
+        report.write_text(f'base: {base}\nbranch: run/build\n\n## Implemented\nCommit: {head}\n- [x] fixture\n')
+        return dict(status='completed', head=head, report=str(report), native=str(native), evidence=['fixture reply'],
+                    disposition=dict(kind='retain', reason='review', next_use='review', evidence=['fixture worker']))
+
+    def test_acceptance_and_stop_require_an_audited_exception_for_unclaimed_work(self):
+        self.registering_host = 'lifecycle-host'
+        self.plan()
+        item = self.items[0]
+        registration = self.lifecycle('record', self.registration(item))
+        self.assertEqual(registration.returncode, 0, registration.stderr)
+        request = self.completion(item)
+        collected = self.lifecycle('collect', request, '--attempt', 'a/1')
+        self.assertEqual(collected.returncode, 0, collected.stderr)
+        gate = self.lifecycle('gate', None, '--stage', 'accept', '--attempt', 'a/1', '--revision', request['head'])
+        self.assertEqual((gate.returncode, json.loads(gate.stdout)['missing']), (1, ['unclaimed-launch']))
+        acceptance = dict(kind='accepted', attempt='a/1', commit=request['head'], evidence=['fixture review'])
+        refused = self.lifecycle('record', acceptance)
+        self.assertIn('--accept-unclaimed', refused.stderr)
+        closure = dict(kind='closed', attempt='a/1', evidence=['fixture child ended'], acceptance=dict(
+            decision='accepted', commit=request['head'], evidence=['fixture review']))
+        refused = self.lifecycle('record', closure)
+        self.assertIn('--accept-unclaimed', refused.stderr)
+        stop = [sys.executable, str(support.HOOKS / 'yield_gate.py'), 'stop', str(self.repo), self.registering_host]
+        for _ in range(4):
+            result = json.loads(subprocess.check_output(stop, text=True))
+            self.assertTrue(result['hold'])
+            self.assertTrue(any('a/1: unclaimed-launch' in gap for gap in result['missing']))
+        reason = 'Host launch hook failed to fire. The retained packet and child record were checked.'
+        accepted = self.lifecycle('record', acceptance, '--accept-unclaimed', reason)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        status = json.loads(self.lifecycle('status', None, '--attempt', 'a/1').stdout)
+        self.assertEqual(status['attempts'][0]['accepted']['accept_unclaimed'], reason)
+        gate = self.lifecycle('gate', None, '--stage', 'accept', '--attempt', 'a/1', '--revision', request['head'])
+        self.assertEqual((gate.returncode, json.loads(gate.stdout)['missing']), (0, []))
+        result = json.loads(subprocess.check_output(stop, text=True))
+        self.assertFalse(any('a/1: unclaimed-launch' in gap for gap in result['missing']))
+
+    def test_collection_refuses_main_checkout_drift_and_can_retry_after_recovery(self):
+        self.plan()
+        item = self.items[0]
+        self.hook.check_event(self.event())
+        registration = self.lifecycle('record', self.registration(item))
+        self.assertEqual(registration.returncode, 0, registration.stderr)
+        request = self.completion(item)
+        drift = self.repo / 'unexpected.txt'
+        drift.write_text('unexpected main checkout write')
+        refused = self.lifecycle('collect', request, '--attempt', 'a/1')
+        self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
+        self.assertIn('Main checkout Git status changed since registration', refused.stderr)
+        status = json.loads(self.lifecycle('status', None, '--attempt', 'a/1').stdout)
+        self.assertNotIn('result', status['attempts'][0])
+        drift.rename(self.card.parent / 'unexpected.txt')
+        collected = self.lifecycle('collect', request, '--attempt', 'a/1')
+        self.assertEqual(collected.returncode, 0, collected.stderr)
+        replay = self.lifecycle('collect', request, '--attempt', 'a/1')
+        self.assertEqual(replay.returncode, 0, replay.stderr)
+        self.assertTrue(json.loads(replay.stdout)['result']['already_collected'])
+
+    def test_board_acceptance_records_the_reason_for_the_returned_attempt(self):
+        ticket = support.ticket_file(self.repo, 'run/01')
+        item = self.items[0]
+        execution = Path(item['execution'])
+        packet = Path(item['packet'])
+        packet.write_text(packet.read_text().replace('ticket: fx/01', 'ticket: run/01'))
+        routed = self.dispatch.issue_route(self.card, self.repo, item['attempt'], packet, Path(item['worktree']),
+                                          json.loads(execution.read_text()), [])
+        execution.write_text(json.dumps(routed))
+        self.plan()
+        registration = self.lifecycle('record', self.registration(item))
+        self.assertEqual(registration.returncode, 0, registration.stderr)
+        request = self.completion(item)
+        collected = self.lifecycle('collect', request, '--attempt', 'a/1')
+        self.assertEqual(collected.returncode, 0, collected.stderr)
+        board = [sys.executable, str(support.script('next_tickets.py')), '--repo', str(self.repo), '--accept', 'run/01']
+        refused = subprocess.run(board, capture_output=True, text=True)
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn('a/1: unclaimed-launch', refused.stderr)
+        self.assertNotIn('accepted:', ticket.read_text())
+        reason = 'Checked the native child and the packet after recovering the host.'
+        accepted = subprocess.run([*board, '--accept-unclaimed', reason], capture_output=True, text=True)
+        self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+        self.assertIn(f"accepted: {request['head']}", ticket.read_text())
+        replay = subprocess.run(board, capture_output=True, text=True)
+        self.assertEqual(replay.returncode, 0, replay.stdout + replay.stderr)
+        with closing(sqlite3.connect(self.card.parent / 'reports/workers.sqlite')) as db:
+            audits = db.execute("SELECT attempt, payload FROM events WHERE kind = 'accept-unclaimed'").fetchall()
+        self.assertEqual([(attempt, json.loads(payload)['reason']) for attempt, payload in audits], [('a/1', reason)])
+
+    def test_rerouting_a_different_packet_cannot_reuse_a_launch_claim(self):
+        self.plan()
+        self.hook.check_event(self.event())
+        a, b = self.items
+        packet, execution = Path(a['packet']), Path(a['execution'])
+        packet.write_text(packet.read_text() + '\nAdditional work after launch.\n')
+        routed = self.dispatch.issue_route(self.card, self.repo, a['attempt'], packet, Path(a['worktree']),
+                                          json.loads(execution.read_text()), [])
+        execution.write_text(json.dumps(routed))
+        self.plan()
+        with self.assertRaisesRegex(ValueError, 'Attempt already launched'):
+            self.hook.check_event(self.event(names=('a',)))
+        self.hook.check_event(self.event(names=('b',)))
+        for item in (a, b):
+            registered = self.lifecycle('record', self.registration(item))
+            self.assertEqual(registered.returncode, 0, registered.stderr)
+        raw = self.lifecycle('status')
+        self.assertEqual(raw.returncode, 0, raw.stderr)
+        first, second = json.loads(raw.stdout)['attempts']
+        self.assertIn('unclaimed-launch', first['attention'])
+        self.assertNotIn('unclaimed-launch', second['attention'])
+        self.assertEqual(second['launch_claim'], dict(assignment='b', call_id='launch-batch',
+                         packet_hash={str(Path(b['packet']).resolve()): hashlib.sha256(Path(b['packet']).read_bytes()).hexdigest()}))
+
+    def test_a_claim_cannot_move_to_another_assignment_with_the_same_packet(self):
+        self.plan()
+        self.hook.check_event(self.event())
+        a = self.items[0]
+        a['assignment'] = 'renamed-a'
+        c = self.item('c')
+        c['assignment'] = 'a'
+        self.items.append(c)
+        self.request['deferred'] = {'c/1': dict(kind='capacity')}
+        self.plan()
+        registered = self.lifecycle('record', self.registration(a))
+        self.assertEqual(registered.returncode, 0, registered.stderr)
+        status = self.lifecycle('status', None, '--attempt', 'a/1')
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn('unclaimed-launch', json.loads(status.stdout)['attempts'][0]['attention'])
+
+    def test_each_native_launch_tool_reaches_the_admission_hook(self):
+        tools = {
+            'Agent': {'prompt': 'missing packet'},
+            'Task': {'prompt': 'missing packet'},
+            'spawn_agent': {'message': 'missing packet'},
+            'collaboration.spawn_agent': {'message': 'missing packet'},
+            'mcp__collaboration__spawn_agent': {'message': 'missing packet'},
+            'followup_task': {'message': 'missing packet'},
+            'collaboration.followup_task': {'message': 'missing packet'},
+            'mcp__t3_code__delegate_task': {'task': 'missing packet'},
+            'mcp__t3_code_direct__delegate_task': {'task': 'missing packet'},
+            'subagent': {'task': 'missing packet'},
+        }
+        for manifest in (support.HOOKS / 'hooks.json', support.ROOT / 'hosts/codex/hooks.json'):
+            hooks = json.loads(manifest.read_text())['hooks']['PreToolUse']
+            matcher, = [entry['matcher'] for entry in hooks if any('managed_launch.py' in hook['command']
+                                                                  for hook in entry['hooks'])]
+            expected = set(tools) if manifest.parent == support.HOOKS else set(tools) - {'Agent', 'Task'}
+            names = {*tools, 'AgentStatus', 'respawn_agent', 'mcp__t3_code__task_status'}
+            self.assertEqual({name for name in names if re.search(matcher, name)}, expected, manifest)
+        pi = (support.ROOT / 'hosts/pi/bootstrap.ts').read_text()
+        matcher, = re.findall(r'if \(!/(.+subagent.+)/\.test\(event\.toolName\)\)', pi)
+        self.assertEqual({name for name in names if re.search(matcher, name)},
+                         set(tools) - {'Agent', 'Task'})
+        for name, data in tools.items():
+            with self.subTest(tool=name):
+                event = dict(tool_name=name, tool_input=data, session_id='host-1', cwd=str(self.repo))
+                check = subprocess.run([sys.executable, str(support.HOOKS / 'managed_launch.py'), 'check'],
+                                       input=json.dumps(event), capture_output=True, text=True, check=True)
+                self.assertIn('dispatch_card: and execution:', json.loads(check.stdout)['reason'])
 
     def registered(self):
         import worker_lifecycle as life

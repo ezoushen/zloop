@@ -133,19 +133,19 @@ def check_event(event):
             selected = [row for row in launches if row[0] == card]
             control = dispatch_state.managed(card)
             saved = dispatch_state.read(card, control)
+            claims = {}
             for row in selected:
-                dispatch_state.checked(*row)
+                item = dispatch_state.checked(*row)
                 name, data = inputs[(row[0], row[1])]
                 if len(saved['batch']['launch']) > 1:
                     background = (data.get('async') is not False if name == 'subagent' else
                                   data.get('run_in_background') is True if name in ('Agent', 'Task') else
                                   data.get('mode') != 'wait')
                     dispatch_state.require(background, 'Selected independent siblings require background launch calls')
-                dispatch_state.require(saved['claims'].get(row[1], call) == call,
-                                       'Attempt already launched; reconcile its existing child')
+                claims[row[1]] = dispatch_state.claim_receipt(saved, row[1], item, row[2], call)
                 dispatch_state.require(row[1] not in {r['attempt'] for r in dispatch_state.snapshot(card)['rows']},
                                        'Attempt already registered; reconcile rather than relaunch')
-            saved['claims'].update({row[1]: call for row in selected})
+            saved['claims'].update(claims)
             dispatch_state.save(card, saved)
 
 

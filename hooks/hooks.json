@@ -48,7 +48,7 @@
         ]
       },
       {
-        "matcher": "Agent|Task|.*spawn_agent|.*followup_task|.*delegate_task|.*subagent",
+        "matcher": "^(?:Agent|Task|(?:.*(?:__|\\.))?(?:spawn_agent|followup_task|delegate_task|subagent))$",
         "hooks": [{ "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/managed_launch.py\"", "timeout": 10 }]
       }
     ],

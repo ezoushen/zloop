@@ -42,6 +42,14 @@ siblings to finish, then arm the normal completion wake. Follow inspection gaps 
 collection or resume. Use [managed controls](control.md) for phase changes, pause and
 completion; editing the card view cannot authorize or end managed work.
 
+A managed launcher records a claim for the selected assignment and packet digest before
+starting the worker. Registration keeps the matching claim from that launch. A missing or
+mismatched claim records `unclaimed-launch` in the workstream's lifecycle ledger and holds
+the owning session's stop until the attempt is reconciled or the exception is recorded under
+[acceptance](collect.md#accept-and-record-outcomes). A claim records admission, so verify
+startup and the worker's reply separately. Older claims carrying only a call ID can still
+prevent duplicate launches but supply no packet digest for a new registration.
+
 A failed launch can leave a claim. Prove that the child did not start, or stop it and
 reconcile its owned work, before `dispatch_state.py release --card <card> --attempt
 <attempt> --expected-revision <revision> --evidence <absolute-proof-file>`.

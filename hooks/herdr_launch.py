@@ -180,6 +180,17 @@ def start(argv):
     root = yield_gate.main_checkout(os.getcwd())
     if root is None:
         parser.error('run start inside the checkout whose launches the stop check tracks')
+    receipt = route.get('dispatch')
+    if receipt is not None:
+        dispatch = yield_gate.script('dispatch_state')
+        try:
+            dispatch.require(Path(receipt['repo']).resolve() == root.resolve(),
+                             'Managed Herdr route belongs to a different checkout')
+            dispatch.require(dispatch.check(Path(receipt['card']), receipt['attempt'], route, receipt['packet'],
+                                           args.worktree, call_id=f'herdr-{secrets.token_hex(16)}'),
+                             'Managed Herdr launch requires an adopted dispatch card')
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            parser.error(str(error))
     private = keeper = error_control = None
     connection = None
     extra_env = []
