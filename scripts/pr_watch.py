@@ -47,11 +47,14 @@ def git(directory, *args):
         raise ValueError(f'Cannot verify the local feature worktree with git {args[0]}') from error
 
 
-def local_head(root, target):
+def local_head(card, target):
     """Require the selected branch to still point at the verified full SHA."""
     branch = target['branch']
     if not isinstance(branch, str) or not branch or branch == 'HEAD' or branch.startswith('-'):
         raise ValueError('Expected a local feature branch')
+    if branch != run_control.workstream_branch(card.parent):
+        raise ValueError('The selected PR must use this card’s workstream branch')
+    root = repo_root(card)
     worktree = Path(target['worktree'])
     if not worktree.is_absolute():
         raise ValueError('Expected an absolute local feature worktree')
@@ -158,10 +161,10 @@ def observe(target, expected_base=None):
     passing = {'success', 'neutral', 'skipped'}
     if conclusions - passing - {None}:
         status = 'failure'
-    elif 'success' in conclusions and None not in conclusions:
-        status = 'success'
-    else:
+    elif not conclusions or None in conclusions:
         status = 'pending'
+    else:
+        status = 'success' if 'success' in conclusions else 'unverified'
     return dict(**base, check_runs=runs, status=status)
 
 
@@ -175,13 +178,13 @@ def arm(card, pr, head):
     target = dict(**scope(control), repository=pr_safety.repository(cwd=root, timeout=LOCAL_TIMEOUT),
                   pr=pr, head_sha=head, worktree=str(worktree),
                   branch=git(worktree, 'symbolic-ref', '--short', 'HEAD'))
-    local_head(root, target)
+    local_head(card, target)
     identity = native_watch(target)
     receipt = dict(**target, watch_id=identity, **observe(target))
     with state_files.locked(card):
         if run_control.read(card) != control:
             raise ValueError('The managed run changed during watch verification')
-        local_head(root, target)
+        local_head(card, target)
         if native_watch(target) != identity:
             raise ValueError('The local T3 PR watch changed during verification')
         run_control.write_control(card, dict(control, external_wait=receipt))
@@ -207,10 +210,9 @@ def refresh(card, identity):
     receipt = bound_receipt(control)
     if receipt['watch_id'] != identity:
         raise ValueError('The requested watch does not match the managed PR receipt')
-    root = repo_root(card)
     problem = None
     try:
-        local_head(root, receipt)
+        local_head(card, receipt)
         base = {key: receipt[key] for key in ('base_ref', 'base_sha')}
         observed = observe(receipt, base)
     except (AttributeError, OSError, KeyError, TypeError, ValueError) as error:
@@ -220,7 +222,7 @@ def refresh(card, identity):
             raise ValueError('The managed run changed during watch verification')
         if problem is None:
             try:
-                local_head(root, receipt)
+                local_head(card, receipt)
             except (OSError, ValueError) as error:
                 problem = error
         if problem is not None:
@@ -238,7 +240,7 @@ def awaiting(card, control):
         receipt = bound_receipt(control)
         if receipt['status'] != 'pending' or native_watch(receipt) != receipt['watch_id']:
             return False
-        local_head(repo_root(card), receipt)
+        local_head(card, receipt)
         return control == run_control.read(card)
     except (AttributeError, OSError, KeyError, TypeError, ValueError):
         return False

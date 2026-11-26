@@ -14,6 +14,7 @@ import time
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import front_matter  # noqa: E402
 import human_intent  # noqa: E402
 import pr_safety  # noqa: E402
 import state_files  # noqa: E402
@@ -41,6 +42,17 @@ def cards(repo):
 
 def present(card):
     return Path(card).exists() or location(card).exists()
+
+
+def review_fields(workstream):
+    report = workstream / 'reports' / 'spec-review.md'
+    return (front_matter.parse(report.read_text()) or {}) if report.is_file() else None
+
+
+def workstream_branch(workstream):
+    """Return the reviewed branch override or the workstream's default feature branch."""
+    branch = (review_fields(workstream) or {}).get('workstream_branch')
+    return branch if branch not in (None, '', []) else f'feat/{workstream.name}'
 
 
 def digest(text):

@@ -172,6 +172,41 @@ class PRWatch(unittest.TestCase):
                 self.assertEqual((wait['status'], wait['check_runs']), ('unverified', []))
         self.assert_held()
 
+    def test_watch_for_another_workstream_cannot_cover_yield(self):
+        self.git('branch', 'feat/other')
+        other = support.run_card(self.root / '.scratch/other/autopilot.md', phase='pr',
+                                 **{'intent-thread': THREAD})
+        support.ticket_file(self.root, 'other/01', status='done')
+        adopted = self.github.run_cli('run_control.py', 'adopt', other, '--source', 'existing confirmation')
+        self.assertEqual(adopted.returncode, 0, adopted.stderr)
+
+        rejected = self.github.run_cli('pr_watch.py', 'arm', other, '--pr', PR, '--head', self.head)
+        self.assertEqual(rejected.returncode, 2, rejected.stderr or rejected.stdout)
+        self.assertIn('workstream branch', rejected.stderr)
+        self.assertFalse(self.github.calls.exists())
+        self.assertTrue(any(str(other) in gap for gap in self.yield_gaps()))
+
+        receipt = self.arm()
+        self.assertEqual(receipt['branch'], BRANCH)
+        report = self.card.with_name('reports') / 'spec-review.md'
+        report.parent.mkdir(exist_ok=True)
+        report.write_text('---\nworkstream_branch: feat/other\n---\n')
+        self.assertTrue(any(str(self.card) in gap for gap in self.yield_gaps()))
+
+    def test_only_neutral_or_skipped_checks_do_not_hold_the_wait_open(self):
+        receipt = self.arm()
+        neutral = {'id': 101, 'name': 'tests', 'head_sha': self.head,
+                   'status': 'completed', 'conclusion': 'neutral'}
+        skipped = dict(neutral, id=102, name='lint', conclusion='skipped')
+        self.checks(neutral, skipped)
+
+        refreshed = self.refresh(receipt)
+        self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+        result = json.loads(refreshed.stdout)
+        self.assertEqual(result['status'], 'unverified')
+        self.assertEqual(result['check_runs'], [neutral, skipped])
+        self.assert_held()
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -273,8 +273,7 @@ def integrated(tickets, name, dependency):
 
 
 def review_front_matter(slug):
-    report = ISSUES / slug / 'reports' / 'spec-review.md'
-    return (front_matter.parse(report.read_text()) or {}) if report.is_file() else None
+    return run_control.review_fields(ISSUES / slug)
 
 
 def valid_branch_name(name):
@@ -294,8 +293,7 @@ def branch_ref(name):
 
 def workstream_branch(slug):
     """feat/<slug>, or main when the user had the workstream work directly on main."""
-    branch = (review_front_matter(slug) or {}).get('workstream_branch')
-    return branch if branch not in (None, '', []) else f'feat/{slug}'
+    return run_control.workstream_branch(ISSUES / slug)
 
 
 def delivery_evidence(slug):

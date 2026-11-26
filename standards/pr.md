@@ -152,7 +152,7 @@ rules the script can't:
 
 Watch the required checks for each pushed SHA. For a managed PR phase on the
 local T3 host, use `watch_pull_request` with the exact PR and `until="checks"` on
-the run card's bound thread. From that thread's attached feature worktree,
+the run card's bound thread. From the workstream's attached feature checkout,
 record the external wait against the full pushed SHA.
 
 ```sh
@@ -166,6 +166,7 @@ local head moves, or the host read fails, the hold applies again.
 
 On a wake, use the recorded watch ID to read the open PR and its commit's
 GitHub check runs. A push, retarget or failed read requires fresh verification.
+A snapshot with only completed neutral or skipped checks is unverified.
 
 ```sh
 python3 "<plugin_root>/scripts/pr_watch.py" refresh "<card>" --watch-id "<watch_id>"
