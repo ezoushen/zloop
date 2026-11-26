@@ -41,7 +41,11 @@ def main():
                         help='absolute decisions journal: journal a hidden failure-cause label when the check fails')
     parser.add_argument('--assignment-id', help='with --classify-failure: stable assignment/check identity')
     parser.add_argument('--repo', help='with --classify-failure: canonical project checkout')
-    parser.add_argument('--phase', choices=('red', 'green'), help='verify a claimed test for a managed ticket')
+    parser.add_argument('--phase', choices=('red', 'green', 'revert'),
+                        help='verify a claimed test for a managed ticket')
+    parser.add_argument('--revert', nargs='+', metavar='PATH',
+                        help='with --phase revert: product paths changed since the base, '
+                        'restored to their base content')
     parser.add_argument('--claim', help='declared test ID')
     parser.add_argument('--format', choices=('marker', 'unittest'),
                         help='phase output format, default: exact FAIL/PASS marker')
@@ -59,6 +63,8 @@ def main():
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     if not command:
         parser.error('a command is required after --')
+    if (args.phase == 'revert') != bool(args.revert):
+        parser.error('--phase revert requires --revert, which no other phase takes')
     if args.phase:
         if not (check_receipts.valid_claim(args.claim) and args.state and args.attempt):
             parser.error('--phase requires --claim TEST_ID, --state and --attempt')
@@ -70,7 +76,8 @@ def main():
         if output_format == 'marker' and not test_file:
             raise ValueError(f'{args.claim}: marker format requires a declared Test file')
         root = Path(saved['worktree'])
-        phase_source = check_receipts.source_snapshot(root, args.phase, args.claim, saved['head'], test_file)
+        phase_source = check_receipts.source_snapshot(root, args.phase, args.claim, saved['head'], test_file,
+                                                      args.revert or ())
         phase_started = time.time_ns()
     elif args.claim or args.state or args.attempt or args.format:
         parser.error('--claim, --state, --attempt and --format require --phase')
@@ -147,13 +154,14 @@ def main():
     if args.phase:
         log_path = Path(summary['log'])
         try:
-            after = check_receipts.source_snapshot(root, args.phase, args.claim, saved['head'], test_file)
+            after = check_receipts.source_snapshot(root, args.phase, args.claim, saved['head'], test_file,
+                                                   args.revert or ())
             if after != phase_source:
                 raise ValueError('source changed while the claim ran')
-            expected_code = 1 if args.phase == 'red' else 0
+            expected_code = 0 if args.phase == 'green' else 1
             if (code != expected_code or source != 'command' or cleanup_required or missing
                     or not check_receipts.observed_claim(log_path, args.phase, args.claim, output_format)):
-                expected = 'fail' if args.phase == 'red' else 'pass'
+                expected = 'pass' if args.phase == 'green' else 'fail'
                 raise ValueError(f'{args.claim} did not {expected} as a {output_format} result')
             summary['tdd'] = check_receipts.receipt(saved, args.phase, args.claim, phase_source,
                                                     phase_started, time.time_ns(), log_path, output_format, command)

@@ -2,7 +2,7 @@
 
 Record receipts for registered managed local ticket attempts. Each code criterion
 declares a distinct printable test ID on its `Test claim:` line. Keep verification
-instructions on `Verify (code):`. Run both phases from the assigned worktree root
+instructions on `Verify (code):`. Run every phase from the assigned worktree root
 with the same worker state and attempt. Inline work follows ordinary test-first
 evidence because it has no registered attempt.
 
@@ -38,6 +38,16 @@ test file and the Git-visible files in recognized test locations at red. Put
 independent additions in a new test file or record a fresh red with the final
 test and fixture files on the assigned base. Review inputs outside the snapshot,
 including ignored untracked fixtures and files outside recognized test locations.
-Keep both logs and summaries. Acceptance requires the matching red to finish
-before green starts and green to identify the exact accepted head. Record older
-receipts again if they lack this file snapshot.
+
+Then undo the fix at the same commit: restore one or more product paths it
+changed since the assigned base to their base content in the index and worktree
+(`git checkout <base> -- <path>`; `git rm` a path the fix added), and run
+`--phase revert --revert <path>...` with the same command and format and a fresh
+log. Paths in recognized test locations are never reverted, and every other path
+must match the commit. The claimed test must fail as at red; the receipt names
+the reverted paths. Restore the commit afterwards.
+
+Keep every log and summary. Acceptance requires the matching red to finish
+before green starts, green to identify the exact accepted head, and a revert of
+the same test run at that head to finish after green. Record older receipts
+again if they lack this file snapshot.
