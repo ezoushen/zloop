@@ -2,7 +2,7 @@
 name: pr
 description: "Create a PR for a workstream with current review and verification evidence."
 disable-model-invocation: true
-argument-hint: "<workstream-slug> — review and applicable verification must already pass"
+argument-hint: "<workstream-slug> [--auto-merge] — review and applicable verification must already pass"
 ---
 
 # pr
@@ -19,8 +19,9 @@ that artefact in the report or ledger, and inline the figure in the PR body.
 ## Repository approval path
 
 Follow the [approval path](../../runtime/board/approval-path.md), including its
-guarded submission for a user-authorized auto-merge. Report an unverified base
-or absent required checks as `waiting-on-user` before granting or submitting it.
+guarded submission for an explicit `--auto-merge` request. Verify the open PR
+or the approved publication base before recording the grant. Report an unverified
+base or absent required checks as `waiting-on-user`.
 
 ## Steps
 
@@ -63,7 +64,9 @@ not applicable, with the review and E2E evidence, and stop.
    established by the accepted compatibility obligations and final diff. Report the URL.
 5. **Watch the required checks** for the pushed SHA, as [watch the required checks](../../standards/pr.md#watch-the-required-checks)
    describes.
-6. **After the merge, on request:** apply the
+6. **Submit an authorized auto-merge** through the approval path's guarded command
+   after required checks and repository approvals pass.
+7. **After the merge, on request:** apply the
    [worktree retirement checks](../../runtime/resources/retire-worktree.md), then
    delete `feat/<slug>` and its recorded ticket branches only after downstream
    dependencies no longer need them. Retain useful timing/retrospective evidence
