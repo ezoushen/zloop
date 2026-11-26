@@ -3,13 +3,16 @@
 import copy
 from contextlib import closing
 import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -17,11 +20,11 @@ import support
 
 
 class DispatchFixture:
-    def setUp(self):
+    def setUp(self, **card_fields):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.repo = Path(self.tmp.name)
-        self.card = support.run_card(self.repo / '.scratch/run/autopilot.md', phase='dispatch')
+        self.card = support.run_card(self.repo / '.scratch/run/autopilot.md', phase='dispatch', **card_fields)
         self.control = support.load_script('run_control.py')
         self.control.adopt(self.card, 'approved independent tasks; configured provider pool', allow_resume=True)
         self.dispatch = support.load_script('dispatch_state.py')
@@ -63,6 +66,23 @@ class DispatchFixture:
         item = next(row for row in self.items if row['assignment'] == name)
         return self.dispatch.check(self.card, f'{name}/1', json.loads(Path(item['execution']).read_text()),
                                    item['packet'], item['worktree'], **kwargs)
+
+    def lifecycle(self, action, data=None, *args):
+        state = self.card.parent / 'reports/workers.sqlite'
+        command = [sys.executable, str(support.script('worker_lifecycle.py')), action, '--state', str(state), *args]
+        if data is not None:
+            request = self.card.parent / 'request.json'
+            request.write_text(json.dumps(data))
+            command += ['--input', str(request)]
+        return subprocess.run(command, capture_output=True, text=True,
+                              env=dict(support.without_host_sessions(), CODEX_SESSION_ID=getattr(self, 'registering_host', 'host-1'),
+                                       XDG_STATE_HOME=str(self.repo / '.scratch/state')))
+
+    def registration(self, item):
+        name = item['assignment']
+        return dict(kind='register', attempt=item['attempt'], assignment=name, repo=str(self.repo),
+                    worktree=item['worktree'], head='head-1', execution=item['execution'], runtime='pi',
+                    worker=f'worker-{name}', native_session=f'native-{name}', owned=True, packet=item['packet'])
 
 
 class ManagedDispatch(DispatchFixture, unittest.TestCase):
@@ -267,23 +287,6 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
                  for item in self.items if item['assignment'] in names]
         return dict(tool_name='subagent', tool_input=dict(tasks=tasks), session_id='host-1',
                     cwd=str(self.repo), tool_call_id=call)
-
-    def lifecycle(self, action, data=None, *args):
-        state = self.card.parent / 'reports/workers.sqlite'
-        command = [sys.executable, str(support.script('worker_lifecycle.py')), action, '--state', str(state), *args]
-        if data is not None:
-            request = self.card.parent / 'request.json'
-            request.write_text(json.dumps(data))
-            command += ['--input', str(request)]
-        return subprocess.run(command, capture_output=True, text=True,
-                              env=dict(support.without_host_sessions(), CODEX_SESSION_ID=getattr(self, 'registering_host', 'host-1'),
-                                       XDG_STATE_HOME=str(self.repo / '.scratch/state')))
-
-    def registration(self, item):
-        name = item['assignment']
-        return dict(kind='register', attempt=item['attempt'], assignment=name, repo=str(self.repo),
-                    worktree=item['worktree'], head='head-1', execution=item['execution'], runtime='pi',
-                    worker=f'worker-{name}', native_session=f'native-{name}', owned=True, packet=item['packet'])
 
     def test_managed_registration_with_no_launch_claim_records_a_gap(self):
         self.plan()
@@ -853,6 +856,76 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
             life.save(db, failed)
         with self.assertRaisesRegex(ValueError, 'ticket:b'):
             self.plan(request)
+
+
+class RegistrationRouting(DispatchFixture, unittest.TestCase):
+    def setUp(self):
+        self.hits = []
+        self.redirect = None
+        fixture = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                fixture.hits.append(self.path)
+                if self.path == '/health' and fixture.redirect:
+                    self.send_response(302)
+                    self.send_header('Location', fixture.redirect)
+                else:
+                    self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        def listen():
+            server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(thread.join)
+            self.addCleanup(server.server_close)
+            self.addCleanup(server.shutdown)
+            return f'127.0.0.1:{server.server_port}'
+
+        self.allowed, self.denied = listen(), listen()
+        super().setUp(**{'deny-hosts': f'[{self.denied}]'})
+
+    def test_registration_rechecks_health_without_following_a_denied_redirect(self):
+        config = self.repo / 'executors.json'
+        config.write_text(json.dumps(dict(
+            capacity={'sol': {'slots': 1, 'health': f'http://{self.allowed}/health'}},
+            models={'sol': {'description': 'Local fixture', 'backend': 'sol', 'runtimes': {'pi': {'id': 'sol'}}}},
+            runtimes={'pi': {'executors': {'pi': {'type': 'subagent'}}}},
+            agents={'builder': {'candidates': ['sol']}},
+        )))
+        item = self.items[0]
+        env = dict(os.environ, HERDR_ENV='', ZLOOP_SESSION='', ZLOOP_PROFILE='', ZLOOP_NO_NETWORK='',
+                   XDG_STATE_HOME=str(self.repo / '.scratch/state'), CODEX_HOME=str(self.repo / 'codex-home'),
+                   no_proxy='*')
+        routed = subprocess.run(
+            [sys.executable, str(support.script('agent_models.py')), '--repo', str(self.repo),
+             '--host', 'pi', '--job', 'ticket', '--route', '--candidate', 'sol',
+             '--user-config', str(self.repo / 'absent-models'), '--user-executors', str(config),
+             '--dispatch-card', str(self.card), '--assignment-id', item['attempt'],
+             '--assignment', item['packet'], '--worktree', item['worktree']],
+            capture_output=True, text=True, env=env)
+        self.assertEqual(routed.returncode, 0, routed.stderr)
+        self.assertEqual(json.loads(routed.stdout)['candidate'], 'sol')
+        self.assertEqual(self.hits, ['/health'])
+        Path(item['execution']).write_text(routed.stdout)
+        self.plan()
+
+        self.redirect = f'http://{self.denied}/denied'
+        with patch.dict(os.environ, {'no_proxy': '*'}):
+            refused = self.lifecycle('record', self.registration(item))
+            self.assertEqual(self.hits, ['/health', '/health'])
+            self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
+            self.assertIn('Backend sol is unhealthy: excluded-by-mandate', refused.stderr)
+
+            self.redirect = None
+            registered = self.lifecycle('record', self.registration(item))
+            self.assertEqual(registered.returncode, 0, registered.stderr)
+            self.assertEqual(json.loads(registered.stdout)['attempt'], item['attempt'])
+            self.assertEqual(self.hits, ['/health', '/health', '/health'])
 
 
 class ResolverReceipt(DispatchFixture, unittest.TestCase):

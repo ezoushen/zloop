@@ -3,7 +3,6 @@
 
 import argparse
 import hashlib
-from ipaddress import ip_address
 import json
 import os
 from pathlib import Path
@@ -13,7 +12,6 @@ import sqlite3
 import subprocess
 import sys
 import time
-from urllib.parse import urlsplit
 import agent_defs
 import allowance
 import capacity
@@ -260,25 +258,6 @@ def shadow_selection(names, catalog, agent, job, seed, levels=None):
         quality = {'status': 'unavailable', 'error': str(error)}
     return {'policy': 'thompson-cost-v1', 'cost_weight': COST_WEIGHT, 'allowance': levels or {},
             'candidates': scored, 'choice': choice, 'quality_history': quality}
-
-
-def host_key(host):
-    """Canonical DNS or IP spelling, without resolving the name."""
-    host = host.rstrip('.').lower()
-    try:
-        return ip_address(host).compressed
-    except ValueError:
-        return host.encode('idna').decode('ascii')
-
-
-def denied_host_keys(entries):
-    """Read literal hosts and optional ports from a card's deny-hosts list."""
-    denied = set()
-    for entry in entries:
-        if re.fullmatch(r'(?:[\w.-]+|\[[0-9A-Fa-f:.]+\])(?::[0-9]+)?', entry):
-            address = urlsplit('//' + entry)
-            denied.add((host_key(address.hostname), address.port))
-    return denied
 
 
 def backend_unavailable(backend, backends, *, offline=False, require_url=None):
@@ -548,16 +527,7 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
     offline = offline or list_candidates or os.environ.get('ZLOOP_NO_NETWORK') == '1'
     if offline:
         metadata['availability'] = 'unchecked'
-    denied = denied_host_keys(deny_hosts)
-
-    def require_url(url):
-        address = urlsplit(url)
-        if address.scheme not in ('http', 'https') or not address.hostname:
-            raise ValueError('Network check requires an HTTP(S) URL with a hostname')
-        host = host_key(address.hostname)
-        port = address.port if address.port is not None else (443 if address.scheme == 'https' else 80)
-        if (host, None) in denied or (host, port) in denied:
-            raise ValueError('excluded-by-mandate')
+    require_url = dispatch_state.destination_check(deny_hosts)
     catalog = {name: (definition, f'{path}:models.{name}')
                for path, data in layers for name, definition in data.get('models', {}).items()}
     allow_training, include_critical, backends, checked = False, False, {}, {}
@@ -570,19 +540,19 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
     def check_backend(backend):
         if backend not in checked:
             checked[backend] = backend_unavailable(backend, backends, offline=offline,
-                                                   require_url=require_url if denied else None)
+                                                   require_url=require_url)
         return checked[backend]
 
     def route_decision(backend, payload):
         if offline:
             raise OSError('Decision backend availability is unchecked in offline routing')
-        if denied:
+        if require_url is not None:
             require_url(backend['endpoint'])
         return systemone_request(backend, payload)
 
     def mandate_exclusion(backend):
         health = backends.get(backend, {}).get('health')
-        if denied and health:
+        if require_url is not None and health:
             try:
                 require_url(health)
             except ValueError as error:

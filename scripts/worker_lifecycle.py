@@ -1284,8 +1284,12 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30, a
                             + json.dumps(weighed))
             if execution.get('backend'):
                 # A local backend's slot is shared by every workstream on this machine.
+                require_url = None
+                if dispatch_assignment:
+                    _, deny_hosts, _ = dispatch_state.routing_context(card)
+                    require_url = dispatch_state.destination_check(deny_hosts)
                 capacity.acquire(execution['backend'], execution.get('capacity') or {},
-                                 state_path(db), attempt, registering=True)
+                                 state_path(db), attempt, registering=True, require_url=require_url)
             if not named:
                 packet.write_bytes(f'attempt: {attempt}\n'.encode() + packet.read_bytes())
         else:

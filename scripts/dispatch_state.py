@@ -3,11 +3,14 @@
 import argparse
 from contextlib import closing
 import hashlib
+from ipaddress import ip_address
 import json
 from pathlib import Path
+import re
 import sqlite3
 import subprocess
 import sys
+from urllib.parse import urlsplit
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -113,6 +116,37 @@ def routing_context(card, requested=None):
     raw = state_files.state_fields(control['card_text']).get('deny-hosts', '')
     require(not raw or raw.startswith('[') and raw.endswith(']'), 'deny-hosts requires a bracketed list')
     return session, front_matter.bracketed(raw) if raw else [], control['revision']
+
+
+def host_key(host):
+    """Canonical DNS or IP spelling, without resolving the name."""
+    host = host.rstrip('.').lower()
+    try:
+        return ip_address(host).compressed
+    except ValueError:
+        return host.encode('idna').decode('ascii')
+
+
+def destination_check(deny_hosts):
+    """Return a validator for HTTP destinations, or None when the card denies no hosts."""
+    denied = set()
+    for entry in deny_hosts:
+        if re.fullmatch(r'(?:[\w.-]+|\[[0-9A-Fa-f:.]+\])(?::[0-9]+)?', entry):
+            address = urlsplit('//' + entry)
+            denied.add((host_key(address.hostname), address.port))
+    if not denied:
+        return None
+
+    def require_url(url):
+        address = urlsplit(url)
+        if address.scheme not in ('http', 'https') or not address.hostname:
+            raise ValueError('Network check requires an HTTP(S) URL with a hostname')
+        host = host_key(address.hostname)
+        port = address.port if address.port is not None else (443 if address.scheme == 'https' else 80)
+        if (host, None) in denied or (host, port) in denied:
+            raise ValueError('excluded-by-mandate')
+
+    return require_url
 
 
 def issue_route(card, repo, attempt, packet, worktree, execution, configuration, *, expected_revision=None):

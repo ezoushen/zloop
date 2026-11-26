@@ -133,7 +133,7 @@ def free_memory_percent():
 
 
 def check(backend, config, *, require_url=None):
-    """Refuse a backend whose health endpoint fails or whose machine is short of free memory."""
+    """Refuse an unhealthy backend or insufficient memory. If given, validate every health URL before requesting it."""
     minimum = config.get('min_free_memory_percent')
     if minimum is not None:
         free = free_memory_percent()
@@ -168,12 +168,15 @@ def check(backend, config, *, require_url=None):
             raise ValueError(f'Backend {backend} is unhealthy: {reason}')
 
 
-def acquire(backend, config, state, attempt, now=None, *, registering=False):
-    """Reserve or refresh an attempt's slot. registering requires the state's lifecycle write transaction."""
+def acquire(backend, config, state, attempt, now=None, *, registering=False, require_url=None):
+    """Check health under the caller's URL policy and reserve or refresh a slot.
+
+    registering requires the state's lifecycle write transaction.
+    """
     slots = config.get('slots')
     if type(slots) is not int or slots < 1:
         raise ValueError(f'Backend {backend} needs a positive integer slots')
-    check(backend, config)
+    check(backend, config, require_url=require_url)
     now = time.time() if now is None else now
     db = connect()
     try:
