@@ -245,6 +245,9 @@ if args[0] == 'serve':
         signal.signal(signal.SIGTERM, stop)
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            if os.environ.get('RECORD_READINESS'):
+                with Path(os.environ['EVENTS']).open('a') as stream:
+                    stream.write(json.dumps(dict(record, args=['GET', self.path])) + '\\n')
             self.send_response(200); self.end_headers(); self.wfile.write(b'{}')
         def log_message(self, *args): pass
     HTTPServer(('127.0.0.1', int(args[args.index('--port') + 1])), Handler).serve_forever()
@@ -320,11 +323,15 @@ os.execvp(command[0], command)
     def test_private_server_readiness_ignores_http_proxy(self):
         with socket.socket() as proxy:
             proxy.bind(('127.0.0.1', 0))
-            self.env.update(http_proxy=f'http://127.0.0.1:{proxy.getsockname()[1]}', no_proxy='')
+            self.env.update(http_proxy=f'http://127.0.0.1:{proxy.getsockname()[1]}', no_proxy='',
+                            RECORD_READINESS='1')
             result = self.start()
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(json.loads(result.stdout)['opencode']['session'], 'private-session')
-            _, _, attached = self.wait_events(3)
+            serve, readiness, api, attached = self.wait_events(4)
+            self.assertEqual(serve['args'][0], 'serve')
+            self.assertEqual(readiness['args'], ['GET', '/'])
+            self.assertEqual(api['args'][:3], ['api', 'POST', '/api/session'])
             self.assertEqual(attached['args'][0], '--server')
 
     def test_api_route_runs_private_server_session_and_tui_in_worker_pane(self):

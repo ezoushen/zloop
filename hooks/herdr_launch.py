@@ -340,7 +340,6 @@ def opencode(argv):
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         step = 'server readiness'
         deadline = time.monotonic() + 20
-        # This connection is private to the worker. A proxy or redirect cannot attest its readiness.
         connection = HTTPConnection('127.0.0.1', port, timeout=.5)
         while True:
             if server.poll() is not None:
