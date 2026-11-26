@@ -8,6 +8,8 @@ import support
 from support import prose
 import agent_defs
 
+review_target = support.load_script('review_target.py', 'review_target')
+
 ROOT = support.ROOT
 REVIEW = ROOT / 'skills/review'
 LEVELS = REVIEW / 'levels.md'
@@ -79,8 +81,8 @@ class ReviewLevels(unittest.TestCase):
     def test_the_default_is_high_and_max_runs_only_when_the_user_asks(self):
         # Rule: with no level the review runs at high; a level is never remembered, and max runs
         # only on the user's request.
-        text = LEVELS.read_text()
-        self.assertIn('a missing level is `high`', ' '.join(text.split()))
+        self.assertEqual(support.rule_owners('review.default-level'), [(LEVELS, 'high')])
+        self.assertEqual(review_target.parser().parse_args(['main', '--repo', '.']).effort, 'high')
         _, rows = level_rows()
         labels = {name.split()[0]: name for name in rows}
         self.assertEqual([level for level, label in labels.items() if 'default' in label], ['high'])

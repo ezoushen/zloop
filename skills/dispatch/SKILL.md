@@ -31,9 +31,10 @@ Carry forward existing explicit repair authorization, including an applicable
 full-delivery request. Without that authorization, dispatch stops after read-only
 review. Publication requires its own request.
 
+<!-- rule-ref: review.default-level = high -->
 `--effort <level>` sets both this dispatch's verification and its review; `--dispatch-effort`
 and `--review-effort` override it for their step. With no level, verification runs at
-`medium` and the review at `high` (the review's own default), never at a
+`medium` and the review at `high` (the review's [own default](../review/levels.md)), never at a
 level remembered from an earlier run; `max` runs only when the user asks. The verification
 level scales only the checks beyond the project's required ones
 ([verification levels](../../runtime/checks/accept.md)), and every level keeps them.

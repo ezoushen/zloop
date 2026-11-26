@@ -3,12 +3,18 @@
 terminal state; it never decides an action on the pause list and merges only through the repository's normal path."""
 import json
 import re
+import subprocess
+import sys
+import tempfile
 import unittest
+from pathlib import Path
 
 import support
 from support import prose
 
 ROOT = support.ROOT
+card = support.load_script('autopilot_card.py', 'autopilot_card')
+review_target = support.load_script('review_target.py', 'review_target')
 SKILL = ROOT / 'skills/autopilot/SKILL.md'
 CARD = ROOT / 'skills/autopilot/run-card.md'
 # The terminal states and the pause list agreed in .scratch/autopilot/alignment.md (WHAT 4) and ledger U1.
@@ -50,7 +56,6 @@ class RunCard(unittest.TestCase):
     def test_the_user_confirms_the_card_once_and_is_asked_nothing_after(self):
         text = prose(SKILL)
         self.assertIn('asks the user to confirm it once', text)
-        self.assertIn('No phase after align starts before that confirmation', text)
         self.assertIn('After confirmation, ask the user nothing', text)
         self.assertIn('Record the confirmation on the card', text)
         # Seen live on Codex: an unconfirmed card was marked `waiting-on-user`, which hides it from the bootstrap trigger.
@@ -418,6 +423,53 @@ class TakeOverCommand(unittest.TestCase):
         self.assertIn('user-confirmed or by rule (direct path)', run_card)
         readme = next(l for l in (ROOT / 'README.md').read_text().splitlines() if l.startswith('| `autopilot` |'))
         self.assertIn('a small change skips both', readme)
+
+
+class RuleContracts(unittest.TestCase):
+    """A rule a script enforces: its one owning doc is found by the rule's marker, and the script behaves as the rule
+    says. Rewording the owner passes; moving the marker or breaking the script fails."""
+
+    STATE = ('## State\nconfirmed: {confirmed}\nsession: host-1\nauto-merge: no\nmode: full\n'
+             'board: https://github.com/acme/widgets/issues\ndispatch-effort: medium\nreview-effort: high\n'
+             'phase: refine\nterminal:\nhistory:\nevidence:\ntimer:\nresume: `autopilot --take-over`\n'
+             'publish-probe: ok 2026-11-27T09:00:00Z acme/widgets\n')
+
+    def test_each_script_backed_rule_has_one_owner_and_its_script_enforces_it(self):
+        # Rule: a missing review level is `high`, and the autopilot card refuses a level outside the five.
+        self.assertEqual(support.rule_owners('review.default-level'), [(ROOT / 'skills/review/levels.md', 'high')])
+        default = review_target.parser().parse_args(['main', '--repo', '.']).effort
+        self.assertEqual(default, 'high')
+        self.assertIn(default, card.LEVELS)
+        self.assertEqual(card.level('## State\nreview-effort: high\n', 'review-effort'), 'high')
+        with self.assertRaises(SystemExit):
+            card.level('## State\nreview-effort: ultra\n', 'review-effort')
+        # Rule: no phase after align starts before the user's confirmation; dispatch and pr refuse a full card
+        # confirmed by rule, and take the user's own confirmation.
+        self.assertEqual(support.rule_owners('autopilot.confirm-before-phases'),
+                         [(ROOT / 'skills/autopilot/SKILL.md', None)])
+        path = Path('run/autopilot.md')
+        for value in ('dispatch', 'pr'):
+            with self.assertRaises(SystemExit):
+                card.phase(path, self.STATE.format(confirmed='2026-11-06 by rule "go"'), value)
+            self.assertIn(f'\nphase: {value}\n', card.phase(path, self.STATE.format(confirmed='2026-11-06 "go"'), value))
+        # Rule: a relayed confirmation delivers PR-only and cannot authorize auto-merge.
+        self.assertEqual(support.rule_owners('board.relayed-card-delivers-pr-only'),
+                         [(ROOT / 'runtime/board/approval-path.md', None)])
+        with tempfile.TemporaryDirectory() as tmp:
+            relay = support.run_card(Path(tmp) / '.scratch/run/autopilot.md', confirmed='no', mode='full',
+                                     **{'dispatch-effort': 'medium', 'review-effort': 'high'})
+            env = dict(support.without_host_sessions(), PI_SESSION_ID='pi-1')
+            for name in ('T3CODE_THREAD_ID', 'T3_MCP_URL', 'T3_MCP_BEARER_TOKEN'):
+                env.pop(name, None)
+            command = [sys.executable, '-B', str(support.script('autopilot_card.py')), 'confirm', str(relay),
+                       '--words', 'go', '--confirmed-by', 'relayed(Grok Bot)']
+            asked = subprocess.run(command + ['--auto-merge'], env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(asked.returncode, 2, asked.stderr)
+            self.assertNotIn('delivery:', relay.read_text())
+            confirmed = subprocess.run(command, env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(confirmed.returncode, 0, confirmed.stderr)
+            self.assertIn('\ndelivery: pr-only\n', relay.read_text())
+            self.assertIn('\nauto-merge: no\n', relay.read_text())
 
 
 if __name__ == '__main__':

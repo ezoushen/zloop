@@ -23,6 +23,7 @@ discussion, agreed review criteria and authorization to begin review.
 Record the initiating request, entry point and comment policy in the report. Only
 these entry points initiate this procedure; this is a workflow convention, not a native caller ACL.
 
+<!-- rule-ref: review.default-level = high -->
 Default: assessment without fixes. `--effort <level>` sets the review's
 [effort level](levels.md); dispatch supplies its review level in place of the flag, and
 with no level it runs at `high`, never at a level remembered from an earlier run, and `max`

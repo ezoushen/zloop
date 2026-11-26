@@ -1,5 +1,6 @@
 # Run card
 
+<!-- rule-ref: board.relayed-card-delivers-pr-only -->
 The file autopilot writes to `.scratch/<slug>/autopilot.md` before it goes hands-off.
 It holds what the run may do and when it ends, so the stop condition survives
 compaction. Use `autopilot_card.py confirm <card> --words "<user words>"` from the
@@ -7,7 +8,7 @@ active session and `autopilot_card.py phase <card> <phase>` for transitions.
 Record the original words and their source in the ledger. For full cards the
 [human intent gate](../../runtime/workers/control.md#verify-human-intent) verifies
 and records direct human confirmation. A named relay uses
-`--confirmed-by 'relayed(Agent Name)'` and records PR-only delivery.
+`--confirmed-by 'relayed(Agent Name)'` and records [PR-only delivery](../../runtime/board/approval-path.md#automated-merge).
 
 Size the work under [autopilot](SKILL.md). A direct run still writes `alignment.md`
 (the brief with its Crew rows) and runs refine; it skips only the interview and the

@@ -41,6 +41,9 @@ A rule an agent doc owns carries `<!-- rule: <id> -->`, or `<!-- rule: <id> = <v
 before its paragraph or list item; the ID is `module.kebab-name`, unique repo-wide. Another agent doc that
 restates the rule puts `<!-- rule-ref: <id> -->`, with the same optional value, before a paragraph that links
 the owner's file. These rule checks run repo-wide, like links.
+A contract test for a rule a script also enforces asserts the rule's owner (`rule_owners` in
+`tests/support.py`) and the script's behaviour, never the doc's wording, so rewording passes and moving the
+marker or breaking the script fails.
 
 [architecture.json](architecture.json) holds the module architecture: ordered levels
 (top may depend on lower ones and on itself, never on a sibling or a higher level),

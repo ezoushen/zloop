@@ -38,6 +38,7 @@ workflow execution reads configuration without invoking that explicit-only comma
 
 Each rule below fires outside its owner's document: when the trigger occurs, read the owner, whatever skill is running.
 
+<!-- rule-ref: autopilot.confirm-before-phases -->
 | When | Read |
 |---|---|
 | Before creating a PR, editing its title or body, or pushing to a PR branch, invoked as `/zloop:pr` or not | [PR writing guide](standards/pr.md); each such push or edit is a `delivery` boundary: run the `delivery` checkpoint or record an evidenced skip, then the [required-check watch](standards/pr.md#watch-the-required-checks) |

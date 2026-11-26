@@ -1,5 +1,6 @@
 """Shared test helpers: plugin paths, script loading and machine-state isolation."""
 import importlib.util
+import json
 import os
 import re
 import shlex
@@ -20,6 +21,10 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 import worker_lifecycle
 
+DOC_CHECKER = ROOT / '.agents/skills/writing-agent-docs'
+sys.path.insert(0, str(DOC_CHECKER))
+import check_docs  # noqa: E402
+
 
 def script(filename):
     """Path of a script in scripts/."""
@@ -38,6 +43,15 @@ def load_script(filename, name=None):
 def prose(path):
     """A doc's text with runs of whitespace flattened; `path` is absolute or relative to the plugin root."""
     return ' '.join((ROOT / path).read_text().split())
+
+
+def rule_owners(rule):
+    """[(doc path, value)] for each agent doc that owns `rule` with `<!-- rule: <id> -->`, read with check_docs's marker
+    parser; the value is None when the marker carries none. A rule with one owner gives a one-item list."""
+    config = json.loads((DOC_CHECKER / 'config.json').read_text())
+    return [(path, value) for path in check_docs.expand(ROOT, config['docs'])
+            for _, markers in check_docs.marked_blocks(path)
+            for kind, found, value, _ in markers if (kind, found) == ('rule', rule)]
 
 
 def without_host_sessions(env=None):
