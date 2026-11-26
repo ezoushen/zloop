@@ -116,10 +116,11 @@ def unittest_context(path, claim):
         if isinstance(node, ast.ClassDef):
             members = []
             for member in node.body:
-                if member is not claimed and isinstance(member, functions) and member.name.startswith('test'):
+                if member is claimed or (isinstance(member, functions) and member.name.startswith('test')):
                     neighbors[f'{node.name}.{member.name}'] = hashlib.sha256(ast.dump(member).encode()).hexdigest()
-                else:
-                    members.append(member)
+                    if member is not claimed:
+                        continue
+                members.append(member)
             node.body = members
             if (node is not test_class and not node.body and not node.decorator_list and not node.keywords
                     and len(node.bases) == 1
