@@ -480,21 +480,21 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         request = self.completion(item)
         self.assert_claim_refused(item, ticket, request, f'{claim}: missing red receipt')
 
-    def test_managed_acceptance_pairs_an_unchanged_unittest_after_other_tests_are_added(self):
+    def test_managed_acceptance_pairs_an_unchanged_unittest_after_a_new_test_file_is_added(self):
         ticket, item, claim, _ = self.claimed_ticket()
         self.write_claimed_test(item)
         test = Path(item['worktree']) / 'test_value.py'
-        test.write_text(test.read_text().replace('import unittest\n', 'import unittest\nimport unittest as ut\n', 1)
-                        + '\nclass ExistingTest(unittest.TestCase):\n'
-                        '    def setUp(self): self.expected = 2\n'
-                        '    def test_existing(self): self.assertEqual(value, self.expected)\n')
+        test.write_text(test.read_text() + '\nclass Settings:\n'
+                        '    @property\n'
+                        '    def test_timeout(self): return 42\n'
+                        '    @test_timeout.setter\n'
+                        '    def test_timeout(self, timeout): self.timeout = timeout\n')
         red = self.phase_check(item, claim, 'red')
-        test.write_text(test.read_text().replace('    def test_wanted',
-                                                '    def test_other(self): self.assertEqual(value, 2)\n'
-                                                '    def test_wanted')
-                        + '    def test_added(self): self.assertEqual(value, self.expected)\n'
-                        + '\nclass NewTest(ut.TestCase):\n'
-                        + '    def test_new(self): self.assertEqual(value, 2)\n')
+        added = test.with_name('test_new.py')
+        added.write_text('import unittest as ut\nfrom product import value\n'
+                         'class NewTest(ut.TestCase):\n'
+                         '    def test_new(self): self.assertEqual(value, 2)\n')
+        self.worktree_git(item, 'add', added.name)
         request = self.fixed_result(item)
         green = self.phase_check(item, claim, 'green')
         request['evidence'] += [red, green]
@@ -512,6 +512,23 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         invalidated = self.board_accept()
         self.assertEqual(invalidated.returncode, 1, invalidated.stdout + invalidated.stderr)
         self.assertIn(f'{claim}: missing green receipt at accepted head', invalidated.stderr)
+
+    def test_managed_acceptance_refuses_changed_imported_test_support(self):
+        ticket, item, claim, _ = self.claimed_ticket()
+        test = Path(item['worktree']) / 'test_value.py'
+        support = test.with_name('test_support.py')
+        support.write_text('expected = 2\n')
+        test.write_text('import unittest\nfrom product import value\nfrom test_support import expected\n'
+                        'class ValueTest(unittest.TestCase):\n'
+                        '    def test_wanted(self): self.assertEqual(value, expected)\n')
+        red = self.phase_check(item, claim, 'red')
+        self.assertIn('AssertionError: 1 != 2', Path(red).read_text())
+        support.write_text('expected = 1\n')
+        self.worktree_git(item, 'add', test.name, support.name)
+        request = self.completion(item)
+        green = self.phase_check(item, claim, 'green')
+        request['evidence'] += [red, green]
+        self.assert_claim_refused(item, ticket, request, f'{claim}: red and green must run the same test')
 
     def test_managed_acceptance_refuses_a_rewritten_unittest_method_with_the_same_id(self):
         ticket, item, claim, _ = self.claimed_ticket()

@@ -70,8 +70,7 @@ def main():
         if output_format == 'marker' and not test_file:
             raise ValueError(f'{args.claim}: marker format requires a declared Test file')
         root = Path(saved['worktree'])
-        phase_source = check_receipts.source_snapshot(root, args.phase, args.claim, saved['head'],
-                                                      test_file, output_format)
+        phase_source = check_receipts.source_snapshot(root, args.phase, args.claim, saved['head'], test_file)
         phase_started = time.time_ns()
     elif args.claim or args.state or args.attempt or args.format:
         parser.error('--claim, --state, --attempt and --format require --phase')
@@ -148,7 +147,7 @@ def main():
     if args.phase:
         log_path = Path(summary['log'])
         try:
-            after = check_receipts.source_snapshot(root, args.phase, args.claim, saved['head'], test_file, output_format)
+            after = check_receipts.source_snapshot(root, args.phase, args.claim, saved['head'], test_file)
             if after != phase_source:
                 raise ValueError('source changed while the claim ran')
             expected_code = 1 if args.phase == 'red' else 0

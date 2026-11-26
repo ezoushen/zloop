@@ -1,5 +1,4 @@
 """Identify and validate test-first check receipts for an assigned ticket."""
-import ast
 from contextlib import closing
 import hashlib
 import json
@@ -12,7 +11,6 @@ import subprocess
 
 
 UNITTEST_CLAIM = re.compile(r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*){2,}')
-UNITTEST_CONTEXT_PREFIX = 'unittest-context:'
 
 
 def valid_claim(value):
@@ -96,57 +94,7 @@ def working_entry(root, name, expected, algorithm):
     return mode, blob
 
 
-def unittest_context(path, claim):
-    """Identify the claimed method and its context within the test module."""
-    _, class_name, method_name = claim.rsplit('.', 2)
-    try:
-        module = ast.parse(path.read_bytes())
-    except SyntaxError as error:
-        raise ValueError(f'{claim}: cannot parse the unittest module') from error
-    functions = (ast.FunctionDef, ast.AsyncFunctionDef)
-    methods = [(test_class, method) for test_class in module.body
-               if isinstance(test_class, ast.ClassDef) and test_class.name == class_name
-               for method in test_class.body if isinstance(method, functions) and method.name == method_name]
-    if len(methods) != 1:
-        raise ValueError(f'{claim}: expected one directly defined unittest method')
-    test_class, claimed = methods[0]
-    context = []
-    neighbors = {}
-    for node in module.body:
-        if not isinstance(node, ast.ClassDef):
-            neighbors[f'module:{len(context)}'] = None
-            context.append(node)
-            continue
-        class_key = f'class:{node.name}'
-        if class_key in neighbors:
-            raise ValueError(f'{claim}: duplicate class definition {node.name}')
-        neighbors[class_key] = None
-        members = []
-        for member in node.body:
-            if member is claimed or (isinstance(member, functions) and member.name.startswith('test')):
-                key = f'{node.name}.{member.name}'
-                if key in neighbors:
-                    raise ValueError(f'{claim}: duplicate test definition {key}')
-                neighbors[key] = hashlib.sha256(ast.dump(member).encode()).hexdigest()
-                if member is not claimed:
-                    continue
-            else:
-                neighbors[f'fixture:{node.name}:{len(members)}'] = None
-            members.append(member)
-        node.body = members
-        neighbors[class_key] = hashlib.sha256(ast.dump(node).encode()).hexdigest()
-        if (node is not test_class and not node.body and not node.decorator_list and not node.keywords
-                and len(node.bases) == 1
-                and (isinstance(node.bases[0], ast.Name) or (isinstance(node.bases[0], ast.Attribute)
-                     and isinstance(node.bases[0].value, ast.Name)))):
-            continue
-        context.append(node)
-    module.body = context
-    return {'context': UNITTEST_CONTEXT_PREFIX + hashlib.sha256(ast.dump(module).encode()).hexdigest(),
-            'neighbors': neighbors}
-
-
-def source_snapshot(root, phase, claim, base, test_file, output_format):
+def source_snapshot(root, phase, claim, base, test_file):
     """Check the index and worktree and identify the test run at that snapshot."""
     head = git(root, 'rev-parse', '--verify', 'HEAD').decode().strip()
     if phase == 'red' and head != base:
@@ -157,27 +105,29 @@ def source_snapshot(root, phase, claim, base, test_file, output_format):
     module = claim.rsplit('.', 2)[0].replace('.', '/') + '.py' if test_file is None else None
     test_module = os.fsencode(module) if module and valid_test_file(module) else None
     declared = os.fsencode(test_file) if test_file else None
-    changed_test, test_sources = {}, {}
+    changed_test, test_sources, test_context = {}, {}, {}
     for path in sorted(tracked.keys() | index.keys() | untracked):
         expected = tracked.get(path)
         actual = working_entry(root, path, expected, algorithm)
-        is_test = path == declared or (test_module and (path == test_module or path.endswith(b'/' + test_module)))
-        if is_test and actual and actual[0] in (b'100644', b'100755'):
-            test_sources[path] = actual
+        name = os.fsdecode(path)
+        regular = actual and actual[0] in (b'100644', b'100755')
+        is_subject = path == declared or (test_module and (path == test_module or path.endswith(b'/' + test_module)))
+        is_test_file = valid_test_file(name)
+        if regular and is_subject:
+            test_sources[name] = f'{actual[0].decode()}:{actual[1].decode()}'
+        elif actual and is_test_file:
+            test_context[name] = f'{actual[0].decode()}:{actual[1].decode()}'
         if path not in untracked and actual == expected and index.get(path) == expected:
             continue
-        if phase == 'red' and path in test_sources:
-            changed_test[os.fsdecode(path)] = actual[1].decode()
+        if phase == 'red' and regular and is_test_file:
+            changed_test[name] = actual[1].decode()
             continue
-        raise ValueError(f'{phase} source differs from {head}: {os.fsdecode(path)}')
+        raise ValueError(f'{phase} source differs from {head}: {name}')
     if len(test_sources) != 1:
         raise ValueError(f'{claim}: expected one test source file')
-    path_bytes, (mode, blob) = next(iter(test_sources.items()))
-    path = os.fsdecode(path_bytes)
-    identity = (unittest_context(root / path, claim) if output_format == 'unittest'
-                else f'{mode.decode()}:{blob.decode()}')
+    path, identity = next(iter(test_sources.items()))
     return {'head': head, 'tree': git(root, 'rev-parse', f'{head}^{{tree}}').decode().strip(),
-            'test_changes': changed_test, 'test': {'path': path, 'identity': identity}}
+            'test_changes': changed_test, 'test': {'path': path, 'identity': identity, 'context': test_context}}
 
 
 def observed_claim(log, phase, claim, output_format):
@@ -306,16 +256,11 @@ def same_test_run(red, green):
     before, after = red['source'].get('test'), green['source'].get('test')
     if not isinstance(before, dict) or not isinstance(after, dict) or before.get('path') != after.get('path'):
         return False
-    if red['format'] == 'marker':
-        return bool(before.get('identity')) and before == after
-    original, result = before.get('identity'), after.get('identity')
-    if not isinstance(original, dict) or not isinstance(result, dict):
-        return False
-    context = original.get('context')
-    earlier, later = original.get('neighbors'), result.get('neighbors')
-    return (isinstance(context, str) and context.startswith(UNITTEST_CONTEXT_PREFIX)
-            and context == result.get('context') and isinstance(earlier, dict) and isinstance(later, dict)
-            and list(earlier.items()) == [(name, digest) for name, digest in later.items() if name in earlier])
+    identity = before.get('identity')
+    earlier, later = before.get('context'), after.get('context')
+    return (isinstance(identity, str) and bool(identity) and identity == after.get('identity')
+            and isinstance(earlier, dict) and isinstance(later, dict)
+            and all(later.get(path) == blob for path, blob in earlier.items()))
 
 
 def problems(saved, head, *, ticket=None, base=None):

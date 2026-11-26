@@ -25,22 +25,17 @@ python3 "<plugin_root>/scripts/run_check.py" \
 ```
 
 Red fixes the checkout at the assigned base and compares the index and raw file
-bytes there to the commit. The declared test file or the matching unittest
-module may differ. Other tracked and Git-visible untracked paths must match
-the base. Keep the logs outside the worktree. A valid red preserves exit 1 and
-adds a `tdd` receipt to the summary.
+bytes there to the commit. Regular files in recognized test locations may change.
+Other tracked and Git-visible untracked paths must match the base. Keep
+the logs outside the worktree. A valid red preserves exit 1 and adds a `tdd`
+receipt to the summary.
 
 After committing the fix, use `--phase green` and a fresh log. Green requires the
 same command arguments and output format, and a passing test on a worktree and
-index matching the checked-out commit. The named unittest method must be
-defined directly in the matching test file. The pair binds the module's syntax
-tree, including the claimed method and same-file fixtures, constants and
-helpers. Other methods starting with `test` are recorded by class and method name.
-Green may add these methods and plain test-only classes with a simple named base.
-Earlier methods and class declarations must retain their definitions and positions
-relative to each other and to the fixed module and fixture code.
-A marker claim must retain the exact
-declared test file. Keep both logs and summaries. Acceptance requires the
-matching red to finish before green starts and green to identify the exact
-accepted head. Record older receipts again if they lack these identities or
-identify only a unittest method.
+index matching the checked-out commit. Both formats bind the exact claimed
+test file and all test-location files present at red. Put independent additions
+in a new test file or record a fresh red with the final test and fixture files
+on the assigned base. Review any fixtures resolved outside those test locations.
+Keep both logs and summaries. Acceptance requires the matching red to finish
+before green starts and green to identify the exact accepted head. Record older
+receipts again if they lack this file snapshot.
