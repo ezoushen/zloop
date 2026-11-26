@@ -12,6 +12,7 @@ import subprocess
 
 
 UNITTEST_CLAIM = re.compile(r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*){2,}')
+UNITTEST_CONTEXT_PREFIX = 'unittest-context:'
 
 
 def valid_claim(value):
@@ -95,19 +96,23 @@ def working_entry(root, name, expected, algorithm):
     return mode, blob
 
 
-def unittest_method(path, claim):
-    """Identify a named method independently of source lines and neighboring tests."""
+def unittest_context(path, claim):
+    """Identify the claimed method and its context within the test module."""
     _, class_name, method_name = claim.rsplit('.', 2)
     try:
         module = ast.parse(path.read_bytes())
     except SyntaxError as error:
         raise ValueError(f'{claim}: cannot parse the unittest module') from error
-    methods = [method for node in module.body if isinstance(node, ast.ClassDef) and node.name == class_name
-               for method in node.body if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
-               and method.name == method_name]
+    functions = (ast.FunctionDef, ast.AsyncFunctionDef)
+    methods = [(test_class, method) for test_class in module.body
+               if isinstance(test_class, ast.ClassDef) and test_class.name == class_name
+               for method in test_class.body if isinstance(method, functions) and method.name == method_name]
     if len(methods) != 1:
         raise ValueError(f'{claim}: expected one directly defined unittest method')
-    return hashlib.sha256(ast.dump(methods[0]).encode()).hexdigest()
+    test_class, claimed = methods[0]
+    test_class.body = [node for node in test_class.body if node is claimed or not isinstance(node, functions)
+                       or not node.name.startswith('test')]
+    return UNITTEST_CONTEXT_PREFIX + hashlib.sha256(ast.dump(module).encode()).hexdigest()
 
 
 def source_snapshot(root, phase, claim, base, test_file, output_format):
@@ -138,7 +143,7 @@ def source_snapshot(root, phase, claim, base, test_file, output_format):
         raise ValueError(f'{claim}: expected one test source file')
     path_bytes, (mode, blob) = next(iter(test_sources.items()))
     path = os.fsdecode(path_bytes)
-    identity = (unittest_method(root / path, claim) if output_format == 'unittest'
+    identity = (unittest_context(root / path, claim) if output_format == 'unittest'
                 else f'{mode.decode()}:{blob.decode()}')
     return {'head': head, 'tree': git(root, 'rev-parse', f'{head}^{{tree}}').decode().strip(),
             'test_changes': changed_test, 'test': {'path': path, 'identity': identity}}
@@ -263,10 +268,14 @@ def retained_receipt(path, digest, saved, collected_ns):
 
 
 def same_test_run(red, green):
-    """Require positive identities so pre-binding receipts cannot match each other."""
+    """Match the command and current source identity for the same test format."""
+    test = red['source'].get('test')
+    identity = test.get('identity') if isinstance(test, dict) else None
     return (red.get('format') in ('marker', 'unittest') and red['format'] == green.get('format')
             and red.get('command_sha256') and red['command_sha256'] == green.get('command_sha256')
-            and red['source'].get('test') and red['source']['test'] == green['source'].get('test'))
+            and test and test == green['source'].get('test')
+            and (red['format'] == 'marker' or
+                 (isinstance(identity, str) and identity.startswith(UNITTEST_CONTEXT_PREFIX))))
 
 
 def problems(saved, head, *, ticket=None, base=None):

@@ -33,8 +33,11 @@ adds a `tdd` receipt to the summary.
 After committing the fix, use `--phase green` and a fresh log. Green requires the
 same command arguments and output format, and a passing test on a worktree and
 index matching the checked-out commit. The named unittest method must be
-defined directly in the matching test file and retain its syntax tree. Other
-tests can be added to the file. A marker claim must retain the exact declared
-test file. Keep both logs and summaries. Acceptance requires the matching red
-to finish before green starts and green to identify the exact accepted head.
-Older receipts that lack these identities need to be recorded again.
+defined directly in the matching test file. The pair binds the module's syntax
+tree, including the claimed method and same-file fixtures, constants and
+helpers. Other methods starting with `test` in the claimed class are omitted,
+so neighboring tests can be added there. A marker claim must retain the exact
+declared test file. Keep both logs and summaries. Acceptance requires the
+matching red to finish before green starts and green to identify the exact
+accepted head. Record older receipts again if they lack these identities or
+identify only a unittest method.
