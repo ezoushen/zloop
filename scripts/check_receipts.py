@@ -110,8 +110,16 @@ def unittest_context(path, claim):
     if len(methods) != 1:
         raise ValueError(f'{claim}: expected one directly defined unittest method')
     test_class, claimed = methods[0]
-    test_class.body = [node for node in test_class.body if node is claimed or not isinstance(node, functions)
-                       or not node.name.startswith('test')]
+    context = []
+    for node in module.body:
+        if isinstance(node, ast.ClassDef):
+            node.body = [member for member in node.body if member is claimed or not isinstance(member, functions)
+                         or not member.name.startswith('test')]
+            if (node is not test_class and not node.body and not node.decorator_list and not node.keywords
+                    and [ast.unparse(base) for base in node.bases] in (['TestCase'], ['unittest.TestCase'])):
+                continue
+        context.append(node)
+    module.body = context
     return UNITTEST_CONTEXT_PREFIX + hashlib.sha256(ast.dump(module).encode()).hexdigest()
 
 

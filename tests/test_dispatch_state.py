@@ -480,14 +480,20 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         request = self.completion(item)
         self.assert_claim_refused(item, ticket, request, f'{claim}: missing red receipt')
 
-    def test_managed_acceptance_pairs_an_unchanged_unittest_method_after_a_neighbor_is_added(self):
+    def test_managed_acceptance_pairs_an_unchanged_unittest_after_other_tests_are_added(self):
         ticket, item, claim, _ = self.claimed_ticket()
         self.write_claimed_test(item)
-        red = self.phase_check(item, claim, 'red')
         test = Path(item['worktree']) / 'test_value.py'
+        test.write_text(test.read_text() + '\nclass ExistingTest(unittest.TestCase):\n'
+                        '    def setUp(self): self.expected = 2\n'
+                        '    def test_existing(self): self.assertEqual(value, self.expected)\n')
+        red = self.phase_check(item, claim, 'red')
         test.write_text(test.read_text().replace('    def test_wanted',
-                                                 '    def test_other(self): self.assertEqual(value, 2)\n'
-                                                 '    def test_wanted'))
+                                                '    def test_other(self): self.assertEqual(value, 2)\n'
+                                                '    def test_wanted')
+                        + '    def test_added(self): self.assertEqual(value, self.expected)\n'
+                        + '\nclass NewTest(unittest.TestCase):\n'
+                        + '    def test_new(self): self.assertEqual(value, 2)\n')
         request = self.fixed_result(item)
         green = self.phase_check(item, claim, 'green')
         request['evidence'] += [red, green]

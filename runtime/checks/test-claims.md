@@ -35,8 +35,9 @@ same command arguments and output format, and a passing test on a worktree and
 index matching the checked-out commit. The named unittest method must be
 defined directly in the matching test file. The pair binds the module's syntax
 tree, including the claimed method and same-file fixtures, constants and
-helpers. Other methods starting with `test` in the claimed class are omitted,
-so neighboring tests can be added there. A marker claim must retain the exact
+helpers. Other methods starting with `test` are omitted across the module's classes.
+An ordinary `unittest.TestCase` class containing only those methods is omitted as well.
+A marker claim must retain the exact
 declared test file. Keep both logs and summaries. Acceptance requires the
 matching red to finish before green starts and green to identify the exact
 accepted head. Record older receipts again if they lack these identities or
