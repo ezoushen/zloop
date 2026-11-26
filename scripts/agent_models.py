@@ -3,14 +3,17 @@
 
 import argparse
 import hashlib
+from ipaddress import ip_address
 import json
 import os
 from pathlib import Path
 import random
+import re
 import sqlite3
 import subprocess
 import sys
 import time
+from urllib.parse import urlsplit
 import agent_defs
 import allowance
 import capacity
@@ -113,28 +116,34 @@ def recorded_state(trace):
     return None
 
 
-def decision_model_selection(router, candidates, definitions, agent, job, host, assignment, task, *, decision_policy=None, context=None, eligible_thinking=None, trace=None, excluded=None, failure=None):
+def decision_levels(instance, name, task, eligible_thinking):
+    """Thinking choices that remain for a candidate under the task and runtime preflight."""
+    policy = instance.get('models', {'mode': 'inherit'})
+    if policy['mode'] == 'inherit' and task:
+        return []
+    if 'model' in task and task['model'] != policy.get('model'):
+        return []
+    baseline = policy.get('thinking')
+    levels = baseline['allowed'] if isinstance(baseline, dict) else [baseline]
+    if 'effort' in task:
+        try:
+            check_thinking(policy, task['effort'])
+        except ValueError:
+            return []
+        levels = [task['effort']]
+    if name in (eligible_thinking or {}):
+        levels = [level for level in levels if level in eligible_thinking[name]]
+    return levels
+
+
+def decision_model_selection(router, candidates, definitions, agent, job, host, assignment, task, *, decision_policy=None, context=None, eligible_thinking=None, trace=None, excluded=None, failure=None, transport=None):
     """Score permitted model/effort pairs together; the service never supplies launch settings."""
     if not isinstance(assignment, str) or not assignment.strip() or len(assignment) > 16000:
         raise ValueError('Decision model requires a nonempty assignment of at most 16000 characters')
     options, criteria = {}, {}
     for name, instance in candidates.items():
-        policy = instance.get('models', {'mode': 'inherit'})
-        baseline = policy.get('thinking')
-        if policy['mode'] == 'inherit' and task:
-            continue
-        if 'model' in task and task['model'] != policy.get('model'):
-            continue
-        levels = baseline['allowed'] if isinstance(baseline, dict) else [baseline]
-        if 'effort' in task:
-            try:
-                check_thinking(policy, task['effort'])
-            except ValueError:
-                continue
-            levels = [task['effort']]
-        for level in levels:
-            if name in (eligible_thinking or {}) and level not in eligible_thinking[name]:
-                continue
+        for level in decision_levels(instance, name, task, eligible_thinking):
+            policy = instance.get('models', {})
             key = f'option_{len(options)}'
             options[key] = {'candidate': name, **({'thinking': level} if level is not None else {})}
             route = definitions.get(name, {})
@@ -189,10 +198,10 @@ def decision_model_selection(router, candidates, definitions, agent, job, host, 
                'state': state + f'Assignment:\n{assignment}',
                'instruction': instructions, 'options': criteria}
     if trace is None:
-        record = decisions.decide(decision_policy, request, context=context, transport=systemone_request)
+        record = decisions.decide(decision_policy, request, context=context, transport=transport or systemone_request)
     else:
         record = decisions.checkpoint(decision_policy, 'worker-selection', request, context=context,
-                                      transport=systemone_request, trace=trace)
+                                      transport=transport or systemone_request, trace=trace)
     record['options'] = options
     if missing:
         record.setdefault('warnings', []).append({'code': 'missing_outcomes', 'message': (
@@ -253,22 +262,37 @@ def shadow_selection(names, catalog, agent, job, seed, levels=None):
             'candidates': scored, 'choice': choice, 'quality_history': quality}
 
 
-def backend_unavailable(definition, backends, checked=None):
+def host_key(host):
+    """Canonical DNS or IP spelling, without resolving the name."""
+    host = host.rstrip('.').lower()
+    try:
+        return ip_address(host).compressed
+    except ValueError:
+        return host.encode('idna').decode('ascii')
+
+
+def denied_host_keys(entries):
+    """Read literal hosts and optional ports from a card's deny-hosts list."""
+    denied = set()
+    for entry in entries:
+        if re.fullmatch(r'(?:[\w.-]+|\[[0-9A-Fa-f:.]+\])(?::[0-9]+)?', entry):
+            address = urlsplit('//' + entry)
+            denied.add((host_key(address.hostname), address.port))
+    return denied
+
+
+def backend_unavailable(backend, backends, *, offline=False, require_url=None):
     """Why a model's local backend cannot take a worker now (no free slot, unhealthy, short of memory), or None.
-    `checked` keeps each backend's answer for the rest of one route."""
-    backend = definition.get('backend')
+    In offline mode the HTTP check is skipped."""
     if backend not in backends:
         return None
-    if checked is not None:
-        if backend not in checked:
-            checked[backend] = backend_unavailable(definition, backends)
-        return checked[backend]
+    config = backends[backend]
     try:
         held = capacity.in_use(backend)
-        slots = backends[backend]['slots']
+        slots = config['slots']
         if held >= slots:
             return f'Backend {backend} is at capacity ({held}/{slots})'
-        capacity.check(backend, backends[backend])
+        capacity.check(backend, dict(config, health=None) if offline else config, require_url=require_url)
     except ValueError as error:
         return str(error)
     except (OSError, sqlite3.Error):
@@ -486,7 +510,7 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
                       adaptive_thinking=None, *, job=None, session_id=None, candidate=None, selection=None,
                       eligible_candidates=None, list_candidates=False, target_runtime=None, assignment=None,
                       eligible_thinking=None, journal=None, assignment_id=None, excluded_candidates=None,
-                      after_failure=None, worktree=None, reports=None):
+                      after_failure=None, worktree=None, reports=None, offline=False, deny_hosts=()):
     if job is not None:
         if job not in JOBS:
             raise ValueError(f'Unknown job {job!r}; jobs: {", ".join(sorted(JOBS))}')
@@ -521,6 +545,19 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
     metadata = {'config_profile': profile, 'profile_source': profiles[profile][1] if profile else None,
                 'router': router, 'router_source': router_source, 'profile_overrides': overrides,
                 'decision_policy': decision_policy, **session}
+    offline = offline or list_candidates or os.environ.get('ZLOOP_NO_NETWORK') == '1'
+    if offline:
+        metadata['availability'] = 'unchecked'
+    denied = denied_host_keys(deny_hosts)
+
+    def require_url(url):
+        address = urlsplit(url)
+        if address.scheme not in ('http', 'https') or not address.hostname:
+            raise ValueError('Network check requires an HTTP(S) URL with a hostname')
+        host = host_key(address.hostname)
+        port = address.port if address.port is not None else (443 if address.scheme == 'https' else 80)
+        if (host, None) in denied or (host, port) in denied:
+            raise ValueError('excluded-by-mandate')
     catalog = {name: (definition, f'{path}:models.{name}')
                for path, data in layers for name, definition in data.get('models', {}).items()}
     allow_training, include_critical, backends, checked = False, False, {}, {}
@@ -529,6 +566,28 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
         include_critical = data.get('include_critical_allowance', include_critical)
         backends.update(data.get('capacity', {}))
     pressure = {} if include_critical else allowance_levels()
+
+    def check_backend(backend):
+        if backend not in checked:
+            checked[backend] = backend_unavailable(backend, backends, offline=offline,
+                                                   require_url=require_url if denied else None)
+        return checked[backend]
+
+    def route_decision(backend, payload):
+        if offline:
+            raise OSError('Decision backend availability is unchecked in offline routing')
+        if denied:
+            require_url(backend['endpoint'])
+        return systemone_request(backend, payload)
+
+    def mandate_exclusion(backend):
+        health = backends.get(backend, {}).get('health')
+        if denied and health:
+            try:
+                require_url(health)
+            except ValueError as error:
+                return str(error)
+        return None
 
     def spent(name, runtime):
         # Only a subscription model spends an allowance; free and local ones do not. A model names the reading it
@@ -609,28 +668,23 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
             if name in catalog and catalog[name][0].get('data') == 'trains' and not allow_training:
                 unavailable[name] = TRAINING
                 continue
-            full = backend_unavailable(catalog[name][0] if name in catalog else {}, backends, checked)
-            if full:
-                unavailable[name] = full
-                continue
             resolved, detail = expand_model(name, catalog, runtimes, host, target_runtime)
             if resolved is None:
                 unavailable[name] = detail
             elif spent(name, detail['target_runtime']):
                 unavailable[name] = critical(name, detail['target_runtime'])
             else:
-                expanded[name], definitions[name] = resolved, detail
                 backend = catalog[name][0].get('backend')
+                if blocked := mandate_exclusion(backend):
+                    unavailable[name] = blocked
+                    continue
+                if list_candidates and (full := check_backend(backend)):
+                    unavailable[name] = full
+                    continue
+                expanded[name], definitions[name] = resolved, detail
                 if backend in backends:
                     # The lifecycle takes this backend's lease when the worker registers.
                     definitions[name].update(backend=backend, capacity=backends[backend])
-        if not expanded and not list_candidates:
-            allowance_refusal(unavailable)
-            if candidate is not None:
-                raise ValueError(f'candidate {candidate!r} is not eligible; '
-                                 + unavailable.get(candidate, 'explicit choice prevents fallback'))
-            raise ValueError('No eligible candidates remain; ' +
-                             '; '.join(f'{name}: {reason}' for name, reason in unavailable.items()))
         metadata['unavailable_candidates'] = unavailable
         metadata['candidate_routes'] = definitions
         instance = dict(instance, candidates=expanded)
@@ -638,9 +692,6 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
         name = instance['model']
         if name in catalog and catalog[name][0].get('data') == 'trains' and not allow_training:
             raise ValueError(f'Model {name!r}: {TRAINING}')
-        full = backend_unavailable(catalog[name][0] if name in catalog else {}, backends, checked)
-        if full:
-            raise ValueError(f'Model {name!r}: {full}')
         resolved, detail = expand_model(name, catalog, runtimes, host, target_runtime)
         if resolved is None:
             raise NoRoute(f'Model {name!r}: {detail}')
@@ -650,6 +701,8 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
         metadata.update(detail)
         backend = catalog[name][0].get('backend')
         if backend in backends:
+            if blocked := mandate_exclusion(backend):
+                raise ValueError(f'Model {name!r}: {blocked}')
             metadata.update(backend=backend, capacity=backends[backend])
     if pooled:
         expanded = {}
@@ -688,6 +741,29 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
                     candidates=instance['candidates'] if pooled else {},
                     instance=None if pooled else instance)
     if pooled:
+        validate_settings(task, 'task', runtime_labels=True)
+        decision_requested = (router['type'] == 'decision-model' and assignment is not None
+                              and candidate is None and selection is None)
+        if 'unavailable_candidates' in metadata:
+            unavailable = metadata['unavailable_candidates']
+            expanded = instance['candidates']
+            for name in list(expanded):
+                if candidate is not None or (eligible_candidates is not None and name not in eligible_candidates):
+                    continue
+                if decision_requested and not decision_levels(expanded[name], name, task, eligible_thinking):
+                    continue
+                full = check_backend(catalog[name][0].get('backend'))
+                if full:
+                    unavailable[name] = full
+                    del expanded[name], definitions[name]
+            if candidate is not None and candidate in unavailable:
+                raise ValueError(f'candidate {candidate!r} is not eligible; {unavailable[candidate]}')
+            if not expanded:
+                allowance_refusal(unavailable)
+                if candidate is not None:
+                    raise ValueError(f'candidate {candidate!r} is not eligible; explicit choice prevents fallback')
+                raise ValueError('No eligible candidates remain; ' +
+                                 '; '.join(f'{name}: {reason}' for name, reason in unavailable.items()))
         metadata['candidate_pool'] = instance
         pool = instance
         # Shadow scoring weighs every reachable candidate the host did not exclude, whatever the route's runtime.
@@ -695,7 +771,8 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
         for name in configured_candidates:
             if ((eligible_candidates is None or name in eligible_candidates) and name in catalog
                     and (catalog[name][0].get('data') != 'trains' or allow_training)
-                    and not backend_unavailable(catalog[name][0], backends, checked)):
+                    and not checked.get(catalog[name][0].get('backend'))
+                    and not mandate_exclusion(catalog[name][0].get('backend'))):
                 reachable, route = expand_model(name, catalog, runtimes, host)
                 if reachable is not None and not spent(name, route['target_runtime']):
                     competing[name] = route['target_runtime']
@@ -703,8 +780,6 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
             eligible_candidates = [name for name in eligible_candidates if name in pool['candidates']]
             if not eligible_candidates:
                 allowance_refusal(metadata.get('unavailable_candidates', {}))
-        decision_requested = (router['type'] == 'decision-model' and assignment is not None
-                              and candidate is None and selection is None)
         if decision_requested and router.get('consult') == 'after-failure' and after_failure is None:
             # Rule first: the configured profile settles routine routes; System One sees failures.
             rule_profile = router.get('fallback_profile')
@@ -751,12 +826,12 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
             if unexplained:
                 raise ValueError('Give a reason for each configured candidate you exclude from this decision '
                                  '(--excluded-candidates \'{"<id>": "<reason>"}\'): ' + ', '.join(unexplained))
-            validate_settings(task, 'task', runtime_labels=True)
             try:
                 selection, record = decision_model_selection(
                     router, {name: pool['candidates'][name] for name in eligible}, definitions,
                     agent, job, host, assignment, task, decision_policy=decision_policy, context=decision_context,
-                    eligible_thinking=eligible_thinking, trace=trace, excluded=excluded, failure=after_failure)
+                    eligible_thinking=eligible_thinking, trace=trace, excluded=excluded, failure=after_failure,
+                    transport=route_decision)
                 metadata['decision_model'] = record
                 metadata['decision_warnings'] = record['warnings']
                 if selection is None:
@@ -882,9 +957,17 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
     # A native child takes no flags; a worker started as its own runtime process gets them explicitly.
     launch = (launch_controls(runtime, agent, settings, repo.resolve(), worktree, reports)
               if not native and kind != 't3' and runtime in HOSTS else None)
+    if 'backend' in metadata and not (launch or {}).get('missing'):
+        full = check_backend(metadata['backend'])
+        if full:
+            if pooled:
+                raise ValueError(f'candidate {selected!r} is not eligible; {full}')
+            raise ValueError(f'Model {name!r}: {full}')
     # Named delegates and skills can forward to another runtime; the host is not the destination.
     environment = None
     if kind == 't3':
+        if offline:
+            raise ValueError('T3 environment availability is unchecked in offline routing')
         # The explicit t3 gate includes the environment: the layered preflight runs at resolution, before any
         # launch, and its layer's reason (home/server/project/environment) refuses the route. A route naming a
         # linked environment also needs that environment linked, answering and at or above the agent's writes
@@ -1103,6 +1186,7 @@ def main():
     parser.add_argument('--target-runtime', choices=HOSTS,
                         help='worker runtime for catalog selection/profile lookup; requires --route')
     parser.add_argument('--route', action='store_true', help='resolve the worker executor and model policy')
+    parser.add_argument('--offline', action='store_true', help='resolve without network checks; requires --route')
     parser.add_argument('--user-executors', type=Path,
                         default=Path.home() / '.config/zloop/executors.json')
     parser.add_argument('--route-choice', help='complete JSON agent instance for this assignment only; requires --route')
@@ -1123,7 +1207,7 @@ def main():
     parser.add_argument('--worktree', type=Path, help='the worker\'s worktree, for launch controls; requires --route')
     parser.add_argument('--reports', type=Path, help='the reports directory a worker writes, for launch controls')
     parser.add_argument('--assignment-id', help='stable assignment/attempt identity; required with --journal')
-    parser.add_argument('--dispatch-card', type=Path, help='issue a route receipt for this managed autopilot card')
+    parser.add_argument('--dispatch-card', type=Path, help='apply a managed autopilot card and record launch routes')
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument('--list-candidates', action='store_true', help='inspect the effective pool without selecting')
     actions.add_argument('--save-session', type=Path, help='replace session overrides from a validated config JSON file')
@@ -1165,13 +1249,17 @@ def main():
             return
         if args.route_choice and not args.route:
             raise ValueError('--route-choice requires --route')
-        if args.dispatch_card is not None and (not args.route or args.list_candidates or session_action
-                or not args.assignment_id or args.assignment is None or args.worktree is None):
-            raise ValueError('--dispatch-card requires --route, --assignment-id, --assignment and --worktree')
+        if args.dispatch_card is not None:
+            if not args.route or session_action:
+                raise ValueError('--dispatch-card requires --route and cannot be used for session edits')
+            if not args.list_candidates and (not args.assignment_id or args.assignment is None or args.worktree is None):
+                raise ValueError('Managed launch routing requires --assignment-id, --assignment and --worktree')
         if args.config_profile is not None and not args.route:
             raise ValueError('--config-profile requires --route')
         if args.target_runtime is not None and not args.route:
             raise ValueError('--target-runtime requires --route')
+        if args.offline and not args.route:
+            raise ValueError('--offline requires --route')
         if args.adaptive_thinking is not None and not args.route:
             raise ValueError('--adaptive-thinking requires --route')
         agent = JOBS[args.job]['agent'] if args.job else args.agent
@@ -1180,11 +1268,13 @@ def main():
         if args.route:
             configuration = [user_config, repo / '.zloop/models.json', args.user_executors.expanduser().resolve(),
                              repo / '.zloop/executors.json']
-            route_session = (dispatch_state.routing_session(args.dispatch_card, args.session)
-                             if args.dispatch_card else args.session)
+            card = args.dispatch_card.expanduser().resolve() if args.dispatch_card else None
+            route_session, deny_hosts, revision = (dispatch_state.routing_context(card, args.session)
+                                                   if card else (args.session, (), None))
             if route_session:
                 configuration.append(session_path(repo, route_session))
-            before_configuration = dispatch_state.files(configuration) if args.dispatch_card else None
+            issue_receipt = card is not None and not args.list_candidates
+            before_configuration = dispatch_state.files(configuration) if issue_receipt else None
             choice = json_argument(args.route_choice, '--route-choice', dict,
                                    '\'{"executor":{"type":"subagent"}}\'')
             result = resolve_execution(repo, user_config, args.user_executors.expanduser().resolve(),
@@ -1199,7 +1289,7 @@ def main():
                                        assignment=assignment_text(args.assignment) if args.assignment else None,
                                        journal=args.journal,
                                        assignment_id=(args.assignment_id if args.journal or not args.dispatch_card else None),
-                                       after_failure=args.after_failure,
+                                       after_failure=args.after_failure, offline=args.offline, deny_hosts=deny_hosts,
                                        # Canonical, as Codex records resolved paths (/private/var for /var).
                                        worktree=args.worktree.expanduser().resolve() if args.worktree else None,
                                        reports=args.reports.expanduser().resolve() if args.reports else None,
@@ -1216,11 +1306,12 @@ def main():
             if result.get('executor', 'native') != 'native':
                 raise ValueError('external executors own their launch settings; do not use native child profiles')
             result['native_profile'] = native_profile(result)
-        if args.dispatch_card is not None:
+        if args.route and issue_receipt:
             if before_configuration != dispatch_state.files(configuration):
                 raise ValueError('Routing configuration changed during resolution; resolve routing again')
-            result = dispatch_state.issue_route(args.dispatch_card.resolve(), repo, args.assignment_id,
-                args.assignment.resolve(), args.worktree.resolve(), result, configuration)
+            result = dispatch_state.issue_route(card, repo, args.assignment_id,
+                args.assignment.resolve(), args.worktree.resolve(), result, configuration,
+                expected_revision=revision)
         print(json.dumps(result, indent=2))
     except (OSError, ValueError) as error:
         parser.exit(getattr(error, 'exit_status', 2), f'{error}\n')

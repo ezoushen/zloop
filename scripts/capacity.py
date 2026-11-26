@@ -132,15 +132,30 @@ def free_memory_percent():
     return float(match.group(1)) if match else None
 
 
-def check(backend, config):
+def check(backend, config, *, require_url=None):
     """Refuse a backend whose health endpoint fails or whose machine is short of free memory."""
+    minimum = config.get('min_free_memory_percent')
+    if minimum is not None:
+        free = free_memory_percent()
+        if free is not None and free < minimum:
+            raise ValueError(f'Backend {backend} needs {minimum}% free memory; the machine has {free}%')
     if config.get('health'):
         answer = {}
 
         def probe():
             import urllib.request  # Here, not at the top: most starts of this script check no backend.
             try:
-                with urllib.request.urlopen(config['health'], timeout=HEALTH_SECONDS) as response:
+                open_url = urllib.request.urlopen
+                if require_url is not None:
+                    class CheckedRedirect(urllib.request.HTTPRedirectHandler):
+                        def redirect_request(self, req, fp, code, msg, headers, newurl):
+                            require_url(newurl)
+                            return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+                    require_url(config['health'])
+                    open_url = urllib.request.build_opener(
+                        urllib.request.ProxyHandler({}), CheckedRedirect).open
+                with open_url(config['health'], timeout=HEALTH_SECONDS) as response:
                     answer['status'] = response.status
             except (OSError, ValueError) as error:
                 answer['error'] = str(error)
@@ -151,11 +166,6 @@ def check(backend, config):
         if answer.get('status') != 200:
             reason = answer.get('error') or (f"health returned {answer['status']}" if answer else 'timed out')
             raise ValueError(f'Backend {backend} is unhealthy: {reason}')
-    minimum = config.get('min_free_memory_percent')
-    if minimum is not None:
-        free = free_memory_percent()
-        if free is not None and free < minimum:
-            raise ValueError(f'Backend {backend} needs {minimum}% free memory; the machine has {free}%')
 
 
 def acquire(backend, config, state, attempt, now=None, *, registering=False):

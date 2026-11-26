@@ -87,7 +87,11 @@ class ShadowAndCapacity(RouterCase):
         self.data['models']['glm']['backend'] = 'dgx'
         self.data['capacity'] = {'dgx': {'slots': 1, 'health': 'http://127.0.0.1:9/health'}}
         self.save()
-        self.assertIn('dgx is unhealthy', self.resolve(list_candidates=True)['unavailable_candidates']['glm'])
+        listed = self.resolve(list_candidates=True)
+        self.assertEqual(listed['availability'], 'unchecked')
+        self.assertIn('glm', listed['candidates'])
+        with self.assertRaisesRegex(ValueError, 'dgx is unhealthy'):
+            self.resolve(host='codex', candidate='glm')
         del self.data['capacity']['dgx']['health']
         self.save()
         route = self.resolve(candidate='glm')
@@ -105,12 +109,12 @@ class ShadowAndCapacity(RouterCase):
         listed = self.resolve(list_candidates=True)
         self.assertIn('dgx is at capacity (1/1)', listed['unavailable_candidates']['glm'])
         with self.assertRaisesRegex(ValueError, 'not eligible'):
-            self.resolve(candidate='glm')
+            self.resolve(host='codex', candidate='glm')
         # A role pinned to the model fails the same way.
         self.data['agents']['builder'] = {'model': 'glm'}
         self.save()
         with self.assertRaisesRegex(ValueError, 'dgx is at capacity'):
-            self.resolve()
+            self.resolve(host='codex')
         self.data['capacity']['dgx']['slots'] = 2
         self.save()
         self.assertEqual(self.resolve()['backend'], 'dgx')

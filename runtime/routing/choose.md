@@ -12,7 +12,8 @@ the selected executor applies settings and confirms what actually ran.
 
 1. Inspect with `--list-candidates` and filter by task fit, actual tools, context,
    permissions and availability. `candidate_routes` shows worker runtimes and
-   caller routes; it does not prove live support. Preserve a fixed instance.
+   caller routes. Inspection makes no network requests and reports
+   `availability: unchecked`. Preserve a fixed instance.
 2. Resolve with the filtered `--eligible-candidates` and, when preflight restricts
    efforts, `--eligible-thinking '{"opus":["medium"]}'`. With the decision-model
    router, each configured candidate left out needs a reason in
@@ -140,11 +141,19 @@ changing them.
 The `backend` and `capacity` settings are in
 [the catalog](../config/catalog.md#allowance-and-local-capacity).
 
-Slots are shared by every workstream on the machine: the worker lifecycle takes a lease
-when it registers an attempt on that backend, after the health and free-memory
-checks, and refuses registration when the backend is full or unhealthy; the lease
-ends when the attempt's result is collected or it closes. Routes list the candidates
-of a backend that is full, fails its health check or lacks free memory in
-`unavailable_candidates`, and a route to such a backend
-carries `backend` and `capacity` for the lifecycle. Route to the next candidate
-rather than waiting.
+Resolution applies the candidate pin, eligibility, runtime and local capacity limits
+before health requests. Unavailable backends are reported in `unavailable_candidates`.
+`--offline` or `ZLOOP_NO_NETWORK=1` skips network checks and marks
+`availability: unchecked`. The resolver uses the configured recovery policy when
+offline decision routing needs inference. T3 routes require live environment preflight.
+
+With `--dispatch-card`, the resolver reads the managed card's State section.
+List literal DNS names or IPs in `deny-hosts: [host.example, other.example:8443]`.
+A bare host covers all ports. DNS names match without case or a trailing dot.
+Denied destinations are `excluded-by-mandate`, including during offline inspection,
+and health redirects to denied hosts are refused. Combining `--dispatch-card`
+with `--list-candidates` inspects the run's pool without recording a route receipt.
+
+Routes carry `backend` and `capacity` for the lifecycle. Registration checks backend
+availability and takes a shared lease. The lease ends when the attempt's result is
+collected or the attempt closes.

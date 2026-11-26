@@ -93,9 +93,9 @@ def matching_claim(card, attempt, item, execution):
         return claim
 
 
-def routing_session(card, requested=None):
+def routing_session(card, requested=None, *, control=None):
     """Keep the run's routing configuration scope when a fresh host resumes it."""
-    control = managed(card)
+    control = control if control is not None else managed(card)
     require(control, 'Managed routing requires an adopted card')
     saved = read(card, control)
     bound = saved.get('routing_session')
@@ -106,11 +106,22 @@ def routing_session(card, requested=None):
     return chosen
 
 
-def issue_route(card, repo, attempt, packet, worktree, execution, configuration):
+def routing_context(card, requested=None):
+    """Read the routing session, denied hosts and revision from the managed card."""
+    control = managed(card)
+    session = routing_session(card, requested, control=control)
+    raw = state_files.state_fields(control['card_text']).get('deny-hosts', '')
+    require(not raw or raw.startswith('[') and raw.endswith(']'), 'deny-hosts requires a bracketed list')
+    return session, front_matter.bracketed(raw) if raw else [], control['revision']
+
+
+def issue_route(card, repo, attempt, packet, worktree, execution, configuration, *, expected_revision=None):
     """Called only on the resolver's completed result, after overrides and launch controls are validated."""
     with state_files.locked(card):
         control = managed(card)
         require(control, 'Route receipts require an explicitly adopted managed card')
+        require(expected_revision is None or expected_revision == control['revision'],
+                'Managed routing policy changed during resolution; resolve routing again')
         require(execution.get('status') != 'selection_required',
                 'selection_required: complete routing before issuing a managed route receipt')
         require(execution.get('job') and isinstance(execution.get('settings'), dict), 'Incomplete resolved route')
@@ -125,7 +136,7 @@ def issue_route(card, repo, attempt, packet, worktree, execution, configuration)
                        configuration=files(configuration), execution_hash=digest(execution))
         saved = read(card, control)
         session = (execution.get('session') or {}).get('id')
-        saved['routing_session'] = routing_session(card, session)
+        saved['routing_session'] = routing_session(card, session, control=control)
         previous = saved['routes'].get(attempt)
         if previous and {k: v for k, v in previous.items() if k != 'token'} == {
                 k: v for k, v in receipt.items() if k != 'token'}:
