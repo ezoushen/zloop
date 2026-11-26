@@ -164,3 +164,9 @@ backend's `slots` with an optional `health` URL and `min_free_memory_percent`:
                     "runtimes": {"pi": {"id": "dgx/glm"}}}},
  "capacity": {"dgx": {"slots": 4, "health": "http://dgx.local:8000/health"}}}
 ```
+
+Each lifecycle attempt reserves one slot on its selected backend. Once registration
+has stopped, an unregistered reservation is reclaimable 60 seconds after acquisition.
+An unfinished registered attempt's lease is reclaimable 60 seconds after acquisition
+when its verified local owner is gone or its PID has been reused.
+A matching owner or an unavailable identity keeps the slot.
