@@ -22,6 +22,7 @@ its own launches of that pane or agent name logged before it, such as one that f
 holds the stop until it is closed, unless dismissed with `--keep`, which records why it stays open on purpose.
 """
 import argparse
+from http.client import HTTPConnection
 import json
 import os
 from pathlib import Path
@@ -35,8 +36,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from urllib.error import HTTPError, URLError
-from urllib.request import urlopen
 
 import pr_body
 import yield_gate
@@ -341,19 +340,22 @@ def opencode(argv):
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         step = 'server readiness'
         deadline = time.monotonic() + 20
+        # This connection is private to the worker. A proxy or redirect cannot attest its readiness.
+        connection = HTTPConnection('127.0.0.1', port, timeout=.5)
         while True:
             if server.poll() is not None:
                 step = 'serve'
                 raise ValueError(f'server exited {server.returncode}')
             try:
-                with urlopen(url, timeout=.5):
-                    break
-            except HTTPError:
+                connection.request('GET', '/')
+                connection.getresponse().close()
                 break
-            except (URLError, TimeoutError):
+            except OSError as error:
                 if time.monotonic() >= deadline:
-                    raise ValueError('server did not answer within 20 seconds')
-                time.sleep(.05)
+                    raise ValueError(f'server did not answer within 20 seconds: {error}') from error
+            finally:
+                connection.close()
+            time.sleep(.05)
         step = 'session POST'
         api = launch['api']
         body = dict(api['body'], location={'directory': args.worktree})
