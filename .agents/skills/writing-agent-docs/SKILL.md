@@ -93,8 +93,8 @@ skill may read a lower skill's procedure, and a project skill links no other ski
 directly or through others (`cycle`). **Strict:** these direction rules, the first-read budget, the host
 shape, shared sections and unmapped docs are errors with no recorded debt. **Room:** a new module
 joins `architecture.json` in a level of its own or beside siblings that need not link
-each other, so the order grows without loosening a rule. Run the checker and
-`tests/run_all.py` after each addition.
+each other, so the order grows without loosening a rule. Run the checker and the affected
+tests after each addition ([check tiers](../../../runtime/checks/accept.md)).
 
 - **Add a host:** create `hosts/<host>/` holding exactly `session.md` (read at session
   start) and `workers.md` (read when launching); add the name to `HOSTS` in

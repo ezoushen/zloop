@@ -24,9 +24,10 @@ Check this phase record before acting, record its outcome at the repair handoff,
 then report any separate worker decision with attribution. An orchestrator-authored
 fix after review is a repair too. It needs the `recovery` record and a recheck of
 its delta before delivery.
-One writer per worktree; one required suite run can cover compatible repairs, while
+One writer per worktree; one check run can cover compatible repairs, while
 each finding retains its own deciding evidence. After repairs, verify original
-repros and required checks; review the repair delta and affected behavior. Preserve
+repros and the checks the [check tiers](../../runtime/checks/accept.md) give a
+review repair; review the repair delta and affected behavior. Preserve
 initial coverage, reopen impacted items, and update the reviewed head only after they pass. Two
 unsuccessful repair attempts for the same finding → record blocked with evidence;
 continue other findings. No unchanged third attempt. When fixes keep needing fixes,

@@ -314,7 +314,7 @@ The focused, affected or full-gate scope of a check, with an assigned owner and 
 _Avoid_: none
 
 **Full gate**:
-The project's complete required verification on the final integrated candidate, owned by its integrator or verifier; at `high` and above it also runs after each ticket is integrated.
+The project's complete required verification on the final integrated candidate, owned by its integrator or verifier.
 _Avoid_: none
 
 **E2E**:

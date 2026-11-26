@@ -15,8 +15,7 @@ COLUMNS = ('Level', 'Beyond the required checks')
 CELLS = {
     'low': "each ticket's focused tests only",
     'medium': "+ each ticket's affected suites before it returns",
-    'high': "+ the full gate after every ticket is landed or committed inline, and one verifier per "
-            "ticket re-runs that ticket's acceptance on the integrated head",
+    'high': "+ one verifier per ticket re-runs that ticket's acceptance on the integrated head",
     'xhigh': '+ E2E for every acceptance criterion with an observable path, even where CI covers it',
     'max': '+ each E2E check and flaky-prone suite run three times',
 }
@@ -36,13 +35,11 @@ def level_rows():
     return header, rows
 
 
-def per_merge_gate_level():
-    """The level at which accept.md's table starts the full gate after every ticket."""
-    _, rows = level_rows()
-    found = [name.split()[0] for name, cells in rows.items()
-             if 'the full gate after every ticket' in cells['Beyond the required checks']]
-    assert len(found) == 1, found
-    return found[0]
+def tier(name):
+    """accept.md's bullet for one check tier, flattened."""
+    found = re.search(r'^- \*\*%s:\*\*(.*?)(?=^- \*\*|^$)' % re.escape(name), ACCEPT.read_text(), re.M | re.S)
+    assert found, name
+    return ' '.join(found.group(1).split())
 
 
 class DispatchLevels(unittest.TestCase):
@@ -60,12 +57,12 @@ class DispatchLevels(unittest.TestCase):
                 self.assertEqual(rows[labels[level]]['Beyond the required checks'], expected)
 
     def test_every_level_runs_the_required_checks_and_keeps_the_engineering_floor(self):
-        # Rule: a level scales only checks beyond the ones the project requires (the full gate once on the
-        # integrated head and required E2E); no level relaxes engineering judgment or hides what it skipped, and
-        # every criterion maps to passing evidence the acceptance cites, as the engineering standard says.
+        # Rule: a level scales only checks beyond the ones the project requires (the full gate and required E2E, timed
+        # by the tiers alone); no level relaxes engineering judgment or hides what it skipped, and every criterion
+        # maps to passing evidence the acceptance cites, as the engineering standard says.
         text = prose(ACCEPT)
-        for phrase in ("level runs the project's required checks",
-                       'scales only the checks beyond the ones the project requires',
+        for phrase in ("Every level runs the project's required checks — the full gate and required E2E — and the "
+                       'level scales only the checks beyond the ones the project requires, never those',
                        "engineering standard's floor: every criterion maps to passing evidence the acceptance "
                        'cites (command, exit status, identity), and the dispatch report says what the level '
                        'left out'):
@@ -73,13 +70,12 @@ class DispatchLevels(unittest.TestCase):
         self.assertNotIn('accepting verifier', text)
 
     def test_the_tier_rules_name_the_levels_that_relax_them_and_only_those(self):
-        # Rule: the full gate runs once on the integrated head at every level, and high and higher add the
-        # per-ticket runs; low skips the affected suites; E2E adds only what CI and the gate miss, and xhigh and
-        # higher add every criterion; max runs each E2E check and flaky-prone suite three times on request.
+        # Rule: low skips the affected suites; E2E adds only what CI and the gate miss, runs once per PR candidate with
+        # the gate, and xhigh and higher add every criterion; max runs each E2E check and flaky-prone suite three times
+        # on request.
         text = prose(ACCEPT)
         for phrase in ('names the effort levels that relax it, and only those',
-                       'run it after every ticket is landed or committed inline, too',
-                       'E2E adds only what CI and the full gate do not cover',
+                       'E2E adds only what CI and the full gate do not cover and runs once per PR candidate with it',
                        '`xhigh` and higher add E2E for every criterion with an observable path',
                        'rather than adding another batch for confidence alone',
                        '`max` runs each E2E check and flaky-prone suite three times when the user asked for it'):
@@ -89,13 +85,58 @@ class DispatchLevels(unittest.TestCase):
         for other in ('`low` and higher', '`medium` and higher', '`low` or `medium`'):
             self.assertNotIn(other, text)
 
-    def test_the_per_ticket_gate_starts_at_the_same_level_in_the_table_the_tier_and_the_iteration(self):
-        # Rule: the level that adds the per-ticket full gate is one level; the table, the tier rule and the
-        # iteration's launch step all name it.
-        level = per_merge_gate_level()
-        self.assertEqual(level, 'high')
-        self.assertIn(f'`{level}` and higher run it after every ticket is landed', prose(ACCEPT))
-        self.assertIn(f'`{level}` and higher also name the full gate', prose(DISPATCH / 'iteration.md'))
+    def test_the_full_gate_runs_once_per_pr_candidate_and_iteration_runs_only_the_affected_checks(self):
+        # Rule: ticket iteration and review repairs run focused and affected tests plus the fast
+        # doc and lint checks; the full gate runs once per PR candidate, on its final integrated head before delivery;
+        # a repair touching shared infrastructure reruns it, and a worker runs it only for that or a per-change
+        # project requirement.
+        self.assertEqual(tier('full gate'),
+                         "the project's complete required gate, run once per PR candidate, on its final integrated "
+                         'head before delivery, by its integrator (the orchestrator in a workstream) or by an E2E run '
+                         'that already includes it.')
+        text = prose(ACCEPT)
+        for phrase in ("Ticket iteration and review repairs run the focused and affected tiers plus the project's "
+                       'fast doc and lint checks; a repair that touches shared infrastructure (the test runner, hooks, '
+                       'shared fixtures or support modules, CI configuration) reruns the full gate',
+                       'Workers run the full gate only for such a repair or when the project requires it per change; '
+                       'name that reason and its source in the assignment'):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+
+    def test_high_adds_the_acceptance_rerun_and_no_level_adds_a_per_ticket_full_gate(self):
+        # Rule: no level runs the full gate per ticket; `high` adds only its per-ticket acceptance re-run. The table,
+        # the full gate tier and the iteration's launch and accept steps agree.
+        _, rows = level_rows()
+        self.assertEqual([name for name, cells in rows.items() if 'full gate' in cells['Beyond the required checks']],
+                         [])
+        self.assertNotIn('`high`', tier('full gate'))
+        body = prose(DISPATCH / 'iteration.md')
+        self.assertIn("`low` names each ticket's focused tests only, `medium` adds the affected suites, `xhigh` and "
+                      'higher the E2E of every criterion with an observable path, and `max` the three-run repeats', body)
+        self.assertIn('as acceptance runs: `high` and higher register one verifier attempt per ticket with the '
+                      '[acceptance-rerun](jobs/acceptance-rerun.md) job', body)
+
+    def test_each_doc_that_times_the_full_gate_links_the_tiers_instead_of_restating_them(self):
+        # Rule: the check tiers own the test-scope rule; each dependent links them in place of its own timing, with no
+        # per-ticket, per-cycle or per-addition full suite left beside the link.
+        for doc, link, stale in (
+                ('standards/tdd.md', 'the full gate where the [check tiers](../runtime/checks/accept.md) place it',
+                 'full gate once'),
+                ('skills/tdd/SKILL.md',
+                 'the full gate where the [check tiers](../../runtime/checks/accept.md) place it', 'full gate once'),
+                ('skills/dispatch/iteration.md',
+                 'The full gate is not part of acceptance; the [check tiers](../../runtime/checks/accept.md) place it',
+                 'full gate once'),
+                ('skills/review/repair.md',
+                 'verify original repros and the checks the [check tiers](../../runtime/checks/accept.md) give a '
+                 'review repair', 'required suite run'),
+                ('.agents/skills/writing-agent-docs/SKILL.md',
+                 'Run the checker and the affected tests after each addition '
+                 '([check tiers](../../../runtime/checks/accept.md))', '`tests/run_all.py` after each addition')):
+            with self.subTest(doc=doc):
+                text = prose(doc)
+                self.assertIn(link, text)
+                self.assertNotIn(stale, text)
 
     def test_the_xhigh_e2e_belongs_to_the_review_stage_and_needs_autofix(self):
         # Rule: the E2E that xhigh and max add runs in the review's autofix E2E stage, which widens to every
@@ -149,20 +190,16 @@ class DispatchLevels(unittest.TestCase):
                       '`--review-effort <level>`', run)
 
     def test_the_iteration_applies_the_level_when_it_launches_and_accepts(self):
-        # Rule: the level decides which tiers a ticket's `checks:` line carries, the per-ticket full gate and the
-        # acceptance re-run at accept, and the E2E and repetitions xhigh and max add in the review stage; the
-        # required gate still runs once on the integrated head at every level.
+        # Rule: the level decides which tiers a ticket's `checks:` line carries, the acceptance re-run at accept, and
+        # the E2E and repetitions xhigh and max add in the review stage.
         body = prose(DISPATCH / 'iteration.md')
         for phrase in ('](../../runtime/checks/accept.md)', 'verification level', '`checks:` line',
                        "`low` names each ticket's focused tests only", '`medium` adds the affected suites',
-                       '`high` and higher also name the full gate after each ticket is integrated',
                        '`xhigh` and higher the E2E of every criterion with an observable path',
                        '`max` the three-run repeats',
-                       'run the full gate after every ticket is landed or committed inline',
                        '`xhigh` and higher add E2E for every criterion with an observable path, and `max` runs '
                        'each E2E check and flaky-prone suite three times, both in the review\'s '
-                       '[autofix E2E stage](../review/e2e.md)',
-                       'required full gate once on the integrated head'):
+                       '[autofix E2E stage](../review/e2e.md)'):
             self.assertIn(phrase, body)
 
     def test_the_first_builder_launch_also_starts_the_readiness_verifier_when_e2e_is_planned(self):
@@ -235,13 +272,15 @@ class DispatchLevels(unittest.TestCase):
             self.assertIn(flag, row)
 
     def test_the_glossary_full_gate_and_e2e_name_the_levels_that_widen_them(self):
-        # Rule: the glossary's Full gate and E2E definitions hold at every level: high and above also run the gate
-        # after each ticket is integrated, and xhigh and above add E2E where CI covers the criterion.
+        # Rule: the glossary's Full gate holds at every level, on the final integrated candidate with no per-ticket run
+        # (the glossary sits below the tiers and cannot link them), and xhigh and above add E2E where CI covers the
+        # criterion.
         text = (ROOT / 'GLOSSARY.md').read_text()
         entries = dict(re.findall(r'^\*\*([^*\n]+)\*\*:\n(.*?)(?=^\*\*|^#|\Z)', text, re.M | re.S))
         gate = ' '.join(entries['Full gate'].partition('_Avoid_:')[0].split())
         e2e = ' '.join(entries['E2E'].partition('_Avoid_:')[0].split())
-        self.assertIn('at `high` and above it also runs after each ticket is integrated', gate)
+        self.assertEqual(gate, "The project's complete required verification on the final integrated candidate, owned "
+                               'by its integrator or verifier.')
         self.assertIn('at `xhigh` and above it also covers criteria that CI covers', e2e)
 
 
