@@ -6,8 +6,8 @@ remote, that `origin` names a GitHub repository, that `git push --dry-run --no-v
 workstream branch (`HEAD` while the branch does not exist yet) to `origin` succeeds over the SSH command the user
 configured, else over `ssh -o BatchMode=yes`, and that GitHub grants write permission on the repository, which opening a
 pull request needs. Records one State line on the card, `publish-probe: <ok|failed> <UTC time> <remote or reason>`,
-prints it and exits 1 when it says `failed`. `autopilot_card.py phase <card> pr` refuses a card whose line is missing
-or failed.
+prints it and exits 1 when it says `failed`. `autopilot_card.py phase <card> dispatch` and `... pr` refuse a card whose
+line is missing or failed.
 """
 import argparse
 import datetime
