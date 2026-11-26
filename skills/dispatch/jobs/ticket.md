@@ -38,6 +38,8 @@ On initial implementation, write `base: <git rev-parse HEAD>` as the first line 
 
 Read the [TDD standard](../../../standards/tdd.md) in full before the first test, then
 implement the accepted behavior test-first under it, at the ticket's seams. Documentation-only work uses code-comments' checks.
+For a managed local ticket, run the declared [test claims](../../../runtime/checks/test-claims.md)
+and include both retained logs and summaries in the result evidence.
 Choose the smallest sufficient verification: the focused and affected checks the
 assignment tiers for you, and the full gate only when the assignment names you for
 it. Use the assignment's explicit E2E owner under

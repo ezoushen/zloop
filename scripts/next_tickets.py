@@ -44,6 +44,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import capability_probe  # noqa: E402
+import check_receipts  # noqa: E402
 import front_matter  # noqa: E402
 import run_control  # noqa: E402
 import state_files  # noqa: E402
@@ -707,18 +708,22 @@ def verify(fm, accept_unclaimed):
         elif recorded and not listed_commit_on(text, base.group(1), ref):
             problems.append(f"no listed commit under ## Implemented is past base on {branch}")
     notes, exception = [], None
+    head = commit_of(ref) if not problems else None
     if not problems:
-        problems, exception = returned_problems(slug, report, ref, branch,
-            delegated=ref != branch_ref(workstream_branch(slug)), accept_unclaimed=accept_unclaimed)
+        problems, exception = returned_problems(slug, report, head, branch,
+            delegated=ref != branch_ref(workstream_branch(slug)), accept_unclaimed=accept_unclaimed,
+            ticket=ROOT / fm['path'], base=base.group(1))
     if not problems:
         problems, notes = measurement_results(fm, ref, text)
+    if not problems and (head is None or head != commit_of(ref)):
+        problems.append(f'branch {branch} changed during acceptance')
     for p in problems:
         print(f"{name}: {p}", file=sys.stderr)
     if problems:
         return None, None
     for note in notes:
         print(f"{name}: {note}")
-    return {"accepted": commit_of(ref), "accepted_report": report_digest(report)}, exception
+    return {"accepted": head, "accepted_report": report_digest(report)}, exception
 
 
 def workstream_attempts(slug):
@@ -738,7 +743,7 @@ def report_digest(report):
     return hashlib.sha256(report.read_bytes()).hexdigest() if report.is_file() else None
 
 
-def returned_problems(slug, report, ref, branch, delegated, accept_unclaimed):
+def returned_problems(slug, report, head, branch, delegated, accept_unclaimed, ticket, base):
     """A delegated ticket's report, and any report a worker returned, must be one a collected worker attempt of the
     workstream returned completed, unchanged since and at the ticket head: the orchestrator judges a worker's evidence,
     it never writes it."""
@@ -755,12 +760,18 @@ def returned_problems(slug, report, ref, branch, delegated, accept_unclaimed):
     completed = [saved for saved in returned if saved["result"]["status"] == "completed"]
     if not completed:
         return [f"{returned[-1]['attempt']} returned {returned[-1]['result']['status']}, not a completed ticket"], None
-    head = commit_of(ref)
     same_head = [saved for saved in completed if re.fullmatch("[0-9a-f]{7,40}", saved["result"]["head"])
                  and commit_of(saved["result"]["head"]) == head]
     if not same_head:
         return [f"{completed[-1]['attempt']} returned its report at {completed[-1]['result']['head']}, not at "
                 f"{branch} head {head}"], None
+    managed = [saved for saved in same_head if saved['result'].get('checks_collected_ns')]
+    if managed:
+        checked = [(saved, check_receipts.problems(saved, head, ticket=ticket, base=base)) for saved in managed]
+        same_head = [saved for saved, missing in checked if not missing]
+        if not same_head:
+            saved, missing = checked[-1]
+            return [f"{saved['attempt']}: {problem}" for problem in missing], None
     if any(not worker_lifecycle.unclaimed_launch(saved) for saved in same_head):
         return [], None
     attempt = same_head[-1]['attempt']

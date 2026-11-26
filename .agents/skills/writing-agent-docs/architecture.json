@@ -259,6 +259,7 @@
    ],
    "code": [
     "scripts/run_check.py",
+    "scripts/check_receipts.py",
     "scripts/verify_features.py",
     "scripts/resource_lock.py"
    ]

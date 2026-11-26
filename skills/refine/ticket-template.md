@@ -1,6 +1,8 @@
 # Local Markdown ticket template
 
 The title follows the [titles standard](../../standards/titles.md).
+Add a distinct [test claim](../../runtime/checks/test-claims.md) to each
+code criterion before managed dispatch. Agent and user criteria omit that line.
 
 ```markdown
 ---
@@ -29,6 +31,7 @@ worker:
 ## Acceptance criteria
 - [ ] Given <state>, when <action>, then <observable outcome>.
       Verify (code|agent|user): <command, test name or user check>
+      Test claim: <fully qualified unittest test ID for a code criterion>
 - [ ] …
 
 ## Comments

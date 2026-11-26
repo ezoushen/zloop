@@ -371,6 +371,160 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         self.assertEqual(replay.returncode, 0, replay.stderr)
         self.assertTrue(json.loads(replay.stdout)['result']['already_collected'])
 
+    def claimed_ticket(self, declare=True):
+        ticket = support.ticket_file(self.repo, 'run/01')
+        claim = 'test_value.ValueTest.test_wanted'
+        with ticket.open('a') as output:
+            output.write('## Acceptance criteria\n'
+                         '- [ ] The product exposes its expected value.\n'
+                         '      Verify (code): Run the value test.\n')
+            if declare:
+                output.write(f'      Test claim: {claim}\n')
+        (self.repo / 'product.py').write_text('value = 1\n')
+        self.git('add', 'product.py')
+        self.git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'product base')
+        base = self.git('rev-parse', 'HEAD')
+        item = self.items[0]
+        worktree = Path(item['worktree'])
+        (worktree / 'ticket-assignment.txt').rename(self.card.parent / 'fixture-assignment.txt')
+        self.worktree_git(item, 'checkout', '--detach', base)
+        execution, packet = Path(item['execution']), Path(item['packet'])
+        packet.write_text(packet.read_text().replace('ticket: fx/01', f'ticket: {ticket}'))
+        execution.write_text(json.dumps(self.dispatch.issue_route(
+            self.card, self.repo, item['attempt'], packet, worktree, json.loads(execution.read_text()), [])))
+        item['assignment'] = 'run/01'
+        self.plan()
+        self.hook.check_event(self.event(names=('run/01', 'b')))
+        registered = self.lifecycle('record', dict(self.registration(item), head=base))
+        self.assertEqual(registered.returncode, 0, registered.stderr)
+        return ticket, item, claim, base
+
+    def worktree_git(self, item, *args):
+        return subprocess.run(['git', '-C', item['worktree'], *args], capture_output=True, text=True,
+                              check=True).stdout.strip()
+
+    def write_claimed_test(self, item):
+        (Path(item['worktree']) / 'test_value.py').write_text(
+            'import unittest\nfrom product import value\n'
+            'class ValueTest(unittest.TestCase):\n'
+            '    def test_wanted(self): self.assertEqual(value, 2)\n')
+
+    def phase_check(self, item, claim, phase, state=None, name=None):
+        log = self.card.parent / 'reports' / f'{name or phase}.log'
+        state = state or self.card.parent / 'reports/workers.sqlite'
+        result = subprocess.run([sys.executable, str(support.script('run_check.py')), '--timeout', '5',
+                                 '--log', str(log), '--phase', phase, '--claim', claim, '--state', str(state),
+                                 '--attempt', item['attempt'], '--',
+                                 sys.executable, '-B', '-m', 'unittest', '-v', claim],
+                                cwd=item['worktree'], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 1 if phase == 'red' else 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)['tdd']['claim'], claim)
+        return str(log)
+
+    def fixed_result(self, item):
+        (Path(item['worktree']) / 'product.py').write_text('value = 2\n')
+        self.worktree_git(item, 'add', 'product.py', 'test_value.py')
+        return self.completion(item)
+
+    def collected_board(self, item, request):
+        collected = self.lifecycle('collect', request, '--attempt', item['attempt'])
+        self.assertEqual(collected.returncode, 0, collected.stderr)
+        return self.board_accept()
+
+    def board_accept(self):
+        return subprocess.run([sys.executable, str(support.script('next_tickets.py')), '--repo', str(self.repo),
+                               '--accept', 'run/01'], capture_output=True, text=True)
+
+    def assert_claim_refused(self, item, ticket, request, reason):
+        refused = self.collected_board(item, request)
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn(reason, refused.stderr)
+        self.assertNotIn('accepted:', ticket.read_text())
+        lifecycle = self.lifecycle('gate', None, '--stage', 'accept', '--attempt', item['attempt'],
+                                   '--revision', request['head'])
+        self.assertEqual(lifecycle.returncode, 1, lifecycle.stdout + lifecycle.stderr)
+        self.assertIn(reason, lifecycle.stdout)
+        accepted = self.lifecycle('record', dict(kind='accepted', attempt=item['attempt'],
+                                                commit=request['head'], evidence=['fixture review']))
+        self.assertEqual(accepted.returncode, 2, accepted.stdout + accepted.stderr)
+        self.assertIn(reason, accepted.stderr)
+
+    def test_managed_board_and_lifecycle_require_a_red_green_pair_for_each_test_claim(self):
+        ticket, item, claim, _ = self.claimed_ticket()
+        request = self.completion(item)
+        self.assert_claim_refused(item, ticket, request, f'{claim}: missing red receipt')
+
+    def test_managed_acceptance_uses_actual_red_and_green_at_the_returned_head(self):
+        ticket, item, claim, _ = self.claimed_ticket()
+        self.write_claimed_test(item)
+        red = self.phase_check(item, claim, 'red')
+        request = self.fixed_result(item)
+        green = self.phase_check(item, claim, 'green')
+        request['evidence'] += [red, green]
+        accepted = self.collected_board(item, request)
+        self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+        self.assertIn(f"accepted: {request['head']}", ticket.read_text())
+        gate = self.lifecycle('gate', None, '--stage', 'accept', '--attempt', item['attempt'],
+                              '--revision', request['head'])
+        self.assertEqual(gate.returncode, 0, gate.stdout + gate.stderr)
+        recorded = self.lifecycle('record', dict(kind='accepted', attempt=item['attempt'],
+                                                  commit=request['head'], evidence=['fixture review']))
+        self.assertEqual(recorded.returncode, 0, recorded.stderr)
+        with Path(green).open('a') as log:
+            log.write('additional output after collection\n')
+        invalidated = self.board_accept()
+        self.assertEqual(invalidated.returncode, 1, invalidated.stdout + invalidated.stderr)
+        self.assertIn(f'{claim}: missing green receipt at accepted head', invalidated.stderr)
+
+    def test_managed_acceptance_refuses_a_green_at_an_earlier_head(self):
+        ticket, item, claim, _ = self.claimed_ticket()
+        self.write_claimed_test(item)
+        red = self.phase_check(item, claim, 'red')
+        request = self.fixed_result(item)
+        green = self.phase_check(item, claim, 'green')
+        old = request['head']
+        self.worktree_git(item, '-c', 'user.name=t', '-c', 'user.email=t@t',
+                          'commit', '-qm', 'new candidate', '--allow-empty')
+        request['head'] = self.worktree_git(item, 'rev-parse', 'HEAD')
+        self.git('branch', '-f', 'run/build', request['head'])
+        report = Path(request['report'])
+        report.write_text(report.read_text().replace(old, request['head']))
+        request['evidence'] += [red, green]
+        self.assert_claim_refused(item, ticket, request,
+                                  f"{claim}: missing green receipt at accepted head {request['head']}")
+
+    def test_managed_acceptance_refuses_red_recorded_after_green(self):
+        ticket, item, claim, base = self.claimed_ticket()
+        self.write_claimed_test(item)
+        request = self.fixed_result(item)
+        green = self.phase_check(item, claim, 'green')
+        self.worktree_git(item, 'checkout', '--detach', base)
+        self.write_claimed_test(item)
+        red = self.phase_check(item, claim, 'red')
+        (Path(item['worktree']) / 'test_value.py').rename(self.card.parent / 'late-test.py')
+        self.worktree_git(item, 'checkout', '--detach', request['head'])
+        request['evidence'] += [green, red]
+        self.assert_claim_refused(item, ticket, request, f'{claim}: red must finish before green begins')
+
+    def test_managed_acceptance_refuses_a_code_criterion_without_a_declared_test_claim(self):
+        ticket, item, _, _ = self.claimed_ticket(declare=False)
+        self.assert_claim_refused(item, ticket, self.completion(item),
+                                  'code criterion 1: declare one fully qualified Test claim')
+
+    def test_managed_acceptance_refuses_a_red_from_another_attempt_identity(self):
+        ticket, item, claim, _ = self.claimed_ticket()
+        self.write_claimed_test(item)
+        state = self.card.parent / 'reports/workers.sqlite'
+        with closing(sqlite3.connect(state)) as db:
+            saved = json.loads(db.execute('SELECT data FROM attempts WHERE id = ?', (item['attempt'],)).fetchone()[0])
+        saved['check_receipts']['identity'] = 'previous-registration'
+        other = support.write_attempts(state.with_name('other.sqlite'), [saved])
+        red = self.phase_check(item, claim, 'red', state=other, name='other-red')
+        request = self.fixed_result(item)
+        green = self.phase_check(item, claim, 'green')
+        request['evidence'] += [red, green]
+        self.assert_claim_refused(item, ticket, request, f'{claim}: missing red receipt')
+
     def test_board_acceptance_records_the_reason_for_the_returned_attempt(self):
         ticket = support.ticket_file(self.repo, 'run/01')
         item = self.items[0]

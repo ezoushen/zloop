@@ -18,6 +18,14 @@ comparison covers branch, HEAD, staging and Git's visible worktree status. It ca
 edits that preserve status, changes reverted between observations, and ignored files. It
 does not identify who made a change.
 
+For a managed local ticket, list the absolute logs or summary paths for its
+[red and green test claims](../checks/test-claims.md) in `evidence`.
+Collection fixes which receipts the attempt returned. The local board and lifecycle
+acceptance check the declared criteria and retained receipts. Previously collected
+attempts without this requirement keep their existing acceptance checks. For an
+older, uncollected managed attempt with code criteria, add the claims to the
+canonical ticket and register a new attempt before running the checks.
+
 A `completed` result also owes its job's `returns` report sections (real headings,
 outside code blocks) and, for a `writes: none` agent, the same HEAD, tracked changes
 and untracked files (their content too) it was registered with, in the worktree and,

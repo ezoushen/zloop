@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import agent_defs  # noqa: E402
 import capability_probe  # noqa: E402
 import capacity  # noqa: E402
+import check_receipts  # noqa: E402
 from capacity import process_stamp  # noqa: E402
 import decisions  # noqa: E402
 import dispatch_state  # noqa: E402
@@ -345,6 +346,8 @@ def gaps(db, data, stage, revision=None):
             missing.append('job report sections ' + ', '.join(result['missing_returns']))
         if result.get('read_only_changes'):
             missing.append(f'unchanged worktree for a read-only agent ({result["read_only_changes"]})')
+        if result.get('status') == 'completed':
+            missing.extend(check_receipts.problems(data, revision))
     return missing
 
 
@@ -886,6 +889,8 @@ def require_returned(saved):
             'decline it or collect a new attempt')
     require(not result.get('read_only_changes'),
             'Acceptance requires an unchanged worktree for a read-only agent; decline it')
+    missing = check_receipts.problems(saved, result.get('head'))
+    require(not missing, '; '.join(missing))
 
 
 def settle(saved, acceptance):
@@ -948,6 +953,22 @@ def needs_problems(assignment):
     if needs is None:
         return f'needs must be one line of its own, before ticket context, holding a bracketed list of {allowed}'
     return '; '.join(f'needs {need!r} is not one of {allowed}' for need in needs if need not in capability_probe.NEEDS)
+
+
+def assign_test_claims(saved, card):
+    """Pin a managed local ticket's canonical criteria to this attempt."""
+    if not saved.get('dispatch_assignment') or saved['job'] != 'ticket':
+        return
+    ticket = saved['ticket']
+    issues = card.parent / 'issues'
+    if Path(ticket).is_absolute():
+        canonical = Path(ticket) if Path(ticket).is_file() else None
+    else:
+        canonical = next((path for path in sorted(issues.glob('*.md'))
+                          if (front_matter.parse(path.read_text()) or {}).get('ticket') == ticket), None)
+    if canonical is not None:
+        assigned = check_receipts.criteria(canonical)
+        saved['check_receipts'] = dict(assigned, ticket=str(canonical.resolve()), identity=uuid.uuid4().hex)
 
 
 def unmet_needs(saved, evidence):
@@ -1218,6 +1239,7 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30, a
                 saved['needs'] = needs
             if ticket is not None:
                 saved['ticket'] = ticket
+                assign_test_claims(saved, card)
             if placed:
                 # A Herdr placement names the tab the worker occupies; a T3 placement names the thread and its state.
                 # The thread is the worker's session, so the session rules above decide who may register on it.
@@ -1319,6 +1341,12 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30, a
                 if saved.get('findings'):
                     require_settled(saved['findings'], data.get('findings'), saved.get('startup_evidence'))
                 saved['result'] = dict(data, report_sha256=hashlib.sha256(report.read_bytes()).hexdigest())
+                if data['status'] == 'completed':
+                    if not saved.get('check_receipts'):
+                        assign_test_claims(saved, Path(state_path(db)).parent.parent / 'autopilot.md')
+                    if saved.get('dispatch_assignment') and saved['job'] == 'ticket':
+                        saved['result'].update(check_receipts=check_receipts.sealed_receipts(data.get('evidence', [])),
+                                               checks_collected_ns=time.time_ns())
                 verdict = report_verdict(report)
                 for key, allowed in (('review_status', ('clean', 'findings', 'incomplete')),
                                      ('documentation_status', ('passed', 'findings', 'incomplete'))):
