@@ -20,7 +20,8 @@ framework or test runner is assumed.
   ([check tiers](../runtime/checks/accept.md)).
 - **Record the failing run before the passing one:** the command, its exit status and
   the failure it showed, then the passing run of the same command. A test never seen
-  failing proves nothing. For managed local code criteria, use [test claims](../runtime/checks/test-claims.md).
+  failing proves nothing. For registered managed local ticket attempts, use
+  [test claims](../runtime/checks/test-claims.md).
 
 ## Seams
 

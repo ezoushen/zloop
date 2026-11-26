@@ -27,8 +27,12 @@ to the workstream worktree if it has not covered the current task state. If it c
 tracked content, return that delta to review and refresh required delivery evidence
 before proceeding. Preserve artifacts used by the PR's claims.
 
-A workstream the user ran directly on `main` has no branch to publish. Report the
-review and E2E evidence and follow any delivery restrictions on its run card.
+### Delivery without a PR
+
+When the repository has no PR host, confirm delivery evidence as in step 1 and retain the
+local delivery report. Skip push, PR creation and the check watch. When the user ran a
+workstream directly on `main`, report its review and E2E evidence without publishing.
+Honor the delivery restriction on any governing run card.
 
 1. **Confirm delivery evidence**, from the main checkout, using the selected
    [board's delivery gate](../../runtime/board/board.md). Remote issues are checked

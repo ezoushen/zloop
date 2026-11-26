@@ -1,9 +1,10 @@
 # Record a test claim
 
-Each code criterion in a managed local ticket declares a distinct test ID on its
-`Test claim:` line. Keep the verification instructions on `Verify (code):`.
-Use a single printable line for the ID. Run both phases from the assigned
-worktree root with the same worker state and attempt.
+Record receipts for registered managed local ticket attempts. Each code criterion
+declares a distinct printable test ID on its `Test claim:` line. Keep verification
+instructions on `Verify (code):`. Run both phases from the assigned worktree root
+with the same worker state and attempt. Inline work follows ordinary test-first
+evidence because it has no registered attempt.
 
 By default, the project's check or adapter emits the exact line `FAIL: <id>`
 for the claimed assertion failure and exits 1. It emits `PASS: <id>` for a

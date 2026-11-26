@@ -1,7 +1,7 @@
 # Local Markdown ticket template
 
 The title follows the [titles standard](../../standards/titles.md).
-Use the [test-claim format](../../runtime/checks/test-claims.md) for managed code criteria.
+Use the [test-claim format](../../runtime/checks/test-claims.md) for criteria that need receipts.
 
 ```markdown
 ---

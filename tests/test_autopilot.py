@@ -84,6 +84,9 @@ class ComposedPhases(unittest.TestCase):
         self.assertIn('the card permits local delivery', local)
         waiting = stop.split('- `waiting-on-user`:', 1)[1].split(' - ', 1)[0]
         self.assertIn('a PR-only card has no authorized publication path', waiting)
+        publication = prose(ROOT / 'skills/pr/SKILL.md').split('### Delivery without a PR', 1)[1]
+        self.assertIn('confirm delivery evidence as in step 1 and retain the local delivery report', publication)
+        self.assertIn('Skip push, PR creation and the check watch', publication)
 
     def test_the_card_links_to_the_canonical_pause_list(self):
         self.assertIn('[pause list](SKILL.md#decide-without-asking)', prose(CARD))
@@ -316,7 +319,7 @@ class EffortLevels(unittest.TestCase):
     def test_a_take_over_keeps_the_levels_unless_flags_are_given(self):
         # Rule: a take-over or a timed take-over keeps the card's levels; only level flags change them.
         start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
-        self.assertIn('take-over <card> [--auto-merge] [--effort <level>] [--dispatch-effort <level>] '
+        self.assertIn('take-over <card> [--effort <level>] [--dispatch-effort <level>] '
                       '[--review-effort <level>]', start)
         self.assertIn("keeps the card's levels unless a level flag is given", start)
         timed = SKILL.read_text().split('- **`autopilot --take-over --timed`:**', 1)[1].split('\n- **`--auto-merge`', 1)[0]
@@ -364,7 +367,7 @@ class TakeOverCommand(unittest.TestCase):
         approval = prose(ROOT / 'runtime/board/approval-path.md')
         self.assertIn('A merge gate the repository declares for a human is never met by the agent', approval)
         start = prose(SKILL).split('## Start', 1)[1].split('## Run', 1)[0]
-        self.assertIn('python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--auto-merge]', start)
+        self.assertIn('python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--effort <level>]', start)
         self.assertIn('the grant of the run that ended lapses with its terminal state', start)
         self.assertIn('`phase:` stays as recorded: a run that ends keeps the phase it stopped in', start)
         phase = next(line for line in CARD.read_text().splitlines() if line.startswith('phase:'))

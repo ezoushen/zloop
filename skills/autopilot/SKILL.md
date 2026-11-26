@@ -29,11 +29,11 @@ types the command; a message that mentions it is not one. Never widens native pe
   Managed cards use [control State and events](../../runtime/workers/control.md).
   A confirmed card whose goal, criteria and grants are unchanged is not reconfirmed;
   a card that ended `waiting-on-user` or `paused-allowance` resumes once its cause is gone. Take over a card with
-  `python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--auto-merge] [--effort <level>]
+  `python3 "<plugin_root>/scripts/autopilot_card.py" take-over <card> [--effort <level>]
   [--dispatch-effort <level>] [--review-effort <level>]`: it keeps the card's levels unless a level flag is given;
   it moves the terminal state to `history:`,
-  clears `terminal:` and sets `auto-merge:` from the flag alone, so the grant of the run that ended lapses
-  with its terminal state. `phase:` stays as recorded: a run that ends keeps the phase it stopped in.
+  clears `terminal:` so the grant of the run that ended lapses with its terminal state.
+  For a new auto-merge grant, use the [card target options](run-card.md). `phase:` stays as recorded: a run that ends keeps the phase it stopped in.
   A card that ended `paused-by-user` resumes at once, with no cause to wait for: first record each decision the
   user made while in control in the ledger as theirs, with their words, and re-read the branch and the board: the
   user's work is the current state.
@@ -49,7 +49,7 @@ and the full path asks the user to confirm it once.
 The card, ledger and reports are workflow state: a principle about the project's files never keeps them out of `.scratch/`.
 No phase after align starts before that confirmation. Record the confirmation on the card
 as the [card procedure](run-card.md) specifies. Keep `terminal:` empty while waiting for it.
-The confirmed card authorizes every action it grants, and stands for the user's check of newly cut and split tickets.
+The confirmed card stands for the user's check of newly cut and split tickets.
 
 ## Run
 
@@ -60,9 +60,10 @@ Continue the phase unless the user invokes `--pause` or the [pause list](#decide
 applies. Update the card with the recorded words for authorized changes to its goal, criteria or grants.
 
 1. [refine](../refine/SKILL.md) the brief into tickets;
-2. [dispatch](../dispatch/SKILL.md) them with `--autofix` and the card's current levels, `--dispatch-effort <level>`
-   and `--review-effort <level>` (review, repairs, applicable E2E);
-3. [pr](../pr/SKILL.md): write the description, push the workstream branch and open the PR, then watch the required checks.
+2. [dispatch](../dispatch/SKILL.md) them with `--autofix`, `--dispatch-effort <level>`
+   and `--review-effort <level>` from the card;
+3. [pr](../pr/SKILL.md): push the workstream branch and open the PR, or follow
+   [delivery without a PR](../pr/SKILL.md#delivery-without-a-pr).
 
 At each phase boundary and before each worker launch, run `python3 "<plugin_root>/scripts/allowance.py" status`.
 Routing leaves out the candidates of a `critical` provider unless a configuration layer sets `include_critical_allowance`,
@@ -77,7 +78,7 @@ timer needs the user's approval keeps that prompt pending; one with no scheduler
 the report. If the allowance is still `critical` when the timer fires, set the next timer only when the new reset is
 later than the one just waited for; otherwise end with the resume command. A take-over or a pause, by the timer or by the
 user, cancels a timer left over.
-Update the card's State per phase, with its commit and report.
+Record each phase, commit and report on the card.
 Candidate ADRs the user has not approved are not written; the final report lists them among the user's actions; approved ones are written as dispatch says.
 
 ## Decide without asking

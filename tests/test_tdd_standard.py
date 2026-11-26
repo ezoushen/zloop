@@ -43,8 +43,9 @@ class TddStandard(unittest.TestCase):
                      'A line-coverage figure is neither the goal nor proof',
                      'Tests of trivia, such as pass-through accessors or framework behavior, are not written to raise it',
                      '**No honest test, no weak one.** When neither the ticket\'s seams nor one the orchestrator '
-                     'approves can hold an honest test of a rule, write none: report the rule untested and name what '
-                     'verifies it instead',
+                     'approves can hold an honest test, report the untested rule and propose what could verify it',
+                     'Return the criterion to the orchestrator before changing its Verify',
+                     '[test claims](../runtime/checks/test-claims.md)',
                      '**Implementation-coupled:**',
                      '**Horizontal slicing:**'):
             with self.subTest(rule=rule):

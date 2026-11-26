@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Confirm an autopilot run card, set its phase or take it over: `autopilot_card.py confirm <card> --words "<the user's
 words>"`, `autopilot_card.py phase <card> <align|refine|dispatch|pr>`, or `autopilot_card.py take-over <card>
-[--auto-merge] [--effort <level>] [--dispatch-effort <level>] [--review-effort <level>]`.
+[--effort <level>] [--dispatch-effort <level>] [--review-effort <level>]`.
 
 A phase of dispatch or pr needs the tickets of the board the card names on `board:`: a tracker's URL holds its own; a
 `local` board needs ticket files that pass `next_tickets.py --check`.
@@ -221,7 +221,7 @@ def main():
     parser.add_argument('phase', nargs='?', choices=PHASES, help='phase: the phase the run enters')
     parser.add_argument('--words', help="confirm: the user's words that confirmed the card")
     parser.add_argument('--confirmed-by', help='confirm: human or relayed(agent)')
-    parser.add_argument('--auto-merge', action='store_true', help='grant merging to the new run')
+    parser.add_argument('--auto-merge', action='store_true', help='grant merging with --merge-pr or --merge-base')
     target = parser.add_mutually_exclusive_group()
     target.add_argument('--merge-base', help='explicit base of a planned auto-merge PR')
     target.add_argument('--merge-pr', type=int, help='open PR for an auto-merge request')
@@ -243,7 +243,7 @@ def main():
             state_files.write_atomic(args.card, text)
         return
     if run_control.read(args.card):
-        parser.error('Managed run: use run_control.py for pause/resume; changing its grant needs a new confirmed run')
+        parser.error('Managed run: use run_control.py for pause or resume and grant verification')
     text = args.card.read_text()
     if args.command == 'confirm':
         text = confirm(args.card, text, args.words, host_sessions(), today, args.confirmed_by)
