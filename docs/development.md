@@ -80,8 +80,8 @@ provides fixtures with their own host IDs where needed.
 
 `--shard K/N` (in `run_all.py` and `run_clean.py`) runs the K-th of N disjoint parts of the scheduled units, balanced by
 test count, so N machines cover the suite once. A run ends with its ten slowest units and their wall seconds.
-`run_clean.py --parity` mimics a busy hosted runner: Python resolves only loopback hosts, slots are twice the
-CPUs, and the run prints its tool versions and refuses git older than 2.40.
+`run_clean.py --parity` mimics a busy hosted runner: Python resolves only loopback hosts, `ZLOOP_TEST_SLOTS`
+defaults to twice the CPUs, and the run prints tool versions and refuses git older than 2.40.
 
 Hosted CI (`.github/workflows/ci.yml`) runs once per change: `pull_request`, and `push` only for `main`; a newer push
 cancels the older run. `fast` runs the whole-repository doc check and the workflow contract test. `suite` runs the
