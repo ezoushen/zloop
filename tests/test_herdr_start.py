@@ -159,9 +159,16 @@ else:
 
 
 class OpenCodeStart(unittest.TestCase):
-    start = HerdrStart.start
     # The OpenCode launcher allows 30 seconds for readiness after setting up the pane.
     start_timeout = 45
+
+    def start(self, worktree=None, name='builder-05'):
+        self.readiness_trace.write_text('')
+        result = HerdrStart.start(self, worktree, name)
+        if result.returncode:
+            stages = self.readiness_trace.read_text().splitlines()
+            result.stderr += 'OpenCode fixture HTTP stages: ' + (' '.join(stages[-8:]) or 'none') + '\n'
+        return result
 
     def setUp(self):
         HerdrStart.setUp(self)
@@ -179,10 +186,12 @@ class OpenCodeStart(unittest.TestCase):
         (self.integration / 'herdr-opencode/tui.js').write_text('v2 entrypoint')
         (self.integration / 'opencode.json').write_text('private user configuration')
         self.events = self.root / 'opencode.jsonl'
+        self.readiness_trace = self.root / 'opencode-readiness.txt'
         self.owned_events = {}
         self.release = self.root / 'release-tui'
         self.env.update(XDG_CONFIG_HOME=str(self.config), XDG_DATA_HOME=str(self.root / 'user data'),
-                        EVENTS=str(self.events), RELEASE=str(self.release), FIXTURE_SERVE_DELAY='0')
+                        EVENTS=str(self.events), RELEASE=str(self.release), FIXTURE_SERVE_DELAY='0',
+                        READINESS_TRACE=str(self.readiness_trace))
         self.tab_env = self.root / 'tab-env.json'
         self.env['TAB_ENV'] = str(self.tab_env)
         stub = self.bin / 'herdr'
@@ -225,6 +234,7 @@ else:
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import signal
+from socketserver import TCPServer
 args = sys.argv[1:]
 config = Path(os.environ['XDG_CONFIG_HOME'])
 record = {'args': args, 'pid': os.getpid(), 'config': str(config),
@@ -238,19 +248,36 @@ record = {'args': args, 'pid': os.getpid(), 'config': str(config),
 with Path(os.environ['EVENTS']).open('a') as stream:
     stream.write(json.dumps(record) + '\\n')
 if args[0] == 'serve':
+    def trace(stage):
+        with Path(os.environ['READINESS_TRACE']).open('a') as stream:
+            stream.write(stage + '\\n')
+    trace('serve')
     if os.environ.get('FAIL_STEP') == 'serve': sys.exit(9)
     time.sleep(float(os.environ['FIXTURE_SERVE_DELAY']))
     if os.environ.get('HERDR_FAIL'):
         def stop(*args): time.sleep(.3); sys.exit(0)
         signal.signal(signal.SIGTERM, stop)
+    class NumericHTTPServer(HTTPServer):
+        def server_bind(self):
+            TCPServer.server_bind(self)
+            self.server_name, self.server_port = self.server_address
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            trace('GET')
             if os.environ.get('RECORD_READINESS'):
                 with Path(os.environ['EVENTS']).open('a') as stream:
                     stream.write(json.dumps(dict(record, args=['GET', self.path])) + '\\n')
             self.send_response(200); self.end_headers(); self.wfile.write(b'{}')
+            trace('response')
         def log_message(self, *args): pass
-    HTTPServer(('127.0.0.1', int(args[args.index('--port') + 1])), Handler).serve_forever()
+    with NumericHTTPServer(('127.0.0.1', int(args[args.index('--port') + 1])), Handler,
+                           bind_and_activate=False) as server:
+        trace('bind')
+        server.server_bind()
+        trace('listen')
+        server.server_activate()
+        trace('ready')
+        server.serve_forever()
 elif args[0] == 'api':
     if os.environ.get('FAIL_STEP') == 'session POST': sys.exit(9)
     print(json.dumps({'data': {'id': 'private-session'}}))
@@ -333,6 +360,22 @@ os.execvp(command[0], command)
             self.assertEqual(readiness['args'], ['GET', '/'])
             self.assertEqual(api['args'][:3], ['api', 'POST', '/api/session'])
             self.assertEqual(attached['args'][0], '--server')
+
+    def test_numeric_readiness_fixture_does_not_resolve_hosts(self):
+        hook = self.root / 'python-hook'
+        hook.mkdir()
+        (hook / 'sitecustomize.py').write_text("""import socket
+import sys
+if sys.argv[0].endswith('/opencode') and sys.argv[1:2] == ['serve']:
+    def refuse_lookup(*args):
+        raise RuntimeError('fixture name lookup is unavailable')
+    socket.getfqdn = refuse_lookup
+""")
+        self.env['PYTHONPATH'] = str(hook)
+        result = self.start()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)['opencode']['session'], 'private-session')
+        self.wait_events(3)
 
     def test_api_route_runs_private_server_session_and_tui_in_worker_pane(self):
         result = self.start()
