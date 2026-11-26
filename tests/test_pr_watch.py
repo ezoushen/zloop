@@ -169,7 +169,9 @@ class PRWatch(unittest.TestCase):
                 self.assertEqual(json.loads(previous.stdout)['check_runs'], [passing])
 
                 self.github.replies[pr_key] = {'sequence': [self.pull, after]}
-                self.github.replies[check_key] = None if runs is None else [dict(total_count=len(runs), check_runs=runs)]
+                # The total counts distinct IDs, so the count check cannot mask the duplicate-ID guard.
+                self.github.replies[check_key] = None if runs is None else [
+                    dict(total_count=len({run['id'] for run in runs}), check_runs=runs)]
                 result = self.refresh(receipt)
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn(expected, result.stderr)

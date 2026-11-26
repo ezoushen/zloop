@@ -363,7 +363,8 @@ def delivery_gap(root, slug, lead, tail):
 
 
 def unfinished_runs(root, session, named):
-    """Check this session's run cards for active waits, board gaps and delivery evidence."""
+    """Check this session's run cards for active waits, board gaps and delivery evidence, adding to `named` each
+    workstream whose recorded delivery its local board refuses."""
     missing = []
     life, control_api, state_fields = lifecycle(), script('run_control'), script('state_files').state_fields
     for path in control_api.cards(root):
