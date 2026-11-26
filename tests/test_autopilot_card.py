@@ -319,6 +319,8 @@ class Confirm(unittest.TestCase):
         self.assertEqual(text, DRAFT)
         self.assertIn('waiting-on-user: human intent', error)
         self.assertIn('no current T3 thread is bound', error)
+        self.assertIn('confirm a fresh run card in T3', error)
+        self.assertNotIn('Continue PR-only work', error)
 
     def test_confirming_refuses_a_brief_that_does_not_name_the_crew_profile(self):
         # Rule: once the project has `.scratch/crew.md`, a card is confirmed only when its brief's Crew section names it.
