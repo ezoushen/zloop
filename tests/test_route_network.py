@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+import unittest
 
 from router_case import RouterCase, models
 import support
@@ -147,6 +148,24 @@ class RouteNetwork(RouterCase):
         self.assertIn('exceeds configured thinking choices', result.stderr)
         self.assertEqual(self.hits, [])
 
+    def test_non_decision_pool_probes_only_matching_model_and_runtime(self):
+        self.data['runtimes']['claude']['executors']['codex'] = {
+            'type': 'skill', 'config': {'skill': 'claude-bridge', 'instruction': 'Run one worker.'}}
+        self.save()
+        for args, candidates, hits in (
+            (('--model', 'codex/sol'), {'luna', 'sol', 'opus'}, ['/sol']),
+            (('--target-runtime', 'codex'), {'luna', 'sol'}, ['/luna', '/sol']),
+            (('--model', 'codex/sol', '--target-runtime', 'codex'), {'luna', 'sol'}, ['/sol']),
+        ):
+            with self.subTest(args=args):
+                self.hits.clear()
+                result = self.cli(*args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                route = json.loads(result.stdout)
+                self.assertEqual(route['status'], 'selection_required')
+                self.assertEqual(self.hits, hits)
+                self.assertEqual(set(route['eligible_candidates']), candidates)
+
     def test_exact_routes_validate_locally_before_health_checks(self):
         self.data['capacity']['luna']['health'] = 'http://remote.invalid/luna'
         self.data['capacity']['opus']['health'] = 'http://remote.invalid/opus'
@@ -251,3 +270,7 @@ class RouteNetwork(RouterCase):
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn('Backend sol is unhealthy', result.stderr)
         self.assertEqual(self.hits, ['/sol'])
+
+
+if __name__ == '__main__':
+    unittest.main()
