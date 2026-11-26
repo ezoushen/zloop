@@ -18,6 +18,7 @@ import run_all
 
 RUNNER = support.ROOT / 'tests/run_all.py'
 CLEAN = support.ROOT / 'tests/run_clean.py'
+PARITY_SITE = support.ROOT / 'tests/parity_site'
 
 
 class RunAll(unittest.TestCase):
@@ -47,6 +48,8 @@ class RunAll(unittest.TestCase):
         if clean:
             launcher = Path('tests/run_clean.py')
             shutil.copy(CLEAN, root / launcher)
+            if PARITY_SITE.is_dir():
+                shutil.copytree(PARITY_SITE, root / 'tests' / PARITY_SITE.name)
         for name, body in scripts.items():
             (root / 'tests' / name).write_text(body)
         subprocess.run(['git', 'init', '-q', str(root)], check=True)
@@ -87,6 +90,34 @@ class RunAll(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('1 scripts passed, 0 failed; 1 scheduled units passed, 0 failed', result.stdout)
         self.assertIn('shard 2/2: 1 units', result.stdout)
+
+    def test_the_parity_lane_refuses_network_lookups_and_oversubscribes_the_slots(self):
+        script = ('import os, socket\n'
+                  'try:\n'
+                  '    socket.getaddrinfo("zloop-parity.invalid", 443)\n'
+                  'except socket.gaierror as error:\n'
+                  '    assert "parity lane" in str(error), error\n'
+                  'else:\n'
+                  '    raise AssertionError("a network lookup was not refused")\n'
+                  'assert socket.getaddrinfo("localhost", 80)\n'
+                  'assert os.environ["ZLOOP_TEST_SLOTS"] == str(2 * os.cpu_count()), os.environ["ZLOOP_TEST_SLOTS"]\n')
+        result = self.suite({'test_network.py': script}, args=['--parity'], clean=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertRegex(result.stdout.splitlines()[0], r'^parity lane: git version \d+\.\d+.*, Python 3\.\d+.*, Node ')
+
+    def test_the_parity_lane_refuses_a_git_older_than_its_floor(self):
+        tools = tempfile.TemporaryDirectory(prefix='parity tools ')
+        self.addCleanup(tools.cleanup)
+        old = Path(tools.name) / 'git'
+        old.write_text('#!/bin/sh\n'
+                       'if [ "$1" = --version ]; then printf "%s\\n" "git version 2.39.5 (Apple Git-154)"; exit 0; fi\n'
+                       f'exec {shlex.quote(shutil.which("git"))} "$@"\n')
+        old.chmod(0o755)
+        result = self.suite({'test_one.py': 'pass\n'}, {'PATH': os.pathsep.join((tools.name, os.environ['PATH']))},
+                            args=['--parity'], clean=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('git version 2.39.5 (Apple Git-154) is older than git 2.40', result.stderr)
+        self.assertNotIn('scripts passed', result.stdout)
 
     def test_clean_shell_keeps_the_callers_git_and_node(self):
         git = shutil.which('git')

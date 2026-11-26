@@ -68,7 +68,7 @@ jobs:
           .venv/bin/python -m pip install -r requirements.txt
           npm install --global @anthropic-ai/claude-code@${{ env.CLAUDE_CODE_VERSION }} --prefer-offline
       - name: Run this shard of the clean-shell suite
-        run: .venv/bin/python tests/run_clean.py --shard ${{ matrix.shard }}
+        run: .venv/bin/python tests/run_clean.py --parity --shard ${{ matrix.shard }}
 
   macos:
     name: macOS-only scripts
@@ -88,7 +88,7 @@ jobs:
           python -m venv .venv
           .venv/bin/python -m pip install -r requirements.txt
       - name: Run the scripts that need macOS
-        run: .venv/bin/python tests/run_clean.py tests/test_agent_pools.py tests/test_capacity.py tests/test_executors.py tests/test_herdr_start.py tests/test_seatbelt.py
+        run: .venv/bin/python tests/run_clean.py --parity tests/test_agent_pools.py tests/test_capacity.py tests/test_executors.py tests/test_herdr_start.py tests/test_seatbelt.py
 
   ci-ok:
     name: ci-ok

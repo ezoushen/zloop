@@ -108,7 +108,7 @@ class CIWorkflow(unittest.TestCase):
         count = len(listed)
         self.assertGreater(count, 1)
         self.assertEqual(listed, [f'{number}/{count}' for number in range(1, count + 1)])
-        self.assertEqual(self.commands(suite)[-1], '.venv/bin/python tests/run_clean.py --shard ${{ matrix.shard }}')
+        self.assertEqual(self.commands(suite)[-1], '.venv/bin/python tests/run_clean.py --parity --shard ${{ matrix.shard }}')
         self.assertIn('    name: Suite ${{ matrix.shard }}\n', suite)
 
     def test_the_suite_caches_the_pinned_claude_code_install(self):
@@ -131,7 +131,7 @@ class CIWorkflow(unittest.TestCase):
         macos = self.job('macos')
         self.assertIn('    runs-on: macos-15\n', macos)
         command = self.commands(macos)[-1]
-        prefix = '.venv/bin/python tests/run_clean.py '
+        prefix = '.venv/bin/python tests/run_clean.py --parity '
         self.assertTrue(command.startswith(prefix), command)
         in_lane = sorted(command[len(prefix):].split())
         needing = sorted(f'tests/{path.name}' for path in (support.ROOT / 'tests').glob('test_*.py')

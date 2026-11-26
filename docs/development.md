@@ -73,20 +73,20 @@ created within it. The runner refuses a temporary path inside a Git worktree,
 including a symlink to one, and reports passed and failed script and unit counts.
 
 Run `.venv/bin/python tests/run_clean.py` for the full suite with a clean environment
-and a minimal PATH. Put the prerequisite `git`, `claude` and `node` executables on
-the caller's PATH. The clean run keeps their tool directories in caller order
-ahead of the system fallback paths. For individually executed tests,
+and a minimal PATH that keeps the caller's `git`, `claude` and `node` directories, in
+caller order, ahead of the system paths. For individually executed tests,
 `tests/support.py` supplies temporary zloop state, configuration and Codex home and
 provides fixtures with their own host IDs where needed.
 
 `--shard K/N` (in `run_all.py` and `run_clean.py`) runs the K-th of N disjoint parts of the scheduled units, balanced by
 test count, so N machines cover the suite once. A run ends with its ten slowest units and their wall seconds.
+`run_clean.py --parity` mimics a busy hosted runner: Python resolves only loopback hosts, slots are twice the
+CPUs, and the run prints its tool versions and refuses git older than 2.40.
 
 Hosted CI (`.github/workflows/ci.yml`) runs once per change: `pull_request`, and `push` only for `main`; a newer push
 cancels the older run. `fast` runs the whole-repository doc check and the workflow contract test. `suite` runs the
-clean-shell suite as 4 shards on `ubuntu-latest`: about 1000 CPU-seconds over 4 shards of 4 vCPUs is a minute or so each,
-near the fixed setup cost per job, so more shards stop paying; re-pick from the slowest-unit summaries. `macos` runs
-the scripts that branch on `darwin` or reach `sandbox-exec`, even indirectly; `tests/test_ci_workflow.py` lists them. `ci-ok` is the
+parity lane as 4 shards on `ubuntu-latest`, 2–3 minutes each; re-pick from the slowest units. `macos`
+runs the parity lane on the scripts that branch on `darwin` or reach `sandbox-exec`, even indirectly; `tests/test_ci_workflow.py` lists them. `ci-ok` is the
 one check name and passes only when all three succeeded.
 
 Enable the Git hooks once per clone with `git config core.hooksPath .githooks`:
