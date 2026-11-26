@@ -10,7 +10,7 @@ class CIWorkflow(unittest.TestCase):
     def test_a_read_only_ci_job_runs_clean_suite_and_whole_repo_doc_check(self):
         workflow = (support.ROOT / '.github/workflows/ci.yml').read_text()
         self.assertRegex(workflow, r'(?m)^on:\s*\n  push:\s*\n  pull_request:\s*$')
-        self.assertRegex(workflow, r'(?m)^permissions:\n  contents: read$')
+        self.assertRegex(workflow, r'(?m)^permissions:\n  contents: read\n\n*(?=\S|\Z)')
         verify = re.search(r'(?ms)^jobs:\n  verify:\n(.*?)(?=^(?:\S|  \S)|\Z)', workflow)
         self.assertIsNotNone(verify, 'CI needs a verify job')
         job, marker, steps = verify[1].partition('    steps:\n')

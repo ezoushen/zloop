@@ -148,7 +148,7 @@ class RouteNetwork(RouterCase):
         self.assertIn('exceeds configured thinking choices', result.stderr)
         self.assertEqual(self.hits, [])
 
-    def test_non_decision_pool_probes_only_matching_model_and_runtime(self):
+    def test_non_decision_pool_probes_only_matching_model_runtime_and_effort(self):
         self.data['runtimes']['claude']['executors']['codex'] = {
             'type': 'skill', 'config': {'skill': 'claude-bridge', 'instruction': 'Run one worker.'}}
         self.save()
@@ -156,6 +156,8 @@ class RouteNetwork(RouterCase):
             (('--model', 'codex/sol'), {'luna', 'sol', 'opus'}, ['/sol']),
             (('--target-runtime', 'codex'), {'luna', 'sol'}, ['/luna', '/sol']),
             (('--model', 'codex/sol', '--target-runtime', 'codex'), {'luna', 'sol'}, ['/sol']),
+            (('--thinking', 'high', '--target-runtime', 'codex'), {'luna', 'sol'}, ['/sol']),
+            (('--thinking', 'max', '--target-runtime', 'codex'), {'luna', 'sol'}, ['/luna']),
         ):
             with self.subTest(args=args):
                 self.hits.clear()

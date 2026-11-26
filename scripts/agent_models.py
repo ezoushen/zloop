@@ -720,9 +720,7 @@ def resolve_execution(repo, user_config, user_executors, host, agent, task, choi
             for name in list(expanded):
                 if candidate is not None or (eligible_candidates is not None and name not in eligible_candidates):
                     continue
-                if decision_requested and not decision_levels(expanded[name], name, task, eligible_thinking):
-                    continue
-                if 'model' in task and task['model'] != expanded[name].get('models', {}).get('model'):
+                if not decision_levels(expanded[name], name, task, eligible_thinking):
                     continue
                 full = check_backend(catalog[name][0].get('backend'))
                 if full:
