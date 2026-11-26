@@ -6,9 +6,11 @@ import unittest
 
 import support
 
-# A test script that branches on the platform or drives the macOS sandbox. The character class keeps this file's own
-# source from matching, so the scan below does not need to skip it.
+# A test script that branches on the platform or drives the macOS sandbox.
 MACOS_ONLY = re.compile(r'''(?i)['"]darwin['"]|sandbox[-]exec''')
+# Scripts that reach the real macOS sandbox through the bash executor's Seatbelt wrap, which their own text cannot show;
+# found by counting sandbox calls on macOS.
+INDIRECT_SANDBOX = ('test_agent_pools.py', 'test_executors.py')
 
 
 class CIWorkflow(unittest.TestCase):
@@ -134,7 +136,7 @@ class CIWorkflow(unittest.TestCase):
         self.assertTrue(command.startswith(prefix), command)
         in_lane = sorted(command[len(prefix):].split())
         needing = sorted(f'tests/{path.name}' for path in (support.ROOT / 'tests').glob('test_*.py')
-                         if MACOS_ONLY.search(path.read_text()))
+                         if MACOS_ONLY.search(path.read_text()) or path.name in INDIRECT_SANDBOX)
         self.assertEqual(in_lane, needing)
 
     def test_ci_ok_passes_only_when_every_other_job_succeeded(self):

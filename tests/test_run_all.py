@@ -140,7 +140,7 @@ class RunAll(unittest.TestCase):
                 self.assertEqual(list(ran.iterdir()), [])
 
     SHARD_FIXTURE = {
-        'test_alpha': (('A', 3), ('B', 12)),  # B is split into two units of six
+        'test_alpha': (('A', 3), ('B', 12)),
         'test_beta': (('C', 5), ('D', 1)),
     }
 

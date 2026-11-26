@@ -157,6 +157,8 @@ class PRWatch(unittest.TestCase):
             ('wrong check head', self.pull, [dict(passing, head_sha='c' * 40)], 'complete set of GitHub check runs'),
             ('duplicate ID', self.pull, [passing, passing], 'complete set of GitHub check runs'),
             ('missing check record', self.pull, [dict(passing, id=None)], 'complete set of GitHub check runs'),
+            ('incomplete check pages', self.pull, dict(total_count=2, check_runs=[passing]),
+             'complete set of GitHub check runs'),
             ('HTTP error', self.pull, None, 'cannot verify GitHub response for'),
         )
         control_path = self.card.with_name('autopilot-control.json')
@@ -170,8 +172,8 @@ class PRWatch(unittest.TestCase):
 
                 self.github.replies[pr_key] = {'sequence': [self.pull, after]}
                 # The total counts distinct IDs, so the count check cannot mask the duplicate-ID guard.
-                self.github.replies[check_key] = None if runs is None else [
-                    dict(total_count=len({run['id'] for run in runs}), check_runs=runs)]
+                self.github.replies[check_key] = (None if runs is None else [runs] if isinstance(runs, dict) else [
+                    dict(total_count=len({run['id'] for run in runs}), check_runs=runs)])
                 result = self.refresh(receipt)
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn(expected, result.stderr)

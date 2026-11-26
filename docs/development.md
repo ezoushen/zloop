@@ -86,7 +86,7 @@ Hosted CI (`.github/workflows/ci.yml`) runs once per change: `pull_request`, and
 cancels the older run. `fast` runs the whole-repository doc check and the workflow contract test. `suite` runs the
 clean-shell suite as 4 shards on `ubuntu-latest`: about 1000 CPU-seconds over 4 shards of 4 vCPUs is a minute or so each,
 near the fixed setup cost per job, so more shards stop paying; re-pick from the slowest-unit summaries. `macos` runs
-the scripts that branch on `darwin` or drive `sandbox-exec`, as `tests/test_ci_workflow.py` enforces. `ci-ok` is the
+the scripts that branch on `darwin` or reach `sandbox-exec`, even indirectly; `tests/test_ci_workflow.py` lists them. `ci-ok` is the
 one check name and passes only when all three succeeded.
 
 Enable the Git hooks once per clone with `git config core.hooksPath .githooks`:
