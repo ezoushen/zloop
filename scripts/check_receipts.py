@@ -125,6 +125,7 @@ def unittest_context(path, claim):
                     and len(node.bases) == 1
                     and (isinstance(node.bases[0], ast.Name) or (isinstance(node.bases[0], ast.Attribute)
                          and isinstance(node.bases[0].value, ast.Name)))):
+                neighbors[f'class:{node.name}'] = hashlib.sha256(ast.dump(node).encode()).hexdigest()
                 continue
         context.append(node)
     module.body = context
@@ -301,7 +302,7 @@ def same_test_run(red, green):
     earlier, later = original.get('neighbors'), result.get('neighbors')
     return (isinstance(context, str) and context.startswith(UNITTEST_CONTEXT_PREFIX)
             and context == result.get('context') and isinstance(earlier, dict) and isinstance(later, dict)
-            and all(later.get(name) == digest for name, digest in earlier.items()))
+            and list(earlier.items()) == [(name, digest) for name, digest in later.items() if name in earlier])
 
 
 def problems(saved, head, *, ticket=None, base=None):

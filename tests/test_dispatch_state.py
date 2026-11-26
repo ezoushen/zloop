@@ -558,6 +558,27 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         request['evidence'] += [red, green]
         self.assert_claim_refused(item, ticket, request, f'{claim}: red and green must run the same test')
 
+    def test_managed_acceptance_refuses_changed_inheritance_in_an_original_test_class(self):
+        ticket, item, claim, _ = self.claimed_ticket()
+        test = Path(item['worktree']) / 'test_value.py'
+        test.write_text('import unittest\nfrom product import value\n'
+                        'class WantedTwo:\n'
+                        '    def expected(self): return 2\n'
+                        'class WantedOne:\n'
+                        '    def expected(self): return 1\n'
+                        'class Fixture(WantedTwo):\n'
+                        '    def test_other(self): pass\n'
+                        'class ValueTest(unittest.TestCase):\n'
+                        '    def test_wanted(self): self.assertEqual(value, Fixture().expected())\n')
+        red = self.phase_check(item, claim, 'red')
+        self.assertIn('AssertionError: 1 != 2', Path(red).read_text())
+        test.write_text(test.read_text().replace('Fixture(WantedTwo)', 'Fixture(WantedOne)'))
+        self.worktree_git(item, 'add', test.name)
+        request = self.completion(item)
+        green = self.phase_check(item, claim, 'green')
+        request['evidence'] += [red, green]
+        self.assert_claim_refused(item, ticket, request, f'{claim}: red and green must run the same test')
+
     def test_managed_acceptance_refuses_a_different_command_for_the_same_test(self):
         ticket, item, claim, _ = self.claimed_ticket()
         self.write_claimed_test(item)
