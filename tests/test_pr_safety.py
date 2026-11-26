@@ -4,6 +4,8 @@ import datetime
 import json
 import os
 from pathlib import Path
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -29,8 +31,11 @@ class PRSafety(unittest.TestCase):
                        cwd=self.root, check=True)
         self.fixture = self.root / 'responses.json'
         self.calls = self.root / 'calls.jsonl'
-        gh = self.root / 'gh'
-        gh.write_text(f'#!{sys.executable}\n' + """\
+        tools = self.root / 'tools'
+        tools.mkdir()
+        (tools / 'git').symlink_to(shutil.which('git'))
+        fixture = tools / 'gh_fixture.py'
+        fixture.write_text("""\
 import json
 from pathlib import Path
 import sys
@@ -43,8 +48,10 @@ if reply is None:
     sys.exit('fixture denies this command')
 print(json.dumps(reply))
 """)
+        gh = tools / 'gh'
+        gh.write_text(f'#!/bin/sh\nexec {shlex.join([sys.executable, str(fixture)])} "$@"\n')
         gh.chmod(0o755)
-        self.env = dict(os.environ, PATH=f'{self.root}{os.pathsep}{os.environ["PATH"]}')
+        self.env = dict(os.environ, PATH=str(tools))
         self.replies = {
             f'api --hostname github.com {PULL}':
                 {'number': 12, 'state': 'open', 'base': {'ref': BASE, 'repo': {'full_name': REPO}},
