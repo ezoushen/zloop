@@ -47,6 +47,7 @@ STATE_LINES = ('confirmed', 'session', 'auto-merge', 'mode', 'board', 'dispatch-
 RUN_CARD = Path(__file__).resolve().parents[1] / 'skills' / 'autopilot' / 'run-card.md'
 PHASES = ('align', 'refine', 'dispatch', 'pr')
 TICKETS = Path(__file__).resolve().parent / 'next_tickets.py'
+PUBLISH_PROBE = Path(__file__).resolve().parent / 'publish_probe.py'
 MODES = ('full', 'direct')
 DIRECT_TICKETS = 2  # A direct run finishes at most this many tickets; more is the full path.
 
@@ -130,11 +131,21 @@ def board_problem(card, state):
     return None
 
 
+def publish_problem(card, state):
+    """Why the run of `card` cannot enter pr yet, or None: its `publish-probe:` line is missing or does not say `ok`."""
+    if state_fields(state).get('publish-probe', '').split(' ')[0] == 'ok':
+        return None
+    probe = shlex.join(['python3', str(PUBLISH_PROBE), str(card)])
+    return (f'the publish probe of {card.parent.name} is missing or failed: run `{probe}` and fix what it reports, '
+            'then set the phase')
+
+
 def phase(card, text, value):
     """The card's text with `phase:` set to `value`; exits naming the problem when dispatch or pr cannot work its board
-    (`board_problem`)."""
+    (`board_problem`) or pr has no passing publish probe (`publish_problem`)."""
     state = state_section(text)
-    problem = value in ('dispatch', 'pr') and board_problem(card, state[0])
+    problem = (value in ('dispatch', 'pr') and board_problem(card, state[0])
+               or value == 'pr' and publish_problem(card, state[0]))
     if problem:
         sys.exit(problem)
     lines = state[0]

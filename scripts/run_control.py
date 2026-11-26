@@ -527,6 +527,26 @@ def phase(card, text, expected):
         return state
 
 
+def record_field(card, key, value):
+    """Set one State field on a plain or a managed card, leaving every other line as it is; a managed card gets a
+    revision and an event, and an ended or paused run refuses it (`require_active`)."""
+    card = Path(card)
+    with state_files.locked(card):
+        state = read(card)
+        if state is None:
+            state_files.write_atomic(card, fields(card.read_text(), {key: value}))
+            return None
+        require_active(card)
+        recover(card, state)
+        previous = state['card_text']
+        state['card_text'] = fields(previous, {key: value})
+        state['revision'] += 1
+        state['events'].append(dict(id=uuid.uuid4().hex, actor='host', source={'kind': 'state', 'field': key},
+                                    at=time.time()))
+        save(card, state, previous)
+        return state
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['adopt', 'status', 'pause', 'resume', 'end', 'restore-view', 'merge'])

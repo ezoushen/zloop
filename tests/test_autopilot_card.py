@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Taking over an autopilot run card ends the old run's merge grant and keeps its terminal state as history."""
 import datetime
+import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -193,6 +195,7 @@ timer:
 resume: `autopilot --take-over`
 """
 UNNAMED = 'session: <each host session ID this shell exports, comma-separated; `confirm` and `take-over` rewrite it>'
+OK_PROBE = 'publish-probe: ok 2026-11-27T09:00:00Z acme/widgets'
 
 
 
@@ -342,6 +345,79 @@ class Confirm(unittest.TestCase):
         self.confirm('--words', 'go', sessions=session, scratch={'run/alignment.md': brief})
 
 
+class PublishProbe(unittest.TestCase):
+    """`publish_probe.py` records on the run card whether the run can push its branch and open a pull request."""
+    LINE = r'publish-probe: (ok|failed) \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ (.+)'
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix='zloop-probe-')
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name).resolve()
+        self.repo, self.remote, self.bin = root / 'repo', root / 'remote.git', root / 'bin'
+        self.env = dict(support.without_host_sessions(), GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1',
+                        GH_LOG=str(root / 'gh.log'), PATH=f'{self.bin}{os.pathsep}{os.environ["PATH"]}')
+        self.git('init', '-q', '-b', 'main', str(self.repo), cwd=root)
+        self.git('init', '-q', '--bare', str(self.remote), cwd=root)
+        self.git('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '--allow-empty', '-m', 'one')
+        # origin names a GitHub repository, while pushes go to a local bare repository: no network is reachable.
+        self.git('remote', 'add', 'origin', 'https://github.com/acme/widgets.git')
+        self.git('config', 'remote.origin.pushurl', str(self.remote))
+        self.bin.mkdir()
+        gh = self.bin / 'gh'
+        gh.write_text('#!/bin/sh\necho "$@" >> "$GH_LOG"\nprintf \'%s\' "$GH_BODY"\n')
+        gh.chmod(0o755)
+        self.card = support.run_card(self.repo / '.scratch' / 'run' / 'autopilot.md', phase='refine')
+
+    def git(self, *args, cwd=None):
+        return subprocess.run(['git', *args], cwd=cwd or self.repo, env=self.env, check=True, capture_output=True,
+                              text=True, timeout=30).stdout
+
+    def probe(self, permission=True, code=0):
+        """Run the probe on the card against a `gh` that grants write when `permission`; the card's probe line."""
+        env = dict(self.env, GH_BODY=json.dumps({'permissions': {'push': permission}}))
+        result = subprocess.run([sys.executable, '-B', str(support.script('publish_probe.py')), str(self.card)],
+                                env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, code, result.stderr)
+        lines = [line for line in self.card.read_text().splitlines() if line.startswith('publish-probe:')]
+        self.assertEqual(len(lines), 1, self.card.read_text())
+        self.assertIn(lines[0], result.stdout)
+        return re.fullmatch(self.LINE, lines[0])
+
+    def test_the_probe_records_ok_or_the_failing_reason_without_network(self):
+        # Rule: a run learns at its start whether it can push its branch and open a PR; the card says which, and why not.
+        before = self.card.read_text()
+        found = self.probe()
+        self.assertEqual((found[1], found[2]), ('ok', 'acme/widgets'))
+        self.assertEqual(self.card.read_text().replace(f'{found[0]}\n', ''), before)
+        # A dry run pushes nothing, and gh is only asked to read.
+        self.assertEqual(self.git('for-each-ref', cwd=self.remote), '')
+        self.assertEqual(Path(self.env['GH_LOG']).read_text().split(), ['api', '--hostname', 'github.com', 'repos/acme/widgets'])
+
+        found = self.probe(permission=False, code=1)
+        self.assertEqual((found[1], found[2]), ('failed', 'gh reports no write permission on acme/widgets'))
+
+        self.git('config', 'remote.origin.pushurl', str(self.remote.with_name('missing.git')))
+        found = self.probe(code=1)
+        self.assertEqual(found[1], 'failed')
+        self.assertTrue(found[2].startswith('git push --dry-run of HEAD to origin failed: '), found[2])
+
+        self.git('remote', 'set-url', 'origin', str(self.remote))
+        self.git('config', '--unset', 'remote.origin.pushurl')
+        found = self.probe(code=1)
+        self.assertEqual((found[1], found[2]), ('failed', 'origin is not a GitHub repository'))
+
+    def test_the_probe_records_on_a_managed_card_through_its_control_record(self):
+        # Rule: a managed card's State changes only through run_control, so the probe line must survive its views.
+        control = support.load_script('run_control.py')
+        control.adopt(self.card, 'confirmed run')
+        found = self.probe()
+        self.assertEqual(found[1], 'ok')
+        state = control.read(self.card)
+        self.assertEqual(state['revision'], 2)
+        self.assertEqual(state['card_text'], self.card.read_text())
+        self.assertIn(f'{found[0]}\n', state['card_text'])
+
+
 class Phase(unittest.TestCase):
     """`phase` sets the run's phase; dispatch and pr need the tickets on the board the card names."""
 
@@ -421,6 +497,39 @@ class Phase(unittest.TestCase):
                 self.assertEqual(error.strip(), refusal)
                 self.assertIn('\nphase: refine\n', text)
 
+    def test_the_pr_phase_refuses_a_missing_or_failed_publish_probe(self):
+        # Rule: a run that cannot publish never enters pr; the refusal names the probe and leaves the card unchanged.
+        self.ticket('01')
+        probe = shlex.join(['python3', str(COMMAND.resolve().parent / 'publish_probe.py'), str(self.card)])
+        refusal = (f'the publish probe of run is missing or failed: run `{probe}` and fix what it reports, then set the '
+                   'phase')
+
+        def card_with(line):
+            text = DRAFT.replace('confirmed: no', 'confirmed: 2026-11-06 "go"').replace(UNNAMED, 'session: host-1')
+            return text.replace('phase: refine\n', f'phase: refine\n{line}\n' if line else 'phase: refine\n')
+
+        run_control = support.load_script('run_control.py')
+
+        def phase(text, managed=False):
+            run_control.location(self.card).unlink(missing_ok=True)
+            self.card.write_text(text)
+            if managed:
+                run_control.adopt(self.card, 'confirmed run')
+            before = self.card.read_text()
+            result = subprocess.run([sys.executable, '-B', str(COMMAND), 'phase', str(self.card), 'pr'],
+                                    capture_output=True, text=True, timeout=30)
+            return result, before
+
+        for managed in (False, True):
+            for line in ('', 'publish-probe: failed 2026-11-27T09:00:00Z gh reports no write permission on acme/widgets',
+                         'publish-probe:'):
+                result, before = phase(card_with(line), managed)
+                self.assertEqual((result.returncode, result.stderr.strip()), (1, refusal))
+                self.assertEqual(self.card.read_text(), before)
+            result, before = phase(card_with(OK_PROBE), managed)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.card.read_text(), before.replace('phase: refine\n', 'phase: pr\n'))
+
     def test_a_direct_card_moves_to_dispatch_with_two_local_tickets_and_is_refused_with_three(self):
         # Rule (outcome B): above two tickets the work is the full path, with the user's confirmation.
         self.card.parent.mkdir(exist_ok=True)
@@ -456,7 +565,7 @@ class Phase(unittest.TestCase):
         self.card.parent.mkdir(exist_ok=True)
         self.ticket('01')
         by_rule = DRAFT.replace('mode: full', 'mode: direct').replace('confirmed: no', 'confirmed: 2026-11-06 by rule "go"')
-        self.card.write_text(by_rule.replace(UNNAMED, 'session: host-1\nintent-thread: host-1'))
+        self.card.write_text(by_rule.replace(UNNAMED, 'session: host-1\nintent-thread: host-1\n' + OK_PROBE))
 
         def run(command, *args):
             return subprocess.run([sys.executable, '-B', str(COMMAND), command, str(self.card), *args],
