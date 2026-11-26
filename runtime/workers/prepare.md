@@ -78,6 +78,15 @@ After preparing an attempt, [wait](wait.md), [collect](collect.md) and [retire](
    A worker started through T3 Code adds `"t3": {"thread": "<thread id>"}`, naming the
    thread T3 reports; registration confirms the thread with the t3 CLI.
 
+   An owned worker on a direct local Bash route with a backend slot may add
+   `"local_owner": {"pid": 123, "stamp": "<start stamp>"}`. The launcher supplies the PID
+   of the actual worker from its local launch and the trimmed output of
+   `LC_ALL=C TZ=UTC ps -p <pid> -o lstart=`. Supply this evidence only when the process's
+   lifetime bounds the work. A wrapper that can leave work running, the registration
+   CLI, and a watch provide no such evidence. Registration records the owner only
+   when its local start stamp matches. Native children, Herdr, T3 and other routes
+   without this proof keep their slots until collection, closure or state removal.
+
    When the snapshot applied a decision-model recommendation, the helper records
    that decision for you: its action at registration, its execution at verified
    startup and its outcome at collection. A `journal` field in a `record` or

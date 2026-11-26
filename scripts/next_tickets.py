@@ -60,7 +60,16 @@ ROUTED = {}
 PR_URL = re.compile(r"https://[^/\s]+/[^/\s]+/[^/\s]+/pull/[0-9]+")  # A pull request, by its own address.
 RUN_URL = re.compile(r"https://([^/\s]+/[^/\s]+/[^/\s]+)/actions/runs/([0-9]+)")  # A CI run, by its own address.
 TERMINAL = {"done"}
-STATUSES = {"ready", "blocked"} | LIVE | TERMINAL
+TRANSITIONS = {
+    "ready": {"ready", "implementing", "blocked", "done"},
+    "blocked": {"blocked", "ready", "implementing", "done"},
+    "implementing": {"implementing", "ready", "reviewing", "fixing", "verifying", "blocked", "done"},
+    "reviewing": {"reviewing", "implementing", "fixing", "verifying", "blocked", "done"},
+    "fixing": {"fixing", "implementing", "reviewing", "verifying", "blocked", "done"},
+    "verifying": {"verifying", "fixing", "blocked", "done"},
+    "done": {"done", "verifying", "blocked"},
+}
+STATUSES = TRANSITIONS.keys()
 TICKET_KEYS = {"blocked_by", "touches", "devices", "worker"}  # A front matter holding one is a ticket's.
 MAX_LIVE = 8  # Tickets live at once, unless --max-live or MAX_LIVE in the environment says otherwise (main checks it).
 # Critical path first. TICKET_PRIORITY=spec-a,spec-b names the specs to drain first; default is name order.
@@ -624,27 +633,43 @@ def ticket_branch(slug, path):
 
 
 def accept(tickets, name):
-    """Deterministic verify node: the report exists in the main checkout with its evidence, and the branch moved.
-    Any failure withdraws an earlier acceptance."""
-    run_control.require_active(ISSUES / name.split('/')[0] / 'autopilot.md')
-    if verify(tickets, name):
-        return True
+    """Accept local report and branch evidence, withdrawing earlier local acceptance on failure."""
+    run_control.require_active(ISSUES / spec_of(name) / 'autopilot.md')
     fm = tickets[name]
+    with state_files.locked(ROOT / fm["path"]):
+        snapshot, fm = read_ticket(fm)
+    fields = verify(fm)
+    if fields is not None:
+        publish_acceptance(fm, snapshot, fields)
+        print(f"{name}: report and branch carry the evidence; judge the content now")
+        return True
     withdrawn = {"accepted": None, "accepted_report": None} if fm.get("accepted") else {}
-    if not accepted({**fm, **withdrawn}):
-        if fm.get("status") == "done":  # Done only while accepted.
-            withdrawn.update(status="blocked", blocker="its acceptance failed again; restore the evidence, then --accept it")
+    if fm.get("status") == "done" and not accepted({**fm, **withdrawn}):
+        withdrawn.update(status="blocked", blocker="its acceptance failed again; restore the evidence, then --accept it")
     if withdrawn:
-        write_fields(fm, withdrawn)
+        publish_acceptance(fm, snapshot, withdrawn)
     return False
 
 
-def verify(tickets, name):
+def publish_acceptance(fm, snapshot, fields):
+    """Commit acceptance against the ticket the checks used, while the managed run is active."""
+    name = fm["ticket"]
+    card = ISSUES / spec_of(name) / 'autopilot.md'
+    with run_control.active_guard(card), state_files.locked(ROOT / fm["path"]):
+        text, current = read_ticket(fm)
+        if text != snapshot:
+            sys.exit(f"{name}: ticket changed during --accept; reload and retry")
+        write_fields(current, fields, text)
+
+
+def verify(fm):
+    """Return the accepted report and branch fields when the evidence and measurements pass."""
+    name = fm["ticket"]
     slug, nn = name.split("/")
     report = ISSUES / slug / "reports" / f"{nn}.md"
     if not report.exists():
         print(f"{name}: no report at {report}", file=sys.stderr)
-        return False
+        return None
     text = report.read_text()
     problems = report_problems(text)
     base = re.search(r"^base:\s*`?([0-9a-f]{40})", text, re.M)
@@ -670,17 +695,14 @@ def verify(tickets, name):
     if not problems:
         problems = returned_problems(slug, report, ref, branch, delegated=ref != branch_ref(workstream_branch(slug)))
     if not problems:
-        problems, notes = measurement_results(tickets[name], ref, text)
+        problems, notes = measurement_results(fm, ref, text)
     for p in problems:
         print(f"{name}: {p}", file=sys.stderr)
-    if not problems:
-        for note in notes:
-            print(f"{name}: {note}")
-        # The head and the report that passed: done needs both, the head landed on the workstream branch.
-        with run_control.active_guard(ISSUES / slug / 'autopilot.md'):
-            write_fields(tickets[name], {"accepted": commit_of(ref), "accepted_report": report_digest(report)})
-        print(f"{name}: report and branch carry the evidence; judge the content now")
-    return not problems
+    if problems:
+        return None
+    for note in notes:
+        print(f"{name}: {note}")
+    return {"accepted": commit_of(ref), "accepted_report": report_digest(report)}
 
 
 def workstream_attempts(slug):
@@ -1060,13 +1082,15 @@ def unproven(urls):
 def accept_delivered(tickets, name, urls):
     """Accept a ticket by the PRs and CI runs that deliver it, when gh reports each PR merged and each run successful;
     record them as `delivered_by`."""
+    fm = tickets[name]
+    with state_files.locked(ROOT / fm["path"]):
+        snapshot, fm = read_ticket(fm)
     problems = unproven(urls)
     for problem in problems:
         print(f"{name}: {problem}", file=sys.stderr)
     if problems:
         return False
-    with run_control.active_guard(ISSUES / name.split('/')[0] / 'autopilot.md'):
-        write_fields(tickets[name], {"delivered_by": f"[{', '.join(urls)}]"})
+    publish_acceptance(fm, snapshot, {"delivered_by": f"[{', '.join(urls)}]"})
     print(f"{name}: delivered by merged or successful {', '.join(urls)}; judge the content now")
     return True
 
@@ -1124,12 +1148,28 @@ def set_field(tickets, name, assignments):
     if "status" in fields and fields["status"] not in STATUSES:
         sys.exit(f"{name}: status {fields['status']!r} is not one of {sorted(STATUSES)}")
     fm = tickets[name]
+    with state_files.locked(ROOT / fm["path"]):
+        text, current = read_ticket(fm)
+        set_status_fields(current, fields)
+        write_fields(current, fields, text)
+    for key, value in fields.items():
+        if value is not None:
+            print(f"{name}: {key} = {value}")
+
+
+def set_status_fields(fm, fields):
+    """Validate the update against the current ticket and add its dependent status fields."""
+    name = fm["ticket"]
+    origin = fm.get("status")
+    target = fields.get("status")
+    if target is not None and isinstance(origin, str) and origin in TRANSITIONS and target not in TRANSITIONS[origin]:
+        sys.exit(f"{name}: cannot change status from {origin} to {target}")
     if "start" in fields:
         if fm.get("start"):
             sys.exit(f"{name}: start is {fm['start']} already and never changes")
         if not re.fullmatch("[0-9a-f]{40}", fields["start"]) or commit_of(fields["start"]) != fields["start"]:
             sys.exit(f"{name}: start={fields['start']} is not a 40-hex commit of this repository")
-    elif fields.get("status") == "implementing" and not fm.get("start") and fm.get("status") not in LIVE:
+    elif fields.get("status") == "implementing" and not fm.get("start") and not (isinstance(origin, str) and origin in LIVE):
         workstream = workstream_branch(spec_of(name))
         fields["start"] = commit_of(branch_ref(workstream) or "refs/heads/main")
         if not fields["start"]:
@@ -1159,10 +1199,6 @@ def set_field(tickets, name, assignments):
     if fields.get("status", "blocked") != "blocked":
         # A ticket leaving `blocked` drops its reason.
         fields["blocker"] = None
-    write_fields(fm, fields)
-    for key, value in fields.items():
-        if value is not None:
-            print(f"{name}: {key} = {value}")
 
 
 def landed(sha, ref):
@@ -1207,11 +1243,24 @@ def landed(sha, ref):
     return all(ours.get(c) in theirs for c in changed)
 
 
-def write_fields(fm, fields):
+def read_ticket(fm):
+    """Read the located ticket again under its lock, refusing a replaced or missing identity."""
+    path = ROOT / fm["path"]
+    try:
+        text = path.read_text()
+    except (OSError, ValueError) as error:
+        sys.exit(f"{fm['ticket']}: cannot reread {path}: {error}")
+    current = front_matter.parse(text)
+    if not current or current.get("ticket") != fm["ticket"]:
+        sys.exit(f"{fm['ticket']}: ticket changed identity at {path}; reload the board")
+    current["path"] = fm["path"]
+    return text, current
+
+
+def write_fields(fm, fields, text):
     """Write each field to a ticket's front matter; None removes the field. Only status, blocker, start, accepted,
     accepted_report and delivered_by may be added; another key must already be in the template."""
     path = ROOT / fm["path"]
-    text = path.read_text()
     head = re.match(r"---\n.*?(?=\n---(?:\n|$))", text, re.S)[0]  # What front_matter.parse reads as the block.
     rest = text[len(head):]
     for key, value in fields.items():
@@ -1226,7 +1275,7 @@ def write_fields(fm, fields):
             head += f'\n{key}: {value}'
         else:
             sys.exit(f"{fm['ticket']}: no front-matter key {key!r}")
-    path.write_text(head + rest)
+    state_files.write_atomic(path, head + rest)
 
 
 def orchestrate(slug, autofix):

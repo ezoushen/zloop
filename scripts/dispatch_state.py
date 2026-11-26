@@ -44,7 +44,7 @@ def location(card):
 
 
 def managed(card, active=True):
-    if not Path(card).exists():
+    if not run_control.present(card):
         return None
     state = run_control.read(card)
     if state:

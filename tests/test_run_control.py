@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Managed controls reject invented user pauses, stale writes and diverged views."""
 import datetime
+import hashlib
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 import support
 
@@ -53,6 +58,33 @@ class RunControl(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'revision'):
             self.control.transition(self.card, 'blocked', {'kind': 'host', 'reference': 'gate'}, 'blocked', 1, 'b1')
 
+    def test_interrupted_transition_retry_publishes_the_view_once(self):
+        for interrupted in ('autopilot-control.json', 'autopilot.md'):
+            with self.subTest(interrupted=interrupted):
+                card = support.run_card(self.root / f'crash-{interrupted}' / 'autopilot.md', phase='align')
+                self.control.adopt(card, 'confirmed run')
+                before = card.read_text()
+                replace = os.replace
+
+                def interrupt(source, destination):
+                    if destination.name == interrupted:
+                        raise OSError('interrupted replacement')
+                    replace(source, destination)
+
+                request = (card, 'blocked', {'kind': 'host', 'reference': 'gate'}, 'blocked', 1, 'b1')
+                with mock.patch('os.replace', side_effect=interrupt):
+                    with self.assertRaisesRegex(OSError, 'interrupted replacement'):
+                        self.control.transition(*request)
+                self.assertEqual(card.read_text(), before)
+                try:
+                    result = self.control.transition(*request)
+                except ValueError as error:
+                    self.fail(f'Retrying the interrupted request should publish its view: {error}')
+                self.assertEqual(result['revision'], 2)
+                self.assertEqual([event['id'] for event in result['events']], ['adopt', 'b1'])
+                self.assertIn('terminal: blocked\n', card.read_text())
+                self.assertEqual(self.control.read(card), result)
+
     def test_manual_divergence_is_unknown_and_legacy_cards_are_not_adopted_implicitly(self):
         self.assertIsNone(self.control.read(self.card))
         self.control.adopt(self.card, 'confirmed run')
@@ -65,6 +97,154 @@ class RunControl(unittest.TestCase):
         restored = self.control.restore_view(self.card, self.control.digest(manual), 'reviewed diff', 'r1')
         self.assertEqual(restored['events'][-1]['displaced_view'], manual)
         self.control.require_active(self.card)
+
+    def test_status_reads_the_committed_transition_without_republishing_the_view(self):
+        self.control.adopt(self.card, 'confirmed run')
+        before = self.card.read_bytes()
+        replace = os.replace
+
+        def interrupt(source, destination):
+            if destination == self.card:
+                raise OSError('interrupted projection')
+            replace(source, destination)
+
+        with mock.patch('os.replace', side_effect=interrupt):
+            with self.assertRaisesRegex(OSError, 'interrupted projection'):
+                self.control.transition(self.card, 'blocked', {'kind': 'host', 'reference': 'gate'}, 'blocked', 1, 'b1')
+        record = self.card.with_name('autopilot-control.json')
+        saved = record.read_bytes()
+        for present in (True, False):
+            with self.subTest(present=present):
+                if not present:
+                    self.card.unlink()
+                result = subprocess.run([sys.executable, '-B', str(support.SCRIPTS / 'run_control.py'),
+                                         'status', str(self.card)], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                status = json.loads(result.stdout)
+                self.assertEqual((status['revision'], status['terminal'], status['last_event']['id']), (2, 'blocked', 'b1'))
+                with self.assertRaisesRegex(ValueError, 'Run is blocked'):
+                    self.control.require_active(self.card)
+                self.assertEqual(record.read_bytes(), saved)
+                if present:
+                    self.assertEqual(self.card.read_bytes(), before)
+                else:
+                    self.assertFalse(self.card.exists())
+
+    def test_restore_requires_a_review_of_the_current_bytes_and_discards_forged_authority(self):
+        self.control.adopt(self.card, 'confirmed run')
+        canonical = self.card.read_bytes()
+        manual = (canonical.replace(b'phase: align', b'phase: pr')
+                  .replace(b'terminal:\n', b'terminal: paused-by-user\n')
+                  .replace(b'auto-merge: no', b'auto-merge: yes'))
+        reviewed = hashlib.sha256(manual).hexdigest()
+        current = manual.replace(b'\n', b'\r\n')
+        self.card.write_bytes(current)
+        request = (self.card, 'merged', {'kind': 'host', 'reference': 'gate'}, 'merge', 1, 'm1')
+        with self.assertRaisesRegex(ValueError, 'diverged'):
+            self.control.transition(*request)
+        with self.assertRaisesRegex(ValueError, 'Manual view changed'):
+            self.control.restore_view(self.card, reviewed, 'reviewed diff', 'r1')
+        self.assertEqual(self.card.read_bytes(), current)
+        restored = self.control.restore_view(self.card, hashlib.sha256(current).hexdigest(), 'fresh review', 'r1')
+        self.assertEqual(restored['events'][-1]['displaced_view'].encode(), current)
+        self.assertEqual(self.card.read_bytes(), canonical)
+        with self.assertRaisesRegex(ValueError, 'existing merge grant'):
+            self.control.transition(*request[:4], 2, request[-1])
+
+    def test_restore_cli_preserves_reviewed_malformed_utf8_bytes(self):
+        self.control.adopt(self.card, 'confirmed run')
+        canonical = self.card.read_bytes()
+        manual = canonical + b'\r\nReviewed edit: \xff\x80\xe2\x82\r\n'
+        self.card.write_bytes(manual)
+        reviewed = hashlib.sha256(manual).hexdigest()
+        record = self.card.with_name('autopilot-control.json')
+        command = [sys.executable, '-B', str(support.SCRIPTS / 'run_control.py')]
+        restore = command + ['restore-view', str(self.card), '--source', 'reviewed bytes',
+                             '--request-id', 'restore-1', '--expect-view', reviewed]
+
+        result = subprocess.run(restore, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        event = json.loads(record.read_bytes())['events'][-1]
+        self.assertEqual(event['view_hash'], reviewed)
+        self.assertEqual(event['displaced_view'].encode('utf-8', errors='surrogateescape'), manual)
+        self.assertEqual(self.card.read_bytes(), canonical)
+
+        changed = manual.replace(b'\xff', b'\xfe')
+        self.card.write_bytes(changed)
+        saved = record.read_bytes()
+        result = subprocess.run(command + ['status', str(self.card)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('diverged', result.stderr)
+        result = subprocess.run(restore, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('Manual view changed', result.stderr)
+        self.assertEqual(self.card.read_bytes(), changed)
+        self.assertEqual(record.read_bytes(), saved)
+
+    def test_interrupted_reconciliation_archives_manual_edit_only_once(self):
+        self.control.adopt(self.card, 'confirmed run')
+        canonical = self.card.read_bytes()
+        manual = canonical + b'\nUnrelated edit: \xff\x80\n'
+        self.card.write_bytes(manual)
+        record = self.card.with_name('autopilot-control.json')
+        replace = os.replace
+
+        for step in ('publish view', 'clear pending'):
+            with self.subTest(step=step):
+                self.card.write_bytes(manual)
+                request = (self.card, hashlib.sha256(manual).hexdigest(), 'reviewed diff', step)
+                events_before = len(json.loads(record.read_bytes())['events'])
+
+                def interrupt(source, destination):
+                    if (step == 'publish view' and destination == self.card
+                            or step == 'clear pending' and destination == record and self.card.read_bytes() == canonical):
+                        raise OSError('interrupted reconciliation')
+                    replace(source, destination)
+
+                with mock.patch('os.replace', side_effect=interrupt):
+                    with self.assertRaisesRegex(OSError, 'interrupted reconciliation'):
+                        self.control.restore_view(*request)
+                self.assertEqual(self.card.read_bytes(), manual if step == 'publish view' else canonical)
+                try:
+                    result = self.control.read(self.card)
+                except ValueError as error:
+                    self.fail(f'Reading the interrupted reconciliation should accept the reviewed predecessor: {error}')
+                self.assertEqual(len(result['events']), events_before + 1)
+                displaced = result['events'][-1]['displaced_view']
+                self.assertEqual(displaced.encode('utf-8', errors='surrogateescape'), manual)
+                self.assertEqual(result['revision'], events_before + 1)
+                recovered = self.control.restore_view(*request)
+                self.assertEqual(recovered['events'], result['events'])
+                self.assertEqual(self.card.read_bytes(), canonical)
+                self.card.write_bytes(manual)
+                with self.assertRaisesRegex(ValueError, 'Manual view changed'):
+                    self.control.restore_view(*request)
+
+    def test_an_old_restore_request_does_not_overwrite_a_newer_reviewed_view(self):
+        self.control.adopt(self.card, 'confirmed run')
+        canonical = self.card.read_bytes()
+        first = canonical + b'\nEarlier manual view.\n'
+        self.card.write_bytes(first)
+        old_request = (self.card, hashlib.sha256(first).hexdigest(), 'first review', 'r1')
+        self.control.restore_view(*old_request)
+        second = canonical + b'\nLater manual view.\n'
+        self.card.write_bytes(second)
+        new_request = (self.card, hashlib.sha256(second).hexdigest(), 'second review', 'r2')
+        replace = os.replace
+
+        def interrupt(source, destination):
+            if destination == self.card:
+                raise OSError('interrupted later reconciliation')
+            replace(source, destination)
+
+        with mock.patch('os.replace', side_effect=interrupt):
+            with self.assertRaisesRegex(OSError, 'interrupted later reconciliation'):
+                self.control.restore_view(*new_request)
+        with self.assertRaisesRegex(ValueError, 'Manual view changed'):
+            self.control.restore_view(*old_request)
+        self.assertEqual(self.card.read_bytes(), second)
+        self.control.restore_view(*new_request)
+        self.assertEqual(self.card.read_bytes(), canonical)
 
     def test_host_assertions_cannot_be_labeled_user_pause(self):
         self.control.adopt(self.card, 'confirmed run')
@@ -126,6 +306,28 @@ class RunControl(unittest.TestCase):
         self.control.transition(self.card, 'paused-by-user', proof, 'pause', 2, 'pause')
         with self.assertRaisesRegex(ValueError, 'paused-by-user'):
             self.control.phase(self.card, text, 3)
+
+    def test_retrying_phase_command_republishes_without_recording_the_phase_twice(self):
+        self.control.adopt(self.card, 'confirmed run')
+        replace = os.replace
+
+        def interrupt(source, destination):
+            if destination == self.card:
+                raise OSError('interrupted phase publication')
+            replace(source, destination)
+
+        text = self.card.read_text().replace('phase: align', 'phase: refine')
+        with mock.patch('os.replace', side_effect=interrupt):
+            with self.assertRaisesRegex(OSError, 'interrupted phase publication'):
+                self.control.phase(self.card, text, 1)
+        self.card.unlink()
+        result = subprocess.run([sys.executable, '-B', str(support.SCRIPTS / 'autopilot_card.py'),
+                                 'phase', str(self.card), 'refine'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = self.control.read(self.card)
+        self.assertEqual(state['revision'], 2)
+        self.assertEqual([event.get('phase') for event in state['events']], [None, 'refine'])
+        self.assertIn('phase: refine\n', self.card.read_text())
 
     def test_supported_native_shapes_keep_user_role_and_session_checks(self):
         stamp = datetime.datetime.now(datetime.timezone.utc).isoformat()

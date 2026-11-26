@@ -38,9 +38,9 @@ class RepairFindings(WorkerLifecycleCase):
                 self.assertEqual(self.register('autofix/2', 'autofix', session='native-autofix-2',
                                                worker='pane-autofix-2', code=2, **supplied).strip(),
                                  f'Registration takes no {", ".join(sorted(supplied))}: it takes only '
-                                 'assignment, attempt, execution, head, herdr, journal, kind, native, native_session, '
-                                 'owned, packet, premise, repairs, repo, runtime, t3, worker, worktree; the lifecycle '
-                                 'records the rest itself, findings from the packet')
+                                 'assignment, attempt, execution, head, herdr, journal, kind, local_owner, native, '
+                                 'native_session, owned, packet, premise, repairs, repo, runtime, t3, worker, worktree; '
+                                 'the lifecycle records the rest itself, findings from the packet')
         self.cli('plan', '--job', 'repair', '--finding', 'P01-001', '--finding', 'P01-002', '--finding', 'P05-001')
         refused = self.repair('r1/1', "the CONFIRMED candidates in the listed audit report(s) (IDs and proposed "
                               "minimal repairs are in each report's Findings section)", code=2)

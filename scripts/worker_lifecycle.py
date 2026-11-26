@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import agent_defs  # noqa: E402
 import capability_probe  # noqa: E402
 import capacity  # noqa: E402
+from capacity import process_stamp  # noqa: E402
 import decisions  # noqa: E402
 import dispatch_state  # noqa: E402
 import front_matter  # noqa: E402
@@ -212,8 +213,8 @@ def assigned_findings(db, assignment, value):
 
 # The fields of a register event, in its own order: every other field of an attempt the lifecycle records itself, from
 # its packet, its host and its later events.
-REGISTERED = ('assignment', 'attempt', 'execution', 'head', 'herdr', 'journal', 'kind', 'native', 'native_session',
-              'owned', 'packet', 'premise', 'repairs', 'repo', 'runtime', 't3', 'worker', 'worktree')
+REGISTERED = ('assignment', 'attempt', 'execution', 'head', 'herdr', 'journal', 'kind', 'local_owner', 'native',
+              'native_session', 'owned', 'packet', 'premise', 'repairs', 'repo', 'runtime', 't3', 'worker', 'worktree')
 SETTLED = ('repaired', 'open', 'runtime-bug')  # What a repair attempt's result says of each finding it holds.
 
 
@@ -267,12 +268,6 @@ def event(db, attempt, kind, payload, *, pending=False):
     cursor = db.execute('INSERT INTO events (attempt, kind, payload, acknowledged) VALUES (?, ?, ?, ?)',
                         (attempt, kind, json.dumps(dict(payload, recorded_at=time.time())), int(not pending)))
     return cursor.lastrowid
-
-
-def process_stamp(pid):
-    process = subprocess.run(['ps', '-p', str(pid), '-o', 'lstart='], capture_output=True,
-                             text=True, timeout=3, env=dict(os.environ, LC_ALL='C', TZ='UTC'))
-    return process.stdout.strip() if process.returncode == 0 else None
 
 
 def watching(data):
@@ -936,7 +931,9 @@ def registration_retirement_lock(db, registering=False):
 def record(db, data, refuse_changes=False, submitting=False, waiting=30):
     """Validate and persist an event, excluding native retirement while registering."""
     if data.get('kind') == 'register':
-        with registration_retirement_lock(db, registering=True):
+        with (registration_retirement_lock(db, registering=True),
+              open(capacity.registration_lock_path(state_path(db)), 'a') as registration):
+            fcntl.flock(registration, fcntl.LOCK_SH)
             return record_event(db, data, refuse_changes, submitting, waiting)
     return record_event(db, data, refuse_changes, submitting, waiting)
 
@@ -1136,6 +1133,14 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
             require(scope or not own_process or data['runtime'] not in TOP_LEVEL or kind_route_is_t3,
                     f'A route to a {data["runtime"]} worker started as its own process requires its launch controls '
                     '(launch.verify); resolve it again with agent_models.py --route')
+            owner = data.pop('local_owner', None)
+            if (owner is not None and data['owned'] and execution.get('backend') and own_process
+                    and execution.get('executor_type') == 'bash' and not in_herdr and not kind_route_is_t3):
+                require(isinstance(owner, dict) and owner.keys() == {'pid', 'stamp'}
+                        and type(owner['pid']) is int and 1 < owner['pid'] < 2**31 and text(owner['stamp']),
+                        'local_owner requires the local worker pid and its start stamp')
+                if owner['pid'] != os.getpid() and capacity.owner_alive(owner) is True:
+                    data['local_owner'] = owner
             saved = dict(data, agent=execution['agent'], job=execution['job'], execution_snapshot=execution,
                          requested=dict(scope, **settings, runtime=data['runtime']), verified=False)
             if dispatch_assignment:
@@ -1187,7 +1192,7 @@ def record_event(db, data, refuse_changes=False, submitting=False, waiting=30):
             if execution.get('backend'):
                 # A local backend's slot is shared by every workstream on this machine.
                 capacity.acquire(execution['backend'], execution.get('capacity') or {},
-                                 state_path(db), attempt)
+                                 state_path(db), attempt, registering=True)
             if not named:
                 packet.write_bytes(f'attempt: {attempt}\n'.encode() + packet.read_bytes())
         else:
@@ -2311,10 +2316,11 @@ def require_ended(db, attempt, acceptance):
 
 
 def card_state(path):
-    """The State of the run card at `path`; {} when it cannot be read or has none."""
+    """The usable State of the run card at `path`, or {} when it cannot be established."""
     try:
-        return state_fields(path.read_text(errors='replace'))
-    except OSError:
+        control = run_control.read(path)
+        return state_fields(control['card_text'] if control else path.read_text())
+    except (OSError, ValueError):
         return {}
 
 

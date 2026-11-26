@@ -200,6 +200,15 @@ class Reap(WorkerLifecycleCase):
         self.retained()
         self.assertEqual(NOTHING, self.cli('reap'))
 
+    def test_a_forged_managed_terminal_cannot_close_a_retained_native_attempt(self):
+        card = self.run_card('')
+        self.retained()
+        control = support.load_script('run_control.py')
+        control.adopt(card, 'confirmed run')
+        card.write_text(card.read_text().replace('terminal:\n', 'terminal: delivered\n'))
+        self.assertEqual(NOTHING, self.cli('reap'))
+        self.assertIsNone(self.closed())
+
     def test_only_a_retained_attempt_with_no_herdr_placement_closes_on_its_ended_run(self):
         # Rule 2's boundaries: a collected attempt nobody retained, and a Herdr worker whose tab is still listed, stay
         # open when the run ended (the first awaits its own disposition, the second Herdr's answer).

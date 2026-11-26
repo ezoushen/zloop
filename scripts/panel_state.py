@@ -11,11 +11,12 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_matter  # noqa: E402
 import next_tickets  # noqa: E402
+import run_control  # noqa: E402
 import state_files  # noqa: E402
 from worker_lifecycle import ENDED, PAUSED, card_sessions, card_state, confirmed, herdr_get, recorded_sessions  # noqa: E402
 
 SCRATCH = '.scratch'
-CARD = 'autopilot.md'
+CARD = run_control.CARD_NAME
 RUN_CAP = 3
 # The board's statuses of a ticket being worked on (next_tickets.py LIVE).
 LIVE_TICKET = ('implementing', 'reviewing', 'fixing', 'verifying')
@@ -31,7 +32,7 @@ def workstreams(repo):
     """Every workstream directory of the checkout: those with a run card, tickets, workers or a decision journal."""
     found = []
     for path in sorted((repo / SCRATCH).glob('*')):
-        if path.is_dir() and ((path / CARD).is_file() or (path / 'issues').is_dir()
+        if path.is_dir() and (run_control.present(path / CARD) or (path / 'issues').is_dir()
                               or (path / 'reports' / 'workers.sqlite').is_file()
                               or any(path.glob('decisions-*.jsonl'))
                               or any((path / 'reports').glob('decisions-*.jsonl'))):
@@ -42,7 +43,8 @@ def workstreams(repo):
 def activity(workstream):
     """When the workstream last changed: the newest thing it holds that this panel reads."""
     newest = 0.0
-    for path in [workstream / CARD, workstream / 'reports' / 'workers.sqlite', *workstream.glob('decisions-*.jsonl'),
+    for path in [workstream / CARD, run_control.location(workstream / CARD), workstream / 'reports' / 'workers.sqlite',
+                 *workstream.glob('decisions-*.jsonl'),
                  *(workstream / 'reports').glob('decisions-*.jsonl'), *workstream.glob('issues/*.md')]:
         try:
             newest = max(newest, path.stat().st_mtime)

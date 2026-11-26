@@ -20,14 +20,28 @@ PAUSED = ('waiting-on-user', 'paused-allowance', 'paused-by-user', 'blocked')
 TERMINAL_STATES = ENDED + PAUSED
 DISPATCH_POLICY = dict(version=1, routing='configured', scheduling='independent-ready',
                        isolation='worktree-per-writer', integration='single-owner', max_live=8)
+CARD_NAME = 'autopilot.md'
+CONTROL_NAME = 'autopilot-control.json'
 
 
 def location(card):
-    return Path(card).with_name('autopilot-control.json')
+    return Path(card).with_name(CONTROL_NAME)
+
+
+def cards(repo):
+    """Find both managed and legacy cards, including an absent managed projection."""
+    projections = repo.glob(f'.scratch/*/{CARD_NAME}')
+    records = repo.glob(f'.scratch/*/{CONTROL_NAME}')
+    return sorted(set(projections) | {path.with_name(CARD_NAME) for path in records})
+
+
+def present(card):
+    return Path(card).exists() or location(card).exists()
 
 
 def digest(text):
-    return hashlib.sha256(text.encode()).hexdigest()
+    """Hash UTF-8 text, including any original bytes preserved by surrogateescape."""
+    return hashlib.sha256(text.encode(errors='surrogateescape')).hexdigest()
 
 
 def sessions(text):
@@ -62,26 +76,65 @@ def canonical(card):
         raise ValueError('Unreadable managed control record; reconcile it before continuing')
     if not isinstance(state.get('card_text'), str) or state_files.state_fields(state['card_text']).get('control') != state['run_id']:
         raise ValueError('Unreadable canonical card view')
+    if 'pending_view' in state and (not isinstance(state['pending_view'], str)
+                                   or not re.fullmatch(r'[0-9a-f]{64}', state['pending_view'])):
+        raise ValueError('Unreadable pending card projection')
     return state
 
 
+def observed(card, *, errors='strict'):
+    """Read the exact Markdown bytes as UTF-8, or None when the projection is absent."""
+    try:
+        return Path(card).read_bytes().decode(errors=errors)
+    except FileNotFoundError:
+        return None
+
+
+def projects(state, text):
+    return (text is None or text == state['card_text']
+            or ('pending_view' in state and digest(text) == state['pending_view']))
+
+
 def read(card):
-    """Return matching managed state, None for legacy, or an error for unknown/diverged state."""
+    """Read the canonical projection without modifying files, refusing unrelated view edits."""
     card = Path(card)
-    text = card.read_text()
-    if not location(card).exists():
+    try:
+        state = canonical(card)
+    except FileNotFoundError:
+        text = card.read_text()
         if state_files.state_fields(text).get('control'):
             raise ValueError('Managed control record is missing; reconcile it before continuing')
         return None
-    state = canonical(card)
-    if state.get('card_text') != text or state_files.state_fields(text).get('control') != state.get('run_id'):
+    if not projects(state, observed(card, errors='surrogateescape')):
+        state = canonical(card)
+        if projects(state, observed(card, errors='surrogateescape')):
+            return state
         raise ValueError('Run card and control record diverged; reconcile the saved transition and manual edits')
     return state
 
 
-def save(card, state):
+def write_control(card, state):
     state_files.write_atomic(location(card), json.dumps(state, indent=2) + '\n', mode=0o600)
-    state_files.write_atomic(Path(card), state['card_text'])
+
+
+def recover(card, state):
+    """Finish publishing a known projection while holding the card's lock."""
+    text = observed(card, errors='surrogateescape')
+    if not projects(state, text):
+        raise ValueError('Run card and control record diverged; reconcile the saved transition and manual edits')
+    if text != state['card_text']:
+        state_files.write_atomic(Path(card), state['card_text'])
+    if 'pending_view' in state:
+        del state['pending_view']
+        write_control(card, state)
+
+
+def save(card, state, previous):
+    """Commit authority first, then publish its view with a recoverable predecessor."""
+    if previous != state['card_text']:
+        state['pending_view'] = digest(previous)
+    write_control(card, state)
+    recover(card, state)
 
 
 def restore_view(card, expected_view, reference, request_id):
@@ -91,19 +144,22 @@ def restore_view(card, expected_view, reference, request_id):
         raise ValueError('View reconciliation requires its review reference and request ID')
     with state_files.locked(card):
         state = canonical(card)
-        text = card.read_text()
+        text = observed(card, errors='surrogateescape')
         previous = next((e for e in state['events'] if e['id'] == request_id), None)
         if previous and (previous.get('view_hash'), previous.get('reference')) != (expected_view, reference):
             raise ValueError('Reconciliation request ID already names different input')
-        if previous and text == state['card_text']:
+        current_hash = digest(text) if text is not None else None
+        if previous:
+            if not projects(state, text) or (text not in (None, state['card_text']) and current_hash != expected_view):
+                raise ValueError('Manual view changed; review it again before reconciliation')
+            recover(card, state)
             return state
-        if digest(text) != expected_view:
+        if text is None or current_hash != expected_view:
             raise ValueError('Manual view changed; review it again before reconciliation')
-        if not previous:
-            state['revision'] += 1
-            state['events'].append(dict(id=request_id, actor='host', reference=reference, view_hash=expected_view,
-                                        displaced_view=text, at=time.time()))
-        save(card, state)
+        state['revision'] += 1
+        state['events'].append(dict(id=request_id, actor='host', reference=reference, view_hash=expected_view,
+                                    displaced_view=text, at=time.time()))
+        save(card, state, text)
         return state
 
 
@@ -114,14 +170,18 @@ def adopt(card, reference, allow_resume=False):
         raise ValueError('Adoption requires the confirmation reference')
     with state_files.locked(card):
         if existing := read(card):
+            recover(card, existing)
             if 'dispatch_policy' not in existing:
                 existing['dispatch_policy'] = dict(DISPATCH_POLICY)
                 existing['revision'] += 1
                 existing['events'].append(dict(id='dispatch-policy-v1', actor='host',
                     source={'kind': 'confirmation', 'reference': reference}, at=time.time()))
-                save(card, existing)
+                save(card, existing, existing['card_text'])
             return existing
-        text = card.read_text()
+        before = observed(card)
+        if before is None:
+            raise FileNotFoundError(card)
+        text = before.replace('\r\n', '\n').replace('\r', '\n')
         values = state_files.state_fields(text)
         if re.match(r'no\b|$', values.get('confirmed', ''), re.I):
             raise ValueError('Only a confirmed card can be adopted')
@@ -131,7 +191,7 @@ def adopt(card, reference, allow_resume=False):
                      card_text=fields(text, {'control': run}),
                      events=[dict(id='adopt', actor='host', source={'kind': 'confirmation', 'reference': reference},
                                   terminal=values.get('terminal', ''), at=now)])
-        save(card, state)
+        save(card, state, before)
         return state
 
 
@@ -221,6 +281,7 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
         state = read(card)
         if state is None:
             raise ValueError('Legacy card: adopt its confirmed state explicitly first')
+        recover(card, state)
         previous = next((e for e in state['events'] if e['id'] == request_id), None)
         if previous:
             if previous.get('request') != request:
@@ -257,18 +318,19 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
             history = state_files.state_fields(state['card_text']).get('history', '')
             changes['history'] = '; '.join(filter(None, [history, f'{old} {datetime.date.today().isoformat()}']))
             changes['timer'] = ''
-        state['card_text'] = fields(state['card_text'], changes)
+        before = state['card_text']
+        state['card_text'] = fields(before, changes)
         state['revision'] += 1
         state['events'].append(dict(id=request_id, actor=source['kind'], source=source,
                                     terminal=terminal, previous=old, reason=reason, at=time.time(), request=request))
-        save(card, state)
+        save(card, state, before)
         return state
 
 
 def require_active(card):
     """Managed paused, ended or unknown runs cannot start/accept productive work."""
     card = Path(card)
-    if not card.exists():
+    if not present(card):
         return
     state = read(card)
     if state and (terminal := state_files.state_fields(state['card_text']).get('terminal')):
@@ -279,7 +341,7 @@ def require_active(card):
 def active_guard(card, enabled=True):
     """Serialize a supported admission/acceptance commit against a control transition."""
     card = Path(card)
-    if enabled and card.exists():
+    if enabled and present(card):
         with state_files.locked(card):
             require_active(card)
             yield
@@ -309,14 +371,18 @@ def phase(card, text, expected):
         if not state or state['revision'] != expected:
             raise ValueError('Control revision changed')
         require_active(card)
-        before, after = state_files.state_fields(state['card_text']), state_files.state_fields(text)
-        if fields(state['card_text'], {'phase': after.get('phase', '')}) != text:
+        recover(card, state)
+        previous = state['card_text']
+        if text == previous:
+            return state
+        before, after = state_files.state_fields(previous), state_files.state_fields(text)
+        if fields(previous, {'phase': after.get('phase', '')}) != text:
             raise ValueError('Phase update changed fields beyond its phase')
         state['card_text'] = text
         state['revision'] += 1
         state['events'].append(dict(id=uuid.uuid4().hex, actor='host', source={'kind': 'phase'},
                                     previous=before.get('phase'), phase=after.get('phase'), at=time.time()))
-        save(card, state)
+        save(card, state, previous)
         return state
 
 

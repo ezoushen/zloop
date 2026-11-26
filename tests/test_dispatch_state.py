@@ -359,6 +359,22 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         for _ in range(5):
             self.assertTrue(gate.count_hold(self.repo, 'host-1', gaps)[0])
 
+    def test_missing_managed_projection_keeps_run_discoverable_without_writing(self):
+        gate = support.load_script('../hooks/yield_gate.py')
+        self.card.unlink()
+        with self.subTest(reader='dispatch inspection'):
+            facts = self.dispatch.inspect(self.card)
+            self.assertEqual((facts.get('revision'), facts.get('state', {}).get('phase')), (1, 'dispatch'))
+        with self.subTest(reader='native launch admission'):
+            with self.assertRaisesRegex(ValueError, 'dispatch_card: and execution:'):
+                self.hook.check_event(dict(tool_name='subagent', tool_input=dict(agent='worker', task='unrouted'),
+                                           session_id='host-1', cwd=str(self.repo)))
+        with self.subTest(reader='yield gate'):
+            gaps = gate.unfinished_runs(self.repo, 'host-1', set())
+            self.assertIn('has no terminal state', ' '.join(gaps))
+            self.assertTrue(gate.count_hold(self.repo, 'host-1', gaps)[0])
+        self.assertFalse(self.card.exists())
+
     def test_handwritten_terminal_cannot_clear_an_active_managed_goal(self):
         gate = support.load_script('../hooks/yield_gate.py')
         self.card.write_text(self.card.read_text().replace('terminal:\n', 'terminal: delivered-local\n'))

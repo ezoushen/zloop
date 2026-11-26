@@ -365,26 +365,33 @@ def unfinished_runs(root, session, named):
     what `autopilot_card.py phase` would refuse; and each that records a delivered state its local board refuses, whose
     workstream is added to `named`."""
     missing = []
-    for path in sorted(root.glob('.scratch/*/autopilot.md')):
-        life = lifecycle()
-        state = life.card_state(path)
+    life, control_api, state_fields = lifecycle(), script('run_control'), script('state_files').state_fields
+    for path in control_api.cards(root):
+        try:
+            control = control_api.read(path)
+        except (OSError, ValueError) as error:
+            try:
+                view = state_fields(control_api.observed(path, errors='replace') or '')
+            except OSError:
+                view = {}
+            try:
+                saved = state_fields(control_api.canonical(path)['card_text'])
+            except (OSError, ValueError):
+                saved = {}
+            owned = session in life.card_sessions(saved) and life.confirmed(saved)
+            if owned or (session in life.card_sessions(view) and life.confirmed(view)):
+                gap_type = Required if owned and not saved.get('terminal') else Unchecked
+                missing.append(gap_type(f'{path}: {error}'))
+            continue
+        state = state_fields(control['card_text']) if control else life.card_state(path)
         if not (session in life.card_sessions(state) and life.confirmed(state)):
             continue
-        try:
-            control = script('run_control').read(path)
-            if control and not state.get('terminal'):
-                missing += [Required(f'{path}: {gap}') for gap in script('dispatch_state').gaps(path)]
-        except (OSError, ValueError) as error:
-            gap_type = Unchecked
+        if control and not state.get('terminal'):
             try:
-                canonical = script('run_control').canonical(path)
-                if (state.get('terminal') and session in script('run_control').sessions(canonical['card_text'])
-                        and not script('state_files').state_fields(canonical['card_text']).get('terminal')):
-                    gap_type = Required
-            except (OSError, ValueError):
-                pass
-            missing.append(gap_type(f'{path}: {error}'))
-            continue
+                missing += [Required(f'{path}: {gap}') for gap in script('dispatch_state').gaps(path)]
+            except (OSError, ValueError) as error:
+                missing.append(Required(f'{path}: {error}'))
+                continue
         if state.get('terminal') in life.TERMINAL_STATES and state.get('evidence'):
             if state['terminal'] in life.ENDED and (found := delivery_gaps(root, path, state)):
                 missing += found
