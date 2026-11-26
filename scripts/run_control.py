@@ -6,6 +6,7 @@ import datetime
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
 import sys
@@ -24,6 +25,7 @@ DISPATCH_POLICY = dict(version=1, routing='configured', scheduling='independent-
                        isolation='worktree-per-writer', integration='single-owner', max_live=8)
 CARD_NAME = 'autopilot.md'
 CONTROL_NAME = state_files.CONTROL_NAME
+SESSION_VARIABLES = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID', 'OPENCODE_SESSION_ID')
 
 
 def location(card):
@@ -283,8 +285,8 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
     grant_merge = not terminal and (merge_base is not None or merge_pr is not None)
     if grant_merge:
         request['merge_target'] = {'base': merge_base, 'pr': merge_pr}
-    if set(updates or {}) - {'timer', 'resume', 'phase', 'session'}:
-        raise ValueError('Control updates cannot change grants or criteria')
+    if set(updates or {}) - {'timer', 'resume', 'phase'}:
+        raise ValueError('Control updates cannot change grants, criteria or bound sessions')
     with state_files.locked(card):
         state = read(card)
         if state is None:
@@ -299,6 +301,7 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
             raise human_intent.WaitingOnUser('Control revision changed; inspect the current run before retrying')
         values = state_files.state_fields(state['card_text'])
         old = values.get('terminal', '')
+        provider_sessions = []
         if old == 'paused-by-user' and terminal not in ('', 'paused-by-user'):
             raise ValueError('Run is paused-by-user; a new user resume is required')
         if terminal == 'delivered-local' and values.get('delivery') == 'pr-only':
@@ -327,8 +330,16 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
                 words += ' --auto-merge'
             if updates:
                 raise ValueError('Take-over retains the bound session, phase and pending instructions')
-            proof = human_intent.verify(card, state['card_text'], 'take-over', words, sessions(state['card_text']),
+            bound = sessions(state['card_text'])
+            verified_thread = next((intent['thread'] for event in reversed(state['events'])
+                                    if (intent := event.get('source', {}).get('intent'))), None)
+            provider_sessions = list(dict.fromkeys(session for variable in SESSION_VARIABLES
+                                                   if (session := os.environ.get(variable)) and session not in bound
+                                                   and re.fullmatch(r'[\w.-]+', session)))
+            proof = human_intent.verify(card, state['card_text'], 'take-over', words,
+                                        [verified_thread] if verified_thread else bound,
                                         run_id=state['run_id'], revision=expected, target=target,
+                                        provider_sessions=provider_sessions,
                                         after=user_boundary(state, 'resume'), consumed=used_items(state))
             source = dict(source, intent=proof, at=proof['at'], reference=f'T3 item {proof["item"]}')
             if target is not None:
@@ -345,6 +356,8 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
         elif source.get('kind') != 'host' or not source.get('reference'):
             raise ValueError('Host transition requires its evidence reference')
         changes = dict(updates or {}, terminal=terminal, evidence=f'{source["reference"]}: {reason}')
+        if provider_sessions:
+            changes['session'] = ', '.join([*bound, *provider_sessions])
         if not terminal:
             state.pop('merge_submission', None)
             if not grant_merge:
@@ -385,7 +398,7 @@ def require_grant(card, state, values):
             or not proof.get('item') or not proof.get('run') or proof.get('origin') not in human_intent.ORIGINS
             or proof.get('challenge') != human_intent.canonical_hash(scope) or not isinstance(target, dict)
             or not isinstance(checked, dict) or grant != dict(checked, authorization=event['id'])
-            or target != (dict(checked, base=None) if checked.get('pr') is not None else checked)):
+            or target != checked):
         raise human_intent.WaitingOnUser('obtain a new verified merge grant for this managed run')
     return grant
 

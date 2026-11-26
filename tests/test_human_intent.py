@@ -9,7 +9,7 @@ import unittest
 
 import support
 import test_pr_safety
-from test_pr_safety import BASE, BRANCH, REPO, SHA
+from test_pr_safety import BASE, BRANCH, PULL, REPO, SHA
 from t3_intent_fixture import T3Read
 
 
@@ -31,8 +31,10 @@ class HumanIntent(unittest.TestCase):
                 'required_status_checks': {'enforcement_level': 'everyone', 'contexts': ['tests']}}}
         self.merge_call = ['pr', 'merge', '12', '--repo', f'github.com/{REPO}', '--match-head-commit', SHA, '--squash']
         self.github.replies[' '.join(self.merge_call)] = 'submitted'
+
     def host(self):
-        return T3Read(self, self.root, self.env, self.THREAD)
+        self.github.t3 = T3Read(self, self.root, self.env, self.THREAD)
+        return self.github.t3
 
     def card(self, *, confirmed='2026-10-27 "go"', **extra):
         return support.run_card(self.root / 'autopilot.md', phase='pr', confirmed=confirmed,
@@ -119,6 +121,8 @@ class HumanIntent(unittest.TestCase):
         self.assert_waiting(self.confirm(card, '--confirmed-by', 'human'), 'human intent')
         self.adopt(card)
         args = ('--merge-pr', 12)
+        self.github.replies[f'api --hostname github.com repos/{REPO}/pulls/13'] = dict(
+            self.github.replies[f'api --hostname github.com {PULL}'], number=13)
         words = self.request_text(self.resume(card, 1, 'preview', *args), self.COMMAND)
         before = self.control(card).read_bytes()
         for items, thread, run, target in (
@@ -168,10 +172,10 @@ class HumanIntent(unittest.TestCase):
         legacy.write_text(card.read_text().replace('confirmed-by: relayed(Grok Bot)', 'confirmed-by: human')
                           .replace('auto-merge: no', 'auto-merge: yes')
                           .split('control:', 1)[0])
-        # This separate legacy fixture has no canonical managed record next to it.
         other = self.root / 'legacy'
         other.mkdir()
         legacy = legacy.rename(other / 'autopilot.md')
+        self.assertFalse(self.control(legacy).exists())
         command = ('merge', '--pr', 12, '--head', SHA, '--method', 'squash')
         self.assert_waiting(self.cli('pr_safety.py', *command, '--card', legacy), 'managed')
         self.assert_waiting(self.cli('pr_safety.py', *command), 'managed')

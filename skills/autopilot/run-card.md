@@ -46,7 +46,7 @@ Decisions made without the user are rows in `.scratch/<slug>/ledger.md`; open on
 
 ## State
 confirmed: no | <date> "<the user's words>"
-session: <each host session ID this shell exports, comma-separated; `confirm` and `take-over` rewrite it>
+session: <bound host session IDs, comma-separated>
 auto-merge: no
 mode: full | direct   (`direct`: one or two tickets, no interview; `confirm` records `by rule` with the goal the user typed)
 board: local | <the tracker's URL>

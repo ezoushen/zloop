@@ -57,13 +57,14 @@ def exercise(operations):
                     active = False
                 elif operation == 'resume':
                     if host is None:
-                        host = T3Read(fixture, root, os.environ)
+                        env = support.without_host_sessions()
+                        host = T3Read(fixture, root, env)
                     revision = run_control.read(card)['revision']
-                    command = [sys.executable, '-B', str(support.script('run_control.py')), 'resume', str(card),
-                               '--expect', str(revision), '--request-id', f'resume-{number}', '--reason', 'trace']
-                    preview = subprocess.run(command, capture_output=True, text=True)
+                    command = host.command(support.script('run_control.py'), 'resume', card,
+                                           '--expect', revision, '--request-id', f'resume-{number}', '--reason', 'trace')
+                    preview = subprocess.run(command, capture_output=True, text=True, env=env)
                     host.accept(preview, 'autopilot --take-over')
-                    result = subprocess.run(command, capture_output=True, text=True)
+                    result = subprocess.run(command, capture_output=True, text=True, env=env)
                     assert result.returncode == 0, result.stderr
                     active = True
                 elif operation in ('damage', 'restore'):

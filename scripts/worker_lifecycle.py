@@ -33,7 +33,6 @@ import journal_store  # noqa: E402
 import native_settings  # noqa: E402
 import outcomes  # noqa: E402
 import run_control  # noqa: E402
-from t3_mcp import call as call_t3_mcp  # noqa: E402
 import source_identity  # noqa: E402
 from state_files import state_fields  # noqa: E402
 
@@ -52,7 +51,7 @@ TERMINAL_STATES = ENDED + PAUSED
 SCOPE = ('permission_mode', 'sandbox', 'approval', 'filesystem', 'tools', 'permissions')
 TOP_LEVEL = ('claude', 'codex', 'opencode', 'pi')  # Runtimes whose own process the resolver gives launch controls.
 # What Claude Code, Codex, Pi and OpenCode export to the orchestrator's shell as its host session ID.
-SESSION_VARIABLES = ('CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID', 'PI_SESSION_ID', 'OPENCODE_SESSION_ID')
+SESSION_VARIABLES = run_control.SESSION_VARIABLES
 
 
 def host_sessions():
@@ -1971,12 +1970,14 @@ def t3_mcp(data, tool, arguments, timeout=LOOKUP_SECONDS):
     """(0, the tool's structured result) through the T3 MCP server for an environment-targeted thread, or
     (1, {'error': {...}}) on any failure; ValueError names the fix when the credential is missing or expired
     (ledger A2)."""
+    from t3_mcp import call
+
     url, token = os.environ.get('T3_MCP_URL', ''), os.environ.get('T3_MCP_BEARER_TOKEN', '')
     if not url or not token:
         raise ValueError('a linked-environment thread needs T3_MCP_URL and T3_MCP_BEARER_TOKEN in the '
                          'environment: run `t3 pair` on that environment and approve the zloop client '
                          '(ledger A2)')
-    return call_t3_mcp(url, token, tool, arguments, timeout)
+    return call(url, token, tool, arguments, timeout)
 
 
 def t3_show(data, thread, budget=None):

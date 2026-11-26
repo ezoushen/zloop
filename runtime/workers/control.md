@@ -44,24 +44,36 @@ filesystem access still prevents that record being a cryptographic authority.
 ## Verify human intent
 
 For full-card confirmation or a take-over, run the gate with the intended card
-and action. When it returns a scoped request, show the card, action, revision
-and any merge target to the user. Ask them to send the exact text from the gate,
-including the `zloop-intent:` line, in the bound T3 conversation. Retry the same
-gate in the turn that handles their reply.
+and action. When it returns a scoped request, show the card, action, revision,
+any proposed provider sessions and any merge target to the user. Ask them to
+send the exact text from the gate, including the `zloop-intent:` line, in the
+bound T3 conversation. Retry the same gate in the turn that handles their reply
+and continue after the retry succeeds.
 
-The gate reads the active item from the local T3 runtime using its MCP read
-credential. It requires a fresh item authored by a user from the web or mobile
-app and binds the text to the card, thread, action, revision and target. Copied
-transcripts and CLI projections lack this authority. The gate reports
-`waiting-on-user` when the runtime or its credential is unavailable. The PR-only
-relay and confirmation by rule remain available where the run card permits them.
+The gate verifies the loopback listener against the runtime record in the OS
+account's protected T3 directory and reads with the inherited MCP credential.
+It follows the T3 messages view across pages for the same active run. It requires
+one fresh user item from the web or mobile app and binds its text to the card,
+thread, action, revision and target. Copied transcripts and CLI projections
+lack this authority. An unavailable binding, transport or complete read reports
+`waiting-on-user`. The PR-only relay and confirmation by rule remain available
+where the run card permits them.
+
+For legacy take-over, run `python3 "<plugin_root>/scripts/autopilot_card.py"
+take-over <card> [--effort <level>] [--dispatch-effort <level>]
+[--review-effort <level>]`. It keeps the card's levels unless a level flag is
+given. It moves the terminal state to `history:`, clears `terminal:` and its
+previous merge authorization, and retains the phase.
 
 For managed take-over use `resume <card> --expect <revision> --request-id <id>
 --reason <reason>`. Add `--merge-pr <number>` to request a grant for an existing PR,
-or `--merge-base <planned-base>` from the checked-out workstream branch. Required
-checks must apply to the exact target before the grant is recorded. Host decisions
-cannot override a user pause. `autopilot_card.py phase` records validated phase
-changes through the control record.
+or `--merge-base <planned-base>` from the checked-out workstream branch. For an
+existing PR, the challenge includes its current base. The gate verifies required
+checks for the scoped base and rechecks the PR's destination before it records the
+grant. A verified reply in the bound T3 thread can add a proposed provider session
+while retaining the original routing session. Host decisions cannot override a
+user pause. `autopilot_card.py phase` records validated phase changes through the
+control record.
 
 Host decisions use `end <card> --terminal <state> --source <evidence-reference>`
 with the same expected revision, request ID and reason. A user pause still requires

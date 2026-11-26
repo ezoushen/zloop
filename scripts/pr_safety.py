@@ -114,11 +114,13 @@ def require_merge_authority(confirmed_by):
 
 
 def requested_target(base=None, pr=None):
-    """Resolve the exact origin and PR, or the planned base and checked-out branch."""
+    """Resolve the exact origin and base for an existing PR or planned workstream branch."""
     if (base is None) == (pr is None) or pr is not None and pr < 1 or base is not None and not base.strip():
         raise WaitingOnUser('the intended GitHub base branch or PR is required')
     target = dict(repo=repository().casefold(), base=base, pr=pr)
-    if pr is None:
+    if pr is not None:
+        target['base'] = pull_base(target['repo'], pr)
+    else:
         message = 'the planned merge grant requires a checked-out workstream branch'
         try:
             ref = command('git', 'symbolic-ref', '--quiet', 'HEAD').strip()
@@ -131,10 +133,12 @@ def requested_target(base=None, pr=None):
 
 
 def verify_target(target):
-    """Return the target's verified GitHub base and effective required checks."""
-    repo, pr = target['repo'], target['pr']
-    base = pull_base(repo, pr) if pr is not None else target['base']
-    return dict(target, base=base), required_checks(repo, base)
+    """Verify required checks for the scoped destination and recheck any existing PR's base."""
+    repo, base, pr = target['repo'], target['base'], target['pr']
+    checks = required_checks(repo, base)
+    if pr is not None and pull_base(repo, pr) != base:
+        raise WaitingOnUser(f'PR {repo}#{pr} changed base during verification')
+    return target, checks
 
 
 def merge_command(pr, head, method, grant):

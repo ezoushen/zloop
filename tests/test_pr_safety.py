@@ -41,10 +41,14 @@ import json
 from pathlib import Path
 import sys
 args = sys.argv[1:]
-with Path('calls.jsonl').open('a') as calls:
+calls_path = Path('calls.jsonl')
+with calls_path.open('a') as calls:
     calls.write(json.dumps(args) + '\\n')
 fixtures = json.loads(Path('responses.json').read_text())
 reply = fixtures.get(' '.join(args))
+if isinstance(reply, dict) and 'sequence' in reply:
+    count = sum(json.loads(line) == args for line in calls_path.read_text().splitlines())
+    reply = reply['sequence'][count - 1]
 if reply is None:
     sys.exit('fixture denies this command')
 print(json.dumps(reply))
@@ -52,7 +56,7 @@ print(json.dumps(reply))
         gh = tools / 'gh'
         gh.write_text(f'#!/bin/sh\nexec {shlex.join([sys.executable, str(fixture)])} "$@"\n')
         gh.chmod(0o755)
-        self.env = dict(os.environ, PATH=str(tools))
+        self.env = dict(support.without_host_sessions(), PATH=str(tools))
         self.t3 = None
         self.replies = {
             f'api --hostname github.com {PULL}':
@@ -65,7 +69,9 @@ print(json.dumps(reply))
 
     def run_cli(self, script, *args):
         self.fixture.write_text(json.dumps(self.replies))
-        return subprocess.run([sys.executable, str(support.SCRIPTS / script), *args],
+        path = support.SCRIPTS / script
+        command = self.t3.command(path, *args) if self.t3 else [sys.executable, str(path), *args]
+        return subprocess.run(command,
                               cwd=self.root, env=self.env, text=True, capture_output=True)
 
     def approve_resume(self, card, revision=1, target=('--merge-pr', '12')):
@@ -118,7 +124,7 @@ print(json.dumps(reply))
                          ['api', '--hostname', 'github.com', BRANCH],
                          ['api', '--hostname', 'github.com', '--paginate', '--slurp', RULES]]
                 self.assertEqual([json.loads(row) for row in self.calls.read_text().splitlines()],
-                                 [*reads, *reads, *reads, reads[0], merge])
+                                 [*reads, reads[0], reads[0], *reads, reads[0], *reads, reads[0], merge])
 
     def test_preflight_refuses_malformed_unavailable_or_out_of_scope_github_responses(self):
         pull = f'api --hostname github.com {PULL}'
@@ -340,6 +346,7 @@ print(json.dumps(reply))
         self.assertIn(b'auto-merge: no\n', before)
         self.assertEqual([json.loads(row) for row in self.calls.read_text().splitlines()],
                          [['api', '--hostname', 'github.com', PULL],
+                          ['api', '--hostname', 'github.com', PULL],
                           ['api', '--hostname', 'github.com', BRANCH],
                           ['api', '--hostname', 'github.com', '--paginate', '--slurp', RULES]])
 

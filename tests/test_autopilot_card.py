@@ -53,31 +53,29 @@ class TakeOver(unittest.TestCase):
         env.update({'PI_SESSION_ID': 'host-2'} if sessions is None else sessions)
         for name in ('T3CODE_THREAD_ID', 'T3_MCP_URL', 'T3_MCP_BEARER_TOKEN'):
             env.pop(name, None)
+        args = ('take-over', str(path), *flags)
+        host = T3Read(self, Path(tmp.name), env) if code == 0 else None
+
         def run():
-            return subprocess.run([sys.executable, '-B', str(COMMAND), 'take-over', str(path), *flags],
-                                  capture_output=True, text=True, timeout=20, env=env)
-        if code == 0:
-            T3Read(self, Path(tmp.name), env).accept(run(), 'autopilot --take-over')
-            result = run()
-        else:
-            result = run()
+            command = host.command(COMMAND, *args) if host else [sys.executable, '-B', str(COMMAND), *args]
+            return subprocess.run(command, capture_output=True, text=True, timeout=20, env=env)
+
+        if host:
+            host.accept(run(), 'autopilot --take-over')
+        result = run()
         self.assertEqual(result.returncode, code, result.stderr)
         if error is not None:
             self.assertIn(error, result.stderr)
         return '\n'.join(line for line in path.read_text().split('\n') if not line.startswith('take-over-item:'))
 
-    def test_a_take_over_grants_merging_only_with_its_own_flag_and_keeps_the_old_state_as_history(self):
-        # Rule: the merge grant lapses with the terminal state; the new run holds only what its take-over grants, and
-        # it is the run of the session that took it over (card-confirm: the panel and the stop hold go by `session:`).
+    def test_legacy_take_over_refuses_a_new_merge_grant_and_preserves_history(self):
+        self.assertEqual(self.take_over('--auto-merge', code=2, error='requires a managed run'), CARD)
         today = datetime.date.today().isoformat()
-        for grant, merge in ((False, 'no'), (True, 'yes')):
-            text = (card.take_over(CARD, grant, None, None, today, ['host-2'])
-                    if grant else self.take_over())
-            self.assertEqual(text, CARD.replace('auto-merge: yes', f'auto-merge: {merge}')
-                             .replace('session: host-1', 'session: host-2, host-1' if not grant else 'session: host-2')
-                             .replace('terminal: merged', 'terminal:')
-                             .replace('history: waiting-on-user 2026-10-24',
-                                      f'history: waiting-on-user 2026-10-24; merged {today}'))
+        self.assertEqual(self.take_over(), CARD.replace('auto-merge: yes', 'auto-merge: no')
+                         .replace('session: host-1', 'session: host-2, host-1')
+                         .replace('terminal: merged', 'terminal:')
+                         .replace('history: waiting-on-user 2026-10-24',
+                                  f'history: waiting-on-user 2026-10-24; merged {today}'))
 
     def test_an_interrupted_take_over_leaves_the_card_whole(self):
         # Audit A1: the card holds the unfinished run at stop; a write cut short must not leave it empty.
@@ -89,10 +87,10 @@ class TakeOver(unittest.TestCase):
         env['PI_SESSION_ID'] = 'host-2'
         host = T3Read(self, Path(tmp.name), env)
         argv = ['autopilot_card.py', 'take-over', str(path)]
-        preview = subprocess.run([sys.executable, '-B', str(COMMAND), *argv[1:]], env=env,
+        preview = subprocess.run(host.command(COMMAND, *argv[1:]), env=env,
                                  capture_output=True, text=True, timeout=20)
         host.accept(preview, 'autopilot --take-over')
-        with (patch.object(sys, 'argv', argv), patch.dict(os.environ, env, clear=True),
+        with (host.trust(), patch.object(sys, 'argv', argv), patch.dict(os.environ, env, clear=True),
               patch('os.replace', side_effect=OSError('interrupted')), self.assertRaises(OSError)):
             card.main()
         self.assertEqual(path.read_text(), CARD)
@@ -161,7 +159,7 @@ class TakeOver(unittest.TestCase):
 
     def test_a_take_over_from_a_shell_with_no_host_session_is_refused(self):
         # Rule (card-confirm): a run nobody can tie to a session has no panel and no stop hold.
-        self.assertEqual(self.take_over(sessions={}, code=1), CARD)
+        self.assertEqual(self.take_over(sessions={}, code=2, error='no current T3 thread is bound'), CARD)
 
     def test_a_take_over_names_each_host_session_and_refuses_a_card_without_a_session_line(self):
         # Review (Sonnet, card-confirm): a take-over wrote no session on a card that had no `session:` line, so the
@@ -213,12 +211,17 @@ class Confirm(unittest.TestCase):
         env.update(sessions or {})
         for name in ('T3CODE_THREAD_ID', 'T3_MCP_URL', 'T3_MCP_BEARER_TOKEN'):
             env.pop(name, None)
+        host = None
+        args_with_card = ('confirm', str(path), *args)
+
         def run():
-            return subprocess.run([sys.executable, '-B', str(COMMAND), 'confirm', str(path), *args],
-                                  capture_output=True, text=True, timeout=20, env=env)
+            command = host.command(COMMAND, *args_with_card) if host else [sys.executable, '-B', str(COMMAND), *args_with_card]
+            return subprocess.run(command, capture_output=True, text=True, timeout=20, env=env)
+
         if code == 0 and 'mode: full' in card and 'relayed(' not in (card + ' '.join(args)):
             thread = next(iter(sessions.values()))
-            T3Read(self, Path(tmp.name), env, thread).accept(run(), ' '.join(args[args.index('--words') + 1].split()))
+            host = T3Read(self, Path(tmp.name), env, thread)
+            host.accept(run(), ' '.join(args[args.index('--words') + 1].split()))
         result = run()
         self.assertEqual(result.returncode, code, result.stderr)
         return path.read_text(), result.stderr
@@ -306,12 +309,12 @@ class Confirm(unittest.TestCase):
                 lacking = head + '## State\n' + '\n'.join(line for line in state.split('\n') if not line.startswith(f'{key}:'))
                 text, error = self.confirm('--words', 'go', card=lacking, sessions={'PI_SESSION_ID': 'pi-1'}, code=1)
                 self.assertEqual((text, error.split(':', 1)[0]), (lacking, f"the card's State lacks {key}"))
-        for words, sessions, refusal in (
-                (' ', {'PI_SESSION_ID': 'pi-1'}, "confirm takes --words: the user's words that confirmed this card"),
-                ('go', {}, 'no host session ID is exported here (CLAUDE_CODE_SESSION_ID, CODEX_SESSION_ID, PI_SESSION_ID, '
-                           'OPENCODE_SESSION_ID): confirm from the shell of the host session that runs this autopilot')):
-            with self.subTest(refusal=refusal):
-                self.assertEqual(self.confirm('--words', words, sessions=sessions, code=1), (DRAFT, refusal + '\n'))
+        self.assertEqual(self.confirm('--words', ' ', sessions={'PI_SESSION_ID': 'pi-1'}, code=1),
+                         (DRAFT, "confirm takes --words: the user's words that confirmed this card\n"))
+        text, error = self.confirm('--words', 'go', sessions={}, code=2)
+        self.assertEqual(text, DRAFT)
+        self.assertIn('waiting-on-user: human intent', error)
+        self.assertIn('no current T3 thread is bound', error)
 
     def test_confirming_refuses_a_brief_that_does_not_name_the_crew_profile(self):
         # Rule: once the project has `.scratch/crew.md`, a card is confirmed only when its brief's Crew section names it.
@@ -437,7 +440,7 @@ class Phase(unittest.TestCase):
     def human_confirm(self, words):
         env = dict(support.without_host_sessions(), PI_SESSION_ID='host-1')
         host = T3Read(self, self.card.parent, env)
-        command = [sys.executable, '-B', str(COMMAND), 'confirm', str(self.card), '--words', words]
+        command = host.command(COMMAND, 'confirm', self.card, '--words', words)
         host.accept(subprocess.run(command, env=env, capture_output=True, text=True, timeout=30), words)
         subprocess.run(command, env=env, check=True, capture_output=True, text=True, timeout=30)
 

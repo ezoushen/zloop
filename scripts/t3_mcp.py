@@ -1,4 +1,5 @@
 """Send a bounded JSON tool request to a T3 MCP server."""
+from http.client import HTTPException
 import json
 import urllib.error
 import urllib.request
@@ -53,5 +54,5 @@ def call(url, token, tool, arguments, timeout, *, local=False):
             raise ValueError('the T3 MCP credential was refused (expired or revoked): re-run `t3 pair` on '
                              'that environment and approve the zloop client again') from None
         return 1, {'error': {'code': 'http', 'message': f'T3 MCP answered {error.code}'}}
-    except (OSError, ValueError, AttributeError, TypeError, KeyError):
+    except (OSError, HTTPException, ValueError, AttributeError, TypeError, KeyError):
         return 1, {'error': {'code': 'unreachable', 'message': 'T3 MCP did not return a readable answer'}}

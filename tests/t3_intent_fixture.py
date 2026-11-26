@@ -1,10 +1,27 @@
 """Loopback stand-in for T3's authenticated thread-read endpoint."""
 import datetime
+from contextlib import ExitStack, contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+from pathlib import Path
 import re
+import sys
 import threading
+from types import SimpleNamespace
+from unittest.mock import patch
+
+
+@contextmanager
+def fixture_trust(home, pid, port):
+    import human_intent
+
+    with ExitStack() as stack:
+        stack.enter_context(patch('pwd.getpwuid', return_value=SimpleNamespace(pw_dir=home)))
+        stack.enter_context(patch.object(human_intent, 'listener_owned_by', create=True,
+                                         side_effect=lambda owner, address, socket_port:
+                                         (owner, address, socket_port) == (pid, '127.0.0.1', port)))
+        yield
 
 
 class T3Read:
@@ -12,6 +29,9 @@ class T3Read:
         self.thread = thread
         self.run = 'fixture-active-run'
         self.answer = {}
+        self.pages = {}
+        self.malformed = False
+        self.on_read = None
         self.reads = []
         fixture = self
 
@@ -22,12 +42,18 @@ class T3Read:
                 if self.path != '/mcp' or self.headers.get('Authorization') != 'Bearer fixture-token':
                     self.send_error(403)
                     return
+                if fixture.malformed:
+                    self.wfile.write(b'not an HTTP status\r\n')
+                    return
                 if method == 'tools/call':
                     fixture.reads.append(request['params'])
                     if request['params']['name'] != 't3_thread_read':
                         self.send_error(400)
                         return
-                    result = {'structuredContent': fixture.answer}
+                    if fixture.on_read:
+                        fixture.on_read()
+                    cursor = request['params']['arguments'].get('beforePosition')
+                    result = {'structuredContent': fixture.answer if cursor is None else fixture.pages.get(cursor, {})}
                 elif method == 'initialize':
                     result = {'protocolVersion': '2025-06-18', 'capabilities': {}, 'serverInfo': {'name': 'Fixture'}}
                 else:
@@ -49,12 +75,31 @@ class T3Read:
         test.addCleanup(server.server_close)
         test.addCleanup(server.shutdown)
         origin = f'http://127.0.0.1:{server.server_port}'
+        self.home, self.pid, self.port = root, os.getpid(), server.server_port
         self.runtime = root / '.t3/userdata/server-runtime.json'
         self.runtime.parent.mkdir(parents=True)
         self.runtime.write_text(json.dumps({'origin': origin, 'pid': os.getpid(), 'port': server.server_port}))
         self.runtime.chmod(0o600)
         env.update(HOME=str(root), T3CODE_THREAD_ID=thread, T3_MCP_URL=origin + '/mcp',
                    T3_MCP_BEARER_TOKEN='fixture-token')
+
+    def trust(self):
+        return fixture_trust(str(self.home), self.pid, self.port)
+
+    def command(self, script, *args):
+        code = '''
+from pathlib import Path
+import runpy
+import sys
+fixture_dir, home, pid, port, script = sys.argv[1:6]
+sys.path[:0] = [fixture_dir, str(Path(script).parent)]
+sys.argv = sys.argv[5:]
+from t3_intent_fixture import fixture_trust
+with fixture_trust(home, int(pid), int(port)):
+    runpy.run_path(script, run_name='__main__')
+'''
+        return [sys.executable, '-B', '-c', code, str(Path(__file__).resolve().parent), str(self.home),
+                str(self.pid), str(self.port), str(script), *map(str, args)]
 
     def item(self, words, *, source='web', author='user', thread=None, run=None, item='fixture-item'):
         thread, run = thread or self.thread, run or self.run
@@ -65,8 +110,10 @@ class T3Read:
 
     def readback(self, *items, thread=None, run=None):
         run = run or self.run
+        items = [dict(item, position=item.get('position', len(items) - index)) for index, item in enumerate(items)]
         self.answer = {'thread': {'threadId': thread or self.thread, 'activeRunId': run,
-                                  'status': 'running'}, 'items': items,
+                                  'status': 'running', 'archived': False, 'itemCount': len(items)}, 'items': items,
+                       'hasMore': False, 'earlierPosition': None,
                        'recentRuns': [{'runId': run, 'status': 'running',
                                        'requestedAt': datetime.datetime.now(datetime.timezone.utc).isoformat()}]}
 

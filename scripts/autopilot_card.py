@@ -79,14 +79,6 @@ def state_section(text):
     return state
 
 
-def session_line(sessions, command):
-    """The `session:` value naming each host session exported here; exits when there is none."""
-    if not sessions:
-        sys.exit(f'no host session ID is exported here ({", ".join(SESSION_VARIABLES)}): {command} from the shell of '
-                 'the host session that runs this autopilot')
-    return ', '.join(sessions)
-
-
 def tracker_url(board):
     """Whether `board` names a tracker by its web address: http or https, a host, and nothing that splits it."""
     try:
@@ -183,7 +175,7 @@ def confirm(card, text, words, sessions, today, confirmed_by=None):
     if problem:
         sys.exit(problem)
     by_rule = ' by rule' if mode == 'direct' and confirmed_by is None else ''
-    lines = set_field(set_field(state[0], 'confirmed', f'{today}{by_rule} "{words}"'), 'session', session_line(sessions, 'confirm'))
+    lines = set_field(set_field(state[0], 'confirmed', f'{today}{by_rule} "{words}"'), 'session', ', '.join(sessions))
     if confirmed_by is not None:
         state_files.validate_confirmation_source(confirmed_by)
         if 'confirmed-by' in state_fields(lines):
@@ -194,15 +186,15 @@ def confirm(card, text, words, sessions, today, confirmed_by=None):
     return text[:state.start()] + lines + text[state.end():]
 
 
-def take_over(text, auto_merge, dispatch_effort, review_effort, today, sessions):
+def take_over(text, dispatch_effort, review_effort, today, sessions):
     """The card's text after a take-over by the host sessions exported here; only the lines of its `## State` section
     change."""
     state = state_section(text)
-    taken = take_over_state(state[0], auto_merge, dispatch_effort, review_effort, today)
-    return text[:state.start()] + set_field(taken, 'session', session_line(sessions, 'take over')) + text[state.end():]
+    taken = take_over_state(state[0], dispatch_effort, review_effort, today)
+    return text[:state.start()] + set_field(taken, 'session', ', '.join(sessions)) + text[state.end():]
 
 
-def take_over_state(text, auto_merge, dispatch_effort, review_effort, today):
+def take_over_state(text, dispatch_effort, review_effort, today):
     ended, history = field(text, 'terminal'), field(text, 'history')
     field(text, 'session')
     field(text, 'auto-merge')
@@ -210,7 +202,7 @@ def take_over_state(text, auto_merge, dispatch_effort, review_effort, today):
     dispatch, review = dispatch_effort or dispatch, review_effort or review
     if ended:
         text = set_field(set_field(text, 'terminal', ''), 'history', '; '.join(filter(None, [history, f'{ended} {today}'])))
-    text = set_field(set_field(text, 'auto-merge', 'yes' if auto_merge else 'no'), 'dispatch-effort', dispatch)
+    text = set_field(set_field(text, 'auto-merge', 'no'), 'dispatch-effort', dispatch)
     return set_field(text, 'review-effort', review)
 
 
@@ -235,12 +227,13 @@ def main():
     if args.command == 'phase':
         if not args.phase:
             parser.error(f'phase takes one of {", ".join(PHASES)}')
-        managed = run_control.read(args.card)
-        text = phase(args.card, managed['card_text'] if managed else args.card.read_text(), args.phase)
-        if managed:
-            run_control.phase(args.card, text, managed['revision'])
-        else:
-            state_files.write_atomic(args.card, text)
+        with state_files.locked(args.card):
+            managed = run_control.read(args.card)
+            text = phase(args.card, managed['card_text'] if managed else args.card.read_text(), args.phase)
+            if managed is None:
+                state_files.write_atomic(args.card, text)
+                return
+        run_control.phase(args.card, text, managed['revision'])
         return
     try:
         with state_files.locked(args.card):
@@ -265,6 +258,9 @@ def main():
                 direct = values.get('mode') == 'direct' and source is None
                 proposed = confirm(args.card, original, args.words, sessions, today,
                                    source if direct or relayed else 'human')
+                if (direct or relayed) and not sessions:
+                    sys.exit(f'no host session ID is exported here ({", ".join(SESSION_VARIABLES)}): confirm from the '
+                             'shell of the host session that runs this autopilot')
                 if relayed:
                     proposed = run_control.fields(proposed, {'delivery': 'pr-only'})
                 elif not direct:
@@ -277,7 +273,7 @@ def main():
                 proposed = run_control.fields(proposed, {'auto-merge': 'no'})
             else:
                 levels = (args.dispatch_effort or args.effort, args.review_effort or args.effort)
-                proposed = take_over(original, False, *levels, today, sessions)
+                proposed = take_over(original, *levels, today, sessions)
                 target = {'dispatch_effort': levels[0], 'review_effort': levels[1]}
                 proof = human_intent.verify(args.card, original, 'take-over', 'autopilot --take-over', bound,
                                             target=target, consumed=(values.get('take-over-item'),))

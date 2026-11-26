@@ -297,10 +297,10 @@ class RunControl(unittest.TestCase):
         append('autopilot --pause')
         pause = self.control.user_source(native, 'codex', ['host-1'], 'pause', 0)
         self.control.transition(self.card, 'paused-by-user', pause, 'actual pause', 1, 'pause')
-        env = os.environ.copy()
+        env = support.without_host_sessions()
         host = T3Read(self, self.root, env)
-        command = [sys.executable, '-B', str(support.SCRIPTS / 'run_control.py'), 'resume', str(self.card),
-                   '--expect', '2', '--request-id', 'resume', '--reason', 'requested take-over']
+        command = host.command(support.SCRIPTS / 'run_control.py', 'resume', self.card,
+                               '--expect', '2', '--request-id', 'resume', '--reason', 'requested take-over')
         def run():
             return subprocess.run(command, env=env, capture_output=True, text=True)
         host.accept(run(), 'autopilot --take-over')
