@@ -74,7 +74,8 @@ including a symlink to one, and reports passed and failed script and unit counts
 
 Run `.venv/bin/python tests/run_clean.py` for the full suite with a clean environment
 and a minimal PATH. Put the prerequisite `git`, `claude` and `node` executables on
-the caller's PATH. The clean run keeps the selected Git ahead of system Git. For individually executed tests,
+the caller's PATH. The clean run keeps their tool directories in caller order
+ahead of the system fallback paths. For individually executed tests,
 `tests/support.py` supplies temporary zloop state, configuration and Codex home and
 provides fixtures with their own host IDs where needed.
 

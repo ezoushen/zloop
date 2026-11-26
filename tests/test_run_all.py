@@ -72,20 +72,30 @@ class RunAll(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('2 scripts passed, 0 failed; 2 scheduled units passed, 0 failed', result.stdout)
 
-    def test_clean_shell_keeps_the_callers_git_ahead_of_system_git(self):
+    def test_clean_shell_keeps_the_callers_git_and_node(self):
         git = shutil.which('git')
-        tools = tempfile.TemporaryDirectory(prefix='suite git ')
+        tools = tempfile.TemporaryDirectory(prefix='suite tools ')
         self.addCleanup(tools.cleanup)
-        executable = Path(tools.name) / 'git'
+        git_dir = Path(tools.name) / 'git tools'
+        node_dir = Path(tools.name) / 'node tools'
+        git_dir.mkdir()
+        node_dir.mkdir()
+        executable = git_dir / 'git'
         executable.write_text('#!/bin/sh\n'
                               'if [ "$1" = --version ]; then printf "%s\\n" "fixture git"; exit 0; fi\n'
                               f'exec {shlex.quote(git)} "$@"\n')
         executable.chmod(0o755)
-        env = {'PATH': os.pathsep.join((tools.name, os.environ['PATH']))}
+        for directory, version in ((git_dir, 'shadow node'), (node_dir, 'selected node')):
+            node = directory / 'node'
+            node.write_text(f'#!/bin/sh\nprintf "%s\\n" "{version}"\n')
+            node.chmod(0o755)
+        env = {'PATH': os.pathsep.join((str(node_dir), str(git_dir), os.environ['PATH']))}
         script = ('import subprocess\n'
                   'git = subprocess.check_output(["git", "--version"], text=True).strip()\n'
-                  'assert git == "fixture git", git\n')
-        result = self.suite({'test_git.py': script}, env, clean=True)
+                  'node = subprocess.check_output(["node", "--version"], text=True).strip()\n'
+                  'assert git == "fixture git", git\n'
+                  'assert node == "selected node", node\n')
+        result = self.suite({'test_tools.py': script}, env, clean=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_named_scripts_run_alone_and_are_the_ones_counted(self):
