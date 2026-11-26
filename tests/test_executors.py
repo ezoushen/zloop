@@ -244,6 +244,7 @@ class Executors(unittest.TestCase):
             assert 'model: "opus"' in json.loads(result.stdout)['native_profile']['content']
             assert subprocess.run(cli + ['--route-choice', 'null'], capture_output=True).returncode != 0
 
+            (root / 'reports').mkdir()
             worker = root / 'worker.py'
             worker.write_text('''import json, os, pathlib, sys
 request = json.load(sys.stdin)

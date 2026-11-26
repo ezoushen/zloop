@@ -66,9 +66,17 @@ and exits 1 on any failure; concurrent runs share one budget of CPU slots (`ZLOO
 a path that is no `tests/test_*.py` script is refused. Tests are
 `unittest` cases, so one file, class or test runs on its own. The default suite needs
 an installed `claude` for `test_claude_effort.py`, which runs it against a local fake
-API. `tests/support.py` locates and loads the scripts and builds an environment whose
-zloop state, configuration and Codex home are temporary; use it for a new test
-that runs a script which writes machine state.
+API. Collection and test units each get a private temporary directory and fresh home,
+Codex and XDG directories. They start without host session IDs, Herdr and T3 variables.
+Git discovery stops at the unit's private directory and finds fixture repositories
+created within it. The runner refuses a temporary path inside a Git worktree,
+including a symlink to one, and reports passed and failed script and unit counts.
+
+Run `.venv/bin/python tests/run_clean.py` for the full suite with a clean environment
+and a minimal PATH. Put the installed `claude` and `node` executables on the caller's
+PATH so the clean run can include them. For individually executed tests,
+`tests/support.py` supplies temporary zloop state, configuration and Codex home and
+provides fixtures with their own host IDs where needed.
 
 Enable the Git hooks once per clone with `git config core.hooksPath .githooks`:
 - `pre-commit` (about a second) runs the doc checker on changed files and checks the

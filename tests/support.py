@@ -184,7 +184,8 @@ def collected_attempt(repo, slug, attempt, report, job='ticket', head='head-1', 
     execution = work / 'execution.json'
     execution.write_text(json.dumps({'host': 'claude', 'native_dispatch': True, 'agent': agent_defs.load()['jobs'][job]['agent'], 'job': job,
                                      'settings': {'model': 'sonnet', 'effort': 'high'}}))
-    env = isolated_env(work)
+    env = without_host_sessions(isolated_env(work))
+    env['CLAUDE_CODE_SESSION_ID'] = 'collected-attempt-host'
 
     def record(kind, **fields):
         event = work / 'event.json'
