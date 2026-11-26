@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Run every tests/test_*.py regression script in parallel, split into units, at most one unit per CPU at a time across all runs.
 
-usage: tests/run_all.py [tests/test_<name>.py ...]
+usage: tests/run_all.py [--shard K/N] [tests/test_<name>.py ...]
 
 Named scripts run alone, a focused run while editing; with none, every script runs, the full gate.
+--shard K/N runs the K-th of N disjoint parts of the units that would run (1 <= K <= N), so N runs on separate
+machines cover them exactly once; the parts balance by test count and are the same on every machine.
 
 Uses the plugin environment's .venv (the main checkout's, from a worktree) unless
 PYTHON names another interpreter, and first compiles the checkout's Python with it. Concurrent runs on the machine share one budget of
@@ -13,11 +15,12 @@ A run started by one of those scripts (ZLOOP_TEST_SLOT_HELD is set) counts its o
 budget, so it never waits on the slot its parent script already holds. A unittest script is split into one unit per
 test class, and a class of more than MAX_UNIT_TESTS tests into balanced shards of at most that many, so a script's
 work spreads over the cores; any other script is one unit. Prints each failing unit's output tail, named
-<script>.<class> for a split script, and exits 1 when any unit fails. Native checks (ZLOOP_NATIVE=1) stay opt-in; see docs/development.md.
+<script>.<class> for a split script, then the slowest units with their wall seconds, and exits 1 when any unit fails. Native checks (ZLOOP_NATIVE=1) stay opt-in; see docs/development.md.
 """
 import fcntl
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -28,6 +31,8 @@ import time
 ROOT = Path(__file__).resolve().parent.parent
 # A class with more tests than this runs as several units; a smaller one runs whole.
 MAX_UNIT_TESTS = 8
+# The summary at the end of a run lists this many of the slowest units.
+SLOWEST_UNITS = 10
 # Prints the `Class.method` id of each test the script's module defines, one per line, without running any.
 COLLECT = """
 import importlib.util, sys, unittest
@@ -118,6 +123,32 @@ def units(stem, ids):
     return sorted(result, key=lambda unit: -unit[2])
 
 
+def partition(pending, count):
+    """Split `pending` units, largest first, into `count` shards: each unit goes to the shard holding the fewest tests so
+    far, the lowest-numbered on a tie, so the result depends only on the units and their order."""
+    loads = [0] * count
+    shards = [[] for _ in range(count)]
+    for unit in pending:
+        index = min(range(count), key=lambda number: (loads[number], number))
+        loads[index] += unit[2]
+        shards[index].append(unit)
+    return shards
+
+
+def command_line(argv):
+    """The ((K, N) or None, paths) of `argv`, or None after saying its --shard is no K/N with 1 <= K <= N."""
+    arguments = list(argv)
+    if '--shard' not in arguments:
+        return None, arguments
+    index = arguments.index('--shard')
+    spec = arguments[index + 1] if index + 1 < len(arguments) else None
+    found = re.fullmatch('([0-9]+)/([0-9]+)', spec or '')
+    if not found or not 1 <= int(found[1]) <= int(found[2]):
+        print(f'run_all: --shard needs K/N with 1 <= K <= N, got: {spec!r}', file=sys.stderr)
+        return None
+    return (int(found[1]), int(found[2])), arguments[:index] + arguments[index + 2:]
+
+
 def chosen(paths):
     """The scripts `paths` name, or None after saying which path is no test script of this checkout."""
     tests = (ROOT / 'tests').resolve()
@@ -131,7 +162,11 @@ def chosen(paths):
     return scripts
 
 
-def main(paths=()):
+def main(argv=()):
+    parsed = command_line(argv)
+    if parsed is None:
+        return 2
+    shard, paths = parsed
     named = chosen(paths)
     if named is None:
         return 2
@@ -165,11 +200,13 @@ def main(paths=()):
         directory.mkdir(parents=True, exist_ok=True)
         env['ZLOOP_TEST_SLOT_HELD'] = '1'
         held = []
+        started, ended = {}, {}
 
         def release():
             """Drop the slot of every unit that has ended."""
             for pair in [pair for pair in held if pair[1].poll() is not None]:
                 held.remove(pair)
+                ended[pair[1]] = time.monotonic()
                 pair[0].close()
 
         def launch(argv, log):
@@ -182,6 +219,7 @@ def main(paths=()):
                 time.sleep(0.05)
             process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                                        env=unit_environment(env, logs))
+            started[process] = time.monotonic()
             held.append((slot, process))
             return process
 
@@ -202,8 +240,11 @@ def main(paths=()):
         pending = []
         for test in scripts:
             pending += planned.get(test) or [(test.stem, [], 1)]
+        pending.sort(key=lambda unit: -unit[2])
+        if shard:
+            pending = partition(pending, shard[1])[shard[0] - 1]
         jobs = []
-        for index, (name, names, _) in enumerate(sorted(pending, key=lambda unit: -unit[2])):
+        for index, (name, names, _) in enumerate(pending):
             log = open(Path(logs) / f'{index}.log', 'w+', errors='replace')
             test = ROOT / 'tests' / f"{name.partition('.')[0]}.py"
             jobs.append((name, log, launch([python, '-B', str(test), *names], log)))
@@ -220,9 +261,14 @@ def main(paths=()):
                 print(f'FAIL {name}')
                 print(''.join(log.readlines()[-20:]), end='')
             log.close()
+    seconds = {name: ended[process] - started[process] for name, _, process in jobs}
+    print(f"{f'shard {shard[0]}/{shard[1]}: ' if shard else ''}{len(jobs)} units, {sum(seconds.values()):.0f} unit-seconds; slowest:")
+    for name in sorted(seconds, key=lambda unit: -seconds[unit])[:SLOWEST_UNITS]:
+        print(f'{seconds[name]:7.1f}s {name}')
+    run_scripts = {name.partition('.')[0] for name, _, _ in pending}
     if not failed_units:
-        print(f'{len(scripts)} regression scripts passed ({python})')
-    print(f'{len(scripts) - len(failed_scripts)} scripts passed, {len(failed_scripts)} failed; '
+        print(f'{len(run_scripts)} regression scripts passed ({python})')
+    print(f'{len(run_scripts) - len(failed_scripts)} scripts passed, {len(failed_scripts)} failed; '
           f'{len(jobs) - failed_units} scheduled units passed, {failed_units} failed')
     return 1 if failed_units else 0
 

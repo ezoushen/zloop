@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import signal
@@ -77,6 +78,16 @@ class RunAll(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('2 scripts passed, 0 failed; 2 scheduled units passed, 0 failed', result.stdout)
 
+    def test_the_clean_shell_run_passes_its_arguments_to_the_suite_runner(self):
+        # Rule: a hosted shard or lane gets the clean environment and still names its shard and scripts; sharding two
+        # one-unit scripts leaves the failing first one to shard 1 and the passing second one to shard 2.
+        result = self.suite({'test_first.py': 'raise SystemExit(1)\n', 'test_second.py': 'pass\n',
+                             'test_third.py': 'raise SystemExit(1)\n'},
+                            args=['--shard', '2/2', 'tests/test_first.py', 'tests/test_second.py'], clean=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('1 scripts passed, 0 failed; 1 scheduled units passed, 0 failed', result.stdout)
+        self.assertIn('shard 2/2: 1 units', result.stdout)
+
     def test_clean_shell_keeps_the_callers_git_and_node(self):
         git = shutil.which('git')
         tools = tempfile.TemporaryDirectory(prefix='suite tools ')
@@ -108,8 +119,9 @@ class RunAll(unittest.TestCase):
         result = self.suite({'test_one.py': 'pass\n', 'test_two.py': 'pass\n', 'test_bad.py': 'raise SystemExit(1)\n'},
                             args=['tests/test_one.py', str(Path('tests/test_two.py'))])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(result.stdout, f'2 regression scripts passed ({sys.executable})\n'
-                         '2 scripts passed, 0 failed; 2 scheduled units passed, 0 failed\n')
+        self.assertTrue(result.stdout.endswith(f'2 regression scripts passed ({sys.executable})\n'
+                                               '2 scripts passed, 0 failed; 2 scheduled units passed, 0 failed\n'), result.stdout)
+        self.assertNotIn('test_bad', result.stdout)
 
     def test_a_path_that_is_no_test_script_here_is_refused_and_nothing_runs(self):
         # Rule: a mistyped or foreign path must not pass as a green run of fewer scripts.
@@ -126,6 +138,83 @@ class RunAll(unittest.TestCase):
                 self.assertEqual(result.stdout, '')
                 self.assertEqual(result.stderr, f'run_all: not a tests/test_*.py script of this checkout: {path}\n')
                 self.assertEqual(list(ran.iterdir()), [])
+
+    SHARD_FIXTURE = {
+        'test_alpha': (('A', 3), ('B', 12)),  # B is split into two units of six
+        'test_beta': (('C', 5), ('D', 1)),
+    }
+
+    def recording_scripts(self, log):
+        """Fixture scripts whose every test, and the plain script `test_plain`, append its name to `log`; the names
+        they must produce are listed by `recorded_names`."""
+        scripts = {}
+        for stem, classes in self.SHARD_FIXTURE.items():
+            body = ('import unittest\n'
+                    f'def record(name):\n    open({str(log)!r}, "a").write(name + "\\n")\n')
+            for name, count in classes:
+                body += f'class {name}(unittest.TestCase):\n'
+                body += ''.join(f'    def test_n{index:02}(self):\n        record("{stem}.{name}.test_n{index:02}")\n'
+                                for index in range(count))
+            scripts[f'{stem}.py'] = body + 'if __name__ == "__main__":\n    unittest.main()\n'
+        scripts['test_plain.py'] = f'open({str(log)!r}, "a").write("test_plain\\n")\n'
+        return scripts
+
+    def recorded_names(self):
+        return sorted(['test_plain'] + [f'{stem}.{name}.test_n{index:02}'
+                                         for stem, classes in self.SHARD_FIXTURE.items()
+                                         for name, count in classes for index in range(count)])
+
+    def test_the_shards_together_run_every_test_exactly_once(self):
+        # Rule: `--shard K/N` for K = 1..N schedules each unit of the unsharded run in exactly one shard, so the
+        # shards neither drop nor repeat a test.
+        scratch = Path(tempfile.mkdtemp(prefix='run all shards '))
+        self.addCleanup(shutil.rmtree, scratch)
+        for count in (1, 3, 4, 40):
+            with self.subTest(shards=count):
+                ran, units = [], 0
+                for number in range(1, count + 1):
+                    log = scratch / f'{count}-{number}'
+                    result = self.suite(self.recording_scripts(log), {'ZLOOP_TEST_SLOTS': '4'},
+                                        ['--shard', f'{number}/{count}'])
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    ran += log.read_text().split() if log.exists() else []
+                    units += int(re.search(r'(\d+) scheduled units passed', result.stdout)[1])
+                self.assertEqual(sorted(ran), self.recorded_names())
+                self.assertEqual(units, 6, 'the shards scheduled other units than the five of the fixture and its plain script')
+        # Five fixture units split among forty shards leave most shards empty; an empty shard passes.
+        empty = self.suite(self.recording_scripts(scratch / 'empty'), args=['--shard', '40/40'])
+        self.assertEqual(empty.returncode, 0, empty.stdout + empty.stderr)
+
+    def test_a_shard_spec_that_is_not_k_of_n_is_refused_and_nothing_runs(self):
+        # Rule: a mistyped shard must not pass as a green run of fewer tests.
+        scratch = Path(tempfile.mkdtemp(prefix='run all bad shard '))
+        self.addCleanup(shutil.rmtree, scratch)
+        log = scratch / 'ran'
+        for spec in ('0/3', '4/3', '1/0', '-1/3', '1.5/3', 'a/b', '2', '1/2/3', ''):
+            with self.subTest(spec=spec):
+                result = self.suite(self.recording_scripts(log), args=['--shard', spec])
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertEqual(result.stdout, '')
+                self.assertEqual(result.stderr, f'run_all: --shard needs K/N with 1 <= K <= N, got: {spec!r}\n')
+                self.assertFalse(log.exists())
+        result = self.suite(self.recording_scripts(log), args=['--shard'])
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertEqual(result.stderr, "run_all: --shard needs K/N with 1 <= K <= N, got: None\n")
+        self.assertFalse(log.exists())
+
+    def test_the_run_ends_with_its_slowest_units_and_their_seconds(self):
+        # Rule: a hosted log profiles the suite, so it names the slowest units, slowest first and no more than ten.
+        slow = 'import time\ntime.sleep(1.5)\n'
+        scripts = {f'test_quick{index:02}.py': 'pass\n' for index in range(11)}
+        result = self.suite({**scripts, 'test_slow.py': slow})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        rows = re.findall(r'(?m)^ +(\d+\.\d)s (\S+)$', result.stdout)
+        self.assertEqual(len(rows), 10, result.stdout)
+        self.assertEqual(rows[0][1], 'test_slow')
+        self.assertGreaterEqual(float(rows[0][0]), 1.5)
+        self.assertEqual([float(seconds) for seconds, _ in rows], sorted((float(seconds) for seconds, _ in rows), reverse=True))
+        self.assertLess(float(rows[1][0]), 1.5)
+        self.assertLess(result.stdout.index('test_slow'), result.stdout.index('scripts passed, 0 failed'))
 
     def test_a_failure_exits_one_and_prints_its_name_and_output_tail(self):
         result = self.suite({'test_good.py': 'pass\n',

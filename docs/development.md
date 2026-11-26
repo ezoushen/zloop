@@ -79,6 +79,16 @@ ahead of the system fallback paths. For individually executed tests,
 `tests/support.py` supplies temporary zloop state, configuration and Codex home and
 provides fixtures with their own host IDs where needed.
 
+`--shard K/N` (in `run_all.py` and `run_clean.py`) runs the K-th of N disjoint parts of the scheduled units, balanced by
+test count, so N machines cover the suite once. A run ends with its ten slowest units and their wall seconds.
+
+Hosted CI (`.github/workflows/ci.yml`) runs once per change: `pull_request`, and `push` only for `main`; a newer push
+cancels the older run. `fast` runs the whole-repository doc check and the workflow contract test. `suite` runs the
+clean-shell suite as 4 shards on `ubuntu-latest`: about 1000 CPU-seconds over 4 shards of 4 vCPUs is a minute or so each,
+near the fixed setup cost per job, so more shards stop paying; re-pick from the slowest-unit summaries. `macos` runs
+the scripts that branch on `darwin` or drive `sandbox-exec`, as `tests/test_ci_workflow.py` enforces. `ci-ok` is the
+one check name and passes only when all three succeeded.
+
 Enable the Git hooks once per clone with `git config core.hooksPath .githooks`:
 - `pre-commit` (about a second) runs the doc checker on changed files and checks the
   syntax of staged Python and shell files. The doc check reads files as they are on

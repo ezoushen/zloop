@@ -2,14 +2,76 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
+env:
+  CLAUDE_CODE_VERSION: 2.1.330
+
 jobs:
-  verify:
-    name: Hermetic tests and docs
+  fast:
+    name: Docs and workflow contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Prepare test tools
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt
+      - name: Check the whole repository's agent docs
+        run: .venv/bin/python .agents/skills/writing-agent-docs/check_docs.py
+      - name: Check the workflow contract
+        run: .venv/bin/python tests/test_ci_workflow.py
+
+  suite:
+    name: Suite ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/4', '2/4', '3/4', '4/4']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-claude-code-${{ runner.os }}-${{ env.CLAUDE_CODE_VERSION }}
+      - name: Prepare test tools
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt
+          npm install --global @anthropic-ai/claude-code@${{ env.CLAUDE_CODE_VERSION }} --prefer-offline
+      - name: Run this shard of the clean-shell suite
+        run: .venv/bin/python tests/run_clean.py --shard ${{ matrix.shard }}
+
+  macos:
+    name: macOS-only scripts
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -19,16 +81,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
+          cache: pip
+          cache-dependency-path: requirements.txt
       - name: Prepare test tools
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install -r requirements.txt
-          npm install --global @anthropic-ai/claude-code@2.1.330
-      - name: Run the clean-shell suite
-        run: .venv/bin/python tests/run_clean.py
-      - name: Check the whole repository's agent docs
-        if: ${{ !cancelled() }}
-        run: .venv/bin/python .agents/skills/writing-agent-docs/check_docs.py
+      - name: Run the scripts that need macOS
+        run: .venv/bin/python tests/run_clean.py tests/test_capacity.py tests/test_herdr_start.py tests/test_seatbelt.py
+
+  ci-ok:
+    name: ci-ok
+    if: ${{ always() }}
+    needs: [fast, suite, macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every needed job to have succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "needed job results: $RESULTS"
+          test -n "$RESULTS" || exit 1
+          for result in $RESULTS; do
+            test "$result" = success || exit 1
+          done
