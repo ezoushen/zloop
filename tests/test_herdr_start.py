@@ -18,6 +18,8 @@ import support
 
 
 class HerdrStart(unittest.TestCase):
+    start_timeout = 10
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='zloop start ')
         self.addCleanup(self.tmp.cleanup)
@@ -61,7 +63,8 @@ else:
         return subprocess.run([sys.executable, str(support.HOOKS / 'herdr_launch.py'), 'start',
                                '--route', str(self.route), '--worktree', worktree or str(self.worktree),
                                '--assignment', 'workstream/05', '--role', 'builder', '--name', name],
-                              cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=10)
+                              cwd=self.repo, env=self.env, capture_output=True, text=True,
+                              timeout=self.start_timeout)
 
     def test_saved_route_preserves_spaces_and_toml_through_tab_and_agent_start(self):
         result = self.start()
@@ -156,6 +159,9 @@ else:
 
 class OpenCodeStart(unittest.TestCase):
     start = HerdrStart.start
+    # The OpenCode launcher allows 30 seconds for readiness after setting up the pane.
+    start_timeout = 45
+
     def setUp(self):
         HerdrStart.setUp(self)
         self.body = {'agent': 'build', 'model': {'providerID': 'openai', 'id': 'fixture', 'variant': 'high'},
@@ -175,7 +181,7 @@ class OpenCodeStart(unittest.TestCase):
         self.owned_events = {}
         self.release = self.root / 'release-tui'
         self.env.update(XDG_CONFIG_HOME=str(self.config), XDG_DATA_HOME=str(self.root / 'user data'),
-                        EVENTS=str(self.events), RELEASE=str(self.release))
+                        EVENTS=str(self.events), RELEASE=str(self.release), FIXTURE_SERVE_DELAY='0')
         self.tab_env = self.root / 'tab-env.json'
         self.env['TAB_ENV'] = str(self.tab_env)
         stub = self.bin / 'herdr'
@@ -232,6 +238,7 @@ with Path(os.environ['EVENTS']).open('a') as stream:
     stream.write(json.dumps(record) + '\\n')
 if args[0] == 'serve':
     if os.environ.get('FAIL_STEP') == 'serve': sys.exit(9)
+    time.sleep(float(os.environ['FIXTURE_SERVE_DELAY']))
     if os.environ.get('HERDR_FAIL'):
         def stop(*args): time.sleep(.3); sys.exit(0)
         signal.signal(signal.SIGTERM, stop)
@@ -300,6 +307,12 @@ os.execvp(command[0], command)
                 return events
             time.sleep(.02)
         self.fail(f'expected {count} OpenCode operations; got {events}')
+
+    def test_start_allows_slow_readiness_within_the_launcher_deadline(self):
+        self.env['FIXTURE_SERVE_DELAY'] = '11'
+        result = self.start()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(json.loads(result.stdout)['opencode']['session'], 'private-session')
 
     def test_api_route_runs_private_server_session_and_tui_in_worker_pane(self):
         result = self.start()

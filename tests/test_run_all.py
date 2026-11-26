@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import signal
 import subprocess
@@ -70,6 +71,22 @@ class RunAll(unittest.TestCase):
         result = self.suite({'test_first.py': script, 'test_second.py': script}, env, clean=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('2 scripts passed, 0 failed; 2 scheduled units passed, 0 failed', result.stdout)
+
+    def test_clean_shell_keeps_the_callers_git_ahead_of_system_git(self):
+        git = shutil.which('git')
+        tools = tempfile.TemporaryDirectory(prefix='suite git ')
+        self.addCleanup(tools.cleanup)
+        executable = Path(tools.name) / 'git'
+        executable.write_text('#!/bin/sh\n'
+                              'if [ "$1" = --version ]; then printf "%s\\n" "fixture git"; exit 0; fi\n'
+                              f'exec {shlex.quote(git)} "$@"\n')
+        executable.chmod(0o755)
+        env = {'PATH': os.pathsep.join((tools.name, os.environ['PATH']))}
+        script = ('import subprocess\n'
+                  'git = subprocess.check_output(["git", "--version"], text=True).strip()\n'
+                  'assert git == "fixture git", git\n')
+        result = self.suite({'test_git.py': script}, env, clean=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_named_scripts_run_alone_and_are_the_ones_counted(self):
         # Rule: a focused run names its scripts; the others, a failing one among them, do not run.

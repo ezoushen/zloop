@@ -73,8 +73,8 @@ created within it. The runner refuses a temporary path inside a Git worktree,
 including a symlink to one, and reports passed and failed script and unit counts.
 
 Run `.venv/bin/python tests/run_clean.py` for the full suite with a clean environment
-and a minimal PATH. Put the installed `claude` and `node` executables on the caller's
-PATH so the clean run can include them. For individually executed tests,
+and a minimal PATH. Put the prerequisite `git`, `claude` and `node` executables on
+the caller's PATH. The clean run keeps the selected Git ahead of system Git. For individually executed tests,
 `tests/support.py` supplies temporary zloop state, configuration and Codex home and
 provides fixtures with their own host IDs where needed.
 

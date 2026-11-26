@@ -9,7 +9,10 @@ import sys
 def main():
     """Replace this process with the default suite using a clean shell environment."""
     runner = Path(__file__).resolve().with_name('run_all.py')
-    directories = os.defpath.split(os.pathsep)
+    directories = []
+    if git := shutil.which('git'):
+        directories.append(str(Path(git).absolute().parent))
+    directories.extend(os.defpath.split(os.pathsep))
     for name in ('claude', 'node'):
         if binary := shutil.which(name):
             directories.append(str(Path(binary).absolute().parent))
