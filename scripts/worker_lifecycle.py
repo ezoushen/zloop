@@ -2311,10 +2311,11 @@ def require_ended(db, attempt, acceptance):
 
 
 def card_state(path):
-    """The State of the run card at `path`; {} when it cannot be read or has none."""
+    """The usable State of the run card at `path`, or {} when it cannot be established."""
     try:
-        return state_fields(path.read_text(errors='replace'))
-    except OSError:
+        control = run_control.read(path)
+        return state_fields(control['card_text'] if control else path.read_text())
+    except (OSError, ValueError):
         return {}
 
 

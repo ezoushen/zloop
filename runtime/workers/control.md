@@ -13,14 +13,17 @@ python3 <plugin_root>/scripts/run_control.py adopt <card> --source <confirmation
 Add `--allow-resume` only when its confirmed grants already permit unattended
 allowance recovery. Adoption grants no extra permissions or merge authority.
 Inspect managed state with `run_control.py status <card>`. Before launch and after
-completion or resume, follow [dispatch inspection](dispatch.md). A manual card edit
-cannot establish authorization; reconcile it explicitly.
-Inspect the saved record and edits before recovery; never infer authorization from
-a mismatched card or delete the record to make it legacy.
+completion or resume, follow [dispatch inspection](dispatch.md). Both inspections
+use the control record when its Markdown projection is missing or matches the exact
+view left by an interrupted publication. Inspection is read-only. Retrying the
+control command republishes the Markdown and finishes the original decision.
+
+The control record owns the run's grants and phase. For other mismatches, inspect
+the saved record and the observed edits before reconciliation.
 After deciding to restore the canonical view, use `restore-view <card>
 --expect-view <reviewed-card-sha256> --source <review-reference> --request-id <id>`.
-It refuses newer edits and retains the displaced view in the private control record.
-This is an explicit reconciliation, never a supervisor action.
+Supply the SHA-256 of the exact bytes reviewed. The command checks that hash before
+it replaces the view and retains the displaced bytes in the private control record.
 
 For an actual user pause, use the bound host's native conversation record:
 

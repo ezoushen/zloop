@@ -89,17 +89,19 @@ def check_event(event):
     session = event.get('session_id') or os.environ.get('CODEX_SESSION_ID') or os.environ.get('ZLOOP_SESSION')
     root = yield_gate.main_checkout(event.get('cwd') or os.getcwd())
     cards = []
-    for path in sorted(root.glob('.scratch/*/autopilot.md')) if root else []:
-        if run_control.location(path).exists():
-            try:
-                state = json.loads(run_control.location(path).read_text())
-            except (OSError, ValueError):
-                if session in run_control.sessions(path.read_text()):
-                    raise
-                continue
-            if session in run_control.sessions(state.get('card_text', '')) or session in run_control.sessions(path.read_text()):
-                run_control.canonical(path)
-                cards.append(path.resolve())
+    for path in run_control.cards(root) if root else []:
+        if not run_control.location(path).exists():
+            continue
+        view = run_control.observed(path, errors='replace') or ''
+        try:
+            state = run_control.canonical(path)
+        except (OSError, ValueError):
+            if session in run_control.sessions(view):
+                raise
+            continue
+        if session in run_control.sessions(state['card_text']) or session in run_control.sessions(view):
+            run_control.read(path)
+            cards.append(path.resolve())
     if not cards:
         return  # Unmanaged sessions and unrelated sessions keep their native behavior.
     dispatch_state.require(tasks, 'Managed launch has no assignment packets')

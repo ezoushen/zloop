@@ -221,8 +221,8 @@ def main():
     if args.command == 'phase':
         if not args.phase:
             parser.error(f'phase takes one of {", ".join(PHASES)}')
-        text = phase(args.card, args.card.read_text(), args.phase)
         managed = run_control.read(args.card)
+        text = phase(args.card, managed['card_text'] if managed else args.card.read_text(), args.phase)
         if managed:
             run_control.phase(args.card, text, managed['revision'])
         else:
