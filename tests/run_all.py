@@ -64,7 +64,8 @@ def unit_environment(env, logs):
     """Own a fresh temporary directory and homes for a collector or unit until the run exits."""
     root = Path(tempfile.mkdtemp(prefix='p', dir=logs)).resolve()
     unit = {key: value for key, value in env.items()
-            if not (key.endswith('_SESSION_ID') or key.startswith(('HERDR_', 'T3')))}
+            if key not in ('ZLOOP_SESSION', 'CODEX_THREAD_ID')
+            and not (key.endswith('_SESSION_ID') or key.startswith(('HERDR_', 'T3')))}
     for name, directory in (('HOME', 'home'), ('CODEX_HOME', 'codex'), ('XDG_STATE_HOME', 'state'),
                             ('XDG_CONFIG_HOME', 'config'), ('XDG_CACHE_HOME', 'cache'), ('XDG_DATA_HOME', 'data'),
                             ('TMPDIR', 'tmp')):

@@ -362,6 +362,11 @@ def unclaimed_launch(saved):
     return not dispatch_state.claim_matches(saved.get('launch_claim'), saved['assignment'], saved['execution_snapshot'])
 
 
+def unresolved_launch_claim(saved):
+    return (unclaimed_launch(saved) and not saved.get('declined')
+            and saved.get('result', {}).get('status') in (None, 'completed'))
+
+
 def require_launch_claim(saved):
     require(not unclaimed_launch(saved), f"{saved['attempt']}: unclaimed-launch; accept with --accept-unclaimed <reason>")
 
@@ -387,8 +392,7 @@ def yield_gaps(db, include=None, rows=None):
     unconsumed = [row for row in pending(db) if row['attempt'] in names]
     receipts = [row for row in unconsumed if row['kind'] in ('wait-finished', 'hold')]
     for saved in included:
-        if (unclaimed_launch(saved) and not saved.get('declined')
-                and saved.get('result', {}).get('status') in (None, 'completed')):
+        if unresolved_launch_claim(saved):
             missing.append(UnclaimedLaunch(f"{saved['attempt']}: unclaimed-launch; reconcile the attempt or "
                                            'accept with --accept-unclaimed <reason>'))
         monitor = saved.get('monitor', {})
@@ -2572,7 +2576,7 @@ def status(db, attempt=None):
                 attention.append('close owned worker or record same-assignment retention')
         if saved.get('acceptance_deferred') and unsettled(saved):
             attention.append('record acceptance or decline')
-        if unclaimed_launch(saved):
+        if unresolved_launch_claim(saved):
             attention.append('unclaimed-launch')
         if any(row['payload'].get('notify') and row['payload'].get('delivery', {}).get('state') != 'sent'
                for row in pending(db, saved['attempt'])):

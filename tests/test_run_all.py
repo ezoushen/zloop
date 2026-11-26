@@ -307,7 +307,8 @@ class RunAll(unittest.TestCase):
 from pathlib import Path
 
 names = ('HOME', 'CODEX_HOME', 'XDG_STATE_HOME', 'TMPDIR', 'GIT_CEILING_DIRECTORIES',
-         'ZLOOP_NATIVE', 'CODEX_SESSION_ID', 'OTHER_SESSION_ID', 'HERDR_ENV', 'T3_SAMPLE')
+         'ZLOOP_NATIVE', 'CODEX_SESSION_ID', 'OTHER_SESSION_ID', 'HERDR_ENV', 'T3_SAMPLE',
+         'ZLOOP_SESSION', 'CODEX_THREAD_ID')
 private = Path(os.environ['TMPDIR']).parent
 if Path(os.environ['HOME']) == private / 'home':
     subprocess.run(['git', 'init', '-q', private], check=True)
@@ -335,7 +336,8 @@ if __name__ == '__main__':
     unittest.main()
 '''
             host = {key: scratch for key in ('HOME', 'CODEX_HOME', 'XDG_STATE_HOME', 'TMPDIR',
-                                             'CODEX_SESSION_ID', 'OTHER_SESSION_ID', 'HERDR_ENV', 'T3_SAMPLE')}
+                                             'CODEX_SESSION_ID', 'OTHER_SESSION_ID', 'HERDR_ENV', 'T3_SAMPLE',
+                                             'ZLOOP_SESSION', 'CODEX_THREAD_ID')}
             result = self.suite({'test_isolation.py': body}, dict(host, ZLOOP_NATIVE='1'))
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             rows = [json.loads(path.read_text()) for path in markers.iterdir()]
@@ -349,8 +351,9 @@ if __name__ == '__main__':
                     self.assertEqual(Path(row['temporary']).parent, tmp)
                     self.assertEqual(values['GIT_CEILING_DIRECTORIES'], str(tmp.parent))
                     self.assertEqual(values['ZLOOP_NATIVE'], '1')
-                    self.assertTrue(all(values[key] is None for key in
-                                        ('CODEX_SESSION_ID', 'OTHER_SESSION_ID', 'HERDR_ENV', 'T3_SAMPLE')))
+                    for key in ('CODEX_SESSION_ID', 'OTHER_SESSION_ID', 'HERDR_ENV', 'T3_SAMPLE',
+                                'ZLOOP_SESSION', 'CODEX_THREAD_ID'):
+                        self.assertIsNone(values[key], key)
                     self.assertFalse(tmp.parent.exists())
             for key in ('HOME', 'CODEX_HOME', 'XDG_STATE_HOME', 'TMPDIR'):
                 self.assertEqual(len({row['values'][key] for row in rows}), 3, key)

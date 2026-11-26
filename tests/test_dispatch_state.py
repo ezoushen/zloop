@@ -350,6 +350,26 @@ class NativeAdmission(DispatchFixture, unittest.TestCase):
         result = json.loads(subprocess.check_output(stop, text=True))
         self.assertFalse(any('a/1: unclaimed-launch' in gap for gap in result['missing']))
 
+    def test_declining_unclaimed_work_clears_actionable_status_and_retains_history(self):
+        self.plan()
+        item = self.items[0]
+        registered = self.lifecycle('record', self.registration(item))
+        self.assertEqual(registered.returncode, 0, registered.stderr)
+        request = self.completion(item)
+        collected = self.lifecycle('collect', request, '--attempt', 'a/1')
+        self.assertEqual(collected.returncode, 0, collected.stderr)
+        declined = self.lifecycle('record', dict(kind='declined', attempt='a/1',
+                                                   reason='No launch proof', evidence=['checked child record']))
+        self.assertEqual(declined.returncode, 0, declined.stderr)
+        status = self.lifecycle('status', None, '--attempt', 'a/1')
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertNotIn('unclaimed-launch', json.loads(status.stdout)['attempts'][0]['attention'])
+        gate = self.lifecycle('gate', None, '--stage', 'yield')
+        self.assertFalse(any('unclaimed-launch' in gap for gap in json.loads(gate.stdout)['missing']))
+        with closing(sqlite3.connect(self.card.parent / 'reports/workers.sqlite')) as db:
+            self.assertEqual(db.execute("SELECT attempt FROM events WHERE kind = 'unclaimed-launch'").fetchall(),
+                             [('a/1',)])
+
     def test_collection_refuses_main_checkout_drift_and_can_retry_after_recovery(self):
         self.plan()
         item = self.items[0]
