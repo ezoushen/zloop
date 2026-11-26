@@ -2,9 +2,12 @@
 """Verify effective GitHub required checks before granting or submitting a merge."""
 import argparse
 import json
+from pathlib import Path
 import re
 import subprocess
 from urllib.parse import quote
+
+import state_files
 
 
 class WaitingOnUser(ValueError):
@@ -97,16 +100,26 @@ def required_checks(repo, base):
     return sorted(checks)
 
 
-def verify_grant(base=None, pr=None):
+def require_merge_authority(confirmed_by):
+    """Require human confirmation when the autopilot card records provenance."""
+    if confirmed_by is not None:
+        state_files.validate_confirmation_source(confirmed_by)
+        if confirmed_by != 'human':
+            raise WaitingOnUser('relayed confirmation cannot authorize auto-merge')
+
+
+def verify_grant(base=None, pr=None, *, confirmed_by=None):
     """Verify an explicit planned base or an existing PR before recording a grant."""
+    require_merge_authority(confirmed_by)
     if (base is None) == (pr is None) or pr is not None and pr < 1 or base is not None and not base.strip():
         raise WaitingOnUser('the intended GitHub base branch or PR is required')
     repo = repository()
     return required_checks(repo, pull_base(repo, pr) if pr is not None else base)
 
 
-def submit_merge(pr, head, method):
+def submit_merge(pr, head, method, *, confirmed_by=None):
     """Submit a reviewed PR through GitHub's normal approval and check enforcement."""
+    require_merge_authority(confirmed_by)
     if pr is None or pr < 1 or not re.fullmatch(r'[0-9a-f]{40}', head or ''):
         raise WaitingOnUser('a GitHub PR number and reviewed head commit are required')
     if method not in ('merge', 'squash', 'rebase'):
@@ -132,13 +145,21 @@ def main():
     merge.add_argument('--pr', type=int, required=True)
     merge.add_argument('--head', required=True, help='reviewed PR head commit')
     merge.add_argument('--method', choices=('merge', 'squash', 'rebase'), required=True)
+    for command in (grant, merge):
+        command.add_argument('--card', type=Path, help='legacy autopilot run card')
     args = parser.parse_args()
     try:
+        confirmed_by = None
+        if args.card is not None:
+            values = state_files.state_fields(args.card.read_text())
+            if not values or values.get('control') or args.card.with_name(state_files.CONTROL_NAME).exists():
+                raise WaitingOnUser('expected a legacy run card; use run_control.py for managed runs')
+            confirmed_by = values.get('confirmed-by')
         if args.command == 'grant':
-            print(json.dumps({'required_checks': verify_grant(args.base, args.pr)}))
+            print(json.dumps({'required_checks': verify_grant(args.base, args.pr, confirmed_by=confirmed_by)}))
         else:
-            print(submit_merge(args.pr, args.head, args.method), end='')
-    except WaitingOnUser as error:
+            print(submit_merge(args.pr, args.head, args.method, confirmed_by=confirmed_by), end='')
+    except (OSError, ValueError) as error:
         parser.exit(2, f'waiting-on-user: {error}\n')
 
 

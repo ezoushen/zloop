@@ -22,6 +22,8 @@ Before recording a user-authorized auto-merge grant, verify the open PR with
 PR exists, use `grant --base <planned-base>` with the explicit publication
 target. Run from the target checkout. The script reads classic protection and
 active rules for the exact GitHub base in the checkout's origin repository.
+For a legacy autopilot run, pass `--card <card>` on grant verification and merge
+submission so both commands reject relay-based authority.
 
 Keep the approval and required-check watch steps. After they pass, submit an
 authorized merge with `python3 "<plugin_root>/scripts/pr_safety.py" merge --pr <number>

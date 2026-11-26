@@ -22,7 +22,7 @@ TERMINAL_STATES = ENDED + PAUSED
 DISPATCH_POLICY = dict(version=1, routing='configured', scheduling='independent-ready',
                        isolation='worktree-per-writer', integration='single-owner', max_live=8)
 CARD_NAME = 'autopilot.md'
-CONTROL_NAME = 'autopilot-control.json'
+CONTROL_NAME = state_files.CONTROL_NAME
 
 
 def location(card):
@@ -187,7 +187,7 @@ def adopt(card, reference, allow_resume=False, *, merge_base=None, merge_pr=None
         if re.match(r'no\b|$', values.get('confirmed', ''), re.I):
             raise ValueError('Only a confirmed card can be adopted')
         if values.get('auto-merge') == 'yes':
-            pr_safety.verify_grant(merge_base, merge_pr)
+            pr_safety.verify_grant(merge_base, merge_pr, confirmed_by=values.get('confirmed-by'))
         now, run = time.time(), uuid.uuid4().hex
         state = dict(schema=1, run_id=run, revision=1, created_at=now, allow_resume=bool(allow_resume),
                      dispatch_policy=dict(DISPATCH_POLICY),
@@ -295,11 +295,16 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
             return state
         if state['revision'] != expected:
             raise ValueError('Control revision changed; inspect the current run before retrying')
-        old = state_files.state_fields(state['card_text']).get('terminal', '')
+        values = state_files.state_fields(state['card_text'])
+        old = values.get('terminal', '')
         if old == 'paused-by-user' and terminal not in ('', 'paused-by-user'):
             raise ValueError('Run is paused-by-user; a new user resume is required')
-        if terminal == 'merged' and state_files.state_fields(state['card_text']).get('auto-merge') != 'yes':
-            raise ValueError('Merged state requires the existing merge grant')
+        if terminal == 'delivered-local' and values.get('delivery') == 'pr-only':
+            raise ValueError('PR-only delivery requires a pull request')
+        if terminal == 'merged':
+            if values.get('auto-merge') != 'yes':
+                raise ValueError('Merged state requires the existing merge grant')
+            pr_safety.require_merge_authority(values.get('confirmed-by'))
         if terminal == '' and source.get('kind') == 'timer':
             proof = timer_source(source['queue'], source['key'])
             event = proof['wake']
@@ -320,10 +325,10 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
             raise ValueError('Host transition requires its evidence reference')
         changes = dict(updates or {}, terminal=terminal, evidence=f'{source["reference"]}: {reason}')
         if grant_merge:
-            pr_safety.verify_grant(merge_base, merge_pr)
+            pr_safety.verify_grant(merge_base, merge_pr, confirmed_by=values.get('confirmed-by'))
         if not terminal:
             changes['auto-merge'] = 'yes' if grant_merge else 'no'
-            history = state_files.state_fields(state['card_text']).get('history', '')
+            history = values.get('history', '')
             changes['history'] = '; '.join(filter(None, [history, f'{old} {datetime.date.today().isoformat()}']))
             changes['timer'] = ''
         before = state['card_text']
@@ -345,7 +350,7 @@ def merge(card, expected, pr, head, method):
         if (values.get('auto-merge') != 'yes' or values.get('phase') != 'pr'
                 or values.get('terminal') not in ('', 'delivered')):
             raise pr_safety.WaitingOnUser('the current delivery run lacks an active merge grant')
-        return pr_safety.submit_merge(pr, head, method)
+        return pr_safety.submit_merge(pr, head, method, confirmed_by=values.get('confirmed-by'))
 
 
 def require_active(card):

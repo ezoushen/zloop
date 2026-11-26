@@ -131,6 +131,102 @@ print(json.dumps(reply))
                          [['api', '--hostname', 'github.com', BRANCH],
                           ['api', '--hostname', 'github.com', '--paginate', '--slurp', RULES]])
 
+    def test_relayed_autopilot_grants_are_refused_before_github_access(self):
+        self.replies[f'api --hostname github.com {BRANCH}'] = {
+            'name': BASE, 'protected': True, 'protection': {'enabled': True,
+                'required_status_checks': {'enforcement_level': 'everyone', 'contexts': ['docs']}}}
+        self.env['PI_SESSION_ID'] = 'host-2'
+        card = support.run_card(self.root / 'autopilot.md', phase='pr')
+        draft = card.read_text().replace('phase: pr', 'phase: pr\nmode: full\n'
+                     'dispatch-effort: medium\nreview-effort: medium')
+        for command, args, source in (
+                ('autopilot_card.py', ('confirm', str(card), '--words', 'go',
+                                     '--confirmed-by', 'relayed(Grok Bot)'), 'human'),
+                ('autopilot_card.py', ('take-over', str(card), '--auto-merge'), 'relayed(Grok Bot)'),
+                ('pr_safety.py', ('grant', '--pr', '12', '--card', str(card)), 'relayed(Grok Bot)'),
+                ('run_control.py', ('adopt', str(card), '--source', 'relayed confirmation'), 'relayed(Grok Bot)')):
+            with self.subTest(command=command, action=args[0]):
+                before = draft.replace('auto-merge: no', f'auto-merge: yes\nconfirmed-by: {source}')
+                card.write_text(before)
+                self.calls.write_text('')
+                target = () if command == 'pr_safety.py' else ('--merge-pr', '12')
+                result = self.run_cli(command, *args, *target)
+                self.assertEqual((result.returncode, result.stderr.strip()),
+                                 (2, 'waiting-on-user: relayed confirmation cannot authorize auto-merge'))
+                self.assertEqual(card.read_text(), before)
+                self.assertEqual(self.calls.read_text(), '')
+                self.assertFalse(card.with_name('autopilot-control.json').exists())
+
+        card = self.root / 'human' / 'autopilot.md'
+        card.parent.mkdir()
+        self.calls.write_text('')
+        card.write_text(draft + 'confirmed-by: human\n')
+        grant = self.run_cli('autopilot_card.py', 'take-over', str(card), '--auto-merge', '--merge-pr', '12')
+        self.assertEqual(grant.returncode, 0, grant.stderr)
+        self.assertIn('auto-merge: yes\n', card.read_text())
+        self.assertIn('confirmed-by: human\n', card.read_text())
+        self.assertEqual(len(self.calls.read_text().splitlines()), 3)
+
+    def test_explicit_merge_request_during_relay_confirmation_is_refused(self):
+        self.env['PI_SESSION_ID'] = 'host-2'
+        card = support.run_card(self.root / 'autopilot.md', phase='pr')
+        draft = card.read_text().replace('phase: pr',
+                                        'phase: pr\nmode: full\ndispatch-effort: medium\nreview-effort: medium')
+        card.write_text(draft)
+        result = self.run_cli('autopilot_card.py', 'confirm', str(card), '--words', 'go', '--confirmed-by',
+                              'relayed(Grok Bot)', '--auto-merge', '--merge-pr', '12')
+        self.assertEqual((result.returncode, result.stderr.strip()),
+                         (2, 'waiting-on-user: relayed confirmation cannot authorize auto-merge'))
+        self.assertEqual(card.read_text(), draft)
+        self.assertFalse(self.calls.exists())
+
+    def test_existing_relayed_grant_cannot_submit_or_record_a_merge(self):
+        self.replies[f'api --hostname github.com {BRANCH}'] = {
+            'name': BASE, 'protected': True, 'protection': {'enabled': True,
+                'required_status_checks': {'enforcement_level': 'everyone', 'contexts': ['docs']}}}
+        merge = 'pr merge 12 --repo github.com/fixture/zloop --match-head-commit ' + SHA + ' --squash'
+        self.replies[merge] = 'submitted to GitHub'
+        card = support.run_card(self.root / 'autopilot.md', phase='pr', **{'confirmed-by': 'human'})
+        card.write_text(card.read_text().replace('auto-merge: no', 'auto-merge: yes'))
+        human = card.read_text()
+        safety_args = ('merge', '--card', str(card), '--pr', '12', '--head', SHA, '--method', 'squash')
+        for source, reason in (
+                ('relayed(Grok Bot)', 'relayed confirmation cannot authorize auto-merge'),
+                ('relayed()', 'Invalid confirmed-by: expected human or relayed(agent)')):
+            with self.subTest(source=source):
+                card.write_text(human.replace('confirmed-by: human', f'confirmed-by: {source}'))
+                self.calls.write_text('')
+                result = self.run_cli('pr_safety.py', *safety_args)
+                self.assertEqual((result.returncode, result.stderr.strip()), (2, f'waiting-on-user: {reason}'))
+                self.assertEqual(self.calls.read_text(), '')
+
+        card.write_text(human)
+        result = self.run_cli('pr_safety.py', *safety_args)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, '"submitted to GitHub"'), result.stderr)
+        adopted = self.run_cli('run_control.py', 'adopt', str(card), '--source', 'existing confirmation',
+                               '--merge-pr', '12')
+        self.assertEqual(adopted.returncode, 0, adopted.stderr)
+        merge_args = ('merge', str(card), '--merge-pr', '12', '--head', SHA, '--method', 'squash', '--expect', '1')
+        result = self.run_cli('run_control.py', *merge_args)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, '"submitted to GitHub"'), result.stderr)
+
+        # Seed a canonical record with a relay grant that predates the guard.
+        record = card.with_name('autopilot-control.json')
+        state = json.loads(record.read_text())
+        state['card_text'] = state['card_text'].replace('confirmed-by: human', 'confirmed-by: relayed(Grok Bot)')
+        card.write_text(state['card_text'])
+        record.write_text(json.dumps(state))
+        before = (card.read_bytes(), record.read_bytes())
+        self.calls.write_text('')
+        for args in (merge_args, ('end', str(card), '--source', 'delivery proof', '--terminal', 'merged',
+                                  '--reason', 'merged', '--expect', '1', '--request-id', 'merged')):
+            with self.subTest(command=args[0]):
+                result = self.run_cli('run_control.py', *args)
+                self.assertEqual((result.returncode, result.stderr.strip()),
+                                 (2, 'waiting-on-user: relayed confirmation cannot authorize auto-merge'))
+                self.assertEqual((card.read_bytes(), record.read_bytes()), before)
+                self.assertEqual(self.calls.read_text(), '')
+
     def test_managed_submission_rechecks_required_checks_after_a_verified_grant(self):
         card = support.run_card(self.root / 'autopilot.md', phase='pr')
         card.write_text(card.read_text().replace('auto-merge: no', 'auto-merge: yes'))
@@ -155,6 +251,30 @@ print(json.dumps(reply))
         status = self.run_cli('run_control.py', 'status', str(card))
         self.assertEqual(status.returncode, 0, status.stderr)
         self.assertEqual((json.loads(status.stdout)['terminal'], json.loads(status.stdout)['revision']), ('', 1))
+
+    def test_managed_takeover_does_not_upgrade_relayed_authority_to_a_merge_grant(self):
+        self.replies[f'api --hostname github.com {BRANCH}'] = {
+            'name': BASE, 'protected': True, 'protection': {'enabled': True,
+                'required_status_checks': {'enforcement_level': 'everyone', 'contexts': ['docs']}}}
+        card = support.run_card(self.root / 'autopilot.md', phase='pr', **{'confirmed-by': 'relayed(Grok Bot)'})
+        adopted = self.run_cli('run_control.py', 'adopt', str(card), '--source', 'relayed confirmation')
+        self.assertEqual(adopted.returncode, 0, adopted.stderr)
+        record = card.with_name('autopilot-control.json')
+        before = (card.read_bytes(), record.read_bytes())
+        native = self.root / 'native.jsonl'
+        stamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        native.write_text('\n'.join(map(json.dumps, [
+            {'type': 'session_meta', 'payload': {'id': 'host-1'}},
+            {'type': 'response_item', 'timestamp': stamp, 'payload': {
+                'role': 'user', 'content': 'autopilot --take-over --auto-merge'}},
+        ])))
+        result = self.run_cli('run_control.py', 'resume', str(card), '--native', str(native), '--runtime', 'codex',
+                              '--expect', '1', '--request-id', 'resume', '--reason', 'user decision',
+                              '--merge-pr', '12')
+        self.assertEqual((result.returncode, result.stderr.strip()),
+                         (2, 'waiting-on-user: relayed confirmation cannot authorize auto-merge'))
+        self.assertEqual((card.read_bytes(), record.read_bytes()), before)
+        self.assertFalse(self.calls.exists())
 
     def test_managed_takeover_does_not_change_delivery_or_grant_without_required_checks(self):
         card = support.run_card(self.root / 'autopilot.md', phase='pr')

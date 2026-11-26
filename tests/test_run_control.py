@@ -98,6 +98,35 @@ class RunControl(unittest.TestCase):
         self.assertEqual(restored['events'][-1]['displaced_view'], manual)
         self.control.require_active(self.card)
 
+    def test_end_cli_refuses_local_delivery_on_pr_only_and_keeps_legacy_and_pr_delivery(self):
+        command = [sys.executable, '-B', str(support.SCRIPTS / 'run_control.py')]
+        for delivery, terminal, reason in (
+                ('pr-only', 'delivered-local', 'PR-only delivery requires a pull request'),
+                (None, 'delivered-local', ''),
+                ('pr-only', 'delivered', '')):
+            with self.subTest(delivery=delivery, terminal=terminal):
+                card = support.run_card(self.card.parent / f'{delivery}-{terminal}' / 'autopilot.md',
+                                        phase='pr', **({'delivery': delivery} if delivery else {}))
+                adopted = subprocess.run([*command, 'adopt', str(card), '--source', 'confirmed run'],
+                                         capture_output=True, text=True)
+                self.assertEqual(adopted.returncode, 0, adopted.stderr)
+                record = card.with_name('autopilot-control.json')
+                before = card.read_bytes(), record.read_bytes()
+                end = subprocess.run([*command, 'end', str(card), '--terminal', terminal,
+                                      '--source', 'delivery proof', '--reason', 'verified delivery',
+                                      '--expect', '1', '--request-id', 'delivery'],
+                                     capture_output=True, text=True)
+                if reason:
+                    self.assertEqual((end.returncode, end.stderr.strip()), (2, reason))
+                    self.assertEqual((card.read_bytes(), record.read_bytes()), before)
+                else:
+                    self.assertEqual(end.returncode, 0, end.stderr)
+                status = subprocess.run([*command, 'status', str(card)], capture_output=True, text=True)
+                self.assertEqual(status.returncode, 0, status.stderr)
+                view = json.loads(status.stdout)
+                self.assertEqual((view['terminal'], view['revision'], view['last_event']['id']),
+                                 ('', 1, 'adopt') if reason else (terminal, 2, 'delivery'))
+
     def test_status_reads_the_committed_transition_without_republishing_the_view(self):
         self.control.adopt(self.card, 'confirmed run')
         before = self.card.read_bytes()

@@ -64,8 +64,9 @@ not applicable, with the review and E2E evidence, and stop.
    established by the accepted compatibility obligations and final diff. Report the URL.
 5. **Watch the required checks** for the pushed SHA, as [watch the required checks](../../standards/pr.md#watch-the-required-checks)
    describes.
-6. **Submit an authorized auto-merge** through the approval path's guarded command
-   after required checks and repository approvals pass.
+6. **Submit an authorized auto-merge** after required checks and repository approvals
+   pass. A managed run uses the [managed merge command](../../runtime/workers/control.md).
+   Other runs use the approval path's guarded command with the run card when present.
 7. **After the merge, on request:** apply the
    [worktree retirement checks](../../runtime/resources/retire-worktree.md), then
    delete `feat/<slug>` and its recorded ticket branches only after downstream

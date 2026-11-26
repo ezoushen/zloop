@@ -15,14 +15,30 @@ from pathlib import Path
 import tempfile
 
 
-def state_fields(text):
-    """Read key/value lines in a run card's State section; blank/placeholders become empty values."""
+CONTROL_NAME = 'autopilot-control.json'
+
+
+def validate_confirmation_source(value):
+    """Accept direct human confirmation or a relay with a named agent."""
+    if value != 'human' and not re.fullmatch(r'relayed\([^()\s]+(?: +[^()\s]+)*\)', value):
+        raise ValueError("Invalid confirmed-by: expected human or relayed(agent)")
+
+
+def state_fields(text, *, validate_authority=True):
+    """Read State lines, validating authority fields unless diagnosing the rejected view."""
     heading = re.search(r'^## State[ \t]*$', text, re.M)
     fields = {}
     for line in re.split(r'^## ', text[heading.end():], maxsplit=1, flags=re.M)[0].splitlines() if heading else []:
         key, colon, value = line.partition(':')
         if colon and re.fullmatch(r'[a-z-]+', key):
             value = value.strip()
+            if validate_authority and key in ('confirmed-by', 'delivery'):
+                if key in fields:
+                    raise ValueError(f'Duplicate {key} in card State')
+                if key == 'confirmed-by':
+                    validate_confirmation_source(value)
+                elif value != 'pr-only':
+                    raise ValueError('Invalid delivery: expected pr-only')
             fields.setdefault(key, '' if value.startswith('<') else value)
     return fields
 

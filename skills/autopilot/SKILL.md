@@ -47,8 +47,8 @@ types the command; a message that mentions it is not one. Never widens native pe
 Then autopilot writes the [run card](run-card.md) to `.scratch/<slug>/autopilot.md`, records both effort levels,
 and the full path asks the user to confirm it once.
 The card, ledger and reports are workflow state: a principle about the project's files never keeps them out of `.scratch/`.
-No phase after align starts before that confirmation; silence or an unrelated reply is
-not one. Record the confirmation on the card by its `confirm` command. Waiting for it is not a terminal state: `terminal:` stays empty.
+No phase after align starts before that confirmation. Record the confirmation on the card with `confirm`.
+Waiting for it is not a terminal state: `terminal:` stays empty.
 The confirmed card authorizes every action it grants, and stands for the user's check of newly cut and split tickets.
 
 ## Run
@@ -62,7 +62,8 @@ the card with the user's words.
 2. [dispatch](../dispatch/SKILL.md) them with `--autofix` and the card's current levels, `--dispatch-effort <level>`
    and `--review-effort <level>` (review, repairs, applicable E2E);
 3. [pr](../pr/SKILL.md): write the description, push the workstream branch and open the PR, then watch the required checks.
-   In a repository with no PR host, publish nothing: pass the PR procedure's delivery gate, write the delivery report and end `delivered-local`.
+   In a repository with no PR host, publish nothing. For PR-only delivery, end `waiting-on-user`.
+   Otherwise pass the delivery gate, write the delivery report and end `delivered-local`.
 
 At each phase boundary and before each worker launch, run `python3 "<plugin_root>/scripts/allowance.py" status`.
 Routing leaves out the candidates of a `critical` provider unless a configuration layer sets `include_critical_allowance`,

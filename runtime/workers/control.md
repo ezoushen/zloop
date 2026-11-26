@@ -50,12 +50,13 @@ existing explicit authorization path; a receipt cannot grant merging.
 Host decisions use `end <card> --terminal <state> --source <evidence-reference>`
 with the same expected revision, request ID and reason. A user pause still requires
 the native command; the host cannot label a diagnostic as user intent. Use existing delivery gates to establish delivery; a terminal label alone is insufficient.
+A card with `delivery: pr-only` refuses the `delivered-local` transition.
 
 After the required-check watch and repository approvals pass, use
 `run_control.py merge <card> --expect <revision> --merge-pr <number>
 --head <reviewed-sha> --method <approved-method>` to submit a managed merge.
-It requires the current delivery run to hold the grant and rechecks requirements
-for the PR's actual base. Verify GitHub's resulting PR state before recording
+It requires a current delivery grant and rejects relayed authority before
+rechecking requirements for the PR's actual base. Verify GitHub's resulting PR state before recording
 `merged`; an admitted queue entry may still be waiting.
 
 While paused, collect already running work and preserve its evidence. Productive

@@ -215,6 +215,36 @@ class Confirm(unittest.TestCase):
         self.assertEqual(text, DRAFT.replace('confirmed: no', f'confirmed: {today} "go ahead, session: mine inline"')
                          .replace(UNNAMED, 'session: pi-1'))
 
+    def test_confirmation_records_explicit_human_or_named_relay_provenance(self):
+        today = datetime.date.today().isoformat()
+        session = {'PI_SESSION_ID': 'pi-1'}
+        confirmed = DRAFT.replace('confirmed: no', f'confirmed: {today} "go"').replace(UNNAMED, 'session: pi-1')
+        for source in ('human', 'relayed(Grok Bot)'):
+            with self.subTest(source=source):
+                text, _ = self.confirm('--words', 'go', '--confirmed-by', source, sessions=session)
+                expected = confirmed.replace('session: pi-1', f'confirmed-by: {source}\nsession: pi-1')
+                self.assertEqual(text, expected)
+        relay = DRAFT.replace('confirmed: no', 'confirmed: no\nconfirmed-by: relayed(Grok Bot)')
+        text, _ = self.confirm('--words', 'go', card=relay, sessions=session)
+        self.assertEqual(text, confirmed.replace('session: pi-1', 'confirmed-by: relayed(Grok Bot)\nsession: pi-1'))
+
+    def test_confirmation_rejects_malformed_present_authority_fields_without_rewriting(self):
+        session = {'PI_SESSION_ID': 'pi-1'}
+        for field, reason in (
+                ('confirmed-by:', 'Invalid confirmed-by: expected human or relayed(agent)'),
+                ('confirmed-by: relayed()', 'Invalid confirmed-by: expected human or relayed(agent)'),
+                ('confirmed-by: <source>', 'Invalid confirmed-by: expected human or relayed(agent)'),
+                ('confirmed-by: human\nconfirmed-by: relayed(Grok Bot)', 'Duplicate confirmed-by in card State'),
+                ('delivery:', 'Invalid delivery: expected pr-only'),
+                ('delivery: local', 'Invalid delivery: expected pr-only'),
+                ('delivery: pr-only\ndelivery: pr-only', 'Duplicate delivery in card State')):
+            with self.subTest(field=field):
+                card = DRAFT.replace('confirmed: no', f'confirmed: no\n{field}')
+                self.assertEqual(self.confirm('--words', 'go', card=card, sessions=session, code=1),
+                                 (card, reason + '\n'))
+        self.assertEqual(self.confirm('--words', 'go', '--confirmed-by', 'relayed()', sessions=session, code=1),
+                         (DRAFT, 'Invalid confirmed-by: expected human or relayed(agent)\n'))
+
     def test_a_direct_card_is_confirmed_by_rule_from_the_goal_and_a_card_without_a_mode_line_is_refused(self):
         # Rule (outcome B): a direct run asks nothing, so its confirmation is the rule applied to the goal the user typed.
         today = datetime.date.today().isoformat()

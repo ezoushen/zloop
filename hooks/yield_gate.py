@@ -373,7 +373,7 @@ def unfinished_runs(root, session, named):
             control = control_api.read(path)
         except (OSError, ValueError) as error:
             try:
-                view = state_fields(control_api.observed(path, errors='replace') or '')
+                view = state_fields(control_api.observed(path, errors='replace') or '', validate_authority=False)
             except OSError:
                 view = {}
             try:
