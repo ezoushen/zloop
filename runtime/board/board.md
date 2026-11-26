@@ -39,6 +39,23 @@ Ordinary issue history without machine ticket metadata is not enrolled in this
 board. Malformed machine tickets remain errors; `--board` exposes invalid statuses
 and `--set` repairs them. Scheduling still validates all enrolled workstreams so a slug
 cannot bypass dependencies, area locks, device reservations or live capacity.
+`--set` permits these status changes in addition to retrying the current status.
+
+| Current status | Other allowed statuses |
+|---|---|
+| `ready` | `implementing`, `blocked`, `done` |
+| `blocked` | `ready`, `implementing`, `done` |
+| `implementing` | `ready`, `reviewing`, `fixing`, `verifying`, `blocked`, `done` |
+| `reviewing` | `implementing`, `fixing`, `verifying`, `blocked`, `done` |
+| `fixing` | `implementing`, `reviewing`, `verifying`, `blocked`, `done` |
+| `verifying` | `fixing`, `blocked`, `done` |
+| `done` | `verifying`, `blocked` |
+
+Moving to `done` requires landed local acceptance or verified external delivery.
+A failed local reacceptance moves a done ticket to `blocked` if it loses its last
+acceptance. Ticket updates are serialized and published as complete files.
+If the ticket changes during an acceptance check, reload it and rerun `--accept`.
+
 For E2E, check `--can-verify <ticket>` before temporarily setting a done sentinel
 to `verifying`; restore `done` after completion/failure and actual device release; the way back is the ordinary done gate.
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The local board's scheduling rules and its command line."""
 import os
+import select
 import json
 import re
 import shlex
@@ -11,6 +12,7 @@ import sys
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -613,6 +615,136 @@ class BoardCLI(unittest.TestCase):
         history.write_text('---\nstatus: implementing\ntouches: [runtime]\n---\n')
         assert 'missing ticket' in cli('active', '--board', code=1).stderr
 
+    def test_cli_enforces_local_status_edges(self):
+        # The board lifecycle, retry paths, accepted closures and device sentinel cycle.
+        allowed = {
+            'ready': 'ready implementing blocked done',
+            'blocked': 'blocked ready implementing done',
+            'implementing': 'implementing ready reviewing fixing verifying blocked done',
+            'reviewing': 'reviewing implementing fixing verifying blocked done',
+            'fixing': 'fixing implementing reviewing verifying blocked done',
+            'verifying': 'verifying fixing blocked done',
+            'done': 'done verifying blocked',
+        }
+        self.commit('main head')
+        pull = 'https://github.com/o/r/pull/1'
+        with self.gh({pull: ('MERGED', 'a' * 40)}):
+            for origin, destinations in allowed.items():
+                for target in allowed:
+                    with self.subTest(origin=origin, target=target):
+                        path = self.write_ticket('active/01', origin, extra=f'delivered_by: [{pull}]\n')
+                        before = path.read_bytes()
+                        args = ['active', '--set', 'active/01', f'status={target}']
+                        if target == 'blocked':
+                            args.append('blocker=paused for evidence')
+                        if target in destinations.split():
+                            self.cli(*args)
+                            fields = front_matter.parse(path.read_text())
+                            self.assertEqual(fields['status'], target)
+                            self.assertEqual(fields.get('blocker'), 'paused for evidence' if target == 'blocked' else None)
+                        else:
+                            refusal = self.cli(*args, code=1)
+                            self.assertEqual(refusal.stderr,
+                                             f'active/01: cannot change status from {origin} to {target}\n')
+                            self.assertEqual(path.read_bytes(), before)
+
+    def test_a_ticket_remains_complete_when_the_writer_exits_at_publication(self):
+        crash = """
+import os, runpy, sys
+from pathlib import Path
+
+point, target, script, *args = sys.argv[1:]
+replace = os.replace
+
+def exit_at_publication(source, destination):
+    if Path(destination) != Path(target):
+        return replace(source, destination)
+    if point == 'after':
+        replace(source, destination)
+    os._exit(97)
+
+os.replace = exit_at_publication
+sys.argv = [script, *args]
+runpy.run_path(script, run_name='__main__')
+"""
+        for point in ('before', 'after'):
+            with self.subTest(point=point):
+                path = self.write_ticket('active/01', 'implementing')
+                original = path.read_bytes() + b'# Ticket body\n\nPreserve this text.\n'
+                path.write_bytes(original)
+                published = original.replace(b'status: implementing\n', b'status: blocked\n', 1)
+                published = published.replace(b'\n---\n', b'\nblocker: device offline\n---\n', 1)
+                args = ('active', '--set', 'active/01', 'status=blocked', 'blocker=device offline')
+                crashed = subprocess.run([sys.executable, '-B', '-c', crash, point, str(path.resolve()), str(SCRIPT),
+                                          '--repo', str(self.root), *args], capture_output=True, text=True, timeout=10)
+                self.assertEqual(path.read_bytes(), original if point == 'before' else published)
+                self.assertEqual(crashed.returncode, 97, crashed.stdout + crashed.stderr)
+                self.cli('active', '--check')
+                self.cli(*args)
+                self.assertEqual(path.read_bytes(), published)
+                self.cli(*args)
+                self.assertEqual(path.read_bytes(), published)
+
+    def test_a_competing_status_change_is_checked_after_the_first_writer_publishes(self):
+        interleave = """
+import fcntl, os, runpy, sys
+from pathlib import Path
+
+mode, target, script, *args = sys.argv[1:]
+target = Path(target)
+replace, flock = os.replace, fcntl.flock
+
+def at_replace(source, destination):
+    if Path(destination) == target:
+        print('publishing', flush=True)
+        sys.stdin.readline()
+    return replace(source, destination)
+
+def at_lock(handle, operation):
+    if Path(handle.name) == target.with_name(target.name + '.lock'):
+        print('locking', flush=True)
+    return flock(handle, operation)
+
+os.replace = at_replace
+if mode == 'competing':
+    fcntl.flock = at_lock
+sys.argv = [script, *args]
+runpy.run_path(script, run_name='__main__')
+"""
+        pull = 'https://github.com/o/r/pull/1'
+        path = self.write_ticket('active/01', 'implementing', extra=f'delivered_by: [{pull}]\n')
+        expected = path.read_bytes().replace(b'status: implementing\n', b'status: done\n', 1)
+
+        def writer(mode, status):
+            return subprocess.Popen(
+                [sys.executable, '-B', '-c', interleave, mode, str(path.resolve()), str(SCRIPT),
+                 '--repo', str(self.root), 'active', '--set', 'active/01', f'status={status}'],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+
+        def checkpoint(process):
+            self.assertTrue(select.select([process.stdout], [], [], 10)[0], 'writer did not reach its checkpoint')
+            return process.stdout.readline().strip()
+
+        with self.gh({pull: ('MERGED', 'a' * 40)}), writer('first', 'done') as first:
+            try:
+                self.assertEqual(checkpoint(first), 'publishing')
+                with writer('competing', 'ready') as second:
+                    try:
+                        self.assertIn(checkpoint(second), ('locking', 'publishing'))
+                        output = first.communicate(input='continue\n', timeout=10)
+                        self.assertEqual(first.returncode, 0, output)
+                        stdout, stderr = second.communicate(input='continue\n', timeout=10)
+                        self.assertEqual(second.returncode, 1, stdout + stderr)
+                        self.assertEqual(stderr, 'active/01: cannot change status from done to ready\n')
+                        self.assertEqual(path.read_bytes(), expected)
+                    finally:
+                        if second.poll() is None:
+                            second.kill()
+            finally:
+                if first.poll() is None:
+                    first.kill()
+
     def test_blocking_a_ticket_needs_a_reason_recorded_on_the_ticket(self):
         # Rule (E4 pi): `status=blocked` is refused without `blocker=<reason>`, leaving the ticket as it was; with one,
         # the ticket's front matter keeps the status and the reason.
@@ -1151,6 +1283,76 @@ class BoardCLI(unittest.TestCase):
             path = self.root / name
             path.write_bytes(text) if isinstance(text, bytes) else path.write_text(text)
             self.git('add', name)
+
+    @contextmanager
+    def gated_acceptance(self, slug, *args):
+        """Wait for the evidence provider to start, then collect its result after the caller releases it."""
+        command = [sys.executable, '-B', str(SCRIPT), '--repo', str(self.root), slug]
+        with subprocess.Popen([*command, '--accept', f'{slug}/01', *args], text=True,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE) as accepting:
+            try:
+                started = self.root / '.scratch/started'
+                deadline = time.monotonic() + 5
+                while not started.exists() and accepting.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertTrue(started.exists(), 'acceptance did not start its evidence check')
+                yield command, accepting
+            finally:
+                (self.root / '.scratch/release').touch()
+                try:
+                    accepting.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    accepting.kill()
+                    raise
+
+    def test_accept_does_not_hold_the_ticket_during_measurement_or_publish_stale_evidence(self):
+        self.measured_ticket('touch .scratch/started; while [ ! -e .scratch/release ]; do sleep 0.02; done; echo recall 100',
+                             timeout_seconds=10)
+        path, = self.root.glob('.scratch/inline/issues/01-*.md')
+        with self.gated_acceptance('inline') as (command, accepting):
+            changed = subprocess.run([*command, '--set', 'inline/01', 'status=blocked', 'blocker=reassigned'],
+                                     capture_output=True, text=True, timeout=3)
+            self.assertEqual(changed.returncode, 0, changed.stdout + changed.stderr)
+            expected = path.read_bytes()
+            (self.root / '.scratch/release').touch()
+            stdout, stderr = accepting.communicate(timeout=5)
+        self.assertEqual(accepting.returncode, 1, stdout + stderr)
+        self.assertEqual(stderr, 'inline/01: ticket changed during --accept; reload and retry\n')
+        self.assertEqual(path.read_bytes(), expected)
+        self.cli('inline', '--accept', 'inline/01')
+        accepted = front_matter.parse(path.read_text())
+        self.assertEqual((accepted['status'], accepted['blocker'], accepted['accepted']),
+                         ('blocked', 'reassigned', self.git('rev-parse', 'HEAD')))
+
+    def test_accept_refuses_to_overwrite_newer_external_delivery_evidence(self):
+        path = self.write_ticket('fx/01', 'implementing')
+        first, second = (f'https://github.com/o/r/pull/{n}' for n in (1, 2))
+        with self.gh({first: ('MERGED', 'a' * 40), second: ('MERGED', 'b' * 40)}):
+            fake_gh = self.root / 'bin/gh'
+            source = fake_gh.read_text()
+            pause = f"""
+import sys, time
+from pathlib import Path
+
+if {first!r} in sys.argv:
+    Path({str(self.root / '.scratch/started')!r}).touch()
+    deadline = time.monotonic() + 10
+    while not Path({str(self.root / '.scratch/release')!r}).exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+"""
+            shebang, source = source.split('\n', 1)
+            fake_gh.write_text(shebang + '\n' + pause + source)
+            with self.gated_acceptance('fx', '--delivered-by', first) as (command, accepting):
+                newer = subprocess.run([*command, '--accept', 'fx/01', '--delivered-by', second],
+                                       capture_output=True, text=True, timeout=3)
+                self.assertEqual(newer.returncode, 0, newer.stdout + newer.stderr)
+                (self.root / '.scratch/release').touch()
+                stdout, stderr = accepting.communicate(timeout=5)
+            self.assertEqual(accepting.returncode, 1, stdout + stderr)
+            self.assertEqual(stderr, 'fx/01: ticket changed during --accept; reload and retry\n')
+            self.cli('fx', '--set', 'fx/01', 'status=done')
+        fields = front_matter.parse(path.read_text())
+        self.assertEqual((fields['status'], fields['delivered_by']), ('done', [second]))
 
     def test_a_metric_worse_than_its_baseline_refuses_acceptance_and_names_it(self):
         # A measured regression is a refusal even when the report and branch are structurally fine.
