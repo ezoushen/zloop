@@ -12,6 +12,9 @@ python3 <plugin_root>/scripts/run_control.py adopt <card> --source <confirmation
 
 Add `--allow-resume` only when its confirmed grants already permit unattended
 allowance recovery. Adoption grants no extra permissions or merge authority.
+To adopt or explicitly resume with an auto-merge grant, supply `--merge-pr <number>`
+or `--merge-base <planned-base>`. If required checks cannot be verified, the command
+reports `waiting-on-user` and leaves the grant and delivery state intact.
 Inspect managed state with `run_control.py status <card>`. Before launch and after
 completion or resume, follow [dispatch inspection](dispatch.md). Both inspections
 use the control record when its Markdown projection is missing or matches the exact
@@ -47,6 +50,13 @@ existing explicit authorization path; a receipt cannot grant merging.
 Host decisions use `end <card> --terminal <state> --source <evidence-reference>`
 with the same expected revision, request ID and reason. A user pause still requires
 the native command; the host cannot label a diagnostic as user intent. Use existing delivery gates to establish delivery; a terminal label alone is insufficient.
+
+After the required-check watch and repository approvals pass, use
+`run_control.py merge <card> --expect <revision> --merge-pr <number>
+--head <reviewed-sha> --method <approved-method>` to submit a managed merge.
+It requires the current delivery run to hold the grant and rechecks requirements
+for the PR's actual base. Verify GitHub's resulting PR state before recording
+`merged`; an admitted queue entry may still be waiting.
 
 While paused, collect already running work and preserve its evidence. Productive
 continuation and acceptance wait for authorized resume.

@@ -33,6 +33,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_matter  # noqa: E402
+import pr_safety  # noqa: E402
 import state_files  # noqa: E402
 import next_tickets  # noqa: E402
 import run_control  # noqa: E402
@@ -213,6 +214,9 @@ def main():
     parser.add_argument('phase', nargs='?', choices=PHASES, help='phase: the phase the run enters')
     parser.add_argument('--words', help="confirm: the user's words that confirmed the card")
     parser.add_argument('--auto-merge', action='store_true', help='grant merging to the new run')
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument('--merge-base', help='explicit base of a planned auto-merge PR')
+    target.add_argument('--merge-pr', type=int, help='open PR for an auto-merge request')
     parser.add_argument('--effort', choices=LEVELS, help='set both steps to this level')
     parser.add_argument('--dispatch-effort', choices=LEVELS, help="set the dispatch's verification level")
     parser.add_argument('--review-effort', choices=LEVELS, help="set the review's level")
@@ -230,12 +234,19 @@ def main():
         return
     if run_control.read(args.card):
         parser.error('Managed run: use run_control.py for pause/resume; changing its grant needs a new confirmed run')
+    text = args.card.read_text()
     if args.command == 'confirm':
-        state_files.write_atomic(args.card, confirm(args.card, args.card.read_text(), args.words, host_sessions(), today))
-        return
-    levels = (args.dispatch_effort or args.effort, args.review_effort or args.effort)
-    state_files.write_atomic(args.card, take_over(args.card.read_text(), args.auto_merge, *levels, today,
-                                                  host_sessions()))
+        text = confirm(args.card, text, args.words, host_sessions(), today)
+    else:
+        levels = (args.dispatch_effort or args.effort, args.review_effort or args.effort)
+        text = take_over(text, args.auto_merge, *levels, today, host_sessions())
+    if field(state_section(text)[0], 'auto-merge') == 'yes':
+        try:
+            pr_safety.verify_grant(args.merge_base, args.merge_pr)
+        except pr_safety.WaitingOnUser as error:
+            parser.exit(2, f'waiting-on-user: {error}\n')
+    state_files.write_atomic(args.card, text)
+
 
 
 if __name__ == '__main__':

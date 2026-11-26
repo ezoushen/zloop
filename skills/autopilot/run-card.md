@@ -54,3 +54,15 @@ evidence: <commit, report, PR URL>
 timer: <resume time and the timer's handle, while `paused-allowance` waits on one>
 resume: `autopilot --take-over` (plus `--auto-merge` when granted), after <what the user must do>
 ```
+
+## Guarded merge
+
+To confirm or take over with `--auto-merge`, pass `--merge-pr <number>` to the card
+command, or `--merge-base <planned-base>` before the PR exists. The required checks
+must be verified before the grant changes. A `waiting-on-user` exit leaves the
+current grant and delivery state intact. Report the blocker and resume after the
+base's required checks can be verified.
+
+For merge submission, use the [approval path](../../runtime/board/approval-path.md)
+for a legacy card or the [managed merge command](../../runtime/workers/control.md)
+for a managed card. Both verify the PR's actual base again before submitting.

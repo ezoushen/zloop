@@ -18,7 +18,9 @@ that artefact in the report or ledger, and inline the figure in the PR body.
 
 ## Repository approval path
 
-Follow the [approval path](../../runtime/board/approval-path.md).
+Follow the [approval path](../../runtime/board/approval-path.md), including its
+guarded submission for a user-authorized auto-merge. Report an unverified base
+or absent required checks as `waiting-on-user` before granting or submitting it.
 
 ## Steps
 

@@ -61,8 +61,9 @@ class TakeOver(unittest.TestCase):
         # Rule: the merge grant lapses with the terminal state; the new run holds only what its take-over grants, and
         # it is the run of the session that took it over (card-confirm: the panel and the stop hold go by `session:`).
         today = datetime.date.today().isoformat()
-        for flags, merge in (((), 'no'), (('--auto-merge',), 'yes')):
-            text = self.take_over(*flags)
+        for grant, merge in ((False, 'no'), (True, 'yes')):
+            text = (card.take_over(CARD, grant, None, None, today, ['host-2'])
+                    if grant else self.take_over())
             self.assertEqual(text, CARD.replace('auto-merge: yes', f'auto-merge: {merge}')
                              .replace('session: host-1', 'session: host-2')
                              .replace('terminal: merged', 'terminal:')

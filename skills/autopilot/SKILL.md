@@ -42,7 +42,7 @@ types the command; a message that mentions it is not one. Never widens native pe
 - **`autopilot --take-over --timed`:** what a resume timer runs, as the user's own take-over, authorized on the card.
   It resumes only a card that still ended `paused-allowance` with `timer:` set; for any other state it reports the
   card's state and changes nothing. It keeps the card's levels unchanged.
-- **`--auto-merge`:** grants merging once the PR is open; see [Stop](#stop).
+- **`--auto-merge`:** follow [guarded merge](run-card.md#guarded-merge).
 
 Then autopilot writes the [run card](run-card.md) to `.scratch/<slug>/autopilot.md`, records both effort levels,
 and the full path asks the user to confirm it once.
