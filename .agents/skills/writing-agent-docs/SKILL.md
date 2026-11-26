@@ -40,7 +40,8 @@ count, where code names doc paths, the byte budget, the recorded debt and the `g
 A rule an agent doc owns carries `<!-- rule: <id> -->`, or `<!-- rule: <id> = <value> -->`, on the line
 before its paragraph or list item; the ID is `module.kebab-name`, unique repo-wide. Another agent doc that
 restates the rule puts `<!-- rule-ref: <id> -->`, with the same optional value, before a paragraph that links
-the owner's file. These rule checks run repo-wide, like links.
+the owner's file. These rule checks run repo-wide, like links. A restatement in other words, unmarked, is out of
+their reach: the check finds only copied sentences.
 A contract test for a rule a script also enforces asserts the rule's owner (`rule_owners` in
 `tests/support.py`) and the script's behaviour, never the doc's wording, so rewording passes and moving the
 marker or breaking the script fails.
@@ -88,7 +89,7 @@ differs from the base; list deliberate edits in a JSON file passed with `--allow
 | `rule-unowned` | A `rule-ref` names an ID no doc owns | Correct the ID, or mark the rule's owner |
 | `rule-conflict` | A `rule-ref` value differs from its owner's | Restate the owner's value, or change the owner |
 | `rule-unlinked` | The paragraph a `rule-ref` marks does not link the owner's file | Link the owner there |
-| `rule-restated` | Another agent doc copies an owned rule of 40+ characters, compared without case, whitespace and Markdown, outside a `rule-ref` paragraph | Link the owner instead, or mark that paragraph `rule-ref` |
+| `rule-restated` | Another agent doc copies a sentence of 40+ characters of an owned rule, compared without case, whitespace and Markdown, outside a `rule-ref` paragraph | Link the owner instead, or mark that paragraph `rule-ref` |
 | `positional` | `above` or `below` that may point at moved text | Link or name the target instead |
 | `stale-name` | Text names a `.md` file that exists nowhere | Link the doc that now holds it, or add a generic project name to `known_names` |
 | `avoided-word` | An agent doc uses a phrase the glossary lists under `_Avoid_`, as a whole phrase in any case, plural or line wrap, in frontmatter and link titles too | Write the term the error names; quote a phrase you must name in backticks or a fenced block (a link target is not a use, a link title is). A phrase that is also a glossary term (`effort`) is not matched alone: the glossary lists the longer phrase to avoid (`effort branch`) |

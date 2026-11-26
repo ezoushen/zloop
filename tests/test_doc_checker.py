@@ -499,6 +499,16 @@ class RuleOwnership(Fixture):
                    'Read [the guide](../shared/guide.md) before any change to a policy doc.\n')  # 8
         self.assertEqual(self.check(), {('shared/drift.md', 8, 'rule-restated', 'error')})
 
+    def test_a_copied_sentence_of_an_owned_rule_is_reported(self):
+        # Rule: an owner's paragraph may hold several sentences, and a copy of any one of 40 plain characters or more
+        # in another doc needs a reference to the rule; a shorter sentence reads like a common phrase.
+        self.write('shared/policy.md', POLICY + '\n<!-- rule: policy.release -->\n'
+                   'The lead is told of a failed release at once. A release is blocked until its tests pass. Ship small.\n')
+        self.write('shared/drift.md', '# Drift\n\nNotes first. A RELEASE is blocked\nuntil _its_ tests pass. Ship small.\n\n'  # 3
+                   '<!-- rule-ref: policy.release -->\n'
+                   'The [policy](policy.md) says a release is blocked until its tests pass.\n')
+        self.assertEqual(self.check(), {('shared/drift.md', 3, 'rule-restated', 'error')})
+
 
 if __name__ == '__main__':
     unittest.main()

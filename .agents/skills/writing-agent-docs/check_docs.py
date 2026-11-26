@@ -388,11 +388,17 @@ def plain(block):
     return text, starts
 
 
+def sentences(text):
+    """The sentences of a `plain` text that are RULE_TEXT_MIN characters or more, without their closing punctuation."""
+    return [part for part in (part.rstrip('.!?') for part in re.split(r'(?<=[.!?])\s+', text))
+            if len(part) >= RULE_TEXT_MIN]
+
+
 def rule_findings(docs, rel):
     """Findings for rules that do not have one owner: an ID owned twice, at each owner, and a reference to an
     ID nobody owns. A reference to an ID with one owner must carry no value or the owner's value, and its block
-    must link the owner's file; another doc's block that copies the owned text, compared as `plain` text of at
-    least RULE_TEXT_MIN characters, needs a reference to it."""
+    must link the owner's file; another doc's block that copies a sentence of the owned text, compared as `plain`
+    text of at least RULE_TEXT_MIN characters, needs a reference to it."""
     findings, owners, references = [], {}, []
     marked = {path: marked_blocks(path) for path in docs}
     for path, items in marked.items():
@@ -421,8 +427,8 @@ def rule_findings(docs, rel):
             if owner.resolve() not in {target for target, _ in targets}:
                 findings.append(Finding(rel(path), number, 'error', 'rule-unlinked',
                                         f'link {rel(owner)}, the owner of {rule}, in the paragraph this marks'))
-    owned = [(rule, *places[0][:2], text) for rule, places in owners.items()
-             if len(places) == 1 and len(text := plain(places[0][3])[0]) >= RULE_TEXT_MIN]
+    owned = [(rule, *places[0][:2], text) for rule, places in owners.items() if len(places) == 1
+             for text in sentences(plain(places[0][3])[0])]
     texts = {path: [(plain(block), {r for k, r, _, _ in markers if k == 'rule-ref'}) for block, markers in items]
              for path, items in marked.items()} if owned else {}
     for rule, owner, line, text in owned:
