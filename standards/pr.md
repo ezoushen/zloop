@@ -10,6 +10,7 @@ Contents:
 - [Refreshing an existing PR](#refreshing-an-existing-pr)
 - [Self-check before every publish](#self-check-before-every-publish)
 - [Watch the required checks](#watch-the-required-checks)
+- [Probe the publish route first](#probe-the-publish-route-first)
 
 Read this before writing a PR description and before every later edit or push to a
 PR branch, whether or not `/zloop:pr` was invoked. It applies to free-text
@@ -191,3 +192,19 @@ Read the log of any failing required check and return through `recovery` to
 runner or with the job's own commands, or confirm its cause from the job's log,
 before changing product code; then verify the new SHA. Report "ready to merge" only when every required
 check is green and the approval path is known.
+
+## Probe the publish route first
+
+A run that publishes learns at refine, before the work, whether it can. Run the probe
+once the card holds its workstream, and again after changing the remote or credentials:
+
+```sh
+python3 "<plugin_root>/scripts/publish_probe.py" "<card>"
+```
+
+It dry-runs the push of the workstream branch to `origin`, checks write permission on
+the GitHub repository, records `publish-probe:` on the card and exits 1 when it fails.
+Fix what it reports before dispatching.
+
+<!-- rule: pr.publish-probe-before-dispatch -->
+`phase <card> dispatch` and `phase <card> pr` refuse a card whose `publish-probe:` line is missing or not `ok`.

@@ -37,6 +37,7 @@ import front_matter  # noqa: E402
 import human_intent  # noqa: E402
 import state_files  # noqa: E402
 import next_tickets  # noqa: E402
+import plugin_lag  # noqa: E402
 import run_control  # noqa: E402
 from worker_lifecycle import SESSION_VARIABLES, host_sessions, state_fields  # noqa: E402
 
@@ -47,6 +48,7 @@ STATE_LINES = ('confirmed', 'session', 'auto-merge', 'mode', 'board', 'dispatch-
 RUN_CARD = Path(__file__).resolve().parents[1] / 'skills' / 'autopilot' / 'run-card.md'
 PHASES = ('align', 'refine', 'dispatch', 'pr')
 TICKETS = Path(__file__).resolve().parent / 'next_tickets.py'
+PUBLISH_PROBE = Path(__file__).resolve().parent / 'publish_probe.py'
 MODES = ('full', 'direct')
 DIRECT_TICKETS = 2  # A direct run finishes at most this many tickets; more is the full path.
 
@@ -130,11 +132,30 @@ def board_problem(card, state):
     return None
 
 
+def publish_problem(card, state):
+    """Why the run of `card` cannot enter dispatch or pr yet, or None: its `publish-probe:` line is missing or does not
+    say `ok`."""
+    if state_fields(state).get('publish-probe', '').split(' ')[0] == 'ok':
+        return None
+    probe = shlex.join(['python3', str(PUBLISH_PROBE), str(card)])
+    return (f'the publish probe of {card.parent.name} is missing or failed: run `{probe}` and fix what it reports, '
+            'then set the phase')
+
+
+def lag_problem(card):
+    """Why the run of `card` cannot enter dispatch or pr yet, or None: the plugin root lags `origin/main` of the
+    repository holding the card's `.scratch/<slug>/` folder, so its hooks are older than that repository's rules."""
+    lag = plugin_lag.lagging(card.resolve().parents[2])
+    return f'{lag} Then set the phase.' if lag else None
+
+
 def phase(card, text, value):
-    """The card's text with `phase:` set to `value`; exits naming the problem when dispatch or pr cannot work its board
-    (`board_problem`)."""
+    """The card's text with `phase:` set to `value`; exits naming the problem when dispatch or pr has a board it cannot
+    work (`board_problem`), a plugin root behind the repository's main (`lag_problem`) or no passing publish probe
+    (`publish_problem`)."""
     state = state_section(text)
-    problem = value in ('dispatch', 'pr') and board_problem(card, state[0])
+    problem = value in ('dispatch', 'pr') and (board_problem(card, state[0]) or lag_problem(card)
+                                               or publish_problem(card, state[0]))
     if problem:
         sys.exit(problem)
     lines = state[0]

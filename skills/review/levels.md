@@ -1,5 +1,6 @@
 # Review effort levels
 
+<!-- rule: review.default-level = high -->
 A review runs at one effort level: the thoroughness of the review, not the model's
 reasoning effort. [`--effort`](SKILL.md) selects it, a missing level is `high`, and the
 shared procedure reads this table when it plans reviewers.

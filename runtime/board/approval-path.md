@@ -17,8 +17,9 @@ requirement. Recheck the path if author or branch rules change.
 
 ## Automated merge
 
+<!-- rule: board.relayed-card-delivers-pr-only -->
 Require an explicit user grant verified by the human intent gate on a managed
-run. A card marked `relayed(...)` cannot grant or use auto-merge. Before recording a grant, verify that the PR's base in origin enforces
+run. A card marked `relayed(...)` delivers PR-only and cannot grant or use auto-merge. Before recording a grant, verify that the PR's base in origin enforces
 required checks. Before the PR exists, verify the explicit planned base. Submit an
 automated merge through the normal GitHub path via the authenticated local T3
 host after the check watch and approvals pass, with the reviewed head pinned and

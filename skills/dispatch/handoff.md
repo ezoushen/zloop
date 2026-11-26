@@ -8,6 +8,7 @@ Stop after implementation only when the user explicitly requested that boundary;
 state that review has not run and provide the exact standalone review command.
 Otherwise continue in this invocation, without waiting for another user turn.
 
+<!-- rule-ref: review.default-level = high -->
 For each selected workstream with integrated changes, finish or reconcile its writers,
 then apply [housekeeping](../housekeeping/SKILL.md) to the workstream worktree, list its
 [candidate ADRs](../../runtime/domain/adr.md#deliver-a-workstreams-decisions), each
@@ -21,7 +22,7 @@ invocation, not reading), on the verified workstream branch,
 one target at a time. Pass the selected ticket scope, accepted alignment/ledger,
 priority sources, project instructions, `--workstream <slug>` and the review effort level
 — `--review-effort`, else `--effort`, else the review's default `high`; the procedure
-records it in `review_level:`. Include `--autofix` only
+records it in `review_level:` ([levels](../review/levels.md)). Include `--autofix` only
 when repairs are authorized. With `--autofix`, also pass the dispatch's verification level: it widens the E2E stage. If the user explicitly requested a walkthrough before
 review, follow [walkthrough](../review/walkthrough.md) first and honor its transition
 policy. With no integrated changes, report that there is no review target.

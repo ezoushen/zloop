@@ -37,6 +37,7 @@ types the command; a message that mentions it is not one. Never widens native pe
   card's state and changes nothing. It keeps the card's levels unchanged.
 - **`--auto-merge`:** follow the [approval path](../../runtime/board/approval-path.md).
 
+<!-- rule: autopilot.confirm-before-phases -->
 Then autopilot writes the [run card](run-card.md) to `.scratch/<slug>/autopilot.md`, records both effort levels,
 and the full path asks the user to confirm it once.
 The card, ledger and reports are workflow state: a principle about the project's files never keeps them out of `.scratch/`.

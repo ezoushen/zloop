@@ -1,5 +1,6 @@
 # Run card
 
+<!-- rule-ref: board.relayed-card-delivers-pr-only -->
 The file autopilot writes to `.scratch/<slug>/autopilot.md` before it goes hands-off.
 It holds what the run may do and when it ends, so the stop condition survives
 compaction. Use `autopilot_card.py confirm <card> --words "<user words>"` from the
@@ -7,7 +8,7 @@ active session and `autopilot_card.py phase <card> <phase>` for transitions.
 Record the original words and their source in the ledger. For full cards the
 [human intent gate](../../runtime/workers/control.md#verify-human-intent) verifies
 and records direct human confirmation. A named relay uses
-`--confirmed-by 'relayed(Agent Name)'` and records PR-only delivery.
+`--confirmed-by 'relayed(Agent Name)'` and records [PR-only delivery](../../runtime/board/approval-path.md#automated-merge).
 
 Size the work under [autopilot](SKILL.md). A direct run still writes `alignment.md`
 (the brief with its Crew rows) and runs refine; it skips only the interview and the
@@ -61,5 +62,10 @@ resume: `autopilot --take-over` after <what the user must do>
 ```
 
 `confirmed-by:` and `delivery:` are optional State fields. Write each at most once.
+<!-- rule-ref: pr.publish-probe-before-dispatch -->
+`publish-probe:` is an optional State field that `publish_probe.py <card>` writes, as
+`<ok|failed> <UTC time> <remote or reason>`; `autopilot_card.py phase` enforces the
+[PR standard's rule](../../standards/pr.md#probe-the-publish-route-first) on it.
+
 To request a fresh merge grant at resume, follow the
 [managed take-over procedure](../../runtime/workers/control.md#verify-human-intent).
