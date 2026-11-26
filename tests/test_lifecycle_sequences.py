@@ -24,7 +24,7 @@ def exercise(operations):
         root = Path(tmp)
         state = root / '.scratch/trace/reports/workers.sqlite'
         state.parent.mkdir(parents=True)
-        card = support.run_card(state.parent.parent / 'autopilot.md', phase='align')
+        card = support.run_card(state.parent.parent / 'autopilot.md', phase='align', **{'intent-thread': 'host-1'})
         control = run_control.adopt(card, 'trace grant')
         host = None
         native = root / 'native.jsonl'

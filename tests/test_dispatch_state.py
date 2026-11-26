@@ -25,7 +25,8 @@ class DispatchFixture:
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.repo = Path(self.tmp.name)
-        self.card = support.run_card(self.repo / '.scratch/run/autopilot.md', phase='dispatch', **card_fields)
+        self.card = support.run_card(self.repo / '.scratch/run/autopilot.md', phase='dispatch',
+                                     **{'intent-thread': 'host-1', **card_fields})
         self.control = support.load_script('run_control.py')
         self.control.adopt(self.card, 'approved independent tasks; configured provider pool', allow_resume=True)
         self.dispatch = support.load_script('dispatch_state.py')

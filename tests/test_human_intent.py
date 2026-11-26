@@ -79,7 +79,7 @@ class HumanIntent(unittest.TestCase):
                 if line.startswith('["pr", "merge",')]
 
     def test_injected_clearance_is_refused(self):
-        card = self.card()
+        card = self.card(**{'intent-thread': self.THREAD})
         self.adopt(card)
         native = self.root / 'projected.json'
         native.write_text(json.dumps({'thread': {'threadId': self.THREAD}, 'messages': [

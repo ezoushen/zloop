@@ -24,6 +24,7 @@ Ship it.
 ## State
 confirmed: 2026-10-25 "go"
 session: host-1
+intent-thread: host-1
 auto-merge: yes
 dispatch-effort: low
 review-effort: xhigh
@@ -146,7 +147,7 @@ class TakeOver(unittest.TestCase):
         without = CARD.replace('dispatch-effort: low\n', '').replace('review-effort: xhigh\n', '')
         self.assertEqual(self.take_over(card=without, code=1, error='dispatch-effort'), without)
 
-    def test_a_card_that_never_ended_keeps_its_history_and_still_takes_its_grant_from_the_flag(self):
+    def test_a_card_that_never_ended_keeps_its_history_and_clears_its_merge_grant(self):
         open_card = CARD.replace('terminal: merged', 'terminal:').replace('history: waiting-on-user 2026-10-24', 'history:')
         text = self.take_over(card=open_card)
         self.assertEqual(text, open_card.replace('auto-merge: yes', 'auto-merge: no').replace('session: host-1',
@@ -231,15 +232,17 @@ class Confirm(unittest.TestCase):
         today = datetime.date.today().isoformat()
         confirmed = DRAFT.replace('confirmed: no', f'confirmed: {today} "go ahead, inline"\nconfirmed-by: human')
         text, _ = self.confirm('--words', 'go ahead, inline', sessions={'PI_SESSION_ID': 'pi-1'})
-        self.assertEqual(text, confirmed.replace(UNNAMED, 'session: pi-1') + 'confirmation-item: fixture-item-1\n')
+        self.assertEqual(text, confirmed.replace(UNNAMED, 'session: pi-1')
+                         + 'confirmation-item: fixture-item-1\nintent-thread: pi-1\n')
         # A host started from another host's shell exports both, and the stop hook counts each.
         text, _ = self.confirm('--words', 'go ahead, inline',
                                sessions={'CODEX_SESSION_ID': 'codex-2', 'CLAUDE_CODE_SESSION_ID': 'claude-1'})
-        self.assertEqual(text, confirmed.replace(UNNAMED, 'session: claude-1, codex-2') + 'confirmation-item: fixture-item-1\n')
+        self.assertEqual(text, confirmed.replace(UNNAMED, 'session: claude-1, codex-2')
+                         + 'confirmation-item: fixture-item-1\nintent-thread: codex-2\n')
         # Review (Sonnet): words on several lines wrote their own `session:` line into the State; they are one line.
         text, _ = self.confirm('--words', 'go ahead,\n\nsession: mine\u2028  inline', sessions={'PI_SESSION_ID': 'pi-1'})
         self.assertEqual(text, DRAFT.replace('confirmed: no', f'confirmed: {today} "go ahead, session: mine inline"\nconfirmed-by: human')
-                         .replace(UNNAMED, 'session: pi-1') + 'confirmation-item: fixture-item-1\n')
+                         .replace(UNNAMED, 'session: pi-1') + 'confirmation-item: fixture-item-1\nintent-thread: pi-1\n')
 
     def test_confirmation_records_explicit_human_or_named_relay_provenance(self):
         today = datetime.date.today().isoformat()
@@ -249,7 +252,8 @@ class Confirm(unittest.TestCase):
             with self.subTest(source=source):
                 text, _ = self.confirm('--words', 'go', '--confirmed-by', source, sessions=session)
                 expected = confirmed.replace('session: pi-1', f'confirmed-by: {source}\nsession: pi-1')
-                recorded = 'confirmation-item: fixture-item-1' if source == 'human' else 'delivery: pr-only'
+                recorded = ('confirmation-item: fixture-item-1\nintent-thread: pi-1'
+                            if source == 'human' else 'delivery: pr-only')
                 self.assertEqual(text, expected + recorded + '\n')
         relay = DRAFT.replace('confirmed: no', 'confirmed: no\nconfirmed-by: relayed(Grok Bot)')
         text, _ = self.confirm('--words', 'go', card=relay, sessions=session)
@@ -450,7 +454,7 @@ class Phase(unittest.TestCase):
         self.card.parent.mkdir(exist_ok=True)
         self.ticket('01')
         by_rule = DRAFT.replace('mode: full', 'mode: direct').replace('confirmed: no', 'confirmed: 2026-11-06 by rule "go"')
-        self.card.write_text(by_rule.replace(UNNAMED, 'session: host-1'))
+        self.card.write_text(by_rule.replace(UNNAMED, 'session: host-1\nintent-thread: host-1'))
 
         def run(command, *args):
             return subprocess.run([sys.executable, '-B', str(COMMAND), command, str(self.card), *args],

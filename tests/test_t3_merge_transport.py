@@ -22,11 +22,10 @@ class T3MergeTransport(unittest.TestCase):
         self.github.replies[f'api --hostname github.com {BRANCH}'] = {
             'name': BASE, 'protected': True, 'protection': {'enabled': True,
                 'required_status_checks': {'enforcement_level': 'everyone', 'contexts': ['checks']}}}
-        # A fallback would succeed on the old code, but only in the local fixture.
         self.github.replies[f'pr merge 12 --repo github.com/{REPO} --match-head-commit {SHA} --squash'] = 'submitted'
 
     def grant(self, scenario):
-        self.card = support.run_card(self.github.root / scenario / 'autopilot.md', phase='pr')
+        self.card = support.run_card(self.github.root / scenario / 'autopilot.md', phase='pr', **{'intent-thread': 'host-1'})
         self.control = self.card.with_name('autopilot-control.json')
         self.github.grant(self.card)
         self.host = self.github.t3

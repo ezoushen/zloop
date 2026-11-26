@@ -333,13 +333,11 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
             if updates:
                 raise ValueError('Take-over retains the bound session, phase and pending instructions')
             bound = sessions(state['card_text'])
-            verified_thread = next((intent['thread'] for event in reversed(state['events'])
-                                    if (intent := event.get('source', {}).get('intent'))), None)
             provider_sessions = list(dict.fromkeys(session for variable in SESSION_VARIABLES
                                                    if (session := os.environ.get(variable)) and session not in bound
                                                    and re.fullmatch(r'[\w.-]+', session)))
             proof = human_intent.verify(card, state['card_text'], 'take-over', words,
-                                        [verified_thread] if verified_thread else bound,
+                                        values.get('intent-thread'),
                                         run_id=state['run_id'], revision=expected, target=target,
                                         provider_sessions=provider_sessions,
                                         after=user_boundary(state, 'resume'), consumed=used_items(state))
@@ -379,7 +377,9 @@ def transition(card, terminal, source, reason, expected, request_id, updates=Non
 
 def used_items(state):
     """Return T3 items already used to change this run's authority."""
-    return {intent['item'] for event in state['events'] if (intent := event.get('source', {}).get('intent'))}
+    values = state_files.state_fields(state['card_text'])
+    items = {values[key] for key in ('confirmation-item', 'take-over-item') if values.get(key)}
+    return items | {intent['item'] for event in state['events'] if (intent := event.get('source', {}).get('intent'))}
 
 
 def require_grant(card, state, values):
@@ -394,9 +394,10 @@ def require_grant(card, state, values):
     scope = proof.get('scope', {})
     target = scope.get('target')
     checked = source.get('merge_target')
+    bound_thread = values.get('intent-thread')
     if (source.get('kind') != 'user' or source.get('command') != 'resume' or scope.get('action') != 'take-over'
             or scope.get('card') != str(Path(card).resolve()) or scope.get('run_id') != state['run_id']
-            or proof.get('thread') != scope.get('thread') or proof.get('thread') not in sessions(state['card_text'])
+            or not bound_thread or proof.get('thread') != bound_thread or scope.get('thread') != bound_thread
             or not proof.get('item') or not proof.get('run') or proof.get('origin') not in human_intent.ORIGINS
             or proof.get('challenge') != human_intent.canonical_hash(scope) or not isinstance(target, dict)
             or not isinstance(checked, dict) or grant != dict(checked, authorization=event['id'])

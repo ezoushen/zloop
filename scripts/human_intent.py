@@ -146,18 +146,18 @@ def current_item(thread):
     raise ValueError('the T3 pagination did not complete within its read limit')
 
 
-def verify(card, text, action, words, sessions, *, run_id=None, revision=0, target=None,
+def verify(card, text, action, words, bound_thread, *, run_id=None, revision=0, target=None,
            provider_sessions=(), after=0, consumed=()):
     """Attest a fresh exact response for this card state and action, or request scoped human input."""
     thread = os.environ.get('T3CODE_THREAD_ID')
     scope = {'card': str(card.resolve()), 'view': canonical_hash(text), 'action': action,
-             'thread': thread, 'run_id': run_id, 'revision': revision, 'target': target}
+             'thread': bound_thread, 'run_id': run_id, 'revision': revision, 'target': target}
     if provider_sessions:
         scope['provider_sessions'] = provider_sessions
     challenge = canonical_hash(scope)
     expected = f'{words}\nzloop-intent: {challenge}'
     try:
-        if not thread or thread not in sessions:
+        if not thread or thread != bound_thread:
             raise ValueError('no current T3 thread is bound to this card')
         run, item = current_item(thread)
         requested = datetime.fromisoformat(run['requestedAt'])

@@ -113,7 +113,7 @@ print(json.dumps(reply))
                 grant = self.run_cli('pr_safety.py', 'grant', '--pr', '12')
                 self.assertEqual(grant.returncode, 0, grant.stderr)
                 self.assertEqual(json.loads(grant.stdout), {'required_checks': [check]})
-                card = support.run_card(self.root / check / 'autopilot.md', phase='pr')
+                card = support.run_card(self.root / check / 'autopilot.md', phase='pr', **{'intent-thread': 'host-1'})
                 self.grant(card)
                 self.t3.pr_readback(REPO, 12, SHA, BASE)
                 result = self.run_cli('run_control.py', 'merge', str(card), '--merge-pr', '12', '--head', SHA,
@@ -177,7 +177,8 @@ print(json.dumps(reply))
         self.replies[f'api --hostname github.com {BRANCH}'] = {
             'name': BASE, 'protected': True, 'protection': {'enabled': True,
                 'required_status_checks': {'enforcement_level': 'everyone', 'contexts': ['docs']}}}
-        card = support.run_card(self.root / 'autopilot.md', phase='pr', **{'confirmed-by': 'human'})
+        card = support.run_card(self.root / 'autopilot.md', phase='pr',
+                                **{'confirmed-by': 'human', 'intent-thread': 'host-1'})
         self.grant(card)
         record = card.with_name('autopilot-control.json')
         state = json.loads(record.read_text())
@@ -200,7 +201,7 @@ print(json.dumps(reply))
         self.replies[f'api --hostname github.com {BRANCH}'] = {
             'name': BASE, 'protected': True, 'protection': {'enabled': True,
                 'required_status_checks': {'enforcement_level': 'everyone', 'contexts': ['docs']}}}
-        card = support.run_card(self.root / 'autopilot.md', phase='pr')
+        card = support.run_card(self.root / 'autopilot.md', phase='pr', **{'intent-thread': 'host-1'})
         self.grant(card)
         merge = ('merge', str(card), '--head', SHA, '--method', 'squash', '--expect', '2', '--merge-pr')
         for repo, pr in ((REPO, 13), ('other/zloop', 12)):
@@ -229,7 +230,7 @@ print(json.dumps(reply))
         self.replies['api --hostname github.com repos/fixture/zloop/branches/main'] = dict(
             self.replies[f'api --hostname github.com {BRANCH}'], name='main')
         self.replies['api --hostname github.com --paginate --slurp repos/fixture/zloop/rules/branches/main'] = [[]]
-        card = support.run_card(self.root / 'autopilot.md', phase='pr')
+        card = support.run_card(self.root / 'autopilot.md', phase='pr', **{'intent-thread': 'host-1'})
         self.grant(card, ('--merge-base', BASE))
         self.t3.pr_readback(REPO, 12, SHA, BASE)
         args = ('merge', str(card), '--merge-pr', '12', '--head', SHA, '--method', 'squash', '--expect', '2')
@@ -260,15 +261,26 @@ print(json.dumps(reply))
         self.replies[f'api --hostname github.com {BRANCH}'] = {
             'name': BASE, 'protected': True, 'protection': {'enabled': True,
                 'required_status_checks': {'enforcement_level': 'everyone', 'contexts': ['docs']}}}
-        card = support.run_card(self.root / 'autopilot.md', phase='pr')
+        card = support.run_card(self.root / 'autopilot.md', phase='pr', **{'intent-thread': 'host-1'})
         self.grant(card)
         record = card.with_name('autopilot-control.json')
         state = json.loads(record.read_text())
+        merge = ('merge', str(card), '--merge-pr', '12', '--head', SHA, '--method', 'squash', '--expect')
+        ambiguous = dict(state, card_text=state['card_text'].replace('intent-thread: host-1\n', ''))
+        card.write_text(ambiguous['card_text'])
+        record.write_text(json.dumps(ambiguous))
+        before = (card.read_bytes(), record.read_bytes())
+        self.calls.write_text('')
+        result = self.run_cli('run_control.py', *merge, '2')
+        self.assertEqual((result.returncode, result.stderr.strip()), (
+            2, 'waiting-on-user: obtain a new verified merge grant for this managed run'))
+        self.assertEqual(self.calls.read_text(), '')
+        self.assertEqual((card.read_bytes(), record.read_bytes()), before)
+
+        card.write_text(state['card_text'])
         state.pop('merge_grant')
         record.write_text(json.dumps(state))
         before = (card.read_bytes(), record.read_bytes())
-        self.calls.write_text('')
-        merge = ('merge', str(card), '--merge-pr', '12', '--head', SHA, '--method', 'squash', '--expect')
         result = self.run_cli('run_control.py', *merge, '2')
         self.assertEqual((result.returncode, result.stderr.strip()), (
             2, 'waiting-on-user: obtain a new verified merge grant for this managed run'))
@@ -283,7 +295,7 @@ print(json.dumps(reply))
         self.assertEqual(json.loads(result.stdout)['outcome'], 'merged')
 
     def test_managed_submission_rechecks_required_checks_after_a_verified_grant(self):
-        card = support.run_card(self.root / 'autopilot.md', phase='pr')
+        card = support.run_card(self.root / 'autopilot.md', phase='pr', **{'intent-thread': 'host-1'})
         classic = f'api --hostname github.com {BRANCH}'
         before = self.replies[classic]
         self.replies[classic] = {'name': BASE, 'protected': True, 'protection': {'enabled': True,
@@ -329,7 +341,7 @@ print(json.dumps(reply))
         self.assertFalse(self.calls.exists())
 
     def test_managed_takeover_does_not_change_delivery_or_grant_without_required_checks(self):
-        card = support.run_card(self.root / 'autopilot.md', phase='pr')
+        card = support.run_card(self.root / 'autopilot.md', phase='pr', **{'intent-thread': 'host-1'})
         self.assertEqual(self.run_cli('run_control.py', 'adopt', str(card), '--source', 'confirmed').returncode, 0)
         self.assertEqual(self.run_cli('run_control.py', 'end', str(card), '--source', 'delivery proof',
                                       '--terminal', 'delivered', '--reason', 'delivered',

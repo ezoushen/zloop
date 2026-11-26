@@ -59,6 +59,12 @@ lack this authority. An unavailable binding, transport or complete read reports
 `waiting-on-user`. The PR-only relay and confirmation by rule remain available
 where the run card permits them.
 
+Full confirmation records the verified conversation in `intent-thread:` and
+adoption preserves it. Relay and by-rule setup can record the current T3
+conversation for future verification. The `session:` list routes execution.
+An older card without a conversation binding can still perform ordinary PR-only
+work. A human take-over or grant requires the bound conversation.
+
 For legacy take-over, run `python3 "<plugin_root>/scripts/autopilot_card.py"
 take-over <card> [--effort <level>] [--dispatch-effort <level>]
 [--review-effort <level>]`. It keeps the card's levels unless a level flag is

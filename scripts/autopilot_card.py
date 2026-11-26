@@ -8,8 +8,8 @@ A phase of dispatch or pr needs the tickets of the board the card names on `boar
 
 A confirmation records its verified human, relayed, or direct-by-rule source and the words on `confirmed:`
 (on a `mode: direct` card, as `by rule` with
-the goal the user typed, since a direct run asks nothing), and on `session:` each host session ID this shell exports,
-as the stop hook counts them, so the panel and the stop hold find the run. A direct card whose local board holds more
+the goal the user typed, since a direct run asks nothing). `session:` records routing IDs for the panel and stop hold.
+`intent-thread:` records the T3 conversation for later human decisions. A direct card whose local board holds more
 than two tickets is refused its dispatch: it takes the full path, and a `mode: full` card still confirmed `by rule` is
 refused dispatch and pr until `confirm --words` records the user's words.
 
@@ -250,12 +250,18 @@ def main():
                     raise human_intent.WaitingOnUser('relayed confirmation cannot authorize auto-merge')
                 raise human_intent.WaitingOnUser('automated merge authority requires a managed run and a verified human grant')
             thread = os.environ.get('T3CODE_THREAD_ID')
-            bound = run_control.sessions(original)
-            sessions = host_sessions()
+            bound_thread = values.get('intent-thread')
+            provider_sessions = host_sessions()
+            sessions = provider_sessions.copy()
             if thread and thread not in sessions:
                 sessions.append(thread)
+            if any(session.splitlines() != [session] for session in sessions):
+                raise ValueError('Host session IDs must fit one line')
+            consumed = (values.get('confirmation-item'), values.get('take-over-item'))
             if args.command == 'confirm':
                 direct = values.get('mode') == 'direct' and source is None
+                initial = re.match(r'no\b|$', values.get('confirmed', ''), re.I)
+                candidate_thread = bound_thread or (thread if initial else None)
                 proposed = confirm(args.card, original, args.words, sessions, today,
                                    source if direct or relayed else 'human')
                 if (direct or relayed) and not sessions:
@@ -268,15 +274,18 @@ def main():
                     if old_source.startswith('relayed('):
                         raise human_intent.WaitingOnUser('the relayed mandate stays PR-only')
                     proof = human_intent.verify(args.card, original, 'confirmation', ' '.join(args.words.split()),
-                                                bound or sessions, consumed=(values.get('confirmation-item'),))
+                                                candidate_thread, provider_sessions=provider_sessions, consumed=consumed)
                     proposed = run_control.fields(proposed, {'confirmation-item': proof['item']})
+                    candidate_thread = proof['thread']
+                if candidate_thread:
+                    proposed = run_control.fields(proposed, {'intent-thread': candidate_thread})
                 proposed = run_control.fields(proposed, {'auto-merge': 'no'})
             else:
                 levels = (args.dispatch_effort or args.effort, args.review_effort or args.effort)
                 proposed = take_over(original, *levels, today, sessions)
                 target = {'dispatch_effort': levels[0], 'review_effort': levels[1]}
-                proof = human_intent.verify(args.card, original, 'take-over', 'autopilot --take-over', bound,
-                                            target=target, consumed=(values.get('take-over-item'),))
+                proof = human_intent.verify(args.card, original, 'take-over', 'autopilot --take-over', bound_thread,
+                                            target=target, provider_sessions=provider_sessions, consumed=consumed)
                 proposed = run_control.fields(proposed, {'take-over-item': proof['item']})
             state_files.write_atomic(args.card, proposed)
     except human_intent.WaitingOnUser as error:

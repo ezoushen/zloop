@@ -127,7 +127,7 @@ class AuthorityRepair(unittest.TestCase):
         github = test_pr_safety.PRSafety()
         github.setUp()
         self.addCleanup(github.doCleanups)
-        card = support.run_card(github.root / 'autopilot.md', phase='pr')
+        card = support.run_card(github.root / 'autopilot.md', phase='pr', **{'intent-thread': 'host-1'})
         github.t3 = T3Read(self, github.root, github.env)
         self.assertEqual(github.run_cli('run_control.py', 'adopt', str(card), '--source', 'confirmed').returncode, 0)
         record = card.with_name('autopilot-control.json')

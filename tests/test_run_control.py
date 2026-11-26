@@ -21,7 +21,7 @@ class RunControl(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        self.card = support.run_card(self.root / 'autopilot.md', phase='align')
+        self.card = support.run_card(self.root / 'autopilot.md', phase='align', **{'intent-thread': 'host-1'})
         self.control = support.load_script('run_control.py')
 
     def user(self, text, role='user', session='host-1'):

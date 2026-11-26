@@ -57,8 +57,9 @@ terminal: <state, once ended>
 history: <earlier terminal states, each with its date, kept on take-over>
 evidence: <commit, report, PR URL>
 timer: <resume time and the timer's handle, while `paused-allowance` waits on one>
-resume: `autopilot --take-over` (plus `--auto-merge` when granted), after <what the user must do>
+resume: `autopilot --take-over` after <what the user must do>
 ```
 
 `confirmed-by:` and `delivery:` are optional State fields. Write each at most once.
-Managed control records any verified merge grant.
+To request a fresh merge grant at resume, follow the
+[managed take-over procedure](../../runtime/workers/control.md#verify-human-intent).
