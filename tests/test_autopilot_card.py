@@ -406,6 +406,26 @@ class PublishProbe(unittest.TestCase):
         found = self.probe(code=1)
         self.assertEqual((found[1], found[2]), ('failed', 'origin is not a GitHub repository'))
 
+    def test_the_probe_skips_push_hooks_and_keeps_a_configured_ssh_command(self):
+        # Rule: the probe changes nothing locally or remotely and reaches the remote the way the user's pushes do.
+        marker = self.bin.parent / 'marks'
+        hook = self.repo / '.git' / 'hooks' / 'pre-push'
+        hook.write_text(f'#!/bin/sh\necho hook >> "{marker}"\nexit 1\n')
+        hook.chmod(0o755)
+        ssh = self.bin / 'configured-ssh'
+        # Runs the remote command on this machine, ignoring the host, and records that it was the transport.
+        ssh.write_text(f'#!/bin/sh\necho ssh >> "{marker}"\nshift\nPATH="$PATH:$(git --exec-path)" exec sh -c "$@"\n')
+        ssh.chmod(0o755)
+        self.git('config', 'remote.origin.pushurl', f'ssh://remote.invalid{self.remote}')
+        self.git('config', 'core.sshCommand', str(ssh))
+        for name in ('GIT_SSH_COMMAND', 'GIT_SSH'):
+            self.env.pop(name, None)
+        env = dict(self.env, GH_BODY=json.dumps({'permissions': {'push': True}}))
+        result = subprocess.run([sys.executable, '-B', str(support.script('publish_probe.py')), str(self.card)],
+                                env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(set(marker.read_text().split()) if marker.exists() else set(), {'ssh'}, result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_the_probe_records_on_a_managed_card_through_its_control_record(self):
         # Rule: a managed card's State changes only through run_control, so the probe line must survive its views.
         control = support.load_script('run_control.py')

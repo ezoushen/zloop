@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Learn whether a run can publish its work before it does the work: `publish_probe.py <card>`.
 
-Checks, from the repository holding the card's `.scratch/<slug>/` folder and without changing anything remote, that
-`origin` names a GitHub repository, that `git push --dry-run` of the workstream branch (`HEAD` while the branch does
-not exist yet) to `origin` succeeds, and that GitHub grants write permission on the repository, which opening a
+Checks, from the repository holding the card's `.scratch/<slug>/` folder and without changing anything, local or
+remote, that `origin` names a GitHub repository, that `git push --dry-run --no-verify` (no push hook runs) of the
+workstream branch (`HEAD` while the branch does not exist yet) to `origin` succeeds over the SSH command the user
+configured, else over `ssh -o BatchMode=yes`, and that GitHub grants write permission on the repository, which opening a
 pull request needs. Records one State line on the card, `publish-probe: <ok|failed> <UTC time> <remote or reason>`,
 prints it and exits 1 when it says `failed`. `autopilot_card.py phase <card> pr` refuses a card whose line is missing
 or failed.
@@ -12,6 +13,7 @@ import argparse
 import datetime
 import os
 from pathlib import Path
+import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -28,6 +30,15 @@ def first_line(error):
     return lines[0].strip() if lines else str(error)
 
 
+def ssh_is_configured(repo):
+    """Whether pushes from `repo` already name their SSH command: `GIT_SSH_COMMAND`, `GIT_SSH` or `core.sshCommand`."""
+    if os.environ.get('GIT_SSH_COMMAND') or os.environ.get('GIT_SSH'):
+        return True
+    done = subprocess.run(['git', 'config', '--get', 'core.sshCommand'], cwd=repo, capture_output=True, text=True,
+                          timeout=30)
+    return bool(done.stdout.strip())
+
+
 def probe(card):
     """Whether `card`'s run can publish, and the remote (`<owner>/<repo>`) when it can, else why it cannot."""
     card = Path(card)
@@ -42,7 +53,8 @@ def probe(card):
     except human_intent.WaitingOnUser:
         source = 'HEAD'
     try:
-        pr_safety.command('git', 'push', '--dry-run', 'origin', f'{source}:refs/heads/{branch}', cwd=repo)
+        pr_safety.command('git', 'push', '--dry-run', '--no-verify', 'origin', f'{source}:refs/heads/{branch}',
+                          cwd=repo)
     except human_intent.WaitingOnUser as error:
         return False, f'git push --dry-run of {source} to origin failed: {first_line(error)}'
     try:
@@ -58,7 +70,8 @@ def main():
     args = parser.parse_args()
     # Nothing may wait for a person: git and gh fail instead of prompting.
     os.environ.update(GIT_TERMINAL_PROMPT='0', GH_PROMPT_DISABLED='1')
-    os.environ.setdefault('GIT_SSH_COMMAND', 'ssh -o BatchMode=yes')
+    if not ssh_is_configured(args.card.resolve().parents[2]):
+        os.environ['GIT_SSH_COMMAND'] = 'ssh -o BatchMode=yes'
     ok, detail = probe(args.card)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     value = f'{"ok" if ok else "failed"} {stamp} {" ".join(detail.split())}'
